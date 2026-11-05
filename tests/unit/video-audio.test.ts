@@ -94,6 +94,15 @@ describe("mix plan", () => {
     expect(plan.music.changes).toEqual([]);
   });
 
+  it("places a lock opening's three layers at their delays: tick, clunk +120 ms, note +200 ms", () => {
+    const plan = planMix([frame(1.0, [{ type: "lock-open", lock: 0, at: [0, 1, -1.9] }])], manifest, { duration: 2, seed: "t", initialMusic: "calm" });
+    expect(plan.layers.map((l) => [l.id, l.t])).toEqual([
+      ["glass_tick", 1.0],
+      ["brass_clunk", expect.closeTo(1.12, 9)],
+      ["mb_g5", expect.closeTo(1.2, 9)],
+    ]);
+  });
+
   it("plays head-locked when an event names no button on screen and has no place", () => {
     const plan = planMix([frame(0.5, [{ type: "press", id: "gone" }])], manifest, { duration: 1, seed: "h", initialMusic: "menu" });
     expect(plan.layers[0]!.azimuth).toBeNull();

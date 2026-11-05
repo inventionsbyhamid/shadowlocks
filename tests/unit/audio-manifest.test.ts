@@ -1,7 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { AudioEngine } from "../../src/audio/engine";
-import { BASE_SFX_IDS, isSfxId, type AudioManifest, type DerivedEntry, type MusicEntry, type MusicStateFx, type SfxEntry, type SfxId } from "../../src/audio/manifest";
+import { BASE_SFX_IDS, DERIVED_SFX_IDS, isSfxId, type AudioManifest, type DerivedEntry, type MusicEntry, type MusicStateFx, type SfxEntry, type SfxId } from "../../src/audio/manifest";
 import { makePlaceholders } from "../../src/audio/placeholder";
 import { FakeAudioContext, FakeBuffer, asCtx, type FakeFilter, type FakeGain, type FakeSource } from "./helpers/fake-audio";
 
@@ -49,8 +49,9 @@ function shapes(m: AudioManifest): void {
     expect(["sfx", "ui", "ambience"], id).toContain(e.bus);
     expect(e.caption === null || typeof e.caption === "string", id).toBe(true);
   }
+  // Menus (and results, when a pack has them) play the calm bed through their own colouring.
   expect(m.musicStates.menu).toBe(m.musicStates.calm);
-  expect(m.musicStates.results).toBe(m.musicStates.calm);
+  if (m.musicStates.results !== undefined) expect(m.musicStates.results).toBe(m.musicStates.calm);
   for (const key of Object.values(m.stings)) expect(m.music[key!]?.role).toBe("sting");
 }
 
@@ -95,7 +96,7 @@ describe("the placeholder manifest", () => {
   it("loads with no warnings and every sound id in it plays", async () => {
     const r = await load(m);
     const ids = [...Object.keys(m.sfx), ...Object.keys(m.derived)].filter(isSfxId) as SfxId[];
-    expect(ids).toHaveLength(BASE_SFX_IDS.length);
+    expect(ids).toHaveLength(BASE_SFX_IDS.length + DERIVED_SFX_IDS.length);
     for (const id of ids) {
       r.ctx.currentTime += 1;
       const before = r.ctx.sources.length;
@@ -120,7 +121,7 @@ describe("the placeholder manifest", () => {
     const r = await load(m);
     r.engine.play("ui_press");
     r.engine.play("brass_clunk");
-    expect(r.captions).toEqual([["brass_clunk", "Lock open"]]);
+    expect(r.captions).toEqual([["brass_clunk", "Lock opens"]]);
   });
 
   it("plays the bed through an 800 Hz low-pass at -3 dB in menus", async () => {
@@ -142,19 +143,45 @@ describe("the placeholder manifest", () => {
   });
 });
 
-// The real pack lands in public/audio with the sound design work; until then these wait.
-describe.skipIf(!existsSync(PACK))("the real manifest (public/audio/manifest.json)", () => {
-  const real = (existsSync(PACK) ? JSON.parse(readFileSync(PACK, "utf8")) : {}) as AudioManifest;
+describe("the real manifest (public/audio/manifest.json)", () => {
+  const real = JSON.parse(readFileSync(PACK, "utf8")) as AudioManifest;
 
   it("has no field the types do not declare (writer drift), and the shapes the engine expects", () => {
     expect(drift(real)).toEqual([]);
     shapes(real);
   });
 
+  it("names exactly the game's sounds: every base sound, and every derived note and beat", () => {
+    expect(Object.keys(real.sfx).sort()).toEqual([...BASE_SFX_IDS].sort());
+    expect(Object.keys(real.derived).sort()).toEqual([...DERIVED_SFX_IDS].sort());
+    expect(Object.keys(real.sfx).concat(Object.keys(real.derived)).every(isSfxId)).toBe(true);
+  });
+
+  it("matches the sound design's mix: music bus 0.5, the bed low-passed at 800 Hz in menus, the lesson beat from B5", () => {
+    expect(real.buses).toEqual({ music: 0.5, sfx: 1, ui: 0.8, ambience: 0.3 });
+    expect(real.musicStateFx?.menu).toEqual({ lowpassHz: 800, gainDb: -3 });
+    const bed = real.music[real.musicStates.calm!]!;
+    expect([bed.bpm, bed.key, bed.lengthSamples]).toEqual([72, "G major", 7_680_000]);
+    expect(real.derived.lesson_step).toEqual({ from: "mb_b5", semitones: 0 });
+  });
+
+  it("keeps the hums as looping FLAC and ships one take of each tuned cue", () => {
+    for (const id of ["lock_hum", "fingertip_hum"]) {
+      expect(real.sfx[id]!.loop, id).toBe(true);
+      expect(real.sfx[id]!.files.every((f) => f.endsWith(".flac")), id).toBe(true);
+    }
+    expect(real.sfx.lock_hum!.maxVoices).toBe(3);
+    for (const id of ["ring_chime", "hint_reveal", "crystallise"]) {
+      expect(real.sfx[id]!.files, id).toHaveLength(1);
+      expect(real.sfx[id]!.pitchCents, id).toBe(0);
+    }
+  });
+
   it("has every base sound, loads with no warnings and every sound id in it plays", async () => {
     for (const id of BASE_SFX_IDS) expect(real.sfx[id], id).toBeDefined();
     const r = await load(real);
     const ids = [...Object.keys(real.sfx), ...Object.keys(real.derived)].filter(isSfxId) as SfxId[];
+    expect(ids).toHaveLength(BASE_SFX_IDS.length + DERIVED_SFX_IDS.length);
     for (const id of ids) {
       r.ctx.currentTime += 1;
       const before = r.ctx.sources.length;

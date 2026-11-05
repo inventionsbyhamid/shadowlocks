@@ -1,7 +1,7 @@
 import type { Vec3 } from "../core/types";
 
-// Sound ids, from the sound design (plan/sound/shadow-locks-sound.md, Task 3). Music box notes are
-// derived sounds (a few samples, pitched); their ids come with the sound pack.
+// Sound ids, from the sound design (G major, 72 BPM; 24 effects and 8 music-box samples). The other
+// 7 music-box notes and the lesson beat are derived: a sample played at another pitch.
 
 export const UI_SFX_IDS = ["ui_hover", "ui_press", "ui_back", "drawer_pull", "gentle_error"] as const;
 
@@ -11,17 +11,26 @@ export const LOCK_SFX_IDS = ["glass_tick", "brass_clunk", "ring_chime", "thread_
 
 export const BOX_SFX_IDS = ["walls_hinge", "drawer_slide", "reward_lift", "collection_drop", "daily_streak"] as const;
 
-export const GUIDE_SFX_IDS = ["hint_reveal", "lesson_step", "theatre_dim", "theatre_up"] as const;
+export const GUIDE_SFX_IDS = ["hint_reveal", "theatre_dim", "theatre_up"] as const;
 
-/** Ids that only exist as derived sounds (no files of their own). None yet: the music box notes come with the pack. */
-export const DERIVED_SFX_IDS = [] as const;
+/** The music box's samples: every chord tone of G B D in both octaves, plus E6. */
+export const MUSIC_BOX_SAMPLE_IDS = ["mb_g4", "mb_b4", "mb_d5", "mb_g5", "mb_b5", "mb_d6", "mb_e6", "mb_g6"] as const;
 
-export const BASE_SFX_IDS = [...UI_SFX_IDS, ...LANTERN_SFX_IDS, ...LOCK_SFX_IDS, ...BOX_SFX_IDS, ...GUIDE_SFX_IDS] as const;
+/**
+ * Ids that only exist as derived sounds (no files of their own): the music box's other scale notes,
+ * each within 2 semitones of a sample, and the lesson beat (B5, played at half gain).
+ */
+export const DERIVED_SFX_IDS = ["mb_a4", "mb_c5", "mb_e5", "mb_fs5", "mb_a5", "mb_c6", "mb_fs6", "lesson_step"] as const;
+
+export const BASE_SFX_IDS = [...UI_SFX_IDS, ...LANTERN_SFX_IDS, ...LOCK_SFX_IDS, ...BOX_SFX_IDS, ...GUIDE_SFX_IDS, ...MUSIC_BOX_SAMPLE_IDS] as const;
 
 export type SfxId = (typeof BASE_SFX_IDS)[number] | (typeof DERIVED_SFX_IDS)[number];
 /** The room tone loop for the virtual-room fallback; played with `setAmbience`, not `play`. */
 export const AMBIENCE_ID = "amb_room";
-/** Stings: `solve` from the manifest's music section; `streak` plays the daily_streak effect. */
+/**
+ * Stings: `solve` from the manifest's music section, if a pack names one (the Shadow Locks pack does
+ * not: a box opening plays its own music-box tune); `streak` plays the daily_streak effect.
+ */
 export const STING_IDS = ["solve"] as const;
 export type StingId = (typeof STING_IDS)[number] | "streak";
 /** menu and results play the calm loop (the music bed) through a low-pass; off is silence. */
@@ -143,6 +152,8 @@ export const DEFAULT_SFX: Omit<SfxEntry, "files"> = {
   loop: false,
 };
 
+const ALL_SFX_IDS: ReadonlySet<string> = new Set<string>([...BASE_SFX_IDS, ...DERIVED_SFX_IDS]);
+
 export function isSfxId(id: string): id is SfxId {
-  return (BASE_SFX_IDS as readonly string[]).includes(id) || (DERIVED_SFX_IDS as readonly string[]).includes(id);
+  return ALL_SFX_IDS.has(id);
 }

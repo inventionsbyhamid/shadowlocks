@@ -22,15 +22,18 @@ export function fixtureManifest(): AudioManifest {
       thread_shimmer: sfx(["rival_a"], { spatial: "hrtf", lowpassHz: 5000 }),
       dial_tick: sfx(["tick_a", "tock_a"], { cooldownMs: 0 }),
       daily_streak: sfx(["streak_a"], { duckMusicDb: 6 }),
+      mb_g5: sfx(["note_g5"], { spatial: "hrtf", maxVoices: 6, detuneCents: -7, cooldownMs: 0 }),
+      lock_hum: sfx(["hum_a"], { spatial: "hrtf", loop: true, maxVoices: 3, detuneCents: -2, cooldownMs: 0 }),
     },
     derived: {
-      ring_close: { from: "ring_chime", reverse: true },
-      combo_1: { from: "glass_tick", semitones: 0 },
-      combo_2: { from: "glass_tick", semitones: 3 },
-      combo_3: { from: "glass_tick", semitones: 5 },
-      combo_4: { from: "glass_tick", semitones: 7 },
-      combo_5: { from: "glass_tick", semitones: 10, with: "crystallise" },
-      rush_tock: { from: "dial_tick", variant: 1, semitones: -2 },
+      // Music-box notes pitched from one sample (they inherit its tuning), as the pack does.
+      mb_fs5: { from: "mb_g5", semitones: -1 },
+      mb_a5: { from: "mb_g5", semitones: 2 },
+      lesson_step: { from: "mb_g5", semitones: 0 },
+      // Test-only ids for the engine's other derived options (the pack does not use them yet).
+      chime_reversed: { from: "ring_chime", reverse: true },
+      tick_with_crystal: { from: "glass_tick", semitones: 10, with: "crystallise" },
+      tock_low: { from: "dial_tick", variant: 1, semitones: -2 },
     },
     music: {
       music_bed: { file: "m_calm", role: "loop", loop: true, bpm: 120, bars: 16, loopStartSec: 0, loopEndSec: 32, gainDb: 0 },

@@ -20,7 +20,9 @@ type Recipe =
   | { k: "whoosh"; up: boolean; d: number; amp?: number }
   | { k: "roll"; d: number }
   | { k: "tone"; f: number; d: number }
-  | { k: "hinge"; d: number };
+  | { k: "hinge"; d: number }
+  /** A music-box note: one ringing partial at exactly `f` (no variant detune). */
+  | { k: "pluck"; f: number; d: number };
 
 interface Spec {
   v: number;
@@ -65,9 +67,30 @@ const S: Record<string, Spec> = {
   daily_streak: { v: 1, sp: "none", duck: 6, cap: C.streak, r: { k: "arp", notes: [392, 523, 659, 784], d: 0.9 } },
 
   hint_reveal: { v: 1, sp: "none", cap: C.hint, r: { k: "arp", notes: [1568, 2093], d: 0.5, amp: 0.5 } },
-  lesson_step: { v: 1, sp: "none", r: { k: "blip", f0: 660, f1: 990, d: 0.22 } },
   theatre_dim: { v: 1, sp: "none", r: { k: "whoosh", up: false, d: 0.6, amp: 0.3 } },
   theatre_up: { v: 1, sp: "none", r: { k: "whoosh", up: true, d: 0.6, amp: 0.3 } },
+
+  // The music box's samples (G major), at their notes.
+  mb_g4: { v: 1, sp: "hrtf", cd: 0, mv: 6, r: { k: "pluck", f: 392.0, d: 1.2 } },
+  mb_b4: { v: 1, sp: "hrtf", cd: 0, mv: 6, r: { k: "pluck", f: 493.88, d: 1.2 } },
+  mb_d5: { v: 1, sp: "hrtf", cd: 0, mv: 6, r: { k: "pluck", f: 587.33, d: 1.2 } },
+  mb_g5: { v: 1, sp: "hrtf", cd: 0, mv: 6, r: { k: "pluck", f: 783.99, d: 1.0 } },
+  mb_b5: { v: 1, sp: "hrtf", cd: 0, mv: 6, r: { k: "pluck", f: 987.77, d: 1.0 } },
+  mb_d6: { v: 1, sp: "hrtf", cd: 0, mv: 6, r: { k: "pluck", f: 1174.66, d: 1.0 } },
+  mb_e6: { v: 1, sp: "hrtf", cd: 0, mv: 6, r: { k: "pluck", f: 1318.51, d: 1.0 } },
+  mb_g6: { v: 1, sp: "hrtf", cd: 0, mv: 6, r: { k: "pluck", f: 1567.98, d: 1.0 } },
+};
+
+/** The other scale notes from the nearest sample, and the lesson beat (B5), as the pack derives them. */
+const DERIVED: AudioManifest["derived"] = {
+  mb_a4: { from: "mb_g4", semitones: 2 },
+  mb_c5: { from: "mb_b4", semitones: 1 },
+  mb_e5: { from: "mb_d5", semitones: 2 },
+  mb_fs5: { from: "mb_g5", semitones: -1 },
+  mb_a5: { from: "mb_g5", semitones: 2 },
+  mb_c6: { from: "mb_b5", semitones: 1 },
+  mb_fs6: { from: "mb_g6", semitones: -1 },
+  lesson_step: { from: "mb_b5", semitones: 0 },
 };
 
 // ----------------------------------------------------------------- synthesis
@@ -168,6 +191,11 @@ function renderSfx(id: string, v: number, rec: Recipe): Float32Array {
         sine(b, i * 0.12, (260 - i * 30) * bump, 0.12, 0.04, 0.7, 150);
         noise(b, r, i * 0.12, 0.02, 0.006, 0.25, 0.6);
       }
+      break;
+    case "pluck":
+      // In tune, so no variant bump: a comb tooth and a faint octave.
+      sine(b, 0, rec.f, rec.d, rec.d / 3, 0.6);
+      sine(b, 0, rec.f * 2, rec.d, rec.d / 8, 0.1);
       break;
   }
   let peak = 0;
@@ -273,7 +301,7 @@ export function makePlaceholders(ctx: AudioContext): Placeholders {
       durations,
       bus: s.bus ?? "sfx",
       spatial: s.sp,
-      pitchCents: s.pc ?? (s.r.k === "arp" || s.r.k === "tone" ? 0 : 50),
+      pitchCents: s.pc ?? (s.r.k === "arp" || s.r.k === "tone" || s.r.k === "pluck" ? 0 : 50),
       gainRandDb: s.gr ?? 0,
       cooldownMs: s.cd ?? 30,
       maxVoices: s.mv ?? 3,
@@ -310,9 +338,9 @@ export function makePlaceholders(ctx: AudioContext): Placeholders {
   const manifest: AudioManifest = {
     version: 1,
     sampleRate: RATE,
-    buses: { music: 0.55, sfx: 1, ui: 0.8, ambience: 0.3 },
+    buses: { music: 0.5, sfx: 1, ui: 0.8, ambience: 0.3 },
     sfx,
-    derived: {},
+    derived: { ...DERIVED },
     music,
     // The same music fields as the real pack: the bed is calm; menus play it through an 800 Hz
     // low-pass, results a little more open.
