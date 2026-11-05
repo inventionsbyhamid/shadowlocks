@@ -7,16 +7,23 @@
 // leave the band around it lit; a finger lock is short exactly its missing piece; no other scrap or ring falls on a
 // lock from its spot; the start solves nothing; every spot is inside the envelope and apart from the others.
 import { ENVELOPE } from "./envelope";
-import { area, bbox, circlePts, elongation, hash, inPoly, polyDist, proj, rng32 } from "./geom";
+import { area, bbox, circlePts, elongation, hash, inPoly, polyDist, proj, rng32, segDist } from "./geom";
 import { boxParams, dailyParams } from "./params";
 import { SHAPES, SILHOUETTES } from "./shapes";
 import { LOOT, OWNERS } from "./story";
 import type { Box, BoxParams, BoxSpec, Element, Lock, Ring, ShapeName, V2, V3 } from "./types";
 
+/**
+ * The generator's version. Bump it with any change that alters a box for some spec (RNG call order, a constant, a
+ * shape, a check), and update the golden hashes in tests/unit/generator.test.ts. Saves store it with each box, so a
+ * box saved under another version can be told apart.
+ */
+export const GENERATOR_VERSION = 1;
+
 const E = ENVELOPE;
 /** The margin around an outline that must stay lit. */
 const BAND = 0.04;
-/** Spacing of the grid points that check where shadows land while a box is built. */
+/** Spacing of the grid points for the start check and the ring marks' clearance. */
 const STEP = 0.008;
 /** Whole-box attempts before giving up, and tries per spot, piece and decoy within one attempt. */
 const ATTEMPTS = 300;
@@ -98,7 +105,10 @@ interface Samples {
   box: [number, number, number, number];
 }
 interface Draft extends Lock {
+  /** Grid points for the start check and the ring mark's clearance. */
   samples: Samples;
+  /** Each outline piece's bbox grown by BAND: a shadow outside it cannot come within BAND of that piece. */
+  reach: [number, number, number, number][];
 }
 
 /** Points that must be dark (inside the outline) or stay lit (the band around it), for checking where shadows land. */
@@ -133,14 +143,38 @@ function ringInBox(r: Ring): boolean {
   );
 }
 
-/** True when these points, seen from any lock's spot but `skipLock`'s, cast a shadow on that lock's outline or band. */
+/** Distance between segments ab and cd: 0 when they cross. */
+function segSegDist(a: V2, b: V2, c: V2, d: V2): number {
+  const o = (p: V2, q: V2, r: V2) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  if (o(c, d, a) * o(c, d, b) < 0 && o(a, b, c) * o(a, b, d) < 0) return 0;
+  return Math.min(segDist(a, c, d), segDist(b, c, d), segDist(c, a, b), segDist(d, a, b));
+}
+
+/** True when polygons A and B overlap or come within `gap` of each other (exact, no sampling). */
+function within(A: V2[], B: V2[], gap: number): boolean {
+  // No edges within the gap and neither holds the other's first corner: then they are apart.
+  if (inPoly(A[0]!, B) || inPoly(B[0]!, A)) return true;
+  for (let i = 0; i < A.length; i++) {
+    const a = A[i]!, b = A[(i + 1) % A.length]!;
+    for (let j = 0; j < B.length; j++) if (segSegDist(a, b, B[j]!, B[(j + 1) % B.length]!) <= gap) return true;
+  }
+  return false;
+}
+
+/**
+ * True when these points, seen from any lock's spot but `skipLock`'s, cast a shadow that touches that lock's outline
+ * or comes within BAND of it.
+ */
 function intrudes(verts: V3[], skipLock: number, locks: Draft[]): boolean {
   for (const o of locks) {
     if (o.i === skipLock) continue;
     const poly = verts.map((p) => proj(p, o.L)), [a, b, c, d] = bbox(poly), bx = o.samples.box;
     if (c < bx[0] || a > bx[2] || d < bx[1] || b > bx[3]) continue;
-    for (const s of o.samples.inside) if (inPoly(s, poly)) return true;
-    for (const s of o.samples.band) if (inPoly(s, poly)) return true;
+    for (let k = 0; k < o.target.length; k++) {
+      const r = o.reach[k]!;
+      if (c < r[0] || a > r[2] || d < r[1] || b > r[3]) continue;
+      if (within(poly, o.target[k]!, BAND)) return true;
+    }
   }
   return false;
 }
@@ -250,6 +284,10 @@ export function buildBox(spec: BoxSpec): BoxBuild {
         rings: true,
         hidden: hidden.has(i),
         samples: lockSamples(target, STEP),
+        reach: target.map((p) => {
+          const [x0, y0, x1, y1] = bbox(p);
+          return [x0 - BAND, y0 - BAND, x1 + BAND, y1 + BAND];
+        }),
       });
     }
 
@@ -341,7 +379,7 @@ export function buildBox(spec: BoxSpec): BoxBuild {
       params: { ...P },
       start,
       elements,
-      locks: locks.map(({ samples: _samples, ...l }): Lock => l),
+      locks: locks.map(({ samples: _samples, reach: _reach, ...l }): Lock => l),
       owner: pick(OWNERS),
       loot: pick(LOOT),
       mirrored: false,
