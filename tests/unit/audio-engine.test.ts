@@ -608,12 +608,19 @@ describe("loops (the hums)", () => {
 
   it("is not made before audio starts, for a sound the pack lacks, or while effects are off", async () => {
     const locked = await makeRig({ unlock: false });
+    expect(locked.engine.canLoop()).toBe(false);
     expect(locked.engine.loop("lock_hum")).toBeNull();
     const r = await makeRig();
+    expect(r.engine.canLoop()).toBe(true);
     expect(r.engine.loop(id("fingertip_hum"))).toBeNull();
+    expect(r.engine.loop(id("fingertip_hum"))).toBeNull();
+    // A sound the pack lacks says so once, as play() does.
+    expect(r.warnings).toEqual(['audio: no sound "fingertip_hum" in the manifest']);
     r.engine.setVolumes({ music: 1, sfx: 0 });
+    expect(r.engine.canLoop()).toBe(false);
     expect(r.engine.loop("lock_hum")).toBeNull();
     expect(r.ctx.sources).toHaveLength(0);
+    expect(locked.warnings).toEqual([]);
   });
 });
 

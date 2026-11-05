@@ -68,16 +68,14 @@ test("a lock opening plays its three layers in order: tick, clunk at +120 ms, it
     w.__sl.sound.boxStart({ kind: "box", n: 1 });
     w.__sl.sound.lockOpened(0);
   });
-  // The tick goes out at once; the later layers when their time comes.
-  expect(await page.evaluate(() => (window as any).__ns.audio.log().map((s: { id: string }) => s.id))).toEqual(["glass_tick"]);
-  await app.step(30);
+  // All three go to the engine at once, each to start exactly on the audio clock.
   const log = (await page.evaluate(() => (window as any).__ns.audio.log())) as { id: string; at: number; delayMs?: number }[];
   expect(log.map((s) => s.id)).toEqual(["glass_tick", "brass_clunk", "mb_g5"]);
-  const starts = log.map((s) => s.at + (s.delayMs ?? 0) - log[0]!.at);
-  [0, 120, 200].forEach((ms, i) => expect(starts[i]).toBeCloseTo(ms, 3));
-  // Each layer reached the engine shortly before its time, never late.
-  for (const s of log) expect(s.delayMs ?? 0).toBeLessThanOrEqual(60);
+  expect(log.map((s) => s.at - log[0]!.at)).toEqual([0, 0, 0]);
+  [0, 120, 200].forEach((ms, i) => expect(log[i]!.delayMs ?? 0).toBeCloseTo(ms, 3));
   expect(await page.evaluate(() => (window as any).__ns.audio.voices())).toBeGreaterThan(0);
+  await app.step(30);
+  expect(await page.evaluate(() => (window as any).__ns.audio.log().length)).toBe(3);
   // "Lock opens" is the one caption for the three layers.
   expect(await page.evaluate(() => (window as any).__sl.captions())).toEqual(["Lock opens"]);
 });

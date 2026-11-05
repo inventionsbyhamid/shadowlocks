@@ -1,3 +1,4 @@
+import { clamp01 } from "../core/clamp";
 import type { Vec3 } from "../core/types";
 import { AMBIENCE_ID, BASE_SFX_IDS, STING_IDS, type AudioManifest, type ListenerPose, type MusicEntry, type MusicState, type SfxEntry, type SfxId, type StingId } from "./manifest";
 import { MusicDirector, type MusicFx, type MusicTracks } from "./music";
@@ -517,14 +518,23 @@ export class AudioEngine {
 
   // -------------------------------------------------------------------- loops
 
+  /** A loop can start now: audio runs and effects are not at 0 (cheap: check it before preparing one). */
+  canLoop(): boolean {
+    return this.ready && this.vol.sfx > 0;
+  }
+
   /**
    * Start a looping sound outside the voice pool (never stolen by one-shots), silent unless
    * `o.gain` says otherwise: move its level with setGain. Null before audio starts, while effects
-   * are off, or when the pack has no such sound; ask again later.
+   * are off, or when the pack has no such sound (warned once, as play() does); ask again later.
    */
   loop(id: SfxId, o: LoopOptions = {}): LoopHandle | null {
+    if (!this.canLoop()) return null;
     const s = this.sounds.get(id);
-    if (!s || !this.ready || this.vol.sfx <= 0) return null;
+    if (!s) {
+      this.warnOnce(`sfx:${id}`, `audio: no sound "${id}" in the manifest`);
+      return null;
+    }
     const e = s.entry;
     const c = this.ctx;
     const now = c.currentTime;
@@ -781,7 +791,7 @@ export class AudioEngine {
 
   private applyVolumes(): void {
     const b = this.manifest?.buses;
-    this.setBus(this.musicBus, (b?.music ?? 0.55) * this.vol.music);
+    this.setBus(this.musicBus, (b?.music ?? 0.5) * this.vol.music);
     this.setBus(this.sfxBus, (b?.sfx ?? 1) * this.vol.sfx);
     this.setBus(this.uiBus, b?.ui ?? 0.8);
     this.setBus(this.ambienceBus, b?.ambience ?? 0.3);
@@ -799,10 +809,6 @@ export class AudioEngine {
     this.warned.add(key);
     this.warnFn(message);
   }
-}
-
-function clamp01(x: number): number {
-  return x < 0 ? 0 : x > 1 ? 1 : x;
 }
 
 /**

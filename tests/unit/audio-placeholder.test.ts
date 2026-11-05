@@ -59,6 +59,8 @@ describe("placeholder sounds", () => {
     expect(manifest.musicStates.menu).toBe(manifest.musicStates.calm);
     expect(manifest.musicStates.results).toBe(manifest.musicStates.calm);
     expect(manifest.musicStateFx?.menu?.lowpassHz).toBe(800);
+    // The same mix as the pack: music bus 0.5.
+    expect(manifest.buses.music).toBe(0.5);
     expect(manifest.stings.solve).toBe("sting_solve");
     expect(manifest.music.sting_solve?.role).toBe("sting");
   });

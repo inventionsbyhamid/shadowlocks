@@ -15,6 +15,7 @@ import { mulberry32, seedFrom } from "../core/rng";
 import type { Box, V3, Vec3 } from "../core/types";
 import { CaptionQueue, captionFor } from "../ui/captions";
 import { startAudio } from "./audio-unlock";
+import { FrameClock } from "./frame-clock";
 import { type FeedbackEvent, on, onAny } from "./bus";
 import { type HapticSession, Haptics } from "./haptics";
 import type { Lifecycle } from "./lifecycle";
@@ -56,6 +57,8 @@ export class Sound {
   readonly haptics: Haptics;
   /** Captions up now (the game's caption strip draws them). */
   readonly captions = new CaptionQueue();
+  /** Play time for timed sounds and pulses: frames the player saw. */
+  private readonly clock = new FrameClock();
   private readonly mapper: CueMapper;
   private readonly pose: ListenerPose = { position: [0, 0, 0], forward: [0, 0, -1], up: [0, 1, 0] };
   /** The listener has been placed once (the first frame always places it). */
@@ -76,10 +79,11 @@ export class Sound {
     const places = this.places();
     this.mapper = new CueMapper({ locate: (e) => this.locate(e) ?? placeOf(e, places) });
     // WebXR typings disagree on gamepad.hapticActuators; haptics reads only what it checks for.
-    this.haptics = new Haptics(() => (deps.world.session ?? null) as unknown as HapticSession | null, () => performance.now());
+    // Pulses and layered sounds run on play time, which stops while the game is hidden.
+    this.haptics = new Haptics(() => (deps.world.session ?? null) as unknown as HapticSession | null, this.clock.now);
     this.game = new GameSounds({
       engine: this.engine,
-      now: () => performance.now(),
+      now: this.clock.now,
       haptics: this.haptics,
       warmth: () => deps.settings.get().warmth,
       places,
@@ -145,6 +149,7 @@ export class Sound {
    * Allocation free.
    */
   update(dt: number): void {
+    this.clock.step(dt, this.deps.lifecycle.active);
     this.game.update();
     if (this.captions.any) this.captions.step(dt);
     const head = this.deps.world.player?.head;

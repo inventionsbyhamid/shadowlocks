@@ -2,9 +2,13 @@
 // double tap, the settle snap, the lock-open thud and the box-open roll. Tracked hands have no
 // actuator, so every pulse is then a silent no-op (the hands get their feedback from light and
 // sound). Patterns with more than one pulse are stepped by update() on the frame clock, so a
-// frame-stepped run pulses at the same frames every time. Allocation free per frame.
+// frame-stepped run pulses at the same frames every time (and a pattern pauses while the game is
+// hidden, when that clock stops). Allocation free per frame. The game's sounds ask for patterns by
+// name (GameSounds' HapticSink), so the audio code never imports this file.
+import type { Hand, HapticName, HapticSink } from "../audio/cues";
+import { clamp01 } from "../core/clamp";
 
-export type Hand = "left" | "right";
+export type { Hand };
 
 /** One pulse of a pattern: `at` ms after the pattern starts, `intensity` 0..1, for `ms`. */
 export interface HapticPulse {
@@ -35,7 +39,7 @@ export const HAPTICS = {
   settle: one(0.6, 30),
   lockOpen: one(1, 60),
   boxOpen,
-} as const satisfies Record<string, HapticPattern>;
+} as const satisfies Record<HapticName, HapticPattern>;
 
 /** The parts of an XR input source haptics read (WebXR types vary across browsers and TS versions). */
 export interface HapticSource {
@@ -61,7 +65,7 @@ interface Pending {
   ms: number;
 }
 
-export class Haptics {
+export class Haptics implements HapticSink {
   private readonly queue: Pending[] = Array.from({ length: QUEUE }, () => ({ live: false, due: 0, hand: "right" as const, intensity: 0, ms: 0 }));
 
   constructor(
@@ -80,7 +84,7 @@ export class Haptics {
       const act = s.gamepad?.hapticActuators?.[0];
       const fn = act?.pulse;
       if (typeof fn !== "function") continue;
-      const v = intensity > 1 ? 1 : intensity > 0 ? intensity : 0;
+      const v = clamp01(intensity);
       try {
         const r = fn.call(act, v, ms > 0 ? ms : 0);
         // A refused pulse (the device said no) is not worth an error.
@@ -91,10 +95,10 @@ export class Haptics {
     }
   }
 
-  /** Play `pattern` on one hand or both, starting `offsetMs` from now. */
-  play(hand: Hand | "both", pattern: HapticPattern, offsetMs = 0): void {
+  /** Play `pattern` (or the one named) on one hand or both, starting `offsetMs` from now. */
+  play(hand: Hand | "both", pattern: HapticPattern | HapticName, offsetMs = 0): void {
     const t = this.now();
-    for (const p of pattern) {
+    for (const p of typeof pattern === "string" ? HAPTICS[pattern] : pattern) {
       const at = offsetMs + p.at;
       if (at <= 0) this.fire(hand, p.intensity, p.ms);
       else this.later(t + at, hand, p.intensity, p.ms);

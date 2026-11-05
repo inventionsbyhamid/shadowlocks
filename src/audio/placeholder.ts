@@ -338,7 +338,7 @@ export function makePlaceholders(ctx: AudioContext): Placeholders {
   const manifest: AudioManifest = {
     version: 1,
     sampleRate: RATE,
-    buses: { music: 0.55, sfx: 1, ui: 0.8, ambience: 0.3 },
+    buses: { music: 0.5, sfx: 1, ui: 0.8, ambience: 0.3 },
     sfx,
     derived: { ...DERIVED },
     music,

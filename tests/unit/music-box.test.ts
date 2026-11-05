@@ -141,7 +141,12 @@ describe("scheduleBoxOpen", () => {
 
 describe("dial ticks", () => {
   it("climb G A B D over the last 4, 3, 2 and 1 cm", () => {
-    expect(DIAL_TICKS_CM.map(dialTickPitch)).toEqual([0, 2, 4, 7]);
+    expect(dialTickPitch(4)).toBe(0);
+    expect(dialTickPitch(3)).toBe(2);
+    expect(dialTickPitch(2)).toBe(4);
+    expect(dialTickPitch(1)).toBe(7);
+    // The feel layer ticks at exactly those distances, nearest last.
+    expect(DIAL_TICKS_CM).toEqual([4, 3, 2, 1]);
     expect(dialTickPitch(9)).toBe(0);
   });
 });

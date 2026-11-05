@@ -1,9 +1,12 @@
 // The warmth hums. A lock the lantern is close to hums its own chord tone an octave below its
 // music-box note (one lock_hum loop pitched 0, +4 or +7 semitones), louder as its warmth rises; only
 // the gazed lock hums. The fingertip hum stands in for vibration while a finger is in the beam.
-// Hums run on the engine's own loops, so one-shots never steal them. warmth() and finger() are
-// called every frame: they allocate nothing and touch the audio graph only when the level moved
-// more than a small step.
+// Hums run on the engine's own loops, so one-shots never steal them. A lock's loop starts the first
+// time it warms and then only moves its level (a focus change or a cooling lock ramps it to 0, so
+// no HRTF chain is torn down and rebuilt); it stops when its lock opens, the box ends, or Warmth goes
+// off. warmth(), finger() and update() run every frame: they allocate nothing and touch the audio
+// graph only when a level moved more than a small step or a place moved more than 2 mm.
+import { clamp01 } from "../core/clamp";
 import type { BoxSpec, Vec3 } from "../core/types";
 import type { LoopHandle, LoopOptions } from "./engine";
 import type { SfxId } from "./manifest";
@@ -23,17 +26,16 @@ export const FINGER_HUM_BASE = 0.3;
 export const FINGER_HUM_SPAN = 0.7;
 /**
  * The fingertip hum rises this many semitones over the 0.6 s hold. The pack's fingertip_hum is the
- * regenerated, unpitched breath (0% voiced), so the glide cannot clash with a lock's hum; 0 plays it
- * flat.
+ * regenerated, unpitched breath (0% voiced), so the glide cannot clash with a lock's hum.
  */
 export const FINGER_GLIDE_SEMITONES = 2;
 
 const LOCKS = 3;
 const PITCH_STEP = 0.05;
-/** The fingertip hum follows the finger once it moved this far (m, summed over axes). */
+/** A hum follows its place once that moved this far (m, summed over axes). */
 const MOVE_M = 0.002;
 
-/** Whether locks hum for this box: Warmth on, and a lesson or one of the first five boxes. */
+/** Whether locks hum for this box: Warmth on, and a lesson or one of the first five boxes (never the Daily Box). */
 export function humsOn(spec: BoxSpec | null, warmth: boolean): boolean {
   if (!warmth || !spec) return false;
   if (spec.kind === "lesson") return true;
@@ -42,13 +44,15 @@ export function humsOn(spec: BoxSpec | null, warmth: boolean): boolean {
 
 /** What the hums need of the audio engine. */
 export interface LoopEngine {
+  /** A loop can start now (audio runs, effects are not at 0). */
+  canLoop(): boolean;
   loop(id: SfxId, o?: LoopOptions): LoopHandle | null;
 }
 
 /** Where lock `lock` is in the world (written into `out`); false when there is no box. */
 export type LockPlace = (lock: number, out: Vec3) => boolean;
 
-const unit = (x: number): number => (x > 1 ? 1 : x > 0 ? x : 0);
+const moved = (a: Vec3, b: Vec3): boolean => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) > MOVE_M;
 
 export class Hums {
   private readonly loops: (LoopHandle | null)[] = [null, null, null];
@@ -59,6 +63,7 @@ export class Hums {
     [0, 0, 0],
     [0, 0, 0],
   ];
+  private readonly here: Vec3 = [0, 0, 0];
   private readonly wanted = new Float64Array(LOCKS);
   private readonly sent = new Float64Array(LOCKS);
   private readonly done = new Uint8Array(LOCKS);
@@ -67,6 +72,8 @@ export class Hums {
   private focused: number | null = null;
 
   private fingerLoop: LoopHandle | null = null;
+  /** The piece formed: the fingertip hum stays off until the finger leaves the beam. */
+  private fingerDone = false;
   private readonly fingerOpts: LoopOptions = {};
   private readonly fingerAt: Vec3 = [0, 0, 0];
   private fingerGain = 0;
@@ -84,12 +91,14 @@ export class Hums {
     return this.on;
   }
 
+  /** Allow lock hums or not. Turning them off stops every lock's loop. */
   setEnabled(on: boolean): void {
     this.on = on;
+    if (!on) for (let i = 0; i < LOCKS; i++) this.silence(i, HUM_RAMP_MS);
     this.applyAll();
   }
 
-  /** A menu is open: every lock hum goes quiet until it closes. */
+  /** A menu is open: every lock hum ramps to silence until it closes. */
   hush(on: boolean): void {
     this.hushed = on;
     this.applyAll();
@@ -116,6 +125,14 @@ export class Hums {
     this.silence(lock, HUM_FADE_MS);
   }
 
+  /** Lock `lock`'s finger piece formed: both hums fade out, and stay out (see fingerDone). */
+  crystallised(lock: number): void {
+    this.fingerLoop?.stop(HUM_FADE_MS);
+    this.fingerLoop = null;
+    this.fingerDone = true;
+    this.opened(lock);
+  }
+
   /** The level lock `lock`'s hum is heading for (0 when it is quiet). */
   level(lock: number): number {
     return this.sent[lock] ?? 0;
@@ -129,12 +146,15 @@ export class Hums {
     if (progress === null || !Number.isFinite(progress)) {
       this.fingerLoop?.stop(HUM_FADE_MS);
       this.fingerLoop = null;
+      this.fingerDone = false;
       return;
     }
-    const g = FINGER_HUM_BASE + FINGER_HUM_SPAN * unit(progress);
-    const pitch = FINGER_GLIDE_SEMITONES * unit(hold);
+    if (this.fingerDone) return;
+    const g = FINGER_HUM_BASE + FINGER_HUM_SPAN * clamp01(progress);
+    const pitch = FINGER_GLIDE_SEMITONES * clamp01(hold);
     const f = this.fingerLoop;
     if (!f) {
+      if (!this.engine.canLoop()) return;
       const o = this.fingerOpts;
       if (at) copy(at, this.fingerAt);
       o.position = at ? this.fingerAt : undefined;
@@ -156,9 +176,23 @@ export class Hums {
       this.fingerPitch = pitch;
     }
     const p = this.fingerAt;
-    if (at && Math.abs(at[0] - p[0]) + Math.abs(at[1] - p[1]) + Math.abs(at[2] - p[2]) > MOVE_M) {
+    if (at && moved(at, p)) {
       copy(at, p);
       f.setPosition(p);
+    }
+  }
+
+  /** Per frame: each running lock hum follows its lock (the box moved, or was resized). */
+  update(): void {
+    const lockAt = this.o.lockAt;
+    if (!lockAt) return;
+    for (let i = 0; i < LOCKS; i++) {
+      const loop = this.loops[i];
+      if (!loop || !lockAt(i, this.here)) continue;
+      const w = this.where[i]!;
+      if (!moved(this.here, w)) continue;
+      copy(this.here, w);
+      loop.setPosition(w);
     }
   }
 
@@ -172,6 +206,7 @@ export class Hums {
     this.focused = null;
     this.fingerLoop?.stop(HUM_FADE_MS);
     this.fingerLoop = null;
+    this.fingerDone = false;
   }
 
   private applyAll(): void {
@@ -180,21 +215,24 @@ export class Hums {
 
   private apply(lock: number): void {
     const live = this.on && !this.hushed && this.done[lock] === 0 && (this.focused === null || this.focused === lock);
-    const want = live ? unit(this.wanted[lock]!) : 0;
+    const want = live ? clamp01(this.wanted[lock]!) : 0;
     const sent = this.sent[lock]!;
     if (want === sent) return;
+    let loop = this.loops[lock];
     if (want === 0) {
-      this.silence(lock, HUM_RAMP_MS);
+      // Ramp down and keep the loop: it comes back with a ramp, not a new chain.
+      loop?.setGain(0, HUM_RAMP_MS);
+      this.sent[lock] = 0;
       return;
     }
     if (want !== 1 && Math.abs(want - sent) <= HUM_STEP) return;
-    let loop = this.loops[lock];
     if (!loop) {
+      // Not before audio runs (and effects are on): the next warmth tries again.
+      if (!this.engine.canLoop()) return;
       const o = this.lockOpts[lock]!;
       const at = this.where[lock]!;
       o.position = this.o.lockAt?.(lock, at) ? at : undefined;
       loop = this.engine.loop("lock_hum", o);
-      // Audio has not started yet (or effects are off): the next warmth tries again.
       if (!loop) return;
       this.loops[lock] = loop;
     }

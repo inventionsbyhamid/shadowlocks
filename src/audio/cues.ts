@@ -1,25 +1,26 @@
-import type { FeedbackEvent } from "../app/bus";
-import { type Hand, HAPTICS, type HapticPattern } from "../app/haptics";
+import { clamp01 } from "../core/clamp";
 import type { BoxSpec, Vec3 } from "../core/types";
 import type { AudioEngine, PlayHandle, PlayOptions } from "./engine";
 import { Hums, humsOn, type LoopEngine } from "./hums";
 import { isSfxId, type MusicState, type SfxId, type StingId } from "./manifest";
 import { BOX_OPEN_MS, dialTickPitch, LOCK_OPEN_MS, scheduleBoxOpen, scheduleLockOpen } from "./music-box";
+import { CueScheduler } from "./scheduler";
 
 /**
  * Bus events (hands, the shell) and the box's game events as cue input. Events are read only
- * through `type` and a few optional fields (`id`, `to`, `k`, `done`, `lock`, `on`, `key`, `cm`, and
- * an `at` position), so this file does not depend on how each event is declared. The cue logic stays
- * pure: the demo video's mix replays it from the recorded events.
+ * through `type` and a few optional fields (`id`, `to`, `k`, `done`, `lock`, `on`, `key`, `cm`,
+ * `gain`, and an `at` position), so this file does not depend on how each event is declared. The cue
+ * logic stays pure: the demo video's mix replays it from the recorded events.
  *
  * Game events (the names the box session uses):
  * - `lock-open` {lock}: glass tick, brass clunk at +120 ms, the lock's music-box note at +200 ms.
  * - `box-open` {key}: the chord resolves, walls, drawer, and the box's tune from its key (the seed).
  * - `ring` {lock, on}: the ring chime when the rings line up (on), nothing when they part.
- * - `crystallise` {lock}, `hint` {lock}, `lesson-step`: their sounds.
+ * - `crystallise` {lock}, `hint` {lock, gain?}, `lesson-step`: their sounds.
  * - `tick` {cm}, or `feel` {e: {type: "tick", cm}}: a dial tick, climbing G A B D.
+ * An event that names a lock must name it as a whole number from 0; otherwise it is skipped.
  */
-export type CueEvent = FeedbackEvent | { type: string; [key: string]: unknown };
+export type CueEvent = { type: string; [key: string]: unknown };
 
 export type Cue =
   | { kind: "sfx"; id: SfxId; position?: Vec3; pitch?: number; gain?: number; variant?: number; delayMs?: number }
@@ -44,13 +45,22 @@ const SLIDER_PITCH_LOW = -3;
 const SLIDER_PITCH_SPAN = 12;
 /** The lesson beat is mb_b5 at half gain (-6 dB, about the menu's level). */
 export const LESSON_STEP_GAIN = 0.5;
+/** The hint lantern's glow after the player is stuck plays the hint sound 6 dB down. */
+export const HINT_GLOW_GAIN = 10 ** (-6 / 20);
 /** The game events the mapper knows (see CueEvent): in the game they sound through GameSounds. */
 export const GAME_CUE_TYPES: ReadonlySet<string> = new Set(["lock-open", "box-open", "ring", "crystallise", "hint", "lesson-step", "tick", "feel"]);
+/** Game events that name a lock. */
+const LOCK_EVENTS: ReadonlySet<string> = new Set(["lock-open", "ring", "crystallise", "hint"]);
 
-const unit = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
-const lockOf = (e: { [k: string]: unknown }): number => (typeof e.lock === "number" && Number.isInteger(e.lock) ? e.lock : 0);
+const unit = (v: unknown): number => (typeof v === "number" ? clamp01(v) : 0);
 
-function positionOf(e: { [k: string]: unknown }): Vec3 | undefined {
+/** The lock an event names: a whole number from 0, else null. */
+function lockOf(e: CueEvent): number | null {
+  const l = e.lock;
+  return typeof l === "number" && Number.isInteger(l) && l >= 0 ? l : null;
+}
+
+function positionOf(e: CueEvent): Vec3 | undefined {
   const at = e.at;
   if (Array.isArray(at) && at.length === 3 && at.every((n) => typeof n === "number" && Number.isFinite(n))) {
     return [at[0], at[1], at[2]];
@@ -64,6 +74,8 @@ export interface CueMapperOptions {
    * the panel) when the event itself carries no `at`. Spatial sounds use it.
    */
   locate?: (event: CueEvent) => Vec3 | undefined;
+  /** Told once about the first malformed event skipped (default console.warn). */
+  warn?: (message: string) => void;
 }
 
 /**
@@ -71,6 +83,8 @@ export interface CueMapperOptions {
  * engine ignores repeats. Layered sounds carry `delayMs` after their event.
  */
 export class CueMapper {
+  private warned = false;
+
   constructor(private opts: CueMapperOptions = {}) {}
 
   /** Map a batch of events. */
@@ -108,52 +122,65 @@ export class CueMapper {
     }
   }
 
+  private malformed(e: CueEvent): void {
+    if (this.warned) return;
+    this.warned = true;
+    const say = this.opts.warn ?? ((m: string) => console.warn(m));
+    say(`audio: skipped a "${e.type}" event with no usable lock (${String(e.lock)})`);
+  }
+
   private one(e: CueEvent, out: Cue[]): void {
+    const lock = LOCK_EVENTS.has(e.type) ? lockOf(e) : 0;
+    if (lock === null) {
+      this.malformed(e);
+      return;
+    }
     switch (e.type) {
       case "press": {
-        const id = String((e as { id?: unknown }).id ?? "");
+        const id = String(e.id ?? "");
         this.sfxAt(out, BACK_KEYS.has(id) ? "ui_back" : "ui_press", e);
         return;
       }
       case "screen": {
-        const to = String((e as { to?: unknown }).to ?? "");
+        const to = String(e.to ?? "");
         out.push({ kind: "music", state: PLAY_SCREENS.has(to) ? "calm" : "menu" });
         return;
       }
       case "count": {
-        const c = e as { k?: unknown; done?: unknown };
-        if (c.done === true) return;
-        this.sfx(out, "dial_tick", { pitch: COUNT_PITCH_SPAN * unit(c.k) });
+        if (e.done === true) return;
+        this.sfx(out, "dial_tick", { pitch: COUNT_PITCH_SPAN * unit(e.k) });
         return;
       }
       case "slider": {
-        const pitch = SLIDER_PITCH_LOW + SLIDER_PITCH_SPAN * unit((e as { k?: unknown }).k);
+        const pitch = SLIDER_PITCH_LOW + SLIDER_PITCH_SPAN * unit(e.k);
         this.sfxAt(out, "dial_tick", e, { pitch });
         return;
       }
       case "lock-open":
-        this.layers(out, e, scheduleLockOpen(lockOf(e), 0));
+        this.layers(out, e, scheduleLockOpen(lock, 0));
         return;
       case "box-open":
-        this.layers(out, e, scheduleBoxOpen(String((e as { key?: unknown }).key ?? ""), 0));
+        this.layers(out, e, scheduleBoxOpen(String(e.key ?? ""), 0));
         return;
       case "ring":
-        if ((e as { on?: unknown }).on === true) this.sfxAt(out, "ring_chime", e);
+        if (e.on === true) this.sfxAt(out, "ring_chime", e);
         return;
       case "crystallise":
         this.sfxAt(out, "crystallise", e);
         return;
-      case "hint":
-        this.sfxAt(out, "hint_reveal", e);
+      case "hint": {
+        const g = e.gain;
+        this.sfxAt(out, "hint_reveal", e, typeof g === "number" && Number.isFinite(g) && g >= 0 ? { gain: g } : undefined);
         return;
+      }
       case "lesson-step":
         this.sfx(out, "lesson_step", { gain: LESSON_STEP_GAIN });
         return;
       case "tick":
-        this.sfxAt(out, "dial_tick", e, { pitch: dialTickPitch(Number((e as { cm?: unknown }).cm)) });
+        this.sfxAt(out, "dial_tick", e, { pitch: dialTickPitch(Number(e.cm)) });
         return;
       case "feel": {
-        const inner = (e as { e?: { type?: unknown; cm?: unknown } }).e;
+        const inner = e.e as { type?: unknown; cm?: unknown } | undefined;
         if (inner?.type === "tick") this.sfxAt(out, "dial_tick", e, { pitch: dialTickPitch(Number(inner.cm)) });
         return;
       }
@@ -194,123 +221,22 @@ export function attachCues(engine: CueTarget, mapper = new CueMapper(), onHandle
   return (events) => applyCues(engine, mapper.map(events), onHandle);
 }
 
-// ------------------------------------------------------------------------------ the scheduler
-
-/**
- * A layered sound reaches the engine at most this long before it should sound, then starts exactly
- * on the audio clock. Long sequences (the box opening) so never hold voices far ahead of time.
- */
-export const LOOKAHEAD_MS = 50;
-const QUEUE = 48;
-
-interface Pending {
-  due: number;
-  id: SfxId;
-  position: Vec3;
-  placed: boolean;
-  pitch: number | undefined;
-  gain: number | undefined;
-  variant: number | undefined;
-}
-
-/**
- * Plays cues, holding the delayed ones until just before their time (frame clock, ms). Allocation
- * free: a fixed queue kept in time order, and one options object reused for every play.
- */
-export class CueScheduler {
-  private readonly queue: Pending[] = Array.from({ length: QUEUE }, () => ({
-    due: 0,
-    id: "glass_tick" as SfxId,
-    position: [0, 0, 0] as Vec3,
-    placed: false,
-    pitch: undefined,
-    gain: undefined,
-    variant: undefined,
-  }));
-  private n = 0;
-  private readonly opts: PlayOptions = {};
-
-  constructor(
-    private readonly engine: CueTarget,
-    private readonly now: () => number,
-    private readonly onHandle?: HandleSink,
-  ) {}
-
-  /** Sounds still waiting for their time. */
-  get pending(): number {
-    return this.n;
-  }
-
-  push(cues: readonly Cue[]): void {
-    const t = this.now();
-    for (let i = 0; i < cues.length; i++) {
-      const c = cues[i]!;
-      if (c.kind === "sting") this.engine.sting(c.id);
-      else if (c.kind === "music") this.engine.setMusic(c.state);
-      else {
-        const d = c.delayMs ?? 0;
-        if (d <= LOOKAHEAD_MS || this.n === QUEUE) this.play(c.id, c.position, c.pitch, c.gain, c.variant, d);
-        else this.hold(t + d, c);
-      }
-    }
-  }
-
-  /** Per frame: hand the engine every sound due within the lookahead, exactly timed. */
-  update(): void {
-    if (this.n === 0) return;
-    const t = this.now();
-    const q = this.queue;
-    while (this.n > 0 && q[0]!.due - t <= LOOKAHEAD_MS) {
-      const p = q[0]!;
-      this.play(p.id, p.placed ? p.position : undefined, p.pitch, p.gain, p.variant, p.due - t);
-      for (let i = 1; i < this.n; i++) q[i - 1] = q[i]!;
-      q[this.n - 1] = p;
-      this.n--;
-    }
-  }
-
-  /** Drop every sound still waiting (play ended, a new box). */
-  clear(): void {
-    this.n = 0;
-  }
-
-  private play(id: SfxId, position: Vec3 | undefined, pitch: number | undefined, gain: number | undefined, variant: number | undefined, delayMs: number): void {
-    const o = this.opts;
-    o.position = position;
-    o.pitch = pitch;
-    o.gain = gain;
-    o.variant = variant;
-    o.delay = delayMs > 0 ? delayMs / 1000 : undefined;
-    const h = this.engine.play(id, o);
-    this.onHandle?.(id, h);
-  }
-
-  /** Into the queue in time order, after any already due at the same time. */
-  private hold(due: number, c: Extract<Cue, { kind: "sfx" }>): void {
-    const q = this.queue;
-    const slot = q[this.n]!;
-    let i = this.n;
-    while (i > 0 && q[i - 1]!.due > due) {
-      q[i] = q[i - 1]!;
-      i--;
-    }
-    q[i] = slot;
-    this.n++;
-    slot.due = due;
-    slot.id = c.id;
-    slot.placed = !!c.position;
-    if (c.position) {
-      slot.position[0] = c.position[0];
-      slot.position[1] = c.position[1];
-      slot.position[2] = c.position[2];
-    }
-    slot.pitch = c.pitch;
-    slot.gain = c.gain;
-    slot.variant = c.variant;
-  }
-}
-
 // ------------------------------------------------------------------------ the game's sounds
+
+export type Hand = "left" | "right";
+
+/** The pulse patterns the game asks for by name (the app's haptics, src/app/haptics.ts, defines them). */
+export type HapticName = "grab" | "tick" | "ring" | "settle" | "lockOpen" | "boxOpen";
+
+/** Controller pulses, injected by the app (src/app/haptics.ts). */
+export interface HapticSink {
+  /** Play pattern `name` on one hand or both, `offsetMs` from now. */
+  play(hand: Hand | "both", name: HapticName, offsetMs?: number): void;
+  /** Per frame: pulses whose time has come. */
+  update(): void;
+  /** Drop pulses still to come. */
+  clear(): void;
+}
 
 /** Where things are in the world, for spatial sounds (each writes into `out`; false when unknown). */
 export interface SoundPlaces {
@@ -326,13 +252,14 @@ export interface SoundPlaces {
 /** Where a game event happened: its lock, the rings' mark, the lantern or the box. */
 export function placeOf(e: CueEvent, places: SoundPlaces): Vec3 | undefined {
   const out: Vec3 = [0, 0, 0];
+  const lock = lockOf(e);
   switch (e.type) {
     case "lock-open":
     case "crystallise":
     case "hint":
-      return places.lock(lockOf(e), out) ? out : undefined;
+      return lock !== null && places.lock(lock, out) ? out : undefined;
     case "ring":
-      return places.mark(lockOf(e), out) ? out : undefined;
+      return lock !== null && places.mark(lock, out) ? out : undefined;
     case "box-open":
       return places.box(out) ? out : undefined;
     case "tick":
@@ -346,16 +273,9 @@ export function placeOf(e: CueEvent, places: SoundPlaces): Vec3 | undefined {
 /** What the game's sounds need of the audio engine. */
 export type GameEngine = CueTarget & LoopEngine;
 
-/** What the game's sounds need of the haptics (src/app/haptics.ts). */
-export interface HapticSink {
-  play(hand: Hand | "both", pattern: HapticPattern, offsetMs?: number): void;
-  update(): void;
-  clear(): void;
-}
-
 export interface GameSoundsDeps {
   engine: GameEngine;
-  /** The frame clock (ms). */
+  /** The app's frame clock (ms): it stops while the game is hidden. */
   now: () => number;
   haptics?: HapticSink;
   /** The Warmth setting: off silences the hums and the dial ticks. */
@@ -421,13 +341,13 @@ export class GameSounds {
   dialTick(cm: number, hand?: Hand): void {
     if (!this.warmthOn()) return;
     this.handle({ type: "tick", cm });
-    this.pulse(hand, HAPTICS.tick);
+    this.pulse(hand, "tick");
   }
 
   /** The lantern was picked up (the bus's grab: its sound comes from there). */
   grab(hand: Hand): void {
     this.holding = hand;
-    this.d.haptics?.play(hand, HAPTICS.grab);
+    this.d.haptics?.play(hand, "grab");
   }
 
   /** The lantern was let go. */
@@ -437,14 +357,14 @@ export class GameSounds {
 
   /** The held lantern settled onto a spot: the settle snap. */
   settle(hand?: Hand): void {
-    this.pulse(hand, HAPTICS.settle);
+    this.pulse(hand, "settle");
   }
 
   /** A lock's rings lined up (`on`) or parted: the chime and a double tap when they line up. */
   ring(lock: number, on: boolean, hand?: Hand): void {
     if (!on) return;
     this.handle({ type: "ring", lock, on });
-    this.pulse(hand, HAPTICS.ring);
+    this.pulse(hand, "ring");
   }
 
   /**
@@ -455,10 +375,12 @@ export class GameSounds {
     this.hums.finger(progress, hold, at);
   }
 
-  /** The finger hold completed: the piece forms (at the fingertip when given); both hums fade out. */
+  /**
+   * The finger hold completed: the piece forms (at the fingertip when given). Both hums fade out and
+   * the ting rings alone; the fingertip hum stays off until the finger leaves the beam.
+   */
   crystallise(lock: number, at?: Vec3): void {
-    this.hums.finger(null);
-    this.hums.opened(lock);
+    this.hums.crystallised(lock);
     this.handle(at ? { type: "crystallise", lock, at } : { type: "crystallise", lock });
   }
 
@@ -466,18 +388,24 @@ export class GameSounds {
   lockOpened(lock: number, at?: Vec3, hand?: Hand): void {
     this.hums.opened(lock);
     this.handle(at ? { type: "lock-open", lock, at } : { type: "lock-open", lock });
-    this.pulse(hand, HAPTICS.lockOpen, LOCK_OPEN_MS.clunk);
+    this.pulse(hand, "lockOpen", LOCK_OPEN_MS.clunk);
   }
 
   /** Every lock is open: the chord resolves, the walls open, the drawer slides, the box's tune; a roll on both hands. */
   boxOpened(seed: string, at?: Vec3): void {
     this.handle(at ? { type: "box-open", key: seed, at } : { type: "box-open", key: seed });
-    this.d.haptics?.play("both", HAPTICS.boxOpen, BOX_OPEN_MS.chord);
+    this.d.haptics?.play("both", "boxOpen", BOX_OPEN_MS.chord);
   }
 
-  /** A hint is shown for lock `lock`. */
-  hint(lock: number): void {
-    this.handle({ type: "hint", lock });
+  /**
+   * A hint for lock `lock`: at `at` (the hint lantern on the frame; the lock when not given), at
+   * `gain` (HINT_GLOW_GAIN, -6 dB, for the stuck glow; full when not given).
+   */
+  hint(lock: number, at?: Vec3, gain?: number): void {
+    const e: CueEvent = { type: "hint", lock };
+    if (at) e.at = at;
+    if (gain !== undefined) e.gain = gain;
+    this.handle(e);
   }
 
   /** A lesson moves on a step: the lesson beat. */
@@ -501,17 +429,18 @@ export class GameSounds {
     this.hums.setEnabled(false);
   }
 
-  /** Per frame: timed sounds and pulses. */
+  /** Per frame: timed sounds and pulses, and the hums following their locks. */
   update(): void {
     this.scheduler.update();
     this.d.haptics?.update();
+    this.hums.update();
   }
 
   private warmthOn(): boolean {
     return this.d.warmth ? this.d.warmth() : true;
   }
 
-  private pulse(hand: Hand | undefined, pattern: HapticPattern, offsetMs = 0): void {
-    this.d.haptics?.play(hand ?? this.holding ?? "both", pattern, offsetMs);
+  private pulse(hand: Hand | undefined, name: HapticName, offsetMs = 0): void {
+    this.d.haptics?.play(hand ?? this.holding ?? "both", name, offsetMs);
   }
 }
