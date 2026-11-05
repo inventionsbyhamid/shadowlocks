@@ -1,11 +1,11 @@
-import { defaultProfile, migrate, type Profile } from "../core/profile";
+import { migrate, type Profile } from "../core/profile";
 
 const DB = "shadow-locks";
 const STORE = "profile";
 const KEY = "me";
 
 export interface IdbStore {
-  load(): Promise<Profile>;
+  load(nowMs: number, build: string): Promise<Profile>;
   save(p: Profile): Promise<void>;
 }
 
@@ -26,11 +26,12 @@ export function openIdbStore(factory: IDBFactory): Promise<IdbStore> {
     req.onsuccess = () => {
       const db = req.result;
       resolve({
-        load: () =>
+        load: (nowMs, build) =>
           new Promise<Profile>((res, rej) => {
             try {
               const r = db.transaction(STORE, "readonly").objectStore(STORE).get(KEY);
-              r.onsuccess = () => res(r.result === undefined ? defaultProfile() : migrate(r.result));
+              // Nothing stored yet (undefined) starts a new profile, like any value that is not one.
+              r.onsuccess = () => res(migrate(r.result, nowMs, build));
               r.onerror = () => rej(r.error);
             } catch (e) {
               rej(e);

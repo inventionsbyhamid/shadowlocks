@@ -7,6 +7,7 @@ import projectOptions from "virtual:iwsdk-project";
 import { attachInput } from "../input/grab-system";
 import { installOffline, showBriefly, takeOverAtBoot } from "../platform/offline";
 import { openStore } from "../platform/store";
+import { APP_VERSION } from "../platform/version";
 import { COPY } from "../ui/copy";
 import { MenuSystem, useMenus } from "../ui/menu-system";
 import { styleRayCursors } from "../ui/ray-cursor";
@@ -52,7 +53,8 @@ async function main(): Promise<void> {
   if (flags.perf) showPerfPanel(world);
   const recordFor = recordSeconds(location.search);
   if (recordFor) recordHands(world, recordFor, say).catch((err) => console.error("hand recording unavailable", err));
-  const store = await ProfileStore.open(await openStore(), emit);
+  // The wall clock enters the profile here only (first launch, latest time seen): core code takes times as arguments.
+  const store = await ProfileStore.open(await openStore(), emit, { now: () => Date.now(), build: APP_VERSION });
   const settings = new SettingsStore(store);
   const shell = new Shell(world, store, settings);
   useShell(shell);

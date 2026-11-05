@@ -122,8 +122,9 @@ export function roomPlanes(): Array<{ label: string; position: [number, number, 
 }
 
 /**
- * The game in progress as stored in IndexedDB right now (null when there is none). Never creates the
- * database: if it does not exist yet the open is aborted. Rejects on real IndexedDB errors.
+ * The numbered box in progress as stored in IndexedDB right now (the profile's `current`; null when
+ * there is none). Never creates the database: if it does not exist yet the open is aborted. Rejects on
+ * real IndexedDB errors.
  */
 export function storedInProgress(): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -146,7 +147,7 @@ export function storedInProgress(): Promise<unknown> {
         const get = db.transaction("profile", "readonly").objectStore("profile").get("me");
         get.onsuccess = () => {
           db.close();
-          resolve((get.result as { inProgress?: unknown } | undefined)?.inProgress ?? null);
+          resolve((get.result as { current?: unknown } | undefined)?.current ?? null);
         };
         get.onerror = () => {
           db.close();

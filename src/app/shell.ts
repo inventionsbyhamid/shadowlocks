@@ -38,7 +38,7 @@ export class Shell {
     readonly profiles: ProfileStore,
     readonly settings: SettingsStore,
   ) {
-    this.lifecycle = new Lifecycle({ persist: (snap) => void this.profiles.setInProgress(snap) });
+    this.lifecycle = new Lifecycle({ persist: (snap) => void this.profiles.setCurrent(snap) });
     this.box = new BoxPlaceholder(world);
     // Menus emit `press` themselves and call back here for anything beyond the screens.
     this.panels = new Panels(world, {
@@ -125,7 +125,7 @@ export class Shell {
    * and forgotten, so the next launch does not offer it again.
    */
   continueSaved(): boolean {
-    const snap = this.profiles.profile.inProgress;
+    const snap = this.profiles.profile.current;
     if (!snap || !this.flow) {
       go("home");
       return false;
@@ -138,7 +138,7 @@ export class Shell {
     } catch (err) {
       console.error("saved box could not be restored", err);
       this.drop();
-      void this.profiles.setInProgress(null);
+      void this.profiles.setCurrent(null);
       go("home");
       return false;
     }
@@ -147,7 +147,7 @@ export class Shell {
   /** Forget the saved box (the player chose to start fresh). */
   discardSaved(): void {
     this.drop();
-    void this.profiles.setInProgress(null);
+    void this.profiles.setCurrent(null);
     go("home");
   }
 

@@ -1,7 +1,10 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
 import { openStore } from "../../src/platform/store";
-import { defaultProfile, type Profile } from "../../src/core/profile";
+import { newProfile, type Profile } from "../../src/core/profile";
+
+const NOW = Date.UTC(2026, 10, 6, 12, 0, 0);
+const BUILD = "1.0.0";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -9,7 +12,7 @@ afterEach(() => {
 
 /** A profile told apart by its box size. */
 function withBox(cm: number): Profile {
-  const p = defaultProfile();
+  const p = newProfile(NOW, BUILD);
   p.settings.boxSizeCm = cm;
   return p;
 }
@@ -19,10 +22,10 @@ describe("store", () => {
     vi.stubGlobal("indexedDB", new IDBFactory());
     const s = await openStore();
     expect(s.persistent).toBe(true);
-    expect((await s.load()).settings.boxSizeCm).toBe(24);
+    expect((await s.load(NOW, BUILD)).settings.boxSizeCm).toBe(24);
     await s.save(withBox(28));
     const s2 = await openStore();
-    expect((await s2.load()).settings.boxSizeCm).toBe(28);
+    expect((await s2.load(NOW, BUILD)).settings.boxSizeCm).toBe(28);
   });
 
   it("falls back to memory store when indexedDB is missing", async () => {
@@ -30,14 +33,14 @@ describe("store", () => {
     const s = await openStore();
     expect(s.persistent).toBe(false);
     await s.save(withBox(20));
-    expect((await s.load()).settings.boxSizeCm).toBe(20);
+    expect((await s.load(NOW, BUILD)).settings.boxSizeCm).toBe(20);
   });
 
   it("falls back to memory store when indexedDB.open throws", async () => {
     vi.stubGlobal("indexedDB", { open: () => { throw new Error("blocked"); } });
     const s = await openStore();
     expect(s.persistent).toBe(false);
-    expect((await s.load()).settings.boxSizeCm).toBe(24);
+    expect((await s.load(NOW, BUILD)).settings.boxSizeCm).toBe(24);
   });
 
   it("falls back when a later save fails and keeps the profile", async () => {
@@ -53,7 +56,7 @@ describe("store", () => {
     });
     await expect(s.save(withBox(30))).resolves.toBeUndefined();
     expect(s.persistent).toBe(false);
-    expect((await s.load()).settings.boxSizeCm).toBe(30);
+    expect((await s.load(NOW, BUILD)).settings.boxSizeCm).toBe(30);
     vi.restoreAllMocks();
   });
 });
