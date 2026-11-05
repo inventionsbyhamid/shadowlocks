@@ -1,15 +1,20 @@
+import { createHash } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { buildBox, generateBox } from "../../src/core/generator";
+import { buildBox, GENERATOR_VERSION, generateBox } from "../../src/core/generator";
+import { SHAPES, SILHOUETTES } from "../../src/core/shapes";
 import { LOOT, OWNERS } from "../../src/core/story";
-import type { Box, BoxSpec } from "../../src/core/types";
+import type { Box, BoxSpec, ShapeName } from "../../src/core/types";
 import {
   checkCounts,
   checkFingerAndDepth,
-  checkHidden,
+  checkSilhouettes,
   checkInBox,
+  checkRingsNest,
   checkSolvable,
   checkSpots,
   type LockStat,
+  type RingStat,
+  fingerAngles,
   missingShares,
   nearHorizontal,
   paramsFor,
@@ -64,6 +69,9 @@ describe("generateBox", () => {
     const errs = failing((b) => checkSolvable(b, stats));
     const plain = stats.filter((s) => !s.finger), finger = stats.filter((s) => s.finger);
     const min = (v: number[]) => Math.min(...v).toFixed(3), max = (v: number[]) => Math.max(...v).toFixed(3);
+    const worst = (f: (s: LockStat) => number) => stats.reduce((a, b) => (f(b) > f(a) ? b : a));
+    console.log(`worst spill ${worst((s) => s.spill).box} lock ${worst((s) => s.spill).lock}; ` +
+      `worst other scraps ${worst((s) => s.foreign).box} lock ${worst((s) => s.foreign).lock}`);
     console.log(
       `${stats.length} locks (${finger.length} finger): plain coverage min ${min(plain.map((s) => s.cov))}; ` +
         `finger with piece min ${min(finger.map((s) => s.covAll))}, without max ${max(finger.map((s) => s.cov))} ` +
@@ -73,6 +81,17 @@ describe("generateBox", () => {
         `${finger.filter((s) => nearHorizontal(s.fingerAngle)).length}/${finger.length}`,
     );
     expect(errs).toEqual([]);
+  });
+
+  it("nests each lock's two ring shadows into a bullseye at its spot", () => {
+    const stats: RingStat[] = [];
+    expect(failing((b) => checkRingsNest(b, stats))).toEqual([]);
+    expect(stats.length).toBe(265); // 1 + 2 + 2 + 1 + 3 * 2 for boxes 1-7, 193 for 8-200, 30 * 2 for the days
+    console.log(
+      `${stats.length} ring pairs: centres within ${Math.max(...stats.map((s) => s.offset)).toFixed(5)} ` +
+        `(at most ${(100 * Math.max(...stats.map((s) => s.offsetShare))).toFixed(0)}% of the lock's bound), ` +
+        `gap ${Math.min(...stats.map((s) => s.gap)).toFixed(6)}..${Math.max(...stats.map((s) => s.gap)).toFixed(6)}`,
+    );
   });
 
   it("keeps every spot inside the envelope, apart from the others and from the start", () => {
@@ -88,8 +107,22 @@ describe("generateBox", () => {
     for (const { box } of built) expect(box.params).toEqual(paramsFor(box));
   });
 
-  it("makes hidden locks silhouettes while one is unused", () => {
-    expect(failing(checkHidden)).toEqual([]);
+  it("puts at most one silhouette in any box", () => {
+    for (const { box } of built) expect(box.locks.filter((l) => SILHOUETTES.includes(l.shape)).length).toBeLessThanOrEqual(1);
+  });
+
+  it("gives every box with a hidden lock exactly one silhouette, on a hidden lock", () => {
+    expect(failing(checkSilhouettes)).toEqual([]);
+  });
+
+  it("shows each classic shape in at least 10% of boxes 10 and up", () => {
+    const late = built.filter((b) => b.spec.kind === "box" && b.spec.n >= 10);
+    const classics = (Object.keys(SHAPES) as ShapeName[]).filter((s) => !SILHOUETTES.includes(s));
+    const share = Object.fromEntries(
+      classics.map((s) => [s, late.filter((b) => b.box.locks.some((l) => l.shape === s)).length / late.length]),
+    );
+    console.log(`classic shapes in boxes 10+: ${JSON.stringify(share, (_, v: unknown) => (typeof v === "number" ? +v.toFixed(3) : v))}`);
+    for (const s of classics) expect(share[s], s).toBeGreaterThanOrEqual(0.1);
   });
 
   it("leaves out only pieces a finger can fill: at most 35% of the shape", () => {
@@ -104,7 +137,7 @@ describe("generateBox", () => {
   });
 
   it("runs at least 90% of finger locks within 45 degrees of horizontal", () => {
-    const angles = built.flatMap(({ box }) => box.locks.filter((l) => l.finger).map((l) => l.fingerAngle));
+    const angles = built.flatMap(({ box }) => fingerAngles(box));
     expect(angles.length).toBeGreaterThan(300);
     expect(angles.filter(nearHorizontal).length / angles.length).toBeGreaterThanOrEqual(0.9);
   });
@@ -131,5 +164,24 @@ describe("generateBox", () => {
 
   it("leaves lessons to the lesson data", () => {
     expect(() => generateBox({ kind: "lesson", id: "l1" })).toThrow();
+  });
+});
+
+describe("golden boxes", () => {
+  // Saves keep a box by its spec and GENERATOR_VERSION, so one spec must keep giving one box. A change that alters any
+  // box (RNG call order, a constant, a shape) must bump GENERATOR_VERSION and update these hashes.
+  const GOLDEN: [BoxSpec, string][] = [
+    [{ kind: "box", n: 1 }, "24d94f165a8c8a00"],
+    [{ kind: "box", n: 7 }, "cb2f2fc4e815eaab"],
+    [{ kind: "box", n: 15 }, "e522d82306833bbb"],
+    [{ kind: "daily", day: "2026-11-06" }, "7ee1ae424f16ac5a"],
+  ];
+  const sha = (box: Box) => createHash("sha256").update(JSON.stringify(box)).digest("hex").slice(0, 16);
+
+  it("pins boxes 1, 7, 15 and one day at generator version 1", () => {
+    expect(GENERATOR_VERSION).toBe(1);
+    expect(GOLDEN.map(([spec]) => [JSON.stringify(spec), sha(generateBox(spec))])).toEqual(
+      GOLDEN.map(([spec, hash]) => [JSON.stringify(spec), hash]),
+    );
   });
 });

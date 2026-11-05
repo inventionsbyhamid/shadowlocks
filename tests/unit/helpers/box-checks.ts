@@ -1,7 +1,7 @@
 // Independent checks of the generator's guarantees, shared by the generator and mirror tests. They rebuild the sample
 // grid and the shadows from geom.ts alone, so a bug in the generator's own checks cannot hide here.
 import { ENVELOPE } from "../../../src/core/envelope";
-import { area, bbox, circlePts, inPoly, polyDist, proj } from "../../../src/core/geom";
+import { area, bbox, circlePts, elongation, inPoly, polyDist, proj, segDist } from "../../../src/core/geom";
 import { boxParams, dailyParams } from "../../../src/core/params";
 import { SILHOUETTES } from "../../../src/core/shapes";
 import type { Box, BoxParams, Element, Piece, Ring, V2, V3 } from "../../../src/core/types";
@@ -85,6 +85,7 @@ export interface LockStat {
   /** Share of the outline and its band covered from the spot by anything but the lock's own pieces. */
   foreign: number;
   atStart: number;
+  /** A finger lock's missing piece's direction, recomputed from its outline; 0 for a plain lock. */
   fingerAngle: number;
 }
 
@@ -104,7 +105,8 @@ export function checkSolvable(box: Box, stats?: LockStat[]): string[] {
     const others = shadows(box.elements.filter((e) => !(e.kind === "piece" && e.lock === l.i)), l.L);
     const foreign = covered([...s.inside, ...s.band], others);
     const atStart = covered(s.inside, fromStart);
-    stats?.push({ box: box.key, lock: l.i, finger: l.finger, cov, covAll, spill, foreign, atStart, fingerAngle: l.fingerAngle });
+    const fingerAngle = l.finger ? elongation(l.target[l.missing]!).angle : 0;
+    stats?.push({ box: box.key, lock: l.i, finger: l.finger, cov, covAll, spill, foreign, atStart, fingerAngle });
     if (foreign > SPILL_MAX) errs.push(`lock ${l.i} other scraps cover ${foreign.toFixed(3)} of it`);
     if (l.finger) {
       if (cov > FINGER_WITHOUT_MAX) errs.push(`lock ${l.i} finger piece too small (${cov.toFixed(3)} without it)`);
@@ -171,19 +173,24 @@ export function checkCounts(box: Box): string[] {
     if (l.finger ? missing.length !== 1 || missing[0] !== l.missing : missing.length !== 0 || l.missing !== -1) {
       errs.push(`lock ${l.i} missing piece ${l.missing} but ${missing.length} marked`);
     }
+    if (l.finger) {
+      const angle = elongation(l.target[l.missing]!).angle;
+      if (!(Math.abs(l.fingerAngle - angle) < 1e-12)) errs.push(`lock ${l.i} fingerAngle ${l.fingerAngle} but its piece runs at ${angle}`);
+    }
     const rings = count((e) => e.kind === "ring" && e.lock === l.i);
     if (l.rings ? rings !== 2 || !l.mark : rings !== 0 || l.mark !== null) errs.push(`lock ${l.i} rings ${l.rings} with ${rings} rings`);
   }
   return errs;
 }
 
-/** A hidden lock is a silhouette whenever one is left unused in the box. */
-export function checkHidden(box: Box): string[] {
-  const used = new Set(box.locks.map((l) => l.shape));
-  const free = SILHOUETTES.filter((s) => !used.has(s));
-  return box.locks
-    .filter((l) => l.hidden && !SILHOUETTES.includes(l.shape) && free.length > 0)
-    .map((l) => `hidden lock ${l.i} is a ${l.shape} while ${free.join(", ")} is unused`);
+/** At most one silhouette per box, always on a hidden lock, and exactly one when the box hides any outline. */
+export function checkSilhouettes(box: Box): string[] {
+  const errs: string[] = [];
+  const sil = box.locks.filter((l) => SILHOUETTES.includes(l.shape));
+  const want = paramsFor(box).hidden >= 1 ? 1 : 0;
+  if (sil.length !== want) errs.push(`${sil.length} silhouettes (${sil.map((l) => l.shape).join(", ")}), want ${want}`);
+  for (const l of sil) if (!l.hidden) errs.push(`lock ${l.i} is a ${l.shape} with its outline shown`);
+  return errs;
 }
 
 /** A finger lock's missing piece is at most this share of its shape: one finger's shadow has to fill it. */
@@ -214,6 +221,74 @@ export function checkFingerAndDepth(box: Box): string[] {
   return errs;
 }
 
+/**
+ * How far apart a lock's ring shadow centres (and the mark) may be. Perspective shifts each projected ellipse's
+ * centre by about tan(tilt) * rho^2 / Lz, most for the biggest circle (rho 0.044); tilt is the angle between the
+ * ray from the spot to the mark and the panel's normal. 20% headroom plus 2e-4 for sampling.
+ */
+export function ringConcentricBound(L: V3, mark: V2): number {
+  const tanTilt = Math.hypot(L[0] - mark[0], L[1] - mark[1]) / L[2];
+  return (1.2 * tanTilt * 0.044 ** 2) / L[2] + 2e-4;
+}
+/** From the spot, the deep ring's shadow sits in the shallow one's hole with this gap all round. */
+export const RING_GAP = 0.008;
+/**
+ * Slack on the gap, for two effects far below anything visible (2e-5 box units is 0.005 mm at 24 cm):
+ * - Perspective shifts the bigger ellipse's centre a little more. At small tilts, where the stretch doesn't make up
+ *   for it, the deep ring sits up to (0.032^2 - 0.024^2)^2 / (0.016 * Lz^2) nearer one side of the hole: 9.5e-6 at
+ *   Lz 1.15.
+ * - Sampling the circles as 180-gons, up to about 5e-6.
+ */
+const RING_GAP_SLACK = 2e-5;
+
+export interface RingStat {
+  /** Largest distance between any two projected circle centres, or from one to the mark. */
+  offset: number;
+  /** That distance as a share of the lock's bound (ringConcentricBound). */
+  offsetShare: number;
+  /** Smallest distance from the deep ring's outer edge to the shallow ring's inner edge, on the panel. */
+  gap: number;
+}
+
+/** Points of a ring's circle of radius r, cast on the panel from L. */
+const castCircle = (r: Ring, radius: number, L: V3) => circlePts(r.c, r.nrm, radius, 180).map((p) => proj(p, L));
+const centreOf = (pts: V2[]): V2 => {
+  const [x0, y0, x1, y1] = bbox(pts);
+  return [(x0 + x1) / 2, (y0 + y1) / 2];
+};
+
+/**
+ * At each lock's spot its two ring shadows make a bullseye on the mark: all four circles (projected ellipses, as the
+ * rings face the lantern, not the panel) share a centre, and the deep ring's outer edge stays inside the shallow
+ * ring's hole with a clean gap all round.
+ */
+export function checkRingsNest(box: Box, stats?: RingStat[]): string[] {
+  const errs: string[] = [];
+  for (const l of box.locks) {
+    if (!l.rings || !l.mark) continue;
+    const rings = box.elements.filter((e): e is Ring => e.kind === "ring" && e.lock === l.i).sort((a, b) => a.c[2] - b.c[2]);
+    if (rings.length !== 2) continue; // checkCounts reports it
+    const [deep, shallow] = rings as [Ring, Ring];
+    const deepOut = castCircle(deep, deep.rOut, l.L), shallowIn = castCircle(shallow, shallow.rIn, l.L);
+    const centres = [l.mark, centreOf(deepOut), centreOf(castCircle(deep, deep.rIn, l.L)), centreOf(shallowIn),
+      centreOf(castCircle(shallow, shallow.rOut, l.L))];
+    let offset = 0;
+    for (let i = 0; i < centres.length; i++) {
+      for (let j = 0; j < i; j++) offset = Math.max(offset, Math.hypot(centres[i]![0] - centres[j]![0], centres[i]![1] - centres[j]![1]));
+    }
+    let gap = Infinity;
+    for (const p of deepOut) {
+      if (!inPoly(p, shallowIn)) gap = -Infinity;
+      for (let i = 0; i < shallowIn.length; i++) gap = Math.min(gap, segDist(p, shallowIn[i]!, shallowIn[(i + 1) % shallowIn.length]!));
+    }
+    const bound = ringConcentricBound(l.L, l.mark);
+    stats?.push({ offset, offsetShare: offset / bound, gap });
+    if (offset > bound) errs.push(`lock ${l.i} ring shadows ${offset.toFixed(5)} off centre (bound ${bound.toFixed(5)})`);
+    if (gap < RING_GAP - RING_GAP_SLACK) errs.push(`lock ${l.i} deep ring shadow gap ${gap.toFixed(7)} inside the shallow ring's hole`);
+  }
+  return errs;
+}
+
 /** Every per-box guarantee at once. */
 export function checkBox(box: Box, stats?: LockStat[]): string[] {
   return [
@@ -221,9 +296,15 @@ export function checkBox(box: Box, stats?: LockStat[]): string[] {
     ...checkSpots(box),
     ...checkInBox(box),
     ...checkCounts(box),
-    ...checkHidden(box),
+    ...checkSilhouettes(box),
     ...checkFingerAndDepth(box),
+    ...checkRingsNest(box),
   ];
+}
+
+/** Which way each finger lock's missing piece runs, recomputed from its outline (not the box's own fingerAngle). */
+export function fingerAngles(box: Box): number[] {
+  return box.locks.filter((l) => l.finger).map((l) => elongation(l.target[l.missing]!).angle);
 }
 
 /** True when an angle (radians, from horizontal) is within 45 degrees of horizontal. */

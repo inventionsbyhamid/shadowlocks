@@ -1,22 +1,28 @@
 // The box generator: endless boxes from a seed, the same box for the same spec everywhere. Ported from the Shadow
 // Locks mock (spikes/shadow-locks-mock/shadowgen.js, generate and tryBuild), with the lantern spots inside the seated
-// comfort envelope (envelope.ts), the difficulty curve of params.ts, hidden locks drawn from the silhouettes, and
-// finger pieces that run near horizontal.
+// comfort envelope (envelope.ts), the difficulty curve of params.ts, at most one silhouette per box (on a hidden
+// lock), sight rings whose shadows make a bullseye at the spot, and finger pieces that run near horizontal.
 //
 // What every box guarantees (tests/unit/generator.test.ts): from its spot, each lock's scraps tile its outline and
 // leave the band around it lit; a finger lock is short exactly its missing piece; no other scrap or ring falls on a
 // lock from its spot; the start solves nothing; every spot is inside the envelope and apart from the others.
 import { ENVELOPE } from "./envelope";
-import { area, bbox, circlePts, elongation, hash, inPoly, polyDist, proj, rng32 } from "./geom";
+import { area, bbox, circlePts, elongation, hash, inPoly, proj, rng32, segDist } from "./geom";
 import { boxParams, dailyParams } from "./params";
 import { SHAPES, SILHOUETTES } from "./shapes";
+import { BAND, type Coverage, type LockSamples, lockSamples, measure, RING_SIDES, shadowPolys } from "./solve";
 import { LOOT, OWNERS } from "./story";
 import type { Box, BoxParams, BoxSpec, Element, Lock, Ring, ShapeName, V2, V3 } from "./types";
 
+/**
+ * The generator's version. Bump it with any change that alters a box for some spec (RNG call order, a constant, a
+ * shape, a check), and update the golden hashes in tests/unit/generator.test.ts. Saves store it with each box, so a
+ * box saved under another version can be told apart.
+ */
+export const GENERATOR_VERSION = 1;
+
 const E = ENVELOPE;
-/** The margin around an outline that must stay lit. */
-const BAND = 0.04;
-/** Spacing of the grid points that check where shadows land while a box is built. */
+/** Spacing of the grid points for the start check and the ring marks' clearance. */
 const STEP = 0.008;
 /** Whole-box attempts before giving up, and tries per spot, piece and decoy within one attempt. */
 const ATTEMPTS = 300;
@@ -38,14 +44,15 @@ const LAYOUTS: Record<1 | 2 | 3, { c: V2; size: number }[]> = {
 };
 /** A lock's outline turns by up to this much either way, in radians. */
 const ROT_MAX = 0.5;
-/** Depth ranges of a lock's two sight rings: the front ring, then the back one. */
-const RING_Z: [number, number][] = [
-  [0.5, 0.7],
-  [0.18, 0.35],
+/**
+ * A lock's two sight rings: a depth range, and the outer and inner radius of the ring's shadow on the panel when
+ * the lantern is at the spot. Each ring is sized for its depth, so from the spot the deep ring's shadow sits inside
+ * the shallow ring's hole with a 0.008 gap: a bullseye on the mark.
+ */
+const RINGS: { z: [number, number]; out: number; in: number }[] = [
+  { z: [0.5, 0.7], out: 0.044, in: 0.032 }, // shallow: nearer the lantern
+  { z: [0.18, 0.35], out: 0.024, in: 0.014 }, // deep: nearer the panel
 ];
-const RING_R_OUT = 0.032;
-const RING_R_IN = 0.017;
-const RING_SIDES = 14;
 /**
  * The rings' etched mark: this many lock sizes from the lock's centre in one of eight directions, at least
  * MARK_CLEAR from every outline and band point, and within MARK_MAX of the panel centre.
@@ -76,7 +83,8 @@ const DECOY_WOBBLE = 0.06;
  */
 const START_COVER_MAX = 0.45;
 
-const SHAPE_NAMES = Object.keys(SHAPES) as ShapeName[];
+/** The shapes that are not silhouettes. */
+const CLASSICS = (Object.keys(SHAPES) as ShapeName[]).filter((s) => !SILHOUETTES.includes(s));
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const dist3 = (a: V3, b: V3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const unit = (a: V3): V3 => {
@@ -89,31 +97,11 @@ const onRay = (L: V3, v: V2, z: number): V3 => {
   return [L[0] + (v[0] - L[0]) * k, L[1] + (v[1] - L[1]) * k, z];
 };
 
-interface Samples {
-  inside: V2[];
-  band: V2[];
-  box: [number, number, number, number];
-}
 interface Draft extends Lock {
-  samples: Samples;
-}
-
-/** Points that must be dark (inside the outline) or stay lit (the band around it), for checking where shadows land. */
-function lockSamples(target: V2[][], step: number): Samples {
-  const [x0, y0, x1, y1] = bbox(target.flat());
-  const inside: V2[] = [], band: V2[] = [];
-  for (let x = x0 - BAND; x <= x1 + BAND; x += step) {
-    for (let y = y0 - BAND; y <= y1 + BAND; y += step) {
-      let d = Infinity;
-      for (const p of target) {
-        d = Math.min(d, polyDist([x, y], p));
-        if (d === 0) break;
-      }
-      if (d === 0) inside.push([x, y]);
-      else if (d <= BAND) band.push([x, y]);
-    }
-  }
-  return { inside, band, box: [x0 - BAND, y0 - BAND, x1 + BAND, y1 + BAND] };
+  /** Grid points for the start check and the ring mark's clearance (the solve rule's, on the STEP grid). */
+  samples: LockSamples;
+  /** Each outline piece's bbox grown by BAND: a shadow outside it cannot come within BAND of that piece. */
+  reach: [number, number, number, number][];
 }
 
 const inBox = (p: V3) =>
@@ -130,22 +118,40 @@ function ringInBox(r: Ring): boolean {
   );
 }
 
-/** True when these points, seen from any lock's spot but `skipLock`'s, cast a shadow on that lock's outline or band. */
+/** Distance between segments ab and cd: 0 when they cross. */
+function segSegDist(a: V2, b: V2, c: V2, d: V2): number {
+  const o = (p: V2, q: V2, r: V2) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  if (o(c, d, a) * o(c, d, b) < 0 && o(a, b, c) * o(a, b, d) < 0) return 0;
+  return Math.min(segDist(a, c, d), segDist(b, c, d), segDist(c, a, b), segDist(d, a, b));
+}
+
+/** True when polygons A and B overlap or come within `gap` of each other (exact, no sampling). */
+function within(A: V2[], B: V2[], gap: number): boolean {
+  // No edges within the gap and neither holds the other's first corner: then they are apart.
+  if (inPoly(A[0]!, B) || inPoly(B[0]!, A)) return true;
+  for (let i = 0; i < A.length; i++) {
+    const a = A[i]!, b = A[(i + 1) % A.length]!;
+    for (let j = 0; j < B.length; j++) if (segSegDist(a, b, B[j]!, B[(j + 1) % B.length]!) <= gap) return true;
+  }
+  return false;
+}
+
+/**
+ * True when these points, seen from any lock's spot but `skipLock`'s, cast a shadow that touches that lock's outline
+ * or comes within BAND of it.
+ */
 function intrudes(verts: V3[], skipLock: number, locks: Draft[]): boolean {
   for (const o of locks) {
     if (o.i === skipLock) continue;
     const poly = verts.map((p) => proj(p, o.L)), [a, b, c, d] = bbox(poly), bx = o.samples.box;
     if (c < bx[0] || a > bx[2] || d < bx[1] || b > bx[3]) continue;
-    for (const s of o.samples.inside) if (inPoly(s, poly)) return true;
-    for (const s of o.samples.band) if (inPoly(s, poly)) return true;
+    for (let k = 0; k < o.target.length; k++) {
+      const r = o.reach[k]!;
+      if (c < r[0] || a > r[2] || d < r[1] || b > r[3]) continue;
+      if (within(poly, o.target[k]!, BAND)) return true;
+    }
   }
   return false;
-}
-
-function shadowPolys(elements: Element[], L: V3): V2[][] {
-  return elements.map((e) =>
-    e.kind === "ring" ? circlePts(e.c, e.nrm, e.rOut, RING_SIDES).map((p) => proj(p, L)) : e.verts.map((p) => proj(p, L)),
-  );
 }
 
 /**
@@ -206,24 +212,19 @@ export function buildBox(spec: BoxSpec): BoxBuild {
   const ax = P.amp * E.LX_MAX;
   const [PZ0, PZ1] = E.PIECE_Z;
 
-  /** Hidden locks take an unused silhouette while one is left; the others draw from every shape. */
-  function pickShapes(n: number, hidden: Set<number>): ShapeName[] {
-    const used = new Set<ShapeName>(), silhouettes = shuffle(SILHOUETTES.slice()), all = shuffle(SHAPE_NAMES.slice());
-    const take = (pool: ShapeName[]) => {
-      const s = pool.find((x) => !used.has(x));
-      if (s) used.add(s);
-      return s;
-    };
-    const shapes: ShapeName[] = [];
-    for (let i = 0; i < n; i++) if (hidden.has(i)) shapes[i] = take(silhouettes) ?? take(all)!;
-    for (let i = 0; i < n; i++) if (!hidden.has(i)) shapes[i] = take(all)!;
-    return shapes;
+  /**
+   * One silhouette at most, and only on a hidden lock (`silLock`, or -1 for none): it is the box's "it's a cat!"
+   * moment. Every other lock, hidden or not, is a different classic shape.
+   */
+  function pickShapes(n: number, silLock: number): ShapeName[] {
+    const classics = shuffle(CLASSICS.slice());
+    return Array.from({ length: n }, (_, i) => (i === silLock ? pick(SILHOUETTES) : classics[i]!));
   }
 
   function tryBuild(): Box | Reason {
     const lay = LAYOUTS[P.locks], ids = lay.map((_, i) => i);
-    const hidden = new Set(shuffle(ids.slice()).slice(0, P.hidden));
-    const shapes = pickShapes(P.locks, hidden);
+    const hiddenOrder = shuffle(ids.slice()).slice(0, P.hidden), hidden = new Set(hiddenOrder);
+    const shapes = pickShapes(P.locks, hiddenOrder[0] ?? -1);
     const locks: Draft[] = [];
     for (let i = 0; i < P.locks; i++) {
       const { c: center, size } = lay[i]!, rot = R(-ROT_MAX, ROT_MAX), c = Math.cos(rot), s = Math.sin(rot);
@@ -252,6 +253,10 @@ export function buildBox(spec: BoxSpec): BoxBuild {
         rings: true,
         hidden: hidden.has(i),
         samples: lockSamples(target, STEP),
+        reach: target.map((p) => {
+          const [x0, y0, x1, y1] = bbox(p);
+          return [x0 - BAND, y0 - BAND, x1 + BAND, y1 + BAND];
+        }),
       });
     }
 
@@ -297,9 +302,11 @@ export function buildBox(spec: BoxSpec): BoxBuild {
         if (Math.abs(m[0]) > MARK_MAX || Math.abs(m[1]) > MARK_MAX) continue;
         const near = (s: V2) => Math.hypot(s[0] - m[0], s[1] - m[1]) < MARK_CLEAR;
         if (locks.some((o) => o.samples.inside.some(near) || o.samples.band.some(near))) continue;
-        const rings = RING_Z.map(([z0, z1]): Ring => {
-          const c = onRay(l.L, m, R(z0, z1));
-          return { kind: "ring", lock: l.i, c, nrm: unit([l.L[0] - c[0], l.L[1] - c[1], l.L[2] - c[2]]), rOut: RING_R_OUT, rIn: RING_R_IN };
+        const rings = RINGS.map(({ z: [z0, z1], out, in: inner }): Ring => {
+          // A ring at depth z casts its shadow k = Lz / (Lz - z) times its size.
+          const c = onRay(l.L, m, R(z0, z1)), k = l.L[2] / (l.L[2] - c[2]);
+          const nrm = unit([l.L[0] - c[0], l.L[1] - c[1], l.L[2] - c[2]]);
+          return { kind: "ring", lock: l.i, c, nrm, rOut: out / k, rIn: inner / k };
         });
         if (!rings.every(ringInBox)) continue;
         if (rings.some((r) => intrudes(circlePts(r.c, r.nrm, r.rOut, RING_SIDES), -1, locks))) continue;
@@ -328,12 +335,10 @@ export function buildBox(spec: BoxSpec): BoxBuild {
       if (!placed) return "decoy";
     }
 
-    // The start must not already half solve anything.
-    const fromStart = shadowPolys(elements, start);
-    for (const l of locks) {
-      const lit = l.samples.inside.filter((s) => fromStart.some((p) => inPoly(s, p))).length;
-      if (lit / l.samples.inside.length >= START_COVER_MAX) return "start";
-    }
+    // The start must not already half solve anything: the solve rule's coverage, missing pieces counted too.
+    const fromStart: V2[][] = [], n = shadowPolys(elements, start, fromStart);
+    const cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 1 };
+    for (const l of locks) if (measure(l.samples, fromStart, n, [], 0, cov).cover >= START_COVER_MAX) return "start";
 
     return {
       key,
@@ -341,7 +346,7 @@ export function buildBox(spec: BoxSpec): BoxBuild {
       params: { ...P },
       start,
       elements,
-      locks: locks.map(({ samples: _samples, ...l }): Lock => l),
+      locks: locks.map(({ samples: _samples, reach: _reach, ...l }): Lock => l),
       owner: pick(OWNERS),
       loot: pick(LOOT),
       mirrored: false,

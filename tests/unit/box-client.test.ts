@@ -5,13 +5,14 @@ import type { BoxSpec } from "../../src/core/types";
 type Msg = { id: number; spec: BoxSpec };
 
 class FakeWorker {
-  static mode: "ok" | "error-msg" | "onerror" = "ok";
+  static mode: "ok" | "error-msg" | "onerror" | "messageerror" = "ok";
   static created = 0;
   static posted: BoxSpec[] = [];
   static delays: Record<number, number> = {};
   static args: unknown[] = [];
   onmessage: ((e: { data: unknown }) => void) | null = null;
   onerror: ((e: unknown) => void) | null = null;
+  onmessageerror: ((e: unknown) => void) | null = null;
   constructor(...args: unknown[]) {
     FakeWorker.created++;
     FakeWorker.args = args;
@@ -21,6 +22,7 @@ class FakeWorker {
     const delay = m.spec.kind === "box" ? (FakeWorker.delays[m.spec.n] ?? 0) : 0;
     setTimeout(() => {
       if (FakeWorker.mode === "onerror") return void this.onerror?.(new Error("boom"));
+      if (FakeWorker.mode === "messageerror") return void this.onmessageerror?.({ data: null });
       if (FakeWorker.mode === "error-msg") return void this.onmessage?.({ data: { id: m.id, error: "bad" } });
       try {
         this.onmessage?.({ data: { id: m.id, box: structuredClone(generateBox(m.spec)) } });
@@ -89,15 +91,32 @@ describe("createBoxClient", () => {
     expect(FakeWorker.posted).toHaveLength(13);
   });
 
-  it("falls back to this thread when the worker posts an error for a good box, then stops using it", async () => {
+  it("rejects with the worker's error message, keeps the worker, and tries again on the next get", async () => {
     vi.stubGlobal("Worker", FakeWorker);
     FakeWorker.mode = "error-msg";
     const { createBoxClient } = await import("../../src/core/box-client");
     const client = createBoxClient();
-    expect(await client.get(box(1))).toEqual(generateBox(box(1)));
+    const err = await client.get(box(1)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe("bad");
     FakeWorker.mode = "ok";
+    expect(await client.get(box(1))).toEqual(generateBox(box(1)));
     expect(await client.get(box(2))).toEqual(generateBox(box(2)));
-    expect(FakeWorker.posted).toEqual([box(1)]);
+    expect(FakeWorker.posted).toEqual([box(1), box(1), box(2)]);
+    expect(FakeWorker.created).toBe(1);
+  });
+
+  it("stops using the worker when a reply cannot be read, finishing pending boxes on this thread", async () => {
+    vi.stubGlobal("Worker", FakeWorker);
+    FakeWorker.mode = "messageerror";
+    const { createBoxClient } = await import("../../src/core/box-client");
+    const client = createBoxClient();
+    const [a, b] = await Promise.all([client.get(box(1)), client.get(box(2))]);
+    expect(a).toEqual(generateBox(box(1)));
+    expect(b).toEqual(generateBox(box(2)));
+    FakeWorker.mode = "ok";
+    expect(await client.get(box(3))).toEqual(generateBox(box(3)));
+    expect(FakeWorker.posted).toEqual([box(1), box(2)]);
     expect(FakeWorker.created).toBe(1);
   });
 
