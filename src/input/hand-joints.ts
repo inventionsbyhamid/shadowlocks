@@ -134,6 +134,16 @@ export class HandJoints {
     return Math.sqrt(x * x + y * y + z * z);
   }
 
+  /**
+   * The hand's 25 joint positions this frame (world; x, y, z each, in HAND_JOINTS order), or null when it is not
+   * tracked. The same array every frame, rewritten by update: read it, never keep or write it. For per-frame readers
+   * of many joints (hand shadows): no float crosses a call.
+   */
+  positions(h: HandSide): Float32Array | null {
+    const s = this.slots[sideIndex(h)];
+    return s.tracked ? s.world : null;
+  }
+
   /** A joint's world pose (position and turn) into `out`; false when the hand is not tracked. */
   pose(h: HandSide, j: XRHandJoint, out: Matrix4): boolean {
     const s = this.slots[sideIndex(h)];

@@ -12,10 +12,9 @@
 //
 // Pure geometry on the one joint read a frame (HandJoints, world space) through the box's matrix. Every outline is
 // preallocated per bone slot and handed out by reference: nothing is allocated per frame.
-import { type Matrix4, Vector3 } from "@iwsdk/core";
+import type { Matrix4 } from "@iwsdk/core";
 import type { V2, V3 } from "../core/types";
 import { HAND_JOINTS, type HandJoints, type HandSide, JOINT_COUNT } from "../input/hand-joints";
-import { worldToBox } from "./placement";
 
 /** A hand casts only inside the box mouth: bones with a joint at box z <= this (the open front). */
 export const MOUTH_Z = 1.0;
@@ -79,11 +78,13 @@ const CIRCLE_COS = Float64Array.from({ length: OUTLINE_CORNERS }, (_, i) => Math
 const CIRCLE_SIN = Float64Array.from({ length: OUTLINE_CORNERS }, (_, i) => Math.sin((2 * Math.PI * i) / OUTLINE_CORNERS));
 
 /**
- * The shadow outline of a capsule whose ends cast circles (ax, ay, ra) and (bx, by, rb): ten corners on the rim of
- * the two circles' convex hull, counter-clockwise. Five corners go round each end, between the two tangent lines;
- * when one circle holds the other (a bone pointing at the lantern), the larger circle. Allocation-free.
+ * The shadow outline of a capsule whose ends cast circles c = [ax, ay, ra, bx, by, rb]: ten corners on the rim of the
+ * two circles' convex hull, counter-clockwise. Five corners go round each end, between the two tangent lines; when
+ * one circle holds the other (a bone pointing at the lantern), the larger circle. The circles come in a typed array
+ * so no float is boxed at the call. Allocation-free.
  */
-export function capsuleOutline(ax: number, ay: number, ra: number, bx: number, by: number, rb: number, out: V2[]): void {
+export function capsuleOutline(c6: Float64Array, out: V2[]): void {
+  const ax = c6[0]!, ay = c6[1]!, ra = c6[2]!, bx = c6[3]!, by = c6[4]!, rb = c6[5]!;
   const dx = bx - ax, dy = by - ay, d = Math.sqrt(dx * dx + dy * dy);
   if (!(d > Math.abs(ra - rb))) {
     const big = ra >= rb, cx = big ? ax : bx, cy = big ? ay : by, r = big ? ra : rb;
@@ -130,24 +131,33 @@ export interface HandShadowResult {
 }
 
 /**
- * Read one tracked hand's joints (world) into box units through the box matrix `m`. Joints no bone uses are left as
- * they were. False when the hand is not tracked.
+ * Read the joints any bone uses of one tracked hand into `out` (x, y, z each, HAND_JOINTS order): world metres, or
+ * box units through the box matrix `m` (worldToBox's sum, written out so no float crosses a call). Joints no bone
+ * uses are left as they were. False when the hand is not tracked.
  */
-export function readHand(joints: HandJoints, side: HandSide, m: Matrix4 | null, out: Float64Array, tmp: Vector3, p: V3): boolean {
-  if (!joints.tracked(side)) return false;
-  for (let k = 0; k < USED.length; k++) {
-    joints.joint(side, USED[k]!, tmp);
-    const o = USED_INDEX[k]! * 3;
-    if (m) {
-      worldToBox(m, tmp, p);
-      out[o] = p[0];
-      out[o + 1] = p[1];
-      out[o + 2] = p[2];
-    } else {
-      out[o] = tmp.x;
-      out[o + 1] = tmp.y;
-      out[o + 2] = tmp.z;
+export function readHand(joints: HandJoints, side: HandSide, m: Matrix4 | null, out: Float64Array): boolean {
+  const w = joints.positions(side);
+  if (!w) return false;
+  if (!m) {
+    for (let k = 0; k < USED_INDEX.length; k++) {
+      const o = USED_INDEX[k]! * 3;
+      out[o] = w[o]!;
+      out[o + 1] = w[o + 1]!;
+      out[o + 2] = w[o + 2]!;
     }
+    return true;
+  }
+  // The box matrix is a turn and one uniform scale: each box axis is a column, so a point's box coordinates are
+  // its offset from the panel dotted with each column over the scale squared.
+  const e = m.elements;
+  const e0 = e[0]!, e1 = e[1]!, e2 = e[2]!, e4 = e[4]!, e5 = e[5]!, e6 = e[6]!, e8 = e[8]!, e9 = e[9]!, e10 = e[10]!;
+  const tx = e[12]!, ty = e[13]!, tz = e[14]!, s2 = e0 * e0 + e1 * e1 + e2 * e2;
+  for (let k = 0; k < USED_INDEX.length; k++) {
+    const o = USED_INDEX[k]! * 3;
+    const dx = w[o]! - tx, dy = w[o + 1]! - ty, dz = w[o + 2]! - tz;
+    out[o] = (e0 * dx + e1 * dy + e2 * dz) / s2;
+    out[o + 1] = (e4 * dx + e5 * dy + e6 * dz) / s2;
+    out[o + 2] = (e8 * dx + e9 * dy + e10 * dz) / s2;
   }
   return true;
 }
@@ -162,8 +172,8 @@ export class HandShadow {
     Array.from({ length: OUTLINE_CORNERS }, (): V2 => [0, 0]),
   );
   private readonly box = new Float64Array(JOINT_COUNT * 3);
-  private readonly tmp = new Vector3();
-  private readonly p: V3 = [0, 0, 0];
+  /** One bone's two shadow circles for capsuleOutline. */
+  private readonly circles = new Float64Array(6);
   private readonly result: HandShadowResult = { n: 0, nFinger: 0, fingerZ: Number.NaN };
 
   /**
@@ -189,10 +199,10 @@ export class HandShadow {
       const scale = Math.sqrt(e[0]! * e[0]! + e[1]! * e[1]! + e[2]! * e[2]!);
       const rFinger = FINGER_RADIUS_CM / 100 / scale, rPalm = PALM_RADIUS_CM / 100 / scale;
       const zMax = Lz * (1 - 1 / MAX_MAGNIFICATION);
-      const box = this.box;
+      const box = this.box, cc = this.circles;
       for (let h = 0; h < 2; h++) {
         const side = SIDES[h]!;
-        if (side === holder || !readHand(joints, side, m, box, this.tmp, this.p)) continue;
+        if (side === holder || !readHand(joints, side, m, box)) continue;
         const n0 = n;
         for (let i = 0; i < BONES_PER_HAND; i++) {
           const ia = BONE_A[i]! * 3, ib = BONE_B[i]! * 3;
@@ -221,7 +231,13 @@ export class HandShadow {
           const ka = Lz / (Lz - paz), kb = Lz / (Lz - pbz);
           const r = HAND_BONES[i]!.palm ? rPalm : rFinger;
           const poly = this.outlines[h * BONES_PER_HAND + i]!;
-          capsuleOutline(Lx + (pax - Lx) * ka, Ly + (pay - Ly) * ka, r * ka, Lx + (pbx - Lx) * kb, Ly + (pby - Ly) * kb, r * kb, poly);
+          cc[0] = Lx + (pax - Lx) * ka;
+          cc[1] = Ly + (pay - Ly) * ka;
+          cc[2] = r * ka;
+          cc[3] = Lx + (pbx - Lx) * kb;
+          cc[4] = Ly + (pby - Ly) * kb;
+          cc[5] = r * kb;
+          capsuleOutline(cc, poly);
           out[n] = poly;
           this.depth[n] = (paz + pbz) / 2;
           n++;

@@ -13,10 +13,8 @@ import {
   Mesh,
   MeshBasicMaterial,
   type Object3D,
-  Vector3,
   type WebGLProgramParametersWithUniforms,
 } from "@iwsdk/core";
-import type { V3 } from "../core/types";
 import { HAND_JOINTS, type HandJoints, type HandSide, JOINT_COUNT } from "../input/hand-joints";
 import { BONES_PER_HAND, FINGER_RADIUS_CM, HAND_BONES, MAX_HAND_OUTLINES, PALM_RADIUS_CM, readHand } from "./hand-shadow";
 import { LiveAttribute } from "./live-attribute";
@@ -106,8 +104,6 @@ export class HandMask {
   private readonly b: LiveAttribute;
   private readonly r: LiveAttribute;
   private readonly joints = new Float64Array(JOINT_COUNT * 3);
-  private readonly tmp = new Vector3();
-  private readonly p: V3 = [0, 0, 0];
   private drawn = 0;
 
   constructor(world: { scene: Object3D }) {
@@ -144,7 +140,7 @@ export class HandMask {
       const w = this.joints;
       const rFinger = FINGER_RADIUS_CM / 100, rPalm = PALM_RADIUS_CM / 100;
       for (let h = 0; h < 2; h++) {
-        if (!readHand(joints, SIDES[h]!, null, w, this.tmp, this.p)) continue;
+        if (!readHand(joints, SIDES[h]!, null, w)) continue;
         for (let i = 0; i < BONES_PER_HAND; i++) {
           const ia = BONE_A[i]! * 3, ib = BONE_B[i]! * 3, o = k * 3;
           A[o] = w[ia]!;
