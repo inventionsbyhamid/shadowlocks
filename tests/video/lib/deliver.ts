@@ -167,6 +167,25 @@ export interface Edit {
 const END_CARD_MUSIC_FADE_SEC = 2;
 
 export const EDIT_LOUDNESS: LoudnessTarget = { I: -14, TP: -1 };
+
+/**
+ * The loudness an edit is brought to: its own target (EDIT_LOUDNESS unless it says), or none (null)
+ * when the mix is silence: no sound pack in the repo yet and no voice-over. No gain brings silence to
+ * the target, so the edit keeps the silent levels, with a warning, instead of failing.
+ */
+export function editLoudness(
+  edit: Pick<Edit, "loudness" | "narration">,
+  m: AudioManifest,
+  log: (s: string) => void,
+  name = "edit",
+): LoudnessTarget | null {
+  const target = edit.loudness === undefined ? EDIT_LOUDNESS : edit.loudness;
+  if (target && m === SILENT_MANIFEST && !edit.narration) {
+    log(`warning: edit ${name}: no sound pack, so no loudness step (silence cannot reach ${target.I} LUFS)`);
+    return null;
+  }
+  return target;
+}
 /**
  * How far under the true peak ceiling the PCM is aimed at first, for what AAC adds. Sharp transients
  * (clunks and chimes) can come out of AAC 3 dB over the PCM: a delivered MP4 that is still
@@ -276,7 +295,7 @@ export function renderEdit(name: string, edit: Edit, o: VideoOptions, log: (s: s
   if (narration && !fs.existsSync(narration.file)) throw new Error(`edit ${name}: no narration file ${n?.file}`);
   const wav = path.join(work, `edit-${name}.wav`);
   mixTo(o, plan, wav, true, true, m, path.join(work, `edit-${name}.filter`), narration);
-  const target = edit.loudness === undefined ? EDIT_LOUDNESS : edit.loudness;
+  const target = editLoudness(edit, m, log, name);
   const out = path.join(o.outDir, `${name}.mp4`);
   // Encoded under a temporary name: the edit's MP4 only appears once every check passed.
   const tmp = path.join(work, `edit-${name}.tmp.mp4`);

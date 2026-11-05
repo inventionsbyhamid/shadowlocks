@@ -18,12 +18,8 @@ export const END_CARD: EndCard = {
 export const EDITS: Record<string, Edit> = {
   /** Proves the cut step: the sample twice, a half-second crossfade, one music bed, -14 LUFS. */
   "concat-check": { shots: ["sample", "sample"], crossfadeMs: 500 },
-  /**
-   * Proves the end card: the sample, then the card over a blurred hold of its last frame. The game's
-   * own levels (no loudness target), so it cuts while the repo has no sound pack (silence cannot be
-   * brought to -14 LUFS).
-   */
-  "card-check": { shots: ["sample"], crossfadeMs: 0, loudness: null, endCard: END_CARD },
+  /** Proves the end card: the sample, then the card over a blurred hold of its last frame. */
+  "card-check": { shots: ["sample"], crossfadeMs: 0, endCard: END_CARD },
   /** Proves the voice-over mix: needs video-assets/narration-check.wav (any speech or test tone). */
   "narration-check": { shots: ["sample"], crossfadeMs: 0, narration: { file: "video-assets/narration-check.wav", startSec: 1, duckDb: 8 } },
 };

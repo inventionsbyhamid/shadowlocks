@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AudioManifest } from "../../src/audio/manifest";
 import { COPY } from "../../src/ui/copy";
-import { END_CARD } from "../video/edits";
+import { EDITS, END_CARD } from "../video/edits";
 import {
   distanceGain,
   duckExpr,
@@ -14,12 +14,12 @@ import {
   planMusic,
   voiceLevel,
 } from "../video/lib/audio";
-import { SILENT_MANIFEST } from "../video/lib/deliver";
+import { EDIT_LOUDNESS, editLoudness, SILENT_MANIFEST } from "../video/lib/deliver";
 import { endCardHtml } from "../video/lib/endcard";
 import { contactSheetArgs, deliveryArgs, duckFilter, editVideoFilter, endCardFilter, fadeFramesFor, mezzanineArgs, mixCommand } from "../video/lib/mixdown";
 import { fixtureManifest } from "./helpers/audio-fixture";
 
-// The shapes the sound pack's manifest has (Task 3's tools write them), with test values: the video
+// The shapes the sound pack's manifest has (the sound tools write them), with test values: the video
 // mix must not depend on which pack is in the repo.
 const manifest: AudioManifest = fixtureManifest();
 const HEAD = { p: [0, 1.2, -1.4] as [number, number, number], q: [0, 0, 0, 1] as [number, number, number, number] };
@@ -154,6 +154,25 @@ describe("mix plan", () => {
     );
     expect(cmd.args.join(" ")).toContain("anullsrc=r=48000:cl=stereo");
     expect(cmd.script).toContain("apad=whole_dur=2,atrim=0:2");
+  });
+
+  it("skips an edit's loudness step on the silent mix, with a warning, and keeps it with a sound pack", () => {
+    const said: string[] = [];
+    const log = (s: string) => said.push(s);
+    // The edits without a voice-over cut while there is no sound pack: none asks silence for -14 LUFS.
+    expect(editLoudness(EDITS["concat-check"]!, SILENT_MANIFEST, log, "concat-check")).toBeNull();
+    expect(editLoudness(EDITS["card-check"]!, SILENT_MANIFEST, log, "card-check")).toBeNull();
+    expect(said).toHaveLength(2);
+    expect(said[0]).toMatch(/^warning: edit concat-check: no sound pack, so no loudness step/);
+    // A voice-over is sound: it is still brought to the target.
+    expect(editLoudness(EDITS["narration-check"]!, SILENT_MANIFEST, log, "narration-check")).toEqual(EDIT_LOUDNESS);
+    // With a pack: the default target, an edit's own, or none when it asks for none; no warning.
+    said.length = 0;
+    expect(editLoudness({}, manifest, log)).toEqual(EDIT_LOUDNESS);
+    expect(editLoudness({ loudness: { I: -16, TP: -1.5 } }, manifest, log)).toEqual({ I: -16, TP: -1.5 });
+    expect(editLoudness({ loudness: null }, manifest, log)).toBeNull();
+    expect(editLoudness({ loudness: null }, SILENT_MANIFEST, log)).toBeNull();
+    expect(said).toEqual([]);
   });
 });
 
