@@ -108,6 +108,11 @@ describe("service worker options", () => {
     for (const f of files) expect(PRECACHE_EXTENSIONS, f).toContain(path.extname(f).slice(1));
     expect(files).toContain("ui/home.uikitml");
     expect(files).toContain("fonts/archivo-xb.png");
+    // The sound pack: the music bed, and the hums, which are FLAC (they loop without a tick).
+    expect(files).toContain("audio/music/music_bed.ogg");
+    expect(files).toContain("audio/sfx/lock_hum.flac");
+    expect(files).toContain("audio/sfx/fingertip_hum.flac");
+    expect(PRECACHE_EXTENSIONS).toContain("flac");
   });
 
   it("lists each file once: the plugin adds the manifest, the glob finds the icons", () => {

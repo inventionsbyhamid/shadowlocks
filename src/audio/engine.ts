@@ -317,6 +317,9 @@ export class AudioEngine {
     const states = m.musicStates;
     for (const state of ["calm", "intense"] as const) {
       const key = states[state];
+      // The bed always has a stand-in; a second loop or a sting only when the pack names one (a
+      // pack without them is complete, and synthesising stand-ins costs a frame at boot).
+      if (!key && state !== "calm") continue;
       let e = key ? m.music[key] : undefined;
       let buffer = e ? await this.getBuffer(e.file, o) : null;
       if (!buffer) {
@@ -347,6 +350,7 @@ export class AudioEngine {
     for (const id of STING_IDS) {
       // postprocess puts stings in `music`; accept an `sfx` entry too in case they move there.
       const key = m.stings[id];
+      if (!key) continue;
       let e: Pick<MusicEntry, "gainDb" | "duckMusicDb"> | undefined = key ? (m.music[key] ?? m.sfx[key]) : undefined;
       const file = key ? (m.music[key]?.file ?? m.sfx[key]?.files[0]) : undefined;
       let buffer = file ? await this.getBuffer(file, o) : null;

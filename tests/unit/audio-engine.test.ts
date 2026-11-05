@@ -216,31 +216,31 @@ describe("missing ids", () => {
 });
 
 describe("derived sounds", () => {
-  it("plays combo steps at pentatonic semitones from one buffer", async () => {
+  it("plays music-box notes pitched from one sample, keeping the sample's tuning", async () => {
     const r = await makeRig();
-    const steps = [1, 2, 3, 4];
-    const semis = [0, 3, 5, 7];
-    for (const s of steps) {
+    const notes = ["mb_g5", "mb_fs5", "mb_a5", "lesson_step"] as const;
+    const semis = [0, -1, 2, 0];
+    for (const n of notes) {
       r.ctx.currentTime += 1;
-      r.engine.play(id(`combo_${s}`));
+      r.engine.play(n);
     }
-    for (let i = 0; i < steps.length; i++) {
-      expect(cents(r.ctx.sources[i]!)).toBeCloseTo(semis[i]! * 100, 5);
-      expect(r.ctx.sources[i]!.buffer).toBe(r.buf("combo_a"));
+    for (let i = 0; i < notes.length; i++) {
+      expect(cents(r.ctx.sources[i]!)).toBeCloseTo(-7 + semis[i]! * 100, 5);
+      expect(r.ctx.sources[i]!.buffer).toBe(r.buf("note_g5"));
     }
   });
 
-  it("combo_5 is +10 semitones and also plays crystallise", async () => {
+  it("a derived sound with a companion is pitched and also plays the companion", async () => {
     const r = await makeRig();
-    r.engine.play(id("combo_5"));
+    r.engine.play(id("tick_with_crystal"));
     expect(r.ctx.sources).toHaveLength(2);
     expect(cents(r.ctx.sources[0]!)).toBeCloseTo(1000, 5);
     expect(r.ctx.sources[1]!.buffer).toBe(r.buf("cmax_a"));
   });
 
-  it("ring_close plays a reversed copy of ring_chime", async () => {
+  it("a reversed derived sound plays a reversed copy of its source", async () => {
     const r = await makeRig();
-    r.engine.play(id("ring_close"));
+    r.engine.play(id("chime_reversed"));
     const b = r.ctx.sources[0]!.buffer as unknown as { length: number; data: Float32Array[] };
     expect(b).not.toBe(r.buf("bloom_a"));
     expect(b.data[0]![b.length - 1]).toBe(0.5);
@@ -361,9 +361,9 @@ describe("play handle, variants and captions", () => {
     expect(r.ctx.sources[1]!.buffer).toBe(r.buf("press_a"));
   });
 
-  it("rush_tock is variant b of dial_tick, two semitones down", async () => {
+  it("a derived sound can use one variant of its source, pitched", async () => {
     const r = await makeRig();
-    r.engine.play(id("rush_tock"));
+    r.engine.play(id("tock_low"));
     expect(r.ctx.sources[0]!.buffer).toBe(r.buf("tock_a"));
     expect(cents(r.ctx.sources[0]!)).toBeCloseTo(-200, 5);
   });
@@ -389,16 +389,16 @@ describe("play handle, variants and captions", () => {
       unlock: false,
       captions,
       tweak: (m) => {
-        m.sfx.glass_tick!.caption = "Combo";
-        m.sfx.crystallise!.caption = "Max combo";
+        m.sfx.glass_tick!.caption = "Tick";
+        m.sfx.crystallise!.caption = "Piece formed";
         m.sfx.hint_reveal = { ...m.sfx.glass_tick!, files: ["missing_file"], caption: "Hint" };
       },
     });
     r.buffers.delete("missing_file");
     await r.engine.loadSfx(r.manifest, { buffers: r.buffers, fetchData: async () => Promise.reject(new Error("404")) });
     r.engine.play("hint_reveal");
-    r.engine.play(id("combo_5"));
-    expect(captions).toEqual([["hint_reveal", "Hint"], ["combo_5", "Combo"], ["crystallise", "Max combo"]]);
+    r.engine.play(id("tick_with_crystal"));
+    expect(captions).toEqual([["hint_reveal", "Hint"], ["tick_with_crystal", "Tick"], ["crystallise", "Piece formed"]]);
     expect(r.ctx.sources).toHaveLength(0);
   });
 
