@@ -5,8 +5,9 @@
 // hand joint is read once a frame into `handJoints` (the lantern grab and hand shadows read it too).
 //
 // Pointers, re-applied every frame (cheap when unchanged; survives IWSDK resetting a side): IWSDK's
-// grab pointer is always off, and a hand the app says is busy (reaching for or holding the lantern)
-// has its ray off, so its pinch cannot also click a button the ray points at. A hand the app says
+// grab pointer is always off, and a hand or controller the app says is busy (reaching for or holding
+// the lantern) has its ray off, so its pinch or trigger cannot also click a button the ray points at
+// (reaching starts at 12 cm, so the ray is off before the press that grabs). A hand the app says
 // is holding something keeps its pinch through any tracking loss (the hand coming back decides).
 //
 // Frame order: InputSystem (-4) moves the pointers, HandPinchSystem (-3.2) reads the hands, then the
@@ -50,7 +51,7 @@ export const hands: readonly [HandPinch, HandPinch] = [newPinch(), newPinch()];
 /** Every joint of both hands (world space), refreshed every frame by HandPinchSystem. */
 export const handJoints = new HandJoints();
 
-/** Is this hand busy (reaching for or holding something)? Its ray is off while it is. */
+/** Is this hand or controller busy (reaching for or holding something)? Its ray is off while it is. */
 export type BusyHand = (side: 0 | 1) => boolean;
 
 let busy: BusyHand = () => false;
@@ -90,7 +91,9 @@ export class HandPinchSystem extends createSystem({}) {
       if (kind === "none") continue;
       const mp = this.input.xr.multiPointers[SIDES[side]];
       mp.toggleSubPointer("grab", false);
-      mp.toggleSubPointer("ray", kind !== "hand" || !busy(side));
+      // Hands and controllers alike: a busy one (reaching for or holding the lantern) has no ray, so
+      // the press that grabs, and every press while it holds, cannot also select what the ray is on.
+      mp.toggleSubPointer("ray", !busy(side));
     }
   }
 

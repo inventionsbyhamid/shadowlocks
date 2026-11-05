@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { Group, Quaternion, Vector3 } from "@iwsdk/core";
 import type { V3 } from "../../src/core/types";
 import { GRAB_RADIUS_CM, LANTERN_MIN_Z } from "../../src/feel/constants";
-import { type FeelEvent, LanternController, type LanternCtx, type RingLine } from "../../src/feel/lantern-controller";
+import {
+  type FeelEvent,
+  LanternController,
+  type LanternCtx,
+  type LanternInput,
+  type RingLine,
+} from "../../src/feel/lantern-controller";
 import type { HandPinch } from "../../src/input/grab-system";
 import type { HandJoints } from "../../src/input/hand-joints";
 import { GLOW_FAR_CM, GLOW_NEAR_CM, LanternGrab } from "../../src/input/lantern-grab";
@@ -111,9 +117,10 @@ class Bench {
       this.t += this.dt;
       this.grab.update(this.t, this.ctx);
       for (let e = 0; e < this.grab.eventCount; e++) this.events.push({ ...this.grab.events[e]! });
-      if (this.grab.grabbedBy) this.said.push(`grab ${this.grab.grabbedBy}`);
-      if (this.grab.releasedBy) this.said.push(`release ${this.grab.releasedBy}`);
+      // In the order they happen within a frame (as LanternSystem tells the bus): lost, let go, taken.
       if (this.grab.lostBy) this.said.push(`lost ${this.grab.lostBy}`);
+      if (this.grab.releasedBy) this.said.push(`release ${this.grab.releasedBy}`);
+      if (this.grab.grabbedBy) this.said.push(`grab ${this.grab.grabbedBy}`);
       // Edges last one frame.
       for (const pin of this.pins) pin.edge = null;
     }
@@ -307,6 +314,80 @@ describe("LanternGrab: tracking lost while holding", () => {
     expect(b.view.pos[0]).toBeCloseTo(before[0] + u(3), 3);
     expect(b.types()).toEqual(["grab"]);
   });
+
+  it("once the loss is told, the other hand's pinch takes it: let go where it stood, then grabbed, in one frame", () => {
+    const b = held();
+    b.lose("right");
+    b.frame();
+    const kept = [...b.view.pos] as V3;
+    const beside = add(kept, [u(-2), 0, 0]);
+    // Within the grace time a pinch of the other hand changes nothing.
+    b.hand("left", beside, false);
+    b.frame(2);
+    b.hand("left", beside, true);
+    b.frame();
+    expect(b.grab.holder).toBe("right");
+    expect(b.said).toEqual(["grab right"]);
+    // Past it (the loss told), a new pinch of the other hand within the grab radius takes the lantern.
+    b.hand("left", beside, false);
+    b.frame(12);
+    expect(b.said).toEqual(["grab right", "lost right"]);
+    expect(b.grab.holder).toBe("right");
+    b.hand("left", beside, true);
+    b.frame();
+    expect(b.grab.holder).toBe("left");
+    expect(b.said).toEqual(["grab right", "lost right", "release right", "grab left"]);
+    expect(b.types()).toEqual(["grab", "release", "grab"]);
+    expect(b.view.pos).toEqual(kept);
+    expect([b.grab.holding(0), b.grab.holding(1)]).toEqual([true, false]);
+    // The new hand carries it with its own grip; the old hand coming back still pinched changes nothing.
+    for (let i = 1; i <= 20; i++) {
+      b.hand("left", add(beside, [0, u((3 * i) / 20), 0]), true);
+      b.hand("right", add(kept, [u(1), 0, 0]), true);
+      b.frame();
+    }
+    b.frame(60);
+    expect(b.grab.holder).toBe("left");
+    expect(b.view.pos[1]).toBeCloseTo(kept[1] + u(3), 3);
+    expect(b.types()).toEqual(["grab", "release", "grab"]);
+  });
+
+  it("a pinch of the other hand outside the grab radius never takes a lost hold", () => {
+    const b = held();
+    b.lose("right");
+    b.frame(20);
+    const far = add(b.view.pos, [u(-(GRAB_RADIUS_CM + 2)), 0, 0]);
+    b.hand("left", far, false);
+    b.frame();
+    b.hand("left", far, true);
+    b.frame();
+    expect(b.grab.holder).toBe("right");
+    expect(b.said).toEqual(["grab right", "lost right"]);
+  });
+
+  it("drop lets a hold go where the lantern stands, reported by the next update; a hand still pinching does not grab again", () => {
+    const b = held();
+    const kept = [...b.view.pos] as V3;
+    b.grab.drop(b.t, b.ctx);
+    expect(b.grab.holder).toBeNull();
+    expect(b.ctrl.held).toBe(false);
+    b.grab.place(START);
+    b.frame();
+    expect(b.said).toEqual(["grab right", "release right"]);
+    expect(b.types()).toEqual(["grab", "release"]);
+    expect(b.view.pos).toEqual(START);
+    // The hand, still pinching beside where it was, moves on: the lantern stays at its new place.
+    for (let i = 1; i <= 20; i++) {
+      b.hand("right", add(kept, [u(i / 5), 0, 0]), true);
+      b.frame();
+    }
+    expect(b.view.pos).toEqual(START);
+    expect(b.grab.holder).toBeNull();
+    // Nobody holding: drop does nothing.
+    b.grab.drop(b.t, b.ctx);
+    b.frame();
+    expect(b.said).toEqual(["grab right", "release right"]);
+  });
 });
 
 describe("LanternGrab: the view", () => {
@@ -396,13 +477,28 @@ describe("LanternGrab: the view", () => {
     expect(b.ctrl.pos).toEqual([0.1, -0.2, 1.4]);
   });
 
-  it("allocates nothing per frame: the same event array, input and points every frame", () => {
+  it("reuses its event array, the input it gives the controller and its pinch point arrays every frame", () => {
     const b = new Bench();
     const events = b.grab.events;
+    const seen: { inp: LanternInput; pos: V3 | null }[] = [];
+    const update = b.ctrl.update.bind(b.ctrl);
+    b.ctrl.update = (inp: LanternInput, ctx: LanternCtx) => {
+      seen.push({ inp, pos: inp.pinchPos });
+      update(inp, ctx);
+    };
     b.hand("right", START, false);
-    b.frame();
+    b.frame(5); // nobody pinching
     b.hand("right", START, true);
-    b.frame(20);
+    b.frame(); // the grab
+    for (let i = 1; i <= 20; i++) {
+      b.hand("right", add(START, [u(i / 10), 0, 0]), true);
+      b.frame(); // held and moving
+    }
+    expect(seen).toHaveLength(26);
+    expect(new Set(seen.map((s) => s.inp)).size).toBe(1);
+    expect(new Set(seen.slice(0, 5).map((s) => s.pos)).size).toBe(1);
+    expect(new Set(seen.slice(6).map((s) => s.pos)).size).toBe(1);
+    expect(seen.every((s) => s.pos !== null)).toBe(true);
     expect(b.grab.events).toBe(events);
     expect(events.length).toBe(32);
   });

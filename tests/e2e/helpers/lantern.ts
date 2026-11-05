@@ -133,11 +133,17 @@ export function posAt(s: Sample[], t: number): V3 {
 
 // --- Cost -------------------------------------------------------------------------------------------------------
 
-/** Above this 1-minute load average the server is too busy to hold a frame-time budget to. */
-export const MAX_LOAD = 8;
-/** Our per-frame lantern path (hand-pinch reads the hands; lantern runs the grab, the feel and the view), p95 sum. */
-export const BUDGET_MS = 1;
-export const LOOSE_MS = 3;
+/** Frames timed at 4x CPU throttle. */
+export const TIMED_FRAMES = 200;
+/**
+ * Our per-frame lantern path, the two systems together (hand-pinch reads the hands; lantern runs the ctx, the grab,
+ * the feel and the view): their summed update time per frame, averaged over TIMED_FRAMES frames with the single worst
+ * frame left out, at 4x CPU throttle on optimised code, is at most this (ms). The mean only: p95 moves in the timer's
+ * 0.1 ms steps (times 4) and is reported, not held to a limit.
+ */
+export const MEAN_BUDGET_MS = 0.5;
+/** The systems on the path, as the perf hook names them. */
+const PATH_SYSTEMS = ["hand-pinch", "lantern"];
 /** Files on the per-frame lantern path: none of them may allocate while a lantern is held and moved. */
 const OUR_FILES = [
   "/src/input/hand-joints.ts",
@@ -208,20 +214,45 @@ export function ourAllocations(profile: HeapProfile, frames: number, files: read
   return { bytesPerFrame: (n * SAMPLE_BYTES) / frames, byFunction };
 }
 
+/** Per-frame times (ms): mean, mean without the single worst frame, median, p95, max. */
+export interface FrameStats {
+  meanMs: number;
+  trimmedMs: number;
+  medianMs: number;
+  p95Ms: number;
+  maxMs: number;
+}
+
+export function frameStats(xs: number[]): FrameStats {
+  const s = [...xs].sort((a, b) => a - b);
+  const n = s.length;
+  const sum = s.reduce((a, b) => a + b, 0);
+  return {
+    meanMs: sum / n,
+    trimmedMs: (sum - s[n - 1]!) / (n - 1),
+    medianMs: n % 2 ? s[(n - 1) / 2]! : (s[n / 2 - 1]! + s[n / 2]!) / 2,
+    p95Ms: s[Math.min(n - 1, Math.floor(n * 0.95))]!,
+    maxMs: s[n - 1]!,
+  };
+}
+
 export interface Cost {
-  /** Update time per frame at 4x throttle; `trimmedMs` is the mean without the worst frame. */
-  pinch: { avgMs: number; p95Ms: number; maxMs: number; trimmedMs: number };
-  lan: { avgMs: number; p95Ms: number; maxMs: number; trimmedMs: number };
+  /** hand-pinch and lantern together, per frame, over TIMED_FRAMES frames at 4x CPU throttle. */
+  path: FrameStats;
+  /** Each system on its own, over the same frames (reported). */
+  pinch: FrameStats;
+  lan: FrameStats;
   frames: number;
   allocs: Allocations;
+  /** The server's 1-minute load average while timing (reported). */
   load: number | undefined;
 }
 
 /**
  * Hold the lantern on a ring line (riding it, the beam showing) and slide it back and forth: after a warm-up of
- * about 400 frames, our systems' update time over about 200 frames at 4x CPU throttle, then (on their own, the
- * sampler is heavy) the bytes allocated in our per-frame files over about 200 more, sampled every 64 bytes with
- * collected objects counted too. Logged and attached under `label`.
+ * about 400 frames, our two systems' update time per frame over the last TIMED_FRAMES frames at 4x CPU throttle,
+ * then (on their own, the sampler is heavy) the bytes allocated in our per-frame files over about 200 more, sampled
+ * every 64 bytes with collected objects counted too. Logged and attached under `label`.
  */
 export async function measureCost(boot: BootFn, page: Page, testInfo: TestInfo, label: string): Promise<Cost> {
   const app = await play(boot, page, { rings: true });
@@ -244,8 +275,11 @@ export async function measureCost(boot: BootFn, page: Page, testInfo: TestInfo, 
   try {
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
     await page.evaluate(() => window.__ns!.resetPerf());
-    await slide(4);
-    const perf = await app.perf();
+    for (let i = 0; (await app.perf()).frames < TIMED_FRAMES; i++) await carry(hand, off, i % 2 ? near : far, 600);
+    const series = (names: string[]) => page.evaluate((s) => window.__ns!.perfFrames(s), names);
+    const both = (await series(PATH_SYSTEMS)).slice(-TIMED_FRAMES);
+    const pinchFrames = (await series(["hand-pinch"])).slice(-TIMED_FRAMES);
+    const lanFrames = (await series(["lantern"])).slice(-TIMED_FRAMES);
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
     loads.push(loadAverage());
     await cdp.send("HeapProfiler.enable");
@@ -260,20 +294,19 @@ export async function measureCost(boot: BootFn, page: Page, testInfo: TestInfo, 
     const { profile } = (await cdp.send("HeapProfiler.stopSampling")) as unknown as { profile: HeapProfile };
     expect((await lantern(page)).mode).toBe("line");
 
-    const sys = (k: string) => perf.systems[k] ?? { avgMs: Number.NaN, p95Ms: Number.NaN, maxMs: Number.NaN };
-    const pinch = sys("hand-pinch"), lan = sys("lantern");
-    // The mean without the system's worst frame: a single host stall (40-60 ms on this server) moves a 200-frame mean
-    // by a quarter of a millisecond.
-    const n = perf.frames;
-    const trimmed = (s: { avgMs: number; maxMs: number }) => (s.avgMs * n - s.maxMs) / (n - 1);
+    expect(both).toHaveLength(TIMED_FRAMES);
+    // The mean leaves out the single worst frame: one host stall (40-60 ms on this server) moves a 200-frame mean by
+    // a quarter of a millisecond.
+    const path = frameStats(both), pinch = frameStats(pinchFrames), lan = frameStats(lanFrames);
     const allocs = ourAllocations(profile, frames);
     const known = loads.filter((l): l is number => l !== undefined);
     const load = known.length ? Math.max(...known) : undefined;
+    const fmt = (s: FrameStats) =>
+      `mean ${s.meanMs.toFixed(3)} (${s.trimmedMs.toFixed(3)} without the worst frame), median ${s.medianMs.toFixed(3)}, ` +
+      `p95 ${s.p95Ms.toFixed(2)}, max ${s.maxMs.toFixed(2)} ms`;
     const lines = [
-      `${label}: over ${n} frames at 4x CPU throttle: hand-pinch ${pinch.avgMs.toFixed(3)} avg (${trimmed(pinch).toFixed(3)} without its worst frame) / ` +
-        `${pinch.p95Ms.toFixed(2)} p95 / ${pinch.maxMs.toFixed(2)} max ms; lantern ${lan.avgMs.toFixed(3)} avg (${trimmed(lan).toFixed(3)}) / ` +
-        `${lan.p95Ms.toFixed(2)} p95 / ${lan.maxMs.toFixed(2)} max ms; all our systems ${perf.frameMsAvg.toFixed(3)} avg / ` +
-        `${perf.frameMsP95.toFixed(2)} p95 ms; server load ${load?.toFixed(1) ?? "?"}`,
+      `${label}: hand-pinch + lantern over ${TIMED_FRAMES} frames at 4x CPU throttle: ${fmt(path)}; server load ${load?.toFixed(1) ?? "?"}`,
+      `${label}: hand-pinch ${fmt(pinch)}; lantern ${fmt(lan)}`,
       `${label}: allocated in our per-frame files, about ${allocs.bytesPerFrame.toFixed(0)} bytes a frame over ${frames} frames ` +
         `(heap sampler, one sample per ${SAMPLE_BYTES} bytes, collected objects included)` +
         (allocs.byFunction.size ? `: ${[...allocs.byFunction].map(([k, b]) => `${k} ${b.toFixed(0)}`).join("; ")}` : ""),
@@ -282,8 +315,7 @@ export async function measureCost(boot: BootFn, page: Page, testInfo: TestInfo, 
       testInfo.annotations.push({ type: "perf", description: d });
       console.log(d);
     }
-    expect(n).toBeGreaterThanOrEqual(150);
-    return { pinch: { ...pinch, trimmedMs: trimmed(pinch) }, lan: { ...lan, trimmedMs: trimmed(lan) }, frames: n, allocs, load };
+    return { path, pinch, lan, frames: TIMED_FRAMES, allocs, load };
   } finally {
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
   }

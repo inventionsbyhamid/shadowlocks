@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Matrix4, Quaternion, Vector3 } from "@iwsdk/core";
 import { HAND_JOINTS, HandJoints, JOINT_COUNT } from "../../src/input/hand-joints";
 
@@ -137,6 +137,29 @@ describe("HandJoints", () => {
     hj.update(fakeFrame([again.source]).frame, ref);
     expect(again.gets()).toBe(25);
     expect(hj.tracked("right")).toBe(true);
+  });
+
+  it("a joint read that throws leaves the hand untracked and is reported once, never per frame", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const source = fakeHand(false).source;
+      const frame = {
+        session: { inputSources: [source] },
+        fillPoses: () => {
+          throw new Error("no poses");
+        },
+      } as unknown as XRFrame;
+      const hj = new HandJoints();
+      for (let i = 0; i < 10; i++) hj.update(frame, ref);
+      expect(hj.tracked("right")).toBe(false);
+      expect(warn).toHaveBeenCalledTimes(1);
+      // It reads again once the runtime gives poses.
+      hj.update(fakeFrame([source]).frame, ref);
+      expect(hj.tracked("right")).toBe(true);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("ignores controllers and a second source for the same hand", () => {

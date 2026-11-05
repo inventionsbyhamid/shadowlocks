@@ -117,6 +117,20 @@ function instrument(world: World, realNow: () => number) {
       last = 0;
       for (const p of per) p.n = 0;
     },
+    /** The named systems' update time per frame, summed, oldest frame first (the same window as perf()). */
+    frames(names: string[]): number[] {
+      const sel = per.filter((p) => names.includes(p.name));
+      if (!sel.length) return [];
+      const end = sel[0]!.n;
+      const n = Math.min(end, PERF_WINDOW);
+      const out: number[] = [];
+      for (let k = end - n; k < end; k++) {
+        let s = 0;
+        for (const p of sel) s += p.ring[k % PERF_WINDOW]!;
+        out.push(s);
+      }
+      return out;
+    },
   };
 }
 
@@ -162,7 +176,7 @@ export function installTestHooks(
   world: World,
   shell: Shell,
   system: ShellSystem,
-  app: { sound: Sound; lantern?: Lantern; hands?: HandsInBox },
+  app: { sound: Sound; lantern: Lantern; hands: HandsInBox },
 ): void {
   const w = window as unknown as { __vt?: VirtualClock; __ns?: NsApi; __sl?: SlApi };
   const realNow = w.__vt ? w.__vt.realNow : performance.now.bind(performance);
@@ -226,16 +240,22 @@ export function installTestHooks(
   };
 
   const box = shell.box;
-  const lan = app.lantern ?? null;
-  // Through the lantern's controller when there is one (the view follows it every frame).
-  const placeLantern = (p: V3) => (lan ? lan.place(p) : box.lantern.setPos(p));
+  const lan = app.lantern;
+  // Through the lantern's controller (the view follows the controller every frame, so a view-only move would not
+  // stay), then the shadows cast at once (the box would cast them on its next frame anyway).
+  const placeLantern = (p: V3) => {
+    lan.place(p);
+    box.syncShadows();
+  };
   const feelLog: SlFeelEvent[] = [];
-  lan?.onFeel((e) => feelLog.push({ ...e, at: performance.now() }));
+  lan.onFeel((e) => feelLog.push({ ...e, at: performance.now() }));
   const scene: NsScene = {
     show(spec, mirrored = false) {
       const made = generateBox("n" in spec ? { kind: "box", n: spec.n } : { kind: "daily", day: spec.day });
       const b = mirrored ? mirrorBox(made) : made;
       box.setBox(b);
+      // The panel etches a new box over several frames; a test sees it etched at once.
+      box.panelArt.finishEtch();
       return b.key;
     },
     box() {
@@ -280,6 +300,7 @@ export function installTestHooks(
     scene,
     state,
     perf: () => timing.perf(),
+    perfFrames: (systems) => timing.frames(systems),
     resetPerf: () => timing.reset(),
     clock,
     events: (type) => (type ? log.filter((e) => e.type === type) : [...log]),
@@ -317,11 +338,11 @@ export function installTestHooks(
   };
 
   const lanternNow = (): SlLantern => {
-    if (!lan) return { pos: box.lantern.getPos([0, 0, 0]), held: false, mode: "free", holder: null, glow: 0 };
     const c = lan.ctrl;
     return { pos: [c.pos[0], c.pos[1], c.pos[2]], held: c.held, mode: c.mode, holder: lan.grab.holder, glow: lan.grab.brightness };
   };
 
+  const lanternAt: V3 = [0, 0, 0];
   w.__sl = {
     // No box session yet: the game layer fills this in (box key, lantern, open locks, screen).
     frameState: () => null,
@@ -334,10 +355,7 @@ export function installTestHooks(
       const n = shadowPolys(b.elements, lanternNow().pos, out, SKIP_MISSING);
       return out.slice(0, n).map((poly) => poly.map((p): V2 => [p[0], p[1]]));
     },
-    ringLines: () =>
-      lan
-        ? lan.feel.ctx.lines.map((l) => ({ lock: l.lock, mark: [...l.mark] as V3, dir: [...l.dir] as V3, aligned: l.aligned }))
-        : [],
+    ringLines: () => lan.feel.ctx.lines.map((l) => ({ lock: l.lock, mark: [...l.mark] as V3, dir: [...l.dir] as V3, aligned: l.aligned })),
     feelEvents: () => feelLog.map((e) => ({ ...e })),
     clearFeelEvents: () => {
       feelLog.length = 0;
@@ -345,7 +363,6 @@ export function installTestHooks(
     hands: () => {
       const h = app.hands;
       const copy = (polys: V2[][], n: number) => polys.slice(0, n).map((poly) => poly.map((p): V2 => [p[0], p[1]]));
-      if (!h) return { outlines: [], finger: [], fingerZ: null, mask: 0, left: null, right: null };
       box.root.updateWorldMatrix(true, false);
       const m = box.root.matrixWorld;
       return {
@@ -358,7 +375,7 @@ export function installTestHooks(
       };
     },
     fingerLocks: () =>
-      (app.hands?.locks ?? []).map((e) => ({
+      app.hands.locks.map((e) => ({
         lock: e.lock.i,
         spot: [...e.lock.L] as V3,
         piece: e.lock.target[e.lock.missing]!.map((p): V2 => [p[0], p[1]]),
@@ -371,6 +388,70 @@ export function installTestHooks(
     crystallise: (lock, fingerZ) => {
       const l = box.box?.locks[lock];
       if (l) void crystallise(box, l, fingerZ, { reducedMotion: shell.settings.get().reducedMotion });
+    },
+    setWarmth: (lock, v) => box.panelArt.setWarmth(lock, v),
+    setOpen: (lock, open = true) => box.panelArt.setOpen(lock, open),
+    panelState: () => ({
+      warmth: [...box.panelArt.uniforms.uWarmth.value],
+      open: [...box.panelArt.uniforms.uOpen.value],
+    }),
+    showHanging: (v) => {
+      for (const o of [box.scraps.mesh, box.scraps.threads, box.scraps.rings, box.lantern.group]) o.visible = v;
+    },
+    shadowTimes: (path, batch = 1) => {
+      const out: number[] = [];
+      const back = box.lantern.getPos(lanternAt);
+      const saved: V3 = [back[0], back[1], back[2]];
+      for (let i = 0; i + batch <= path.length; i += batch) {
+        const t0 = realNow();
+        for (let k = 0; k < batch; k++) box.shadows.cast(path[i + k]!);
+        out.push((realNow() - t0) / batch);
+      }
+      box.shadows.cast(saved);
+      return out;
+    },
+    shadowStats: () => ({ vertices: box.shadows.mesh.vertexCount, triangles: box.shadows.mesh.indexCount / 3 }),
+    etchTimes: (count) => {
+      const panel = box.panelArt, shown = box.box;
+      const textures = [panel.uniforms.uAlbedo.value, panel.uniforms.uMasks.value, panel.uniforms.uHalo.value].filter(
+        (t): t is NonNullable<typeof t> => t !== null,
+      );
+      // A one-pixel read makes the canvases finish any drawing they defer.
+      const flush = () => {
+        for (const t of textures) (t.image as HTMLCanvasElement).getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, 1, 1);
+      };
+      const total: number[] = [], worstStep: number[] = [], upload: number[] = [], each: number[][] = [];
+      let steps = 0;
+      for (let i = 0; i < count; i++) {
+        let t = realNow();
+        panel.setBox(shown);
+        flush();
+        let worst = realNow() - t, sum = worst;
+        const run = [worst];
+        steps = 0;
+        for (let more = true; more; ) {
+          t = realNow();
+          more = panel.etchStep();
+          flush();
+          const d = realNow() - t;
+          worst = Math.max(worst, d);
+          sum += d;
+          run.push(d);
+          steps++;
+        }
+        t = realNow();
+        for (const tex of textures) world.renderer.initTexture(tex);
+        upload.push(realNow() - t);
+        total.push(sum);
+        worstStep.push(worst);
+        each.push(run);
+      }
+      // Per step (setBox first), the median over the runs.
+      const perStep = (each[0] ?? []).map((_, j) => {
+        const xs = each.map((r) => r[j]!).sort((a, b) => a - b);
+        return xs[Math.floor(xs.length / 2)]!;
+      });
+      return { total, worstStep, steps, upload, perStep };
     },
   };
 }

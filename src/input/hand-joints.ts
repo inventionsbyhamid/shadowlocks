@@ -70,6 +70,8 @@ export class HandJoints {
   private readonly slots: [Slot, Slot] = [newSlot(), newSlot()];
   /** The XR reference space to world (the player rig's matrix); identity when none is given. */
   private readonly origin = new Matrix4();
+  /** A failed joint read has been reported (once). */
+  private warned = false;
 
   /**
    * Read both hands' joints for this frame. `origin` carries the reference space into the world (the player rig's
@@ -171,7 +173,12 @@ export class HandJoints {
         const f = frame as XRFrame & { fillPoses?: FillPoses; getJointPose?: GetJointPose };
         if (f.fillPoses) ok = f.fillPoses(s.spaces, ref, s.poses);
         else if (f.getJointPose) ok = this.readEach(s, f.getJointPose.bind(f), ref);
-      } catch {
+      } catch (err) {
+        // Untracked this frame. Said once, never per frame (a runtime that throws here throws every frame).
+        if (!this.warned) {
+          this.warned = true;
+          console.warn("hand joints unavailable: reading the joint poses failed", err);
+        }
         ok = false;
       }
     }
