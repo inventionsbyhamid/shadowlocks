@@ -165,31 +165,54 @@ function loadAverage(): number | undefined {
 }
 
 interface HeapNode {
+  id: number;
   callFrame: { functionName: string; url: string; lineNumber: number };
   selfSize: number;
   children: HeapNode[];
 }
 
-/** Bytes the sampling heap profile puts in each of our files' functions (file:function:line of the function). */
-function ourAllocations(root: HeapNode): Map<string, number> {
-  const out = new Map<string, number>();
+interface HeapProfile {
+  head: HeapNode;
+  /** One per sampled allocation: its exact size and where it was made. */
+  samples: { size: number; nodeId: number }[];
+}
+
+/** The heap sampler takes one sample per this many bytes allocated, on average. */
+const SAMPLE_BYTES = 64;
+
+/** Sampled allocations in our files' functions: bytes per frame in all, and by function (file:function:line). */
+export interface Allocations {
+  bytesPerFrame: number;
+  byFunction: Map<string, number>;
+}
+
+function ourAllocations(profile: HeapProfile, frames: number): Allocations {
+  const ours = new Map<number, string>();
   const walk = (n: HeapNode) => {
     const url = n.callFrame.url;
-    if (n.selfSize > 0 && OUR_FILES.some((f) => url.includes(f))) {
-      const key = `${url.replace(/^.*\/src\//, "src/").replace(/\?.*$/, "")}:${n.callFrame.functionName}:${n.callFrame.lineNumber + 1}`;
-      out.set(key, (out.get(key) ?? 0) + n.selfSize);
+    if (OUR_FILES.some((f) => url.includes(f))) {
+      ours.set(n.id, `${url.replace(/^.*\/src\//, "src/").replace(/\?.*$/, "")}:${n.callFrame.functionName}:${n.callFrame.lineNumber + 1}`);
     }
     for (const c of n.children) walk(c);
   };
-  walk(root);
-  return out;
+  walk(profile.head);
+  const byFunction = new Map<string, number>();
+  let n = 0;
+  for (const s of profile.samples) {
+    const key = ours.get(s.nodeId);
+    if (!key) continue;
+    n++;
+    byFunction.set(key, (byFunction.get(key) ?? 0) + SAMPLE_BYTES / frames);
+  }
+  return { bytesPerFrame: (n * SAMPLE_BYTES) / frames, byFunction };
 }
 
 export interface Cost {
-  pinch: { avgMs: number; p95Ms: number; maxMs: number };
-  lan: { avgMs: number; p95Ms: number; maxMs: number };
+  /** Update time per frame at 4x throttle; `trimmedMs` is the mean without the worst frame. */
+  pinch: { avgMs: number; p95Ms: number; maxMs: number; trimmedMs: number };
+  lan: { avgMs: number; p95Ms: number; maxMs: number; trimmedMs: number };
   frames: number;
-  allocs: Map<string, number>;
+  allocs: Allocations;
   load: number | undefined;
 }
 
@@ -230,29 +253,36 @@ export async function measureCost(boot: BootFn, page: Page, testInfo: TestInfo, 
       includeObjectsCollectedByMinorGC: true,
       includeObjectsCollectedByMajorGC: true,
     });
+    const f0 = await page.evaluate(() => (window as any).__vt.frames as number);
     await slide(4);
-    const { profile } = (await cdp.send("HeapProfiler.stopSampling")) as unknown as { profile: { head: HeapNode } };
+    const frames = (await page.evaluate(() => (window as any).__vt.frames as number)) - f0;
+    const { profile } = (await cdp.send("HeapProfiler.stopSampling")) as unknown as { profile: HeapProfile };
     expect((await lantern(page)).mode).toBe("line");
 
     const sys = (k: string) => perf.systems[k] ?? { avgMs: Number.NaN, p95Ms: Number.NaN, maxMs: Number.NaN };
     const pinch = sys("hand-pinch"), lan = sys("lantern");
-    const allocs = ourAllocations(profile.head);
+    // The mean without the system's worst frame: a single host stall (40-60 ms on this server) moves a 200-frame mean
+    // by a quarter of a millisecond.
+    const n = perf.frames;
+    const trimmed = (s: { avgMs: number; maxMs: number }) => (s.avgMs * n - s.maxMs) / (n - 1);
+    const allocs = ourAllocations(profile, frames);
     const known = loads.filter((l): l is number => l !== undefined);
     const load = known.length ? Math.max(...known) : undefined;
     const lines = [
-      `${label}: over ${perf.frames} frames at 4x CPU throttle: hand-pinch ${pinch.avgMs.toFixed(3)} avg / ${pinch.p95Ms.toFixed(2)} p95 / ` +
-        `${pinch.maxMs.toFixed(2)} max ms; lantern ${lan.avgMs.toFixed(3)} avg / ${lan.p95Ms.toFixed(2)} p95 / ${lan.maxMs.toFixed(2)} max ms; ` +
-        `all our systems ${perf.frameMsAvg.toFixed(3)} avg / ${perf.frameMsP95.toFixed(2)} p95 ms; server load ${load?.toFixed(1) ?? "?"}`,
-      allocs.size
-        ? `${label}: bytes allocated in our per-frame files over about 200 frames: ${[...allocs].map(([k, b]) => `${k} ${b}`).join("; ")}`
-        : `${label}: no allocation sampled in our per-frame files over about 200 frames (every 64 bytes, collected objects included)`,
+      `${label}: over ${n} frames at 4x CPU throttle: hand-pinch ${pinch.avgMs.toFixed(3)} avg (${trimmed(pinch).toFixed(3)} without its worst frame) / ` +
+        `${pinch.p95Ms.toFixed(2)} p95 / ${pinch.maxMs.toFixed(2)} max ms; lantern ${lan.avgMs.toFixed(3)} avg (${trimmed(lan).toFixed(3)}) / ` +
+        `${lan.p95Ms.toFixed(2)} p95 / ${lan.maxMs.toFixed(2)} max ms; all our systems ${perf.frameMsAvg.toFixed(3)} avg / ` +
+        `${perf.frameMsP95.toFixed(2)} p95 ms; server load ${load?.toFixed(1) ?? "?"}`,
+      `${label}: allocated in our per-frame files, about ${allocs.bytesPerFrame.toFixed(0)} bytes a frame over ${frames} frames ` +
+        `(heap sampler, one sample per ${SAMPLE_BYTES} bytes, collected objects included)` +
+        (allocs.byFunction.size ? `: ${[...allocs.byFunction].map(([k, b]) => `${k} ${b.toFixed(0)}`).join("; ")}` : ""),
     ];
     for (const d of lines) {
       testInfo.annotations.push({ type: "perf", description: d });
       console.log(d);
     }
-    expect(perf.frames).toBeGreaterThanOrEqual(150);
-    return { pinch, lan, frames: perf.frames, allocs, load };
+    expect(n).toBeGreaterThanOrEqual(150);
+    return { pinch: { ...pinch, trimmedMs: trimmed(pinch) }, lan: { ...lan, trimmedMs: trimmed(lan) }, frames: n, allocs, load };
   } finally {
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
   }
