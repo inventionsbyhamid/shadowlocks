@@ -284,8 +284,36 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
     },
   };
 
+  const lanternAt: V3 = [0, 0, 0];
   w.__sl = {
     // No box session yet: the game layer fills this in (box key, lantern, open locks, screen).
     frameState: () => null,
+    placeLantern: (p) => {
+      box.lantern.setPos(p);
+      box.syncShadows();
+    },
+    lantern: () => box.lantern.getPos([0, 0, 0]),
+    setWarmth: (lock, v) => box.panelArt.setWarmth(lock, v),
+    setOpen: (lock, open = true) => box.panelArt.setOpen(lock, open),
+    panelState: () => ({
+      warmth: [...box.panelArt.uniforms.uWarmth.value],
+      open: [...box.panelArt.uniforms.uOpen.value],
+    }),
+    showHanging: (v) => {
+      for (const o of [box.scraps.mesh, box.scraps.threads, box.scraps.rings, box.lantern.group]) o.visible = v;
+    },
+    shadowTimes: (path, batch = 1) => {
+      const out: number[] = [];
+      const back = box.lantern.getPos(lanternAt);
+      const saved: V3 = [back[0], back[1], back[2]];
+      for (let i = 0; i + batch <= path.length; i += batch) {
+        const t0 = realNow();
+        for (let k = 0; k < batch; k++) box.shadows.cast(path[i + k]!);
+        out.push((realNow() - t0) / batch);
+      }
+      box.shadows.cast(saved);
+      return out;
+    },
+    shadowStats: () => ({ vertices: box.shadows.mesh.vertexCount, triangles: box.shadows.mesh.indexCount / 3 }),
   };
 }

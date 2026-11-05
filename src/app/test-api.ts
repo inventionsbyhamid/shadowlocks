@@ -166,6 +166,24 @@ export interface SlFrameState {
 export interface SlApi {
   /** The game's state for a video frame's fingerprint, or null while no box is in play. */
   frameState(): SlFrameState | null;
+  /** Put the lantern at p (box units) and cast its shadows now. */
+  placeLantern(p: V3): void;
+  /** Where the lantern is (box units). */
+  lantern(): V3;
+  /** A lock's warmth (0..1, eased in by the panel) and opening (its gold fill), as the game sets them. */
+  setWarmth(lock: number, w: number): void;
+  setOpen(lock: number, open?: boolean): void;
+  /** The panel's eased warmth and opening per lock, as its shader reads them. */
+  panelState(): { warmth: number[]; open: number[] };
+  /** Show or hide what hangs in the box (scraps, threads, rings, lantern), to read the panel behind it. */
+  showHanging(v: boolean): void;
+  /**
+   * Real ms per shadow update (casting every shadow and writing the mesh) with the lantern moved along
+   * `path` (box units), one point per update; with `batch` > 1, each entry is the mean of that many.
+   */
+  shadowTimes(path: V3[], batch?: number): number[];
+  /** What the shadow mesh holds: vertices and triangles. */
+  shadowStats(): { vertices: number; triangles: number };
 }
 
 declare global {
