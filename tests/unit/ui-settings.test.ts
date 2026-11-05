@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultProfile } from "../../src/core/profile";
+import { defaultSettings } from "../../src/core/profile";
 import { HOME, homeView, paintHome } from "../../src/ui/menus/home";
 import { formatSetting, paintSettings, SETTINGS, settingAction, settingsView, sliderPosition, stepSetting } from "../../src/ui/menus/settings";
 import { UI } from "../../src/ui/theme";
@@ -28,7 +28,7 @@ describe("settings", () => {
   });
 
   it("steps on a clean grid and stops at the profile's limits", () => {
-    const s = defaultProfile().settings;
+    const s = defaultSettings();
     expect(stepSetting(s, "boxSizeCm", 1)).toEqual({ boxSizeCm: 26 });
     expect(stepSetting(s, "boxSizeCm", -1)).toEqual({ boxSizeCm: 22 });
     expect(stepSetting({ ...s, boxSizeCm: 30 }, "boxSizeCm", 1)).toEqual({ boxSizeCm: 30 });
@@ -41,7 +41,7 @@ describe("settings", () => {
   });
 
   it("maps buttons to changes", () => {
-    const s = defaultProfile().settings;
+    const s = defaultSettings();
     expect(settingAction("music-up", s)).toEqual({ musicVol: 0.8 });
     expect(settingAction("effects-down", s)).toEqual({ sfxVol: 0.8 });
     expect(settingAction("box-up", s)).toEqual({ boxSizeCm: 26 });
@@ -69,7 +69,7 @@ describe("settings", () => {
   });
 
   it("shows values, meter fill and the ends of each range", () => {
-    const v = settingsView({ ...defaultProfile().settings, boxSizeCm: 30, musicVol: 0, reducedMotion: true });
+    const v = settingsView({ ...defaultSettings(), boxSizeCm: 30, musicVol: 0, reducedMotion: true });
     expect(v.sliders.find((x) => x.key === "boxSizeCm")).toMatchObject({ label: "Box size", value: "30 cm", fill: 1, atMax: true });
     expect(v.sliders.find((x) => x.key === "musicVol")).toMatchObject({ label: "Music", value: "Off", fill: 0, atMin: true });
     expect(v.sliders.map((x) => x.label)).toEqual(["Music", "Effects", "Box size"]);
@@ -82,14 +82,14 @@ describe("settings", () => {
   });
 
   it("keys at the end of their range are disabled (no click, no sound) until the value moves back", () => {
-    const v = settingsView({ ...defaultProfile().settings, boxSizeCm: 18, sfxVol: 1, musicVol: 0 });
+    const v = settingsView({ ...defaultSettings(), boxSizeCm: 18, sfxVol: 1, musicVol: 0 });
     expect([...v.disabled].sort()).toEqual(["box-down", "effects-up", "music-down"]);
-    expect(settingsView(defaultProfile().settings).disabled).toEqual([]);
+    expect(settingsView(defaultSettings()).disabled).toEqual([]);
   });
 
   it("paints a dim stepper at its range end and a lit cap with On for a toggle that is on", () => {
     const { calls, ui } = recorder();
-    paintSettings(ui, settingsView({ ...defaultProfile().settings, boxSizeCm: 18, captions: false }));
+    paintSettings(ui, settingsView({ ...defaultSettings(), boxSizeCm: 18, captions: false }));
     expect(calls).toContain(`fill box-down-bar ${UI.stepperOff}`);
     expect(calls).toContain(`fill box-up-bar ${UI.text}`);
     expect(calls).toContain(`fill box-up-bar-v ${UI.text}`);
@@ -106,7 +106,7 @@ describe("settings", () => {
 
 describe("slider position", () => {
   it("is where a step key's slider sits in its range, for the tick's pitch", () => {
-    const s = { ...defaultProfile().settings, musicVol: 0.5, boxSizeCm: 18, sfxVol: 1 };
+    const s = { ...defaultSettings(), musicVol: 0.5, boxSizeCm: 18, sfxVol: 1 };
     expect(sliderPosition("music-up", s)).toBeCloseTo(0.5, 9);
     expect(sliderPosition("box-down", s)).toBe(0);
     expect(sliderPosition("effects-up", s)).toBeCloseTo(1, 9);

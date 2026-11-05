@@ -1,9 +1,9 @@
-import { migrate, type Settings } from "../core/profile";
+import { type Settings, settingsFrom } from "../core/profile";
 import type { ProfileStore } from "./profile-store";
 
 /** Settings with the same ranges and defaults the profile loader enforces. */
 export function cleanSettings(s: Settings): Settings {
-  return migrate({ version: 1, settings: s }).settings;
+  return settingsFrom(s);
 }
 
 /** Live settings: read anywhere, change through `set`, which clamps, saves and notifies. */

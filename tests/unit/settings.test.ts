@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { ProfileStore } from "../../src/app/profile-store";
 import { SettingsStore } from "../../src/app/settings";
-import { defaultProfile, type Profile } from "../../src/core/profile";
+import { newProfile, type Profile } from "../../src/core/profile";
 import type { Store } from "../../src/platform/store";
+
+const ENV = { now: () => Date.UTC(2026, 10, 6, 12, 0, 0), build: "1.0.0" };
 
 function memStore() {
   const saves: Profile[] = [];
   const store: Store = {
     persistent: true,
-    load: async () => defaultProfile(),
+    load: async (nowMs, build) => newProfile(nowMs, build),
     save: async (p) => {
       saves.push(JSON.parse(JSON.stringify(p)));
     },
@@ -18,7 +20,7 @@ function memStore() {
 
 describe("settings", () => {
   it("reads the profile's settings", async () => {
-    const ps = await ProfileStore.open(memStore().store, () => {});
+    const ps = await ProfileStore.open(memStore().store, () => {}, ENV);
     const st = new SettingsStore(ps);
     expect(st.get().boxSizeCm).toBe(24);
     expect(st.get().sfxVol).toBe(0.9);
@@ -26,7 +28,7 @@ describe("settings", () => {
 
   it("clamps, saves and tells subscribers", async () => {
     const m = memStore();
-    const ps = await ProfileStore.open(m.store, () => {});
+    const ps = await ProfileStore.open(m.store, () => {}, ENV);
     const st = new SettingsStore(ps);
     const seen: number[] = [];
     const off = st.subscribe((s) => seen.push(s.boxSizeCm));
@@ -41,7 +43,7 @@ describe("settings", () => {
   });
 
   it("ignores values of the wrong type", async () => {
-    const ps = await ProfileStore.open(memStore().store, () => {});
+    const ps = await ProfileStore.open(memStore().store, () => {}, ENV);
     const st = new SettingsStore(ps);
     await st.set({ captions: "yes" as unknown as boolean, boxSizeCm: Number.NaN, handed: "both" as unknown as "left" });
     expect(st.get().captions).toBe(true);

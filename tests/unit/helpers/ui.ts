@@ -1,6 +1,6 @@
 // Shared helpers for the menu view model tests.
 import { expect } from "vitest";
-import { defaultProfile, type Profile } from "../../../src/core/profile";
+import { newProfile, type Profile } from "../../../src/core/profile";
 
 /** Local time: day key 2026-11-3 (a Tuesday), Daily #3. */
 export const NOV3 = new Date(2026, 10, 3, 9, 30);
@@ -8,7 +8,7 @@ export const NOV3 = new Date(2026, 10, 3, 9, 30);
 const DASHES = /[\u2012\u2013\u2014\u2015\u2212]/;
 
 export function profile(over: Partial<Profile> = {}): Profile {
-  return { ...defaultProfile(), ...over };
+  return { ...newProfile(NOV3.getTime(), "1.0.0"), ...over };
 }
 
 /** Every string in a view, for the copy rules. */
