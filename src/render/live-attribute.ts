@@ -1,6 +1,6 @@
 // Per-instance attributes that are rewritten every frame but uploaded only when something changed,
 // and then only for the instances in use.
-import { DynamicDrawUsage, InstancedBufferAttribute } from "@iwsdk/core";
+import { BufferAttribute, DynamicDrawUsage, InstancedBufferAttribute } from "@iwsdk/core";
 
 /**
  * An instanced attribute with one persistent update range. three.js clears an attribute's update
@@ -27,3 +27,27 @@ export class LiveAttribute extends InstancedBufferAttribute {
   }
 }
 
+
+/**
+ * A vertex attribute or index with one persistent update range, as LiveAttribute but not instanced:
+ * a mesh rewritten every frame uploads only the items in use, without a range object per frame.
+ */
+export class LiveBufferAttribute extends BufferAttribute {
+  private readonly range = { start: 0, count: 0 };
+
+  constructor(array: Float32Array | Uint16Array | Uint32Array, itemSize: number) {
+    super(array, itemSize);
+    this.setUsage(DynamicDrawUsage);
+    this.updateRanges.push(this.range);
+  }
+
+  /** Kept on purpose: the single range is reused (see LiveAttribute). */
+  override clearUpdateRanges(): void {}
+
+  /** Upload items [0, used) with the next frame. Nothing to do for 0. */
+  commit(used: number): void {
+    if (used <= 0) return;
+    this.range.count = used * this.itemSize;
+    this.needsUpdate = true;
+  }
+}
