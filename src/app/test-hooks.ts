@@ -4,7 +4,8 @@ import { Quaternion, Vector3, type World } from "@iwsdk/core";
 import { generateBox } from "../core/generator";
 import { mirrorBox } from "../core/mirror";
 import type { Settings } from "../core/profile";
-import type { V3, Vec3 } from "../core/types";
+import { SKIP_MISSING, shadowBuffers, shadowPolys } from "../core/solve";
+import type { V2, V3, Vec3 } from "../core/types";
 import { BOX_ROOT_NAME, boxToWorld, placement } from "../render/placement";
 import { slotOf } from "../render/scraps";
 import { emit, type FeedbackEvent, onAny } from "./bus";
@@ -14,9 +15,10 @@ import type { Shell } from "./shell";
 import type { ShellSystem } from "./shell-system";
 import type { SfxId } from "../audio/manifest";
 import type { PlayOptions } from "../audio/engine";
+import type { Lantern } from "./lantern-system";
 import type { Sound } from "./sound";
 import { appSystemName, onAppSystem } from "./systems";
-import type { NsApi, NsButton, NsClock, NsPerf, NsScene, NsSound, NsState, SlApi } from "./test-api";
+import type { NsApi, NsButton, NsClock, NsPerf, NsScene, NsSound, NsState, SlApi, SlFeelEvent, SlLantern } from "./test-api";
 import { installVirtualClock, type VirtualClock } from "./virtual-clock";
 
 const MAX_EVENTS = 2000;
@@ -136,7 +138,7 @@ function listen(sound: Sound): { log: NsSound[] } {
   return { log };
 }
 
-export function installTestHooks(world: World, shell: Shell, system: ShellSystem, app: { sound: Sound }): void {
+export function installTestHooks(world: World, shell: Shell, system: ShellSystem, app: { sound: Sound; lantern?: Lantern }): void {
   const w = window as unknown as { __vt?: VirtualClock; __ns?: NsApi; __sl?: SlApi };
   const realNow = w.__vt ? w.__vt.realNow : performance.now.bind(performance);
   const timing = instrument(world, realNow);
@@ -199,6 +201,11 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
   };
 
   const box = shell.box;
+  const lan = app.lantern ?? null;
+  // Through the lantern's controller when there is one (the view follows it every frame).
+  const placeLantern = (p: V3) => (lan ? lan.place(p) : box.lantern.setPos(p));
+  const feelLog: SlFeelEvent[] = [];
+  lan?.onFeel((e) => feelLog.push({ ...e, at: performance.now() }));
   const scene: NsScene = {
     show(spec, mirrored = false) {
       const made = generateBox("n" in spec ? { kind: "box", n: spec.n } : { kind: "daily", day: spec.day });
@@ -227,7 +234,7 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
       box.root.updateWorldMatrix(true, false);
       return [...box.root.matrixWorld.elements];
     },
-    setLantern: (p) => box.lantern.setPos(p),
+    setLantern: placeLantern,
     lantern: () => box.lantern.getPos([0, 0, 0]),
     setScrap: (lock, piece, o) => {
       const h = box.scrapMesh(lock, piece);
@@ -284,8 +291,31 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
     },
   };
 
+  const lanternNow = (): SlLantern => {
+    if (!lan) return { pos: box.lantern.getPos([0, 0, 0]), held: false, mode: "free", holder: null, glow: 0 };
+    const c = lan.ctrl;
+    return { pos: [c.pos[0], c.pos[1], c.pos[2]], held: c.held, mode: c.mode, holder: lan.grab.holder, glow: lan.grab.brightness };
+  };
+
   w.__sl = {
     // No box session yet: the game layer fills this in (box key, lantern, open locks, screen).
     frameState: () => null,
+    lantern: lanternNow,
+    placeLantern,
+    shadows: () => {
+      const b = box.box;
+      if (!b) return [];
+      const out = shadowBuffers(b.elements, SKIP_MISSING);
+      const n = shadowPolys(b.elements, lanternNow().pos, out, SKIP_MISSING);
+      return out.slice(0, n).map((poly) => poly.map((p): V2 => [p[0], p[1]]));
+    },
+    ringLines: () =>
+      lan
+        ? lan.feel.ctx.lines.map((l) => ({ lock: l.lock, mark: [...l.mark] as V3, dir: [...l.dir] as V3, aligned: l.aligned }))
+        : [],
+    feelEvents: () => feelLog.map((e) => ({ ...e })),
+    clearFeelEvents: () => {
+      feelLog.length = 0;
+    },
   };
 }

@@ -1,4 +1,4 @@
-import type { V3, Vec3 } from "../core/types";
+import type { V2, V3, Vec3 } from "../core/types";
 import type { FeedbackEvent } from "./bus";
 import type { Screen } from "./screens";
 
@@ -162,10 +162,51 @@ export interface SlFrameState {
   screen: string;
 }
 
+/** The lantern now: where it is (a copy, box units), whether a hand holds it and which, the feel's mode, its glow. */
+export interface SlLantern {
+  pos: V3;
+  held: boolean;
+  mode: "free" | "line" | "settled";
+  holder: "left" | "right" | null;
+  /** How bright the hands make it (0 with no hand within 30 cm, 1 within 6 cm or held). */
+  glow: number;
+}
+
+/** A lock's ring line as the lantern feel sees it this frame (box units): mark on the panel, direction out to the spot. */
+export interface SlRingLine {
+  lock: number;
+  mark: V3;
+  dir: V3;
+  aligned: boolean;
+}
+
+/** A feel event (lantern grab, release, line, settle, unsettle, dial tick), copied, with the frame time it came in. */
+export interface SlFeelEvent {
+  type: string;
+  lock?: number;
+  on?: boolean;
+  cm?: number;
+  at: number;
+}
+
 /** `window.__sl`: Shadow Locks' own test hooks, present only in builds made with VITE_TEST_HOOKS=1. */
 export interface SlApi {
   /** The game's state for a video frame's fingerprint, or null while no box is in play. */
   frameState(): SlFrameState | null;
+  /** The lantern now. */
+  lantern(): SlLantern;
+  /** Put the lantern at [x, y, z] (box units; never deeper than the box front, z 1). A hand holding it holds on. */
+  placeLantern(p: V3): void;
+  /**
+   * The shadows of the box shown on the panel (box units), cast from the lantern where it is: core shadowPolys over
+   * the scraps actually in the box (a finger lock's missing piece left out), rings and decoys.
+   */
+  shadows(): V2[][];
+  /** The box's ring lines as the lantern feel sees them (built on the first frame after a box is shown). */
+  ringLines(): SlRingLine[];
+  /** Feel events since the last clear. */
+  feelEvents(): SlFeelEvent[];
+  clearFeelEvents(): void;
 }
 
 declare global {
