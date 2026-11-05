@@ -5,7 +5,8 @@
 //
 // The frame has no rail across the top of the open front: from a seated eye the box's lid is seen
 // from above, and a rail there would cut across the panel. Draw calls: frame, trim, floor, glass,
-// panel, scraps, threads, rings, and four for the lantern; twelve for any box.
+// panel, scraps, threads, rings, and four for the lantern; twelve for any box, plus one for each
+// crystallised piece (three more while one forms).
 import {
   BackSide,
   BoxGeometry,
@@ -36,6 +37,7 @@ import {
 } from "@iwsdk/core";
 import { ENVELOPE } from "../core/envelope";
 import type { Box, V3 } from "../core/types";
+import { Crystals } from "./fx/crystallise";
 import { LanternView } from "./lantern-view";
 import { mergeParts } from "./merge";
 import { BOX_ROOT_NAME, DEFAULT_BOX_CM } from "./placement";
@@ -190,6 +192,8 @@ export class BoxScene {
   readonly panel: Mesh;
   readonly lantern: LanternView;
   readonly scraps: Scraps;
+  /** Finger locks' crystallised pieces (fx/crystallise.ts). */
+  readonly crystals: Crystals;
   private current: Box | null = null;
 
   constructor(world: World) {
@@ -231,7 +235,9 @@ export class BoxScene {
     this.panel.name = "Box Panel";
     this.scraps = new Scraps(env);
     this.lantern = new LanternView({ lacquer, gold });
+    this.crystals = new Crystals(env);
     this.root.add(frame, trim, floor, glass, this.panel, this.scraps.mesh, this.scraps.threads, this.scraps.rings, this.lantern.group);
+    this.root.add(this.crystals.group);
     this.root.add(directional(LIGHTS.key.color, LIGHTS.key.intensity, LIGHTS.key.from, this.root));
     this.root.add(directional(LIGHTS.fill.color, LIGHTS.fill.intensity, LIGHTS.fill.from, this.root));
     // A hemisphere light reads "up" from its world position, so it stays at the scene's top level.
@@ -248,6 +254,7 @@ export class BoxScene {
   setBox(box: Box | null): void {
     this.current = box;
     this.scraps.setBox(box);
+    this.crystals.setBox(box);
     const s = box ? box.start : ENVELOPE.START;
     this.lantern.setPos([s[0], s[1], s[2]]);
   }
@@ -279,9 +286,10 @@ export class BoxScene {
     return this.scraps.handle(lock, piece);
   }
 
-  /** Per frame: the lantern's flare and ripple. */
+  /** Per frame: the lantern's flare and ripple, and any crystallise running. */
   update(dt: number): void {
     this.lantern.update(dt);
+    this.crystals.update(dt);
   }
 
   /** What the box draws now: one call per visible part (two for a transparent double-sided one). */
