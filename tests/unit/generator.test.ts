@@ -1,11 +1,12 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { buildBox, generateBox } from "../../src/core/generator";
+import { SHAPES, SILHOUETTES } from "../../src/core/shapes";
 import { LOOT, OWNERS } from "../../src/core/story";
-import type { Box, BoxSpec } from "../../src/core/types";
+import type { Box, BoxSpec, ShapeName } from "../../src/core/types";
 import {
   checkCounts,
   checkFingerAndDepth,
-  checkHidden,
+  checkSilhouettes,
   checkInBox,
   checkSolvable,
   checkSpots,
@@ -88,8 +89,22 @@ describe("generateBox", () => {
     for (const { box } of built) expect(box.params).toEqual(paramsFor(box));
   });
 
-  it("makes hidden locks silhouettes while one is unused", () => {
-    expect(failing(checkHidden)).toEqual([]);
+  it("puts at most one silhouette in any box", () => {
+    for (const { box } of built) expect(box.locks.filter((l) => SILHOUETTES.includes(l.shape)).length).toBeLessThanOrEqual(1);
+  });
+
+  it("gives every box with a hidden lock exactly one silhouette, on a hidden lock", () => {
+    expect(failing(checkSilhouettes)).toEqual([]);
+  });
+
+  it("shows each classic shape in at least 10% of boxes 10 and up", () => {
+    const late = built.filter((b) => b.spec.kind === "box" && b.spec.n >= 10);
+    const classics = (Object.keys(SHAPES) as ShapeName[]).filter((s) => !SILHOUETTES.includes(s));
+    const share = Object.fromEntries(
+      classics.map((s) => [s, late.filter((b) => b.box.locks.some((l) => l.shape === s)).length / late.length]),
+    );
+    console.log(`classic shapes in boxes 10+: ${JSON.stringify(share, (_, v: unknown) => (typeof v === "number" ? +v.toFixed(3) : v))}`);
+    for (const s of classics) expect(share[s], s).toBeGreaterThanOrEqual(0.1);
   });
 
   it("leaves out only pieces a finger can fill: at most 35% of the shape", () => {

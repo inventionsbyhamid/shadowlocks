@@ -1,7 +1,7 @@
 // The box generator: endless boxes from a seed, the same box for the same spec everywhere. Ported from the Shadow
 // Locks mock (spikes/shadow-locks-mock/shadowgen.js, generate and tryBuild), with the lantern spots inside the seated
-// comfort envelope (envelope.ts), the difficulty curve of params.ts, hidden locks drawn from the silhouettes, and
-// finger pieces that run near horizontal.
+// comfort envelope (envelope.ts), the difficulty curve of params.ts, at most one silhouette per box (on a hidden
+// lock), sight rings whose shadows make a bullseye at the spot, and finger pieces that run near horizontal.
 //
 // What every box guarantees (tests/unit/generator.test.ts): from its spot, each lock's scraps tile its outline and
 // leave the band around it lit; a finger lock is short exactly its missing piece; no other scrap or ring falls on a
@@ -76,7 +76,8 @@ const DECOY_WOBBLE = 0.06;
  */
 const START_COVER_MAX = 0.45;
 
-const SHAPE_NAMES = Object.keys(SHAPES) as ShapeName[];
+/** The shapes that are not silhouettes. */
+const CLASSICS = (Object.keys(SHAPES) as ShapeName[]).filter((s) => !SILHOUETTES.includes(s));
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const dist3 = (a: V3, b: V3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const unit = (a: V3): V3 => {
@@ -206,24 +207,19 @@ export function buildBox(spec: BoxSpec): BoxBuild {
   const ax = P.amp * E.LX_MAX;
   const [PZ0, PZ1] = E.PIECE_Z;
 
-  /** Hidden locks take an unused silhouette while one is left; the others draw from every shape. */
-  function pickShapes(n: number, hidden: Set<number>): ShapeName[] {
-    const used = new Set<ShapeName>(), silhouettes = shuffle(SILHOUETTES.slice()), all = shuffle(SHAPE_NAMES.slice());
-    const take = (pool: ShapeName[]) => {
-      const s = pool.find((x) => !used.has(x));
-      if (s) used.add(s);
-      return s;
-    };
-    const shapes: ShapeName[] = [];
-    for (let i = 0; i < n; i++) if (hidden.has(i)) shapes[i] = take(silhouettes) ?? take(all)!;
-    for (let i = 0; i < n; i++) if (!hidden.has(i)) shapes[i] = take(all)!;
-    return shapes;
+  /**
+   * One silhouette at most, and only on a hidden lock (`silLock`, or -1 for none): it is the box's "it's a cat!"
+   * moment. Every other lock, hidden or not, is a different classic shape.
+   */
+  function pickShapes(n: number, silLock: number): ShapeName[] {
+    const classics = shuffle(CLASSICS.slice());
+    return Array.from({ length: n }, (_, i) => (i === silLock ? pick(SILHOUETTES) : classics[i]!));
   }
 
   function tryBuild(): Box | Reason {
     const lay = LAYOUTS[P.locks], ids = lay.map((_, i) => i);
-    const hidden = new Set(shuffle(ids.slice()).slice(0, P.hidden));
-    const shapes = pickShapes(P.locks, hidden);
+    const hiddenOrder = shuffle(ids.slice()).slice(0, P.hidden), hidden = new Set(hiddenOrder);
+    const shapes = pickShapes(P.locks, hiddenOrder[0] ?? -1);
     const locks: Draft[] = [];
     for (let i = 0; i < P.locks; i++) {
       const { c: center, size } = lay[i]!, rot = R(-ROT_MAX, ROT_MAX), c = Math.cos(rot), s = Math.sin(rot);

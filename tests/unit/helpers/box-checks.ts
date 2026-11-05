@@ -177,13 +177,14 @@ export function checkCounts(box: Box): string[] {
   return errs;
 }
 
-/** A hidden lock is a silhouette whenever one is left unused in the box. */
-export function checkHidden(box: Box): string[] {
-  const used = new Set(box.locks.map((l) => l.shape));
-  const free = SILHOUETTES.filter((s) => !used.has(s));
-  return box.locks
-    .filter((l) => l.hidden && !SILHOUETTES.includes(l.shape) && free.length > 0)
-    .map((l) => `hidden lock ${l.i} is a ${l.shape} while ${free.join(", ")} is unused`);
+/** At most one silhouette per box, always on a hidden lock, and exactly one when the box hides any outline. */
+export function checkSilhouettes(box: Box): string[] {
+  const errs: string[] = [];
+  const sil = box.locks.filter((l) => SILHOUETTES.includes(l.shape));
+  const want = paramsFor(box).hidden >= 1 ? 1 : 0;
+  if (sil.length !== want) errs.push(`${sil.length} silhouettes (${sil.map((l) => l.shape).join(", ")}), want ${want}`);
+  for (const l of sil) if (!l.hidden) errs.push(`lock ${l.i} is a ${l.shape} with its outline shown`);
+  return errs;
 }
 
 /** A finger lock's missing piece is at most this share of its shape: one finger's shadow has to fill it. */
@@ -221,7 +222,7 @@ export function checkBox(box: Box, stats?: LockStat[]): string[] {
     ...checkSpots(box),
     ...checkInBox(box),
     ...checkCounts(box),
-    ...checkHidden(box),
+    ...checkSilhouettes(box),
     ...checkFingerAndDepth(box),
   ];
 }
