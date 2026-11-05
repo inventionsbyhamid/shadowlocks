@@ -3,6 +3,10 @@
 // soft skirt around it, offset outward by the penumbra and fading from full shadow to none. Depth
 // shows as softness: a scrap near the panel casts a crisp edge, one near the lantern a soft one.
 //
+// The skirt is a true offset: a strip `soft` wide along every edge, a rounded cap round every convex
+// corner (so a sharp point never throws a spike past its penumbra) and a miter into every reflex one.
+// Nothing it draws is further than `soft` from its polygon.
+//
 // Seams: pieces meet edge to edge (and in T-junctions), so their interiors tile a lock's outline
 // exactly; each piece's skirt also spills over its neighbours' interiors, so a crack the rasteriser
 // leaves along a shared edge is still covered by a skirt at nearly full strength. Overlaps: the panel
@@ -13,8 +17,11 @@
 // and their shadows nest as a bullseye. A ring's soft edges are held to half its width each, so its
 // body stays solid and the gap between nested rings stays lit.
 //
-// Buffers are made once (the largest box); a new box rewrites the index once, and a frame writes only
-// positions. No allocation per frame.
+// After the box's own shadows come up to MAX_EXTRAS more (a hand's bones in the beam), as fans; adding
+// or removing them lays out only that tail, never the box's slots.
+//
+// Buffers are made once (the largest box and both hands); a new box rewrites the index once, and a
+// frame writes only positions. No allocation per frame.
 import { BufferGeometry, DoubleSide, Mesh, MeshBasicMaterial } from "@iwsdk/core";
 import { circlePts, projInto } from "../core/geom";
 import { RING_SIDES } from "../core/solve";
@@ -31,10 +38,12 @@ export const PENUMBRA_MAX = 0.03;
  * 600 px there), so even the crispest edge is antialiased and covers rasterisation cracks.
  */
 export const SOFT_MIN = 0.002;
-/** A sharp corner's skirt reaches at most this many skirt widths from it (a star point, a beak). */
-export const MITER_LIMIT = 4;
+/** A reflex corner's miter reaches at most this many skirt widths from it (a deep notch). */
+export const REFLEX_MITER_LIMIT = 2;
 /** Shadow casters in a box: 3 locks of up to 16 pieces, 20 decoys, 8 rings (as Scraps sizes them). */
 export const MAX_CASTERS = 3 * 16 + 20 + 8;
+/** Extra shadows after the box's: a hand's bones as capsules, about 22 a hand, two hands. */
+export const MAX_EXTRAS = 48;
 /** Corners in one caster's polygon: a ring's outer and inner RING_SIDES-gons. */
 export const MAX_CASTER_CORNERS = 2 * RING_SIDES;
 /** Shadows are cast with the lantern at least this far from the panel (every scrap is nearer). */
@@ -118,11 +127,16 @@ export interface ShadowSlot {
   iCount: number;
 }
 
+/** Vertices and indices a slot of c corners uses: a polygon (c corners, 3 skirt points each), or a ring. */
+const vertsFor = (c: number, ring: boolean) => (ring ? 2 * c : 4 * c);
+const indicesFor = (c: number, ring: boolean) => (ring ? 9 * c : 15 * c - 6);
+
 /**
- * The panel's shadows as one mesh, in box units on the panel plane. A slot of `c` corners uses 2c
- * vertices (the corners at full shadow, then their skirt at none) and 9c - 6 indices; a ring of
- * c = 2k corners uses 4k vertices (outer, hole edge, the hole's inner skirt edge, outer skirt) and 18k
- * indices. The vertex attribute `aAlpha` is the shadow's strength.
+ * The panel's shadows as one mesh, in box units on the panel plane. A polygon slot of `c` corners uses
+ * 4c vertices (its corners at full shadow, then three skirt points per corner at none: along the edge
+ * coming in, round the corner, along the edge going out) and 15c - 6 indices. A ring of c = 2k corners
+ * uses 4k vertices (outer, hole edge, the hole's skirt edge, outer skirt) and 18k indices. The vertex
+ * attribute `aAlpha` is the shadow's strength.
  */
 export class ShadowMesh {
   readonly mesh: Mesh;
@@ -137,18 +151,17 @@ export class ShadowMesh {
   private readonly iStart: Int32Array;
   private readonly counts: Int32Array;
   private readonly rings: Uint8Array;
-  private shapes = -1;
+  /** Slots laid out, from 0. */
+  private laid = 0;
+  /** The vertices and indices the slots drawn now use. */
   private nVerts = 0;
   private nIndex = 0;
-  /** The next free vertex and index while laying out. */
-  private cv = 0;
-  private cix = 0;
 
   constructor(
     readonly maxPolys: number,
     readonly maxVertsPerPoly: number,
   ) {
-    const V = 2 * maxPolys * maxVertsPerPoly, I = 9 * maxPolys * maxVertsPerPoly;
+    const V = vertsFor(maxVertsPerPoly, false) * maxPolys, I = indicesFor(maxVertsPerPoly, false) * maxPolys;
     this.positions = new Float32Array(V * 3);
     this.alphas = new Float32Array(V);
     this.indices = V > 0xffff ? new Uint32Array(I) : new Uint16Array(I);
@@ -181,70 +194,74 @@ export class ShadowMesh {
 
   /** Where slot i lives in the buffers. Allocates: for tests. */
   slot(i: number): ShadowSlot {
-    const c = this.counts[i]!;
-    return { v0: this.vStart[i]!, vCount: 2 * c, i0: this.iStart[i]!, iCount: this.rings[i] ? 9 * c : 9 * c - 6 };
+    const c = this.counts[i]!, r = this.rings[i] === 1;
+    return { v0: this.vStart[i]!, vCount: vertsFor(c, r), i0: this.iStart[i]!, iCount: indicesFor(c, r) };
   }
 
   /**
-   * Lay out slots [0, n) (once per box, or when the set of casters changes): indices and strengths.
+   * Lay out slots [0, n) (once per box, or when the box's casters change): indices and strengths.
    * Allocation-free.
    */
   setShapes(shapes: readonly ShadowShape[], n: number): void {
     if (n > this.maxPolys) throw new Error(`ShadowMesh: ${n} polygons, room for ${this.maxPolys}`);
-    this.cv = 0;
-    this.cix = 0;
     for (let i = 0; i < n; i++) {
       const s = shapes[i]!;
       this.place(i, s.count, s.tris, s.ring);
     }
-    this.finish(n);
+    this.laid = n;
+    this.commitLayout(n);
+    this.setDrawn(n);
   }
 
   /**
    * Write the shadows: polygon i's corners `polys[i]` (box units on the panel), its skirt `soft[i]`
-   * wide. Slots keep their shapes from setShapes; polygons that do not match them (or with no
-   * setShapes yet) are laid out as fans first. Allocation-free.
+   * wide. Slots keep their layout while their corner counts match; from the first that does not (or
+   * past the last laid out: extra shadows after the box's), the rest are laid out again as fans, so the
+   * slots before it, rings and concave shapes among them, are never touched. Allocation-free.
    */
   update(polys: readonly V2[][], n: number, soft: Float32Array): void {
-    if (!this.matches(polys, n)) {
-      if (n > this.maxPolys) throw new Error(`ShadowMesh: ${n} polygons, room for ${this.maxPolys}`);
-      this.cv = 0;
-      this.cix = 0;
-      for (let i = 0; i < n; i++) this.place(i, polys[i]!.length, null, false);
-      this.finish(n);
+    if (n > this.maxPolys) throw new Error(`ShadowMesh: ${n} polygons, room for ${this.maxPolys}`);
+    let k = 0;
+    while (k < n && k < this.laid && polys[k]!.length === this.counts[k]) k++;
+    if (k < n) {
+      for (let i = k; i < n; i++) this.place(i, polys[i]!.length, null, false);
+      this.laid = n;
+      this.commitLayout(n);
     }
+    this.setDrawn(n);
     for (let i = 0; i < n; i++) {
       const poly = polys[i]!, c = poly.length, s = soft[i]!, v = this.vStart[i]!;
       if (this.rings[i]) {
-        const k = c >> 1;
-        this.outline(poly, 0, k, s, v, v + 3 * k, k);
-        this.outline(poly, k, k, s, v + k, v + 2 * k, 0);
-      } else this.outline(poly, 0, c, s, v, v + c, -1);
+        const h = c >> 1;
+        this.ringEdge(poly, 0, h, s, v, v + 3 * h, h);
+        this.ringEdge(poly, h, h, s, v + h, v + 2 * h, 0);
+      } else this.roundEdge(poly, c, s, v);
     }
     this.posAttr.commit(this.nVerts);
   }
 
-  private matches(polys: readonly V2[][], n: number): boolean {
-    if (n !== this.shapes) return false;
-    for (let i = 0; i < n; i++) if (polys[i]!.length !== this.counts[i]) return false;
-    return true;
+  /** Draw slots [0, n). */
+  private setDrawn(n: number): void {
+    const last = n - 1;
+    this.nVerts = n ? this.vStart[last]! + vertsFor(this.counts[last]!, this.rings[last] === 1) : 0;
+    this.nIndex = n ? this.iStart[last]! + indicesFor(this.counts[last]!, this.rings[last] === 1) : 0;
+    this.mesh.geometry.setDrawRange(0, this.nIndex);
   }
 
-  private finish(n: number): void {
-    const v = this.cv, ix = this.cix;
-    this.shapes = n;
-    this.nVerts = v;
-    this.nIndex = ix;
-    this.mesh.geometry.setDrawRange(0, ix);
-    this.alphaAttr.commit(v);
-    this.indexAttr.commit(ix);
+  /** Upload the layout of slots [0, n). */
+  private commitLayout(n: number): void {
+    const last = n - 1;
+    this.alphaAttr.commit(n ? this.vStart[last]! + vertsFor(this.counts[last]!, this.rings[last] === 1) : 0);
+    this.indexAttr.commit(n ? this.iStart[last]! + indicesFor(this.counts[last]!, this.rings[last] === 1) : 0);
   }
 
-  /** Lay out slot i with c corners at the next free vertex and index (cv, cix), and move them on. */
+  /** Lay out slot i with c corners right after slot i - 1. */
   private place(i: number, c: number, tris: Uint16Array | null, ring: boolean): void {
-    const v = this.cv;
-    let ix = this.cix;
     if (c > this.maxVertsPerPoly) throw new Error(`ShadowMesh: a ${c}-corner polygon, room for ${this.maxVertsPerPoly}`);
+    if (c < 3) throw new Error(`ShadowMesh: a ${c}-corner polygon`);
+    const prev = i - 1;
+    const v = i ? this.vStart[prev]! + vertsFor(this.counts[prev]!, this.rings[prev] === 1) : 0;
+    let ix = i ? this.iStart[prev]! + indicesFor(this.counts[prev]!, this.rings[prev] === 1) : 0;
     const A = this.alphas, I = this.indices;
     this.vStart[i] = v;
     this.iStart[i] = ix;
@@ -270,15 +287,12 @@ export class ShadowMesh {
         I[ix++] = O + j; I[ix++] = S + j; I[ix++] = S + n;
         I[ix++] = O + j; I[ix++] = S + n; I[ix++] = O + n;
       }
-      this.cv = v + 2 * c;
-      this.cix = ix;
       return;
     }
+    // Vertices: P (the corners, full), then per corner three skirt points (none): in, round, out.
     const P = v, S = v + c;
-    for (let j = 0; j < c; j++) {
-      A[P + j] = 1;
-      A[S + j] = 0;
-    }
+    for (let j = 0; j < c; j++) A[P + j] = 1;
+    for (let j = 0; j < 3 * c; j++) A[S + j] = 0;
     if (tris) {
       if (tris.length !== 3 * (c - 2)) throw new Error(`ShadowMesh: ${tris.length / 3} triangles for ${c} corners`);
       for (let t = 0; t < tris.length; t++) I[ix++] = P + tris[t]!;
@@ -288,25 +302,100 @@ export class ShadowMesh {
       }
     }
     for (let j = 0; j < c; j++) {
-      const n = (j + 1) % c;
-      I[ix++] = P + j; I[ix++] = S + j; I[ix++] = S + n;
-      I[ix++] = P + j; I[ix++] = S + n; I[ix++] = P + n;
+      const n = (j + 1) % c, a = S + 3 * j, b = S + 3 * n;
+      // The corner's cap (two triangles round it), then the strip along the edge to the next corner.
+      I[ix++] = P + j; I[ix++] = a; I[ix++] = a + 1;
+      I[ix++] = P + j; I[ix++] = a + 1; I[ix++] = a + 2;
+      I[ix++] = P + j; I[ix++] = a + 2; I[ix++] = b;
+      I[ix++] = P + j; I[ix++] = b; I[ix++] = P + n;
     }
-    this.cv = v + 2 * c;
-    this.cix = ix;
   }
 
   /**
-   * Corners poly[from, from + c) go to vertices from `at`, and each again offset `s` outward (by the
-   * polygon's own winding, so either winding works) to vertices from `out`. The offset is the miter of
-   * the two edges' normals, so the skirt's outer edge runs parallel to each edge exactly `s` away (up to
-   * MITER_LIMIT at sharp corners). With `pair` >= 0 (a ring), each corner's offset is held to half its
-   * distance from corner `pair + j` (the matching corner of the ring's other edge).
+   * A polygon's corners to vertices from `at`, and its skirt `s` wide (outward by the polygon's own
+   * winding, so either winding works) to the three skirt points of each corner from `at + c`. Along each
+   * edge the skirt runs parallel to it exactly `s` away. A convex corner gets a rounded cap: its three
+   * points sit `s` from it along the incoming edge's normal, the bisector and the outgoing edge's
+   * normal. A reflex corner's three points all sit on the miter, where the two edges' offsets meet
+   * (at most REFLEX_MITER_LIMIT skirt widths away).
    */
-  private outline(poly: readonly V2[], from: number, c: number, s: number, at: number, out: number, pair: number): void {
+  private roundEdge(poly: readonly V2[], c: number, s: number, at: number): void {
+    const P = this.positions, o = this.orient(poly, 0, c), out = at + c;
+    // The edge into corner 0 (from the last corner): its direction and outward normal.
+    let p = poly[c - 1]!, q = poly[0]!;
+    let dx = q[0] - p[0], dy = q[1] - p[1], len = Math.sqrt(dx * dx + dy * dy);
+    let pex = len > 1e-12 ? dx / len : 0, pey = len > 1e-12 ? dy / len : 0;
+    let pnx = o * pey, pny = -o * pex;
+    for (let j = 0; j < c; j++) {
+      p = poly[j]!;
+      q = poly[(j + 1) % c]!;
+      dx = q[0] - p[0];
+      dy = q[1] - p[1];
+      len = Math.sqrt(dx * dx + dy * dy);
+      let nex = pex, ney = pey;
+      if (len > 1e-12) {
+        nex = dx / len;
+        ney = dy / len;
+      }
+      const nnx = o * ney, nny = -o * nex;
+      const a = (at + j) * 3, b = (out + 3 * j) * 3;
+      P[a] = p[0];
+      P[a + 1] = p[1];
+      if (o * (pnx * nny - pny * nnx) > 1e-12) {
+        // Convex: a rounded cap from the incoming edge's normal to the outgoing one's.
+        let mx = pnx + nnx, my = pny + nny;
+        const ml = Math.sqrt(mx * mx + my * my);
+        if (ml < 1e-6) {
+          // A hairpin: the cap's middle points along the point.
+          mx = pex;
+          my = pey;
+        } else {
+          mx /= ml;
+          my /= ml;
+        }
+        P[b] = p[0] + pnx * s;
+        P[b + 1] = p[1] + pny * s;
+        P[b + 3] = p[0] + mx * s;
+        P[b + 4] = p[1] + my * s;
+        P[b + 6] = p[0] + nnx * s;
+        P[b + 7] = p[1] + nny * s;
+      } else {
+        // Reflex (or straight): the miter, where both edges' offsets meet.
+        let mx = pnx + nnx, my = pny + nny;
+        const d = 1 + pnx * nnx + pny * nny;
+        if (d < 1e-6) {
+          mx = nnx;
+          my = nny;
+        } else {
+          mx /= d;
+          my /= d;
+        }
+        const ml2 = mx * mx + my * my;
+        if (ml2 > REFLEX_MITER_LIMIT * REFLEX_MITER_LIMIT) {
+          const k = REFLEX_MITER_LIMIT / Math.sqrt(ml2);
+          mx *= k;
+          my *= k;
+        }
+        const x = p[0] + mx * s, y = p[1] + my * s;
+        P[b] = P[b + 3] = P[b + 6] = x;
+        P[b + 1] = P[b + 4] = P[b + 7] = y;
+      }
+      pex = nex;
+      pey = ney;
+      pnx = nnx;
+      pny = nny;
+    }
+  }
+
+  /**
+   * A ring's edge: corners poly[from, from + c) to vertices from `at`, and offset outward (by their own
+   * winding) on the miter to vertices from `out`. A ring's corners turn only 360 / RING_SIDES degrees,
+   * so the miter stays within 3% of `s`. Each offset is held to half the distance from corner
+   * `pair + j` (the matching corner of the ring's other edge), so the body stays solid.
+   */
+  private ringEdge(poly: readonly V2[], from: number, c: number, s: number, at: number, out: number, pair: number): void {
     const P = this.positions;
     const o = this.orient(poly, from, c);
-    // The normal of the edge into corner 0 (from the last corner).
     let p = poly[from + c - 1]!, q = poly[from]!;
     let dx = q[0] - p[0], dy = q[1] - p[1], len = Math.sqrt(dx * dx + dy * dy);
     let pnx = len > 1e-12 ? (o * dy) / len : 0, pny = len > 1e-12 ? (-o * dx) / len : 0;
@@ -324,26 +413,16 @@ export class ShadowMesh {
       let mx = pnx + nnx, my = pny + nny;
       const d = 1 + pnx * nnx + pny * nny;
       if (d < 1e-6) {
-        // A hairpin: go straight out along the edge.
         mx = nnx;
         my = nny;
       } else {
         mx /= d;
         my /= d;
       }
-      const ml2 = mx * mx + my * my;
-      if (ml2 > MITER_LIMIT * MITER_LIMIT) {
-        const k = MITER_LIMIT / Math.sqrt(ml2);
-        mx *= k;
-        my *= k;
-      }
       let w = s;
-      if (pair >= 0) {
-        // A ring's edge: at most half the ring's width here (outer corner j against inner corner j).
-        const m = poly[pair + j]!;
-        const ex = m[0] - p[0], ey = m[1] - p[1], d2 = ex * ex + ey * ey;
-        if (4 * w * w > d2) w = 0.5 * Math.sqrt(d2);
-      }
+      const m = poly[pair + j]!;
+      const ex = m[0] - p[0], ey = m[1] - p[1], d2 = ex * ex + ey * ey;
+      if (4 * w * w > d2) w = 0.5 * Math.sqrt(d2);
       const a = (at + j) * 3, b = (out + j) * 3;
       P[a] = p[0];
       P[a + 1] = p[1];
@@ -383,18 +462,21 @@ const EMPTY: V2[] = [];
 const NO_SHAPE: ShadowShape = { count: 0, tris: null, ring: false };
 
 /**
- * A box's shadows on the panel: every scrap, decoy and ring, cast from the lantern into a ShadowMesh.
- * `shown(piece)` says whether a lock piece is there (a finger lock's missing piece is not, until it
- * crystallises); by default every piece but the missing ones.
+ * A box's shadows on the panel: every scrap, decoy and ring, cast from the lantern into a ShadowMesh,
+ * then up to MAX_EXTRAS extra shadows (a hand's bones) after them. `shown(piece)` says whether a lock
+ * piece is there (a finger lock's missing piece is not, until it crystallises); by default every piece
+ * but the missing ones.
  */
 export class BoxShadows {
   readonly mesh: ShadowMesh;
   private casters: Caster[] = [];
-  private readonly polys: V2[][] = Array.from({ length: MAX_CASTERS }, () => EMPTY);
+  private readonly polys: V2[][] = Array.from({ length: MAX_CASTERS + MAX_EXTRAS }, () => EMPTY);
   private readonly shapes: ShadowShape[] = Array.from({ length: MAX_CASTERS }, () => NO_SHAPE);
-  private readonly soft = new Float32Array(MAX_CASTERS);
+  private readonly soft = new Float32Array(MAX_CASTERS + MAX_EXTRAS);
   private n = 0;
   private dirty = true;
+  /** Extra shadows drawn by the last cast. */
+  private extras = 0;
   private readonly at: V3 = [0, 0, 0];
   private readonly last: V3 = [NaN, NaN, NaN];
 
@@ -402,7 +484,7 @@ export class BoxShadows {
     private readonly shown: (p: Piece) => boolean = (p) => !p.missing,
     mesh?: ShadowMesh,
   ) {
-    this.mesh = mesh ?? new ShadowMesh(MAX_CASTERS, MAX_CASTER_CORNERS);
+    this.mesh = mesh ?? new ShadowMesh(MAX_CASTERS + MAX_EXTRAS, MAX_CASTER_CORNERS);
   }
 
   /** Make every element's caster (once per box); null for no box. */
@@ -433,8 +515,12 @@ export class BoxShadows {
     this.casters = casters;
     this.dirty = true;
     this.last[0] = NaN;
+    this.extras = 0;
     this.mesh.mesh.visible = casters.length > 0;
-    if (!casters.length) this.mesh.setShapes(this.shapes, 0);
+    if (!casters.length) {
+      this.n = 0;
+      this.mesh.setShapes(this.shapes, 0);
+    }
   }
 
   /** The mesh slot an element's shadow is in now, or -1 (not cast, or not in this box). */
@@ -443,21 +529,33 @@ export class BoxShadows {
     return -1;
   }
 
-  /** Cast with the lantern at L only if it moved or a scrap appeared or went; true when it cast. */
+  /** How many slots the box's own shadows take now; extra shadows come after them. */
+  get boxSlots(): number {
+    return this.n;
+  }
+
+  /**
+   * Cast with the lantern at L (no extra shadows) only if it moved, a scrap appeared or went, or the
+   * last cast had extras; true when it cast.
+   */
   refresh(L: V3): boolean {
     const moved = L[0] !== this.last[0] || L[1] !== this.last[1] || L[2] !== this.last[2];
-    if (!moved && !this.visibilityChanged()) return false;
+    if (!moved && !this.visibilityChanged() && this.extras === 0) return false;
     this.cast(L);
     return true;
   }
 
-  /** Cast every shadow with the lantern at L (box units). Allocation-free. */
-  cast(L: V3): void {
+  /**
+   * Cast every shadow with the lantern at L (box units), then `nExtra` extra shadows: polygons on the
+   * panel already (a hand's bones projected by the caller), filled as fans, `extraSoft[i]` soft. Adding
+   * or removing extras lays out only the slots after the box's. Allocation-free.
+   */
+  cast(L: V3, extra?: readonly V2[][], nExtra = 0, extraSoft?: Float32Array): void {
+    if (nExtra > MAX_EXTRAS) throw new Error(`BoxShadows: ${nExtra} extra shadows, room for ${MAX_EXTRAS}`);
     this.last[0] = L[0];
     this.last[1] = L[1];
     this.last[2] = L[2];
     const cs = this.casters;
-    if (!cs.length) return;
     this.visibilityChanged();
     if (this.dirty) this.layout();
     const at = this.at;
@@ -474,7 +572,14 @@ export class BoxShadows {
       const pen = penumbra(c.z, at[2]);
       soft[k++] = pen > SOFT_MIN ? pen : SOFT_MIN;
     }
-    this.mesh.update(this.polys, this.n, soft);
+    const polys = this.polys;
+    for (let e = 0; e < nExtra; e++) {
+      polys[k + e] = extra![e]!;
+      const s = extraSoft ? extraSoft[e]! : SOFT_MIN;
+      soft[k + e] = s > SOFT_MIN ? s : SOFT_MIN;
+    }
+    this.extras = nExtra;
+    if (k + nExtra) this.mesh.update(polys, k + nExtra, soft);
   }
 
   /** Updates each piece's `on` (a change marks the layout dirty); true when any changed. */
