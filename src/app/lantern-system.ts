@@ -6,10 +6,12 @@ import { createSystem, type World } from "@iwsdk/core";
 import type { Box, V3 } from "../core/types";
 import { type FeelEvent, LanternController } from "../feel/lantern-controller";
 import { LanternCtxBuilder } from "../feel/lantern-ctx";
-import { handJoints, setBusyHands, setHoldingHands } from "../input/grab-system";
+import { type HandPinch, handJoints, hands, setBusyHands, setHoldingHands } from "../input/grab-system";
 import type { InputEvent } from "../input/events";
+import type { HandJoints } from "../input/hand-joints";
 import { LanternGrab } from "../input/lantern-grab";
 import type { BoxScene } from "../render/box-scene";
+import type { LanternView } from "../render/lantern-view";
 import { emit } from "./bus";
 import { registerAppSystem } from "./systems";
 
@@ -29,6 +31,11 @@ const LOST: Readonly<Record<"left" | "right", InputEvent>> = {
 
 export type FeelListener = (e: FeelEvent) => void;
 
+/** What the lantern needs of the box scene (BoxScene has it all). */
+export type LanternBoxScene = Pick<BoxScene, "box" | "size" | "root"> & {
+  readonly lantern: Pick<LanternView, "getPos" | "setPos" | "flare" | "ripple" | "setBrightness">;
+};
+
 export class Lantern {
   readonly ctrl: LanternController;
   readonly grab: LanternGrab;
@@ -38,9 +45,13 @@ export class Lantern {
   private listeners: FeelListener[] = [];
   private readonly tmp: V3 = [0, 0, 0];
 
-  constructor(readonly scene: BoxScene) {
+  /** `o` swaps the app's hands for scripted ones (tests). */
+  constructor(
+    readonly scene: LanternBoxScene,
+    o: { pinches?: readonly [HandPinch, HandPinch]; joints?: HandJoints } = {},
+  ) {
     this.ctrl = new LanternController(scene.lantern.getPos([0, 0, 0]));
-    this.grab = new LanternGrab(this.ctrl, handJoints, scene);
+    this.grab = new LanternGrab(this.ctrl, o.joints ?? handJoints, scene, o.pinches ?? hands);
   }
 
   /** Put the lantern at `p` (box units; never deeper than the box front). A hand holding it holds on. */
@@ -59,7 +70,9 @@ export class Lantern {
   update(tMs: number): void {
     const scene = this.scene;
     if (scene.box !== this.shown) {
-      // A new box: its spots and lines, and the lantern where the scene put it (the box's start).
+      // A new box: a hand holding the lantern lets go of it first (it is put at the new box's start, not carried
+      // there at the hand's offset), then the new box's spots and lines, and the lantern where the scene put it.
+      this.grab.drop(tMs, this.feel.ctx);
       this.shown = scene.box;
       this.feel.setBox(scene.box);
       this.grab.place(scene.lantern.getPos(this.tmp));
@@ -67,9 +80,10 @@ export class Lantern {
     const ctx = this.feel.update(this.ctrl.pos, scene.size * 100);
     const grab = this.grab;
     grab.update(tMs, ctx);
-    if (grab.grabbedBy) emit(GRAB[grab.grabbedBy]);
+    // In the order they happened: a hand lost, its hold let go, another hand taking the lantern.
     if (grab.lostBy) emit(LOST[grab.lostBy]);
     if (grab.releasedBy) emit(RELEASE[grab.releasedBy]);
+    if (grab.grabbedBy) emit(GRAB[grab.grabbedBy]);
     const list = this.listeners;
     for (let k = 0; k < grab.eventCount; k++) {
       const e = grab.events[k]!;
@@ -88,7 +102,7 @@ export class LanternSystem extends createSystem({}) {
 
 /**
  * The lantern for the box scene: registers LanternSystem (priority -3, "lantern", right after hand-pinch) and the
- * hands' hooks (a hand reaching for or holding the lantern has its ray off; the holding hand's pinch rides out
+ * hands' hooks (a hand or controller reaching for or holding the lantern has its ray off; the holding hand's pinch rides out
  * tracking loss). Call once, after attachInput.
  */
 export function attachLantern(world: World, scene: BoxScene): Lantern {
