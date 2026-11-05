@@ -6,6 +6,7 @@ import { mirrorBox } from "../core/mirror";
 import type { Settings } from "../core/profile";
 import type { V3, Vec3 } from "../core/types";
 import { BOX_ROOT_NAME, boxToWorld, placement } from "../render/placement";
+import { slotOf } from "../render/scraps";
 import { emit, type FeedbackEvent, onAny } from "./bus";
 import { Panels } from "./panels";
 import { currentScreen, go } from "./screens";
@@ -207,12 +208,36 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
     },
     box() {
       const b = box.box;
-      return b && { key: b.key, spots: b.locks.map((l) => [...l.L] as V3), start: [...b.start] as V3, mirrored: b.mirrored };
+      return (
+        b && {
+          key: b.key,
+          spots: b.locks.map((l) => [...l.L] as V3),
+          start: [...b.start] as V3,
+          mirrored: b.mirrored,
+          missing: b.locks.map((l) => l.missing),
+        }
+      );
     },
-    toWorld: (points) => points.map((p) => v3(boxToWorld(placement.matrix(), p, tmp))),
-    matrix: () => [...placement.matrix().elements],
+    // What is drawn: the box root's world matrix, not the placement it was given.
+    toWorld: (points) => {
+      box.root.updateWorldMatrix(true, false);
+      return points.map((p) => v3(boxToWorld(box.root.matrixWorld, p, tmp)));
+    },
+    matrix: () => {
+      box.root.updateWorldMatrix(true, false);
+      return [...box.root.matrixWorld.elements];
+    },
     setLantern: (p) => box.lantern.setPos(p),
     lantern: () => box.lantern.getPos([0, 0, 0]),
+    setScrap: (lock, piece, o) => {
+      const h = box.scrapMesh(lock, piece);
+      if (o.glow !== undefined) h.setGlow(o.glow);
+      if (o.visible !== undefined) h.setVisible(o.visible);
+    },
+    scrap: (lock, piece) => {
+      const s = slotOf(lock, piece);
+      return { glow: box.scraps.slots[s * 2]!, visible: box.scraps.slots[s * 2 + 1] === 1 };
+    },
     draws: () => box.drawStats(),
     setVisible: (v) => {
       box.root.visible = v;

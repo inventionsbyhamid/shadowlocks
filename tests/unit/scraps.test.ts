@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { type Material, ShaderLib } from "@iwsdk/core";
 import { generateBox } from "../../src/core/generator";
 import { proj } from "../../src/core/geom";
 import { mirrorBox } from "../../src/core/mirror";
@@ -11,6 +12,7 @@ import {
   ringRadii,
   SCRAP_GAP,
   SCRAP_THICKNESS,
+  Scraps,
   slotOf,
   THREAD_TOP_Y,
   writeScraps,
@@ -195,5 +197,87 @@ describe("ringRadii", () => {
     expect(R + r).toBeCloseTo(0.032, 9);
     expect(R - r).toBeCloseTo(0.017, 9);
     expect(RING_TUBE_SEGMENTS).toBeGreaterThanOrEqual(6);
+  });
+});
+
+describe("Scraps (no renderer)", () => {
+  const glowOf = (s: Scraps, slot: number) => s.slots[slot * 2]!;
+  const shownOf = (s: Scraps, slot: number) => s.slots[slot * 2 + 1]!;
+  /** Box 3 is the first with a finger lock. */
+  const fingerBox = boxes[2]!;
+  const fingerLock = fingerBox.locks.find((l) => l.finger)!;
+
+  it("writes a piece's glow and visibility into its own slot, and nothing else", () => {
+    const s = new Scraps(null);
+    s.setBox(boxes[14]!);
+    const before = Float32Array.from(s.slots);
+    const h = s.handle(1, 2), slot = slotOf(1, 2);
+    h.setGlow(0.7);
+    expect(glowOf(s, slot)).toBeCloseTo(0.7, 6);
+    h.setVisible(false);
+    expect(shownOf(s, slot)).toBe(0);
+    h.setVisible(true);
+    expect(shownOf(s, slot)).toBe(1);
+    for (let i = 0; i < s.slots.length; i++) if (i !== slot * 2) expect(s.slots[i]).toBe(before[i]);
+    // One handle per piece: the same object every call.
+    expect(s.handle(1, 2)).toBe(h);
+  });
+
+  it("starts a finger lock's missing piece hidden and every other piece shown, with no glow", () => {
+    const s = new Scraps(null);
+    s.setBox(fingerBox);
+    expect(fingerLock.missing).toBeGreaterThanOrEqual(0);
+    for (const e of fingerBox.elements) {
+      if (e.kind !== "piece") continue;
+      const slot = slotOf(e.lock, e.piece);
+      expect(shownOf(s, slot), `lock ${e.lock} piece ${e.piece}`).toBe(e.missing ? 0 : 1);
+      expect(glowOf(s, slot)).toBe(0);
+    }
+    expect(shownOf(s, slotOf(fingerLock.i, fingerLock.missing))).toBe(0);
+  });
+
+  it("resets every slot for a new box (and for none)", () => {
+    const s = new Scraps(null);
+    s.setBox(fingerBox);
+    s.handle(fingerLock.i, fingerLock.missing).setVisible(true);
+    s.handle(0, 0).setGlow(1);
+    s.handle(0, 1).setVisible(false);
+    s.setBox(boxes[0]!);
+    for (let slot = 0; slot < MAX_SLOTS; slot++) {
+      expect(glowOf(s, slot)).toBe(0);
+      expect(shownOf(s, slot)).toBe(1);
+    }
+    s.handle(0, 0).setGlow(1);
+    s.setBox(null);
+    expect(glowOf(s, slotOf(0, 0))).toBe(0);
+    expect(s.mesh.geometry.drawRange.count).toBe(0);
+    expect(s.rings.count).toBe(0);
+  });
+
+  it("patches three's standard and basic shaders where it means to (a three update that moves a chunk fails here)", () => {
+    const s = new Scraps(null);
+    const patch = (m: Material, lib: { vertexShader: string; fragmentShader: string }) => {
+      const shader = { vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader, uniforms: {} as Record<string, { value: unknown }> };
+      m.onBeforeCompile(shader as never, null as never);
+      return shader;
+    };
+    // The scrap mesh (a standard material): hidden pieces collapse, glow adds to the emissive light; no discard.
+    const scrap = patch(s.mesh.material as Material, ShaderLib.standard);
+    expect(scrap.vertexShader).toContain("vec2 slotState = uSlots[int(aSlot + 0.5)];");
+    expect(scrap.vertexShader).toContain("if (slotState.y < 0.5) transformed = vec3(0.0);");
+    expect(scrap.vertexShader).toContain("#include <begin_vertex>");
+    expect(scrap.fragmentShader).toContain("totalEmissiveRadiance += uGlowColor * vGlow;");
+    expect(scrap.fragmentShader).not.toContain("if (vShow < 0.5) discard;");
+    expect(scrap.uniforms.uSlots!.value).toBe(s.slots);
+    // The threads (a basic line material): the same collapse, glow tints the colour, and a hidden thread is discarded.
+    const thread = patch(s.threads.material as Material, ShaderLib.basic);
+    expect(thread.vertexShader).toContain("if (slotState.y < 0.5) transformed = vec3(0.0);");
+    expect(thread.fragmentShader).toContain("diffuseColor.rgb += uGlowColor * vGlow;");
+    expect(thread.fragmentShader).toContain("if (vShow < 0.5) discard;");
+    expect(thread.uniforms.uSlots!.value).toBe(s.slots);
+    // The rings: each instance's torus sized from its own radii.
+    const ring = patch(s.rings.material as Material, ShaderLib.standard);
+    expect(ring.vertexShader).toContain("vec3 transformed = vec3((aRadii.x + aRadii.y * aTorus.z) * aTorus.xy, aRadii.y * aTorus.w);");
+    expect(ring.vertexShader).not.toContain("#include <begin_vertex>");
   });
 });

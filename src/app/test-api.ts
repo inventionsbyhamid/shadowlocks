@@ -108,12 +108,16 @@ export interface NsAudio {
 export interface NsScene {
   /** Generate and show a box, numbered (`n`) or daily (`day`, YYYY-MM-DD), mirrored for a left hand. Returns its key. */
   show(spec: { n: number } | { day: string }, mirrored?: boolean): string;
-  /** The box shown: key, lantern spots and start (box units), and whether it is mirrored. */
-  box(): { key: string; spots: V3[]; start: V3; mirrored: boolean } | null;
-  /** Box units to world metres with the placement now. */
+  /** The box shown: key, lantern spots and start (box units), mirrored, and each lock's missing piece (-1 for none). */
+  box(): { key: string; spots: V3[]; start: V3; mirrored: boolean; missing: number[] } | null;
+  /** Box units to world metres, by the box root's world matrix (what is drawn). */
   toWorld(points: V3[]): Vec3[];
-  /** The box-to-world matrix now (column-major). */
+  /** The box root's world matrix now (column-major). */
   matrix(): number[];
+  /** Set a lock piece's glow and visibility the way the game does (BoxScene.scrapMesh). */
+  setScrap(lock: number, piece: number, o: { glow?: number; visible?: boolean }): void;
+  /** A lock piece's glow and visibility as the shaders read them. */
+  scrap(lock: number, piece: number): { glow: number; visible: boolean };
   /** Put the lantern (box units). */
   setLantern(p: V3): void;
   /** Where the lantern is (box units). */
