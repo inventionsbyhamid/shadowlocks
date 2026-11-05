@@ -27,6 +27,8 @@ for (const name of o.shots) {
     log(`[video-attempt] ${JSON.stringify({ test: `shot ${name}`, retry: testInfo.retry })}`);
     // Test hook for the detached watchdog: a retry that fails for a real reason must end "failed".
     if (process.env.VIDEO_FAIL_ON_RETRY === "1" && testInfo.retry > 0) throw new Error("failing the retry on purpose (VIDEO_FAIL_ON_RETRY)");
+    // Test hook for the detached watchdog's stall stop: hang with no output and no files written.
+    if (process.env.VIDEO_HANG === "1") await new Promise<void>(() => undefined);
     const shot = SHOTS[name];
     if (!shot) throw new Error(`no shot "${name}" (have: ${Object.keys(SHOTS).join(", ")})`);
     if (!fs.existsSync(shotFile(name))) throw new Error(`shot ${name} must live in ${shotFile(name)}`);

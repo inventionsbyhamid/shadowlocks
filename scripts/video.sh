@@ -19,7 +19,8 @@
 #                   --final): the server must have 100 + n GB free to start, and the render stops
 #                   (resumably) when the frames pass n GB or the disk drops under 100 GB free
 #   --detach        start the render on the server and return: it keeps going when this Mac sleeps
-#                   or disconnects (server-side watchdog, the shared "e2e" lock, hard time limit)
+#                   or disconnects (server-side watchdog, the shared "e2e" lock, a stop after 20 min
+#                   without progress, hard time limit: 3 h by default, NS_MAX_RUN seconds)
 #   --status        state of the detached render: shot, frame i of N, ETA, load, free disk ("lost"
 #                   when its watchdog died: --stop then cleans up)
 #   --pull          fetch test-results/video/ (MP4s, contact sheets, stills, JSON) once it is done
@@ -66,7 +67,7 @@ while [ $# -gt 0 ]; do
     --status) MODE=status; shift ;;
     --pull) MODE=pull; shift ;;
     --stop) MODE=stop; shift ;;
-    -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,37p' "$0"; exit 0 ;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -115,17 +116,23 @@ for _ in $(seq 1 120); do
   echo "waiting: load $load, browser runs going $busy" >&2
   sleep 30
 done
+if [ "$busy" -gt 0 ]; then
+  echo "refused: another browser run was still going after an hour of waiting (exit 75)" >&2
+  exit 75
+fi
 
+# A render holds the shared e2e lock for as long as it runs: 3 h at most by default (a long final
+# sets NS_MAX_RUN higher, in seconds), so a stuck one never keeps every lane's e2e runs out for long.
 if [ "$MODE" = detach ]; then
   # Upload this worktree (and install dependencies) through the runner, then start on the server.
   "$ROOT/scripts/remote.sh" "$LANE" --image shadowlocks-e2e -- true
   # 10#: a leading zero (08) is decimal, not octal.
-  server start "$LANE" "${NS_MAX_RUN:-43200}" "$((10#$NS_MIN_FREE_GB + 10#$EXPECT))" "${ENVS[@]}"
+  server start "$LANE" "${NS_MAX_RUN:-10800}" "$((10#$NS_MIN_FREE_GB + 10#$EXPECT))" "${ENVS[@]}"
   exit 0
 fi
 
-# Attached: the runner's cap of 2 h is too short for long renders (6 h here; NS_MAX_RUN for more).
-export NS_MAX_RUN=${NS_MAX_RUN:-21600}
+# Attached: the runner's cap of 2 h is too short for long renders (3 h here; NS_MAX_RUN for more).
+export NS_MAX_RUN=${NS_MAX_RUN:-10800}
 RENV=()
 for kv in "${ENVS[@]}"; do RENV+=(--env "$kv"); done
 # The shared e2e lock (as scripts/e2e.sh takes it): one heavy browser on the server at a time.

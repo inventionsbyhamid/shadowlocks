@@ -14,8 +14,10 @@
 # shared server), in that order as remote-run.sh does, and holds them for as long as it runs; its
 # name and image put it in e2e.sh's wait for other browser containers too. A watchdog here, outside
 # the container, checks every 30 s and stops the container (it resumes later from its frames) when
-# the free disk drops under the floor or the load stays over 25 for 5 minutes, and kills it at its
-# time limit plus 300 s whatever the container does. It writes
+# the free disk drops under the floor, the load stays over 25 for 5 minutes, or the render makes no
+# progress for 20 minutes (no new log line and no file written in its .video-cache or test-results;
+# NS_VIDEO_STALL_POLLS checks, default 40), and kills it at its time limit plus 300 s whatever the
+# container does. It writes
 # /root/shadowlocks/video/<lane>/status.json (state, shot, frame i of N, ETA, load, free disk) and
 # keeps the container's log in last.log when it ends. One watchdog per lane: it holds watchdog.lock
 # there from `start` to its end, and its pid is in watchdog.pid (root-only folder).
@@ -32,8 +34,11 @@ NPM_VOLUME=shadowlocks-npm-user
 FLOOR_GB=${NS_VIDEO_FLOOR_GB:-100}
 # Seconds past the container's own time limit at which the host kills it (negative only to test it).
 BACKSTOP=${NS_VIDEO_BACKSTOP_S:-300}
+# Checks (30 s apart) in a row without progress after which a render counts as stuck (40: 20 min).
+STALL_POLLS=${NS_VIDEO_STALL_POLLS:-40}
 # Whole numbers without leading zeros (bash would read 010 as octal).
 [[ $BACKSTOP =~ ^-?(0|[1-9][0-9]{0,4})$ ]] || { echo "video-detach: bad NS_VIDEO_BACKSTOP_S '$BACKSTOP'" >&2; exit 2; }
+[[ $STALL_POLLS =~ ^[1-9][0-9]{0,3}$ ]] || { echo "video-detach: bad NS_VIDEO_STALL_POLLS '$STALL_POLLS'" >&2; exit 2; }
 valid_run() { [[ ${1:-} =~ ^[1-9][0-9]{0,5}$ ]] && [[ ${2:-} =~ ^(0|[1-9][0-9]{0,4})$ ]]; }
 MAX_LOAD=25
 mkdir -p "$STATE" "$LOCKS"
@@ -229,6 +234,13 @@ fi
 echo "$(now) $NAME: started"
 reason=
 high=0
+# Progress: the container's log grew, or a file under the lane's .video-cache or test-results changed
+# since the last check (a frame, a mezzanine, a mix or a delivery being written). None for
+# STALL_POLLS checks in a row means a hung browser or encode: it is stopped like a disk stop (frames
+# stay, it resumes), so it does not sit on the e2e lock until its time limit.
+quiet=0
+last_log=-1
+touch "$STATE/progress.stamp"
 # Wall-clock backstop on the host: the container's own timeout covers the render, not the npm ci
 # before it or a container that ignores TERM.
 deadline=$((SECONDS + MAX_RUN + BACKSTOP))
@@ -237,6 +249,14 @@ while [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" = true ]
   free=$(df -BG --output=avail "$DIR" | tail -1 | tr -dc 0-9)
   load=$(awk '{print $1}' /proc/loadavg)
   if awk -v l="$load" -v m="$MAX_LOAD" 'BEGIN{exit !(l>m)}'; then high=$((high + 1)); else high=0; fi
+  # The next stamp first, so a file written while find runs counts at the next check.
+  touch "$STATE/progress.next"
+  size=$(docker logs "$NAME" 2>&1 | wc -c)
+  # Regular files only, never through a link (find's default), on this disk only.
+  changed=$(find "$DIR/.video-cache" "$DIR/test-results" -xdev -type f -newer "$STATE/progress.stamp" -print -quit 2>/dev/null)
+  mv -f "$STATE/progress.next" "$STATE/progress.stamp"
+  if [ "$size" != "$last_log" ] || [ -n "$changed" ]; then quiet=0; else quiet=$((quiet + 1)); fi
+  last_log=$size
   if [ "$SECONDS" -ge "$deadline" ]; then
     reason="ran past its $MAX_RUN s limit plus $BACKSTOP s; killed"
     echo "$(now) $NAME: $reason"
@@ -245,6 +265,7 @@ while [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" = true ]
   fi
   if [ "${free:-0}" -lt "$FLOOR_GB" ]; then reason="free disk $free GB < $FLOOR_GB GB"
   elif [ "$high" -ge 10 ]; then reason="load over $MAX_LOAD for 5 minutes"
+  elif [ "$quiet" -ge "$STALL_POLLS" ]; then reason="no progress in $quiet checks 30 s apart (no new log line or file)"
   fi
   if [ -n "$reason" ]; then
     echo "$(now) $NAME: $reason; stopping it (frames stay, it resumes)"
@@ -270,6 +291,6 @@ elif [[ $how == stopped* ]]; then
   state=stopped reason=${reason:-"stopped for the disk"}
 else state=failed reason="exit $code (see last.log)"
 fi
-rm -f "$STATE/stop-requested" "$STATE/watchdog.pid"
+rm -f "$STATE/stop-requested" "$STATE/watchdog.pid" "$STATE/progress.stamp" "$STATE/progress.next"
 status "$state" "$reason" log
 echo "$(now) $NAME: $state ${reason:-}"

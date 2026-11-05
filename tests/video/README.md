@@ -130,31 +130,37 @@ lays a card drawn by the browser in Archivo and the game's ebony and gold over i
 the font in `assets/fonts/`, OFL) for `holdSec`; the music runs on under it and fades out. Its words
 live with the game's copy (`COPY.film` in `src/ui/copy.ts`: no em or en dashes). The edit fails when
 the PCM or the decoded AAC track of the MP4 misses -14 LUFS by more than 0.5 LU or peaks over
--1 dBTP; both measurements go in `<edit>.json` (`loudness: null` keeps the game's own levels, as
-`card-check` does while there is no sound pack). Every shot's version is printed; stale shots are
-refused unless `--reuse-stale`.
+-1 dBTP; both measurements go in `<edit>.json` (`loudness: null` keeps the game's own levels).
+While the repo has no sound pack (and the edit has no voice-over) the mix is silence, which no gain
+brings to -14 LUFS: the edit then skips the loudness step with a warning instead of failing. Every shot's version is printed; stale
+shots are refused unless `--reuse-stale`.
 
 ## Attached and detached
 
-Both first wait (as `scripts/e2e.sh` does) until no other `shadowlocks-e2e` browser container runs,
-then hold the server-wide `e2e` lock that e2e runs take, and the lane lock: one heavy browser at a
-time on the shared server. A render therefore holds every lane's e2e runs back while it goes (they
-give up after `NS_LOCK_WAIT`, an hour by default): render long cuts shot by shot, detached, at quiet
-times.
+Both first wait (as `scripts/e2e.sh` does) up to an hour until no other `shadowlocks-e2e` browser
+container runs (still one after that: refused, exit 75), then hold the server-wide `e2e` lock that
+e2e runs take, and the lane lock: one heavy browser at a time on the shared server. A render
+therefore holds every lane's e2e runs back while it goes (they give up after `NS_LOCK_WAIT`, an hour
+by default): render long cuts shot by shot, detached, at quiet times. Both stop after 3 h by
+default, so a stuck render frees the lock; a long final sets `NS_MAX_RUN` (seconds) higher.
 - Attached (`scripts/video.sh ...`): a `remote.sh` run; it stops when this Mac sleeps or disconnects
-  (resuming later costs little). Run time cap 6 h (`NS_MAX_RUN`).
+  (resuming later costs little). Run time cap 3 h (`NS_MAX_RUN`).
 - Detached (`--detach`): asks the server first whether a render of this lane is already queued or
   running (refused at once, before the upload), uploads through `remote.sh`, then the server starts
   container `shadowlocks-e2e-video-<lane>` (same limits and user as the runner: 6 CPUs, 8 GB, 2048
-  processes, uid 1000, no capabilities) under its own hard `timeout` (12 h, `NS_MAX_RUN`). The
+  processes, uid 1000, no capabilities) under its own hard `timeout` (3 h, `NS_MAX_RUN`). The
   watchdog on the server takes the lane lock, the lane's write lock and the `e2e` lock in that order
-  (as the runner does), stops the container (resumably) when the free disk drops under 100 GB or the
-  load stays over 25 for 5 minutes, kills it at its limit plus 300 s, and writes
+  (as the runner does), stops the container (resumably) when the free disk drops under 100 GB, the
+  load stays over 25 for 5 minutes, or the render makes no progress for 20 minutes (no new log line
+  and no file written under the lane's `.video-cache/` or `test-results/`: a hung browser or encode;
+  `NS_VIDEO_STALL_POLLS` checks 30 s apart on the server, default 40), kills it at its limit plus
+  300 s, and writes
   `/root/shadowlocks/video/<lane>/status.json` (queued, running, done, stopped with the reason, or
   failed; shot, frame i of N, ETA); the container's log is kept in `last.log` there. One watchdog
   per lane: a second `--detach` is refused while one is queued or running; `--stop` stops a running
   render, cancels a queued one, or removes a container left behind. A shot that stops itself for the
-  disk ends as "stopped" (resumable), not "failed". `--pull` fetches the results once it is done.
+  disk, or a render stopped for no progress, ends as "stopped" (resumable), not "failed". `--pull`
+  fetches the results once it is done.
 
 Time: Number Smash ran about 55 s of server time per second of 720p 60 fps video and 110 s at 1080p
 (load around 15; more when the server is busy). Each shot's sidecar has the real figure
