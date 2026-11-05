@@ -1,11 +1,13 @@
 // Test hooks: window.__ns. Only built when VITE_TEST_HOOKS=1 (main.ts imports this module behind
 // that flag, so production bundles drop it).
 import { Quaternion, Vector3, type World } from "@iwsdk/core";
+import { generateBox } from "../core/generator";
+import { mirrorBox } from "../core/mirror";
 import type { Settings } from "../core/profile";
-import type { Vec3 } from "../core/types";
+import type { V3, Vec3 } from "../core/types";
+import { BOX_ROOT_NAME, boxToWorld, placement } from "../render/placement";
 import { emit, type FeedbackEvent, onAny } from "./bus";
 import { Panels } from "./panels";
-import { BOX_ROOT_NAME, placement } from "./placement";
 import { currentScreen, go } from "./screens";
 import type { Shell } from "./shell";
 import type { ShellSystem } from "./shell-system";
@@ -13,7 +15,7 @@ import type { SfxId } from "../audio/manifest";
 import type { PlayOptions } from "../audio/engine";
 import type { Sound } from "./sound";
 import { appSystemName, onAppSystem } from "./systems";
-import type { NsApi, NsButton, NsClock, NsPerf, NsSound, NsState } from "./test-api";
+import type { NsApi, NsButton, NsClock, NsPerf, NsScene, NsSound, NsState } from "./test-api";
 import { installVirtualClock, type VirtualClock } from "./virtual-clock";
 
 const MAX_EVENTS = 2000;
@@ -195,7 +197,30 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
     };
   };
 
+  const box = shell.box;
+  const scene: NsScene = {
+    show(spec, mirrored = false) {
+      const made = generateBox("n" in spec ? { kind: "box", n: spec.n } : { kind: "daily", day: spec.day });
+      const b = mirrored ? mirrorBox(made) : made;
+      box.setBox(b);
+      return b.key;
+    },
+    box() {
+      const b = box.box;
+      return b && { key: b.key, spots: b.locks.map((l) => [...l.L] as V3), start: [...b.start] as V3, mirrored: b.mirrored };
+    },
+    toWorld: (points) => points.map((p) => v3(boxToWorld(placement.matrix(), p, tmp))),
+    matrix: () => [...placement.matrix().elements],
+    setLantern: (p) => box.lantern.setPos(p),
+    lantern: () => box.lantern.pos,
+    draws: () => box.drawStats(),
+    setVisible: (v) => {
+      box.root.visible = v;
+    },
+  };
+
   w.__ns = {
+    scene,
     state,
     perf: () => timing.perf(),
     resetPerf: () => timing.reset(),

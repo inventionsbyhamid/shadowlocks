@@ -1,4 +1,4 @@
-import type { Vec3 } from "../core/types";
+import type { V3, Vec3 } from "../core/types";
 import type { FeedbackEvent } from "./bus";
 import type { Screen } from "./screens";
 
@@ -22,8 +22,8 @@ export interface NsState {
   /** The box placement: back panel centre and heading; source "default" until placed from the head. */
   boxPose: { position: Vec3; yaw: number; source: string };
   /**
-   * The box in the scene (its stand-in until the box scene exists): whether the "Box" root entity
-   * is there, its world centre, its edge in metres, and whether it is drawn.
+   * The box in the scene: whether the "Box" root entity is there, its world origin (the back panel's
+   * centre), its edge in metres, and whether it is drawn.
    */
   box: { exists: boolean; world: Vec3 | null; sizeM: number; visible: boolean };
   head: Vec3 | null;
@@ -104,6 +104,26 @@ export interface NsAudio {
   voices(): number;
 }
 
+/** The box scene, for tests: which box it shows, where its points are, what it draws. */
+export interface NsScene {
+  /** Generate and show a box, numbered (`n`) or daily (`day`, YYYY-MM-DD), mirrored for a left hand. Returns its key. */
+  show(spec: { n: number } | { day: string }, mirrored?: boolean): string;
+  /** The box shown: key, lantern spots and start (box units), and whether it is mirrored. */
+  box(): { key: string; spots: V3[]; start: V3; mirrored: boolean } | null;
+  /** Box units to world metres with the placement now. */
+  toWorld(points: V3[]): Vec3[];
+  /** The box-to-world matrix now (column-major). */
+  matrix(): number[];
+  /** Put the lantern (box units). */
+  setLantern(p: V3): void;
+  /** Where the lantern is (box units). */
+  lantern(): V3;
+  /** Draw calls and triangles the box adds per view, counted from what it draws, with the parts drawn. */
+  draws(): { calls: number; triangles: number; parts: string[] };
+  /** Show or hide the whole box. */
+  setVisible(v: boolean): void;
+}
+
 /** `window.__ns`, present only in builds made with VITE_TEST_HOOKS=1. */
 export interface NsApi {
   state(): NsState;
@@ -121,6 +141,7 @@ export interface NsApi {
   /** Put an event on the app's bus. */
   emit(e: FeedbackEvent): void;
   audio: NsAudio;
+  scene: NsScene;
 }
 
 declare global {

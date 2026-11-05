@@ -20,7 +20,7 @@ test("a fingertip poke on Settings opens it, and Done comes back home", async ({
   expect(events).toContainEqual({ type: "screen", from: "settings", to: "home" });
 });
 
-test("a stepper changes the setting live and the box stand-in follows its size", async ({ page, boot }) => {
+test("a stepper changes the setting live and the box follows its size", async ({ page, boot }) => {
   const app = await boot();
   await page.evaluate(() => (window as any).__ns.ui.go("settings"));
   expect((await app.state()).box.sizeM).toBeCloseTo(0.24, 6);
