@@ -12,7 +12,6 @@ import {
   feelEvents,
   firstLine,
   grab,
-  LOOSE_MS,
   lantern,
   measureCost,
   offLine,
@@ -23,6 +22,7 @@ import {
   startTrail,
   sub,
   takeTrail,
+  TIMED_FRAMES,
   toWorld,
   unit,
 } from "./helpers/lantern";
@@ -254,6 +254,15 @@ test("controller trigger grabs the lantern", async ({ page, boot }) => {
       const v = g.getWorldPosition(new g.position.constructor());
       return [v.x, v.y, v.z] as Vec3;
     });
+  /** The right controller's ray is on (IWSDK's ray sub-pointer is registered). */
+  const ray = () =>
+    page.evaluate(() => (window.__ns!.world as any).input.xr.multiPointers.right.getSubPointerState("ray").registered as boolean);
+  // Away from the lantern: its ray is on.
+  const start = add(w0, [0.3, 0.15, 0.15]);
+  await app.queue("set_transform", { device: "controller-right", position: { x: start[0], y: start[1], z: start[2] } });
+  await app.settle(10_000, 4);
+  expect(dist(await grip(), w0)).toBeGreaterThan(0.2);
+  expect(await ray()).toBe(true);
   // Put the controller's grip on the lantern (the grip sits off the controller's origin: correct for it).
   let pos: Vec3 = [...w0];
   for (let i = 0; i < 4; i++) {
@@ -264,6 +273,8 @@ test("controller trigger grabs the lantern", async ({ page, boot }) => {
   expect(dist(await grip(), w0)).toBeLessThan(0.003);
   await app.step(40);
   expect((await lantern(page)).glow).toBeGreaterThan(0.99);
+  // Reaching for it: the ray is off before the trigger goes down, so the press that grabs selects nothing else.
+  expect(await ray()).toBe(false);
 
   await page.evaluate(() => window.__ns!.clearEvents());
   await app.queue("set_gamepad_state", { device: "controller-right", buttons: [{ index: 0, value: 1 }] });
@@ -278,20 +289,28 @@ test("controller trigger grabs the lantern", async ({ page, boot }) => {
   await app.queue("animate_to", { device: "controller-right", position: { x: to[0], y: to[1], z: to[2] }, duration: 0.3 });
   await app.settle(10_000, 30);
   expect(dist(await toWorld(page, (await lantern(page)).pos), add(lw, [0, 0.03, 0.03]))).toBeLessThan(0.005);
+  // Still off while it holds the lantern.
+  expect(await ray()).toBe(false);
 
   await app.queue("set_gamepad_state", { device: "controller-right", buttons: [{ index: 0, value: 0 }] });
   await app.settle();
   expect((await lantern(page)).held).toBe(false);
   expect(await app.events("release")).toEqual([{ type: "release", hand: "right" }]);
+  // Away from the lantern again: the ray is back.
+  const away = add(to, [0.25, 0.1, 0.1]);
+  await app.queue("animate_to", { device: "controller-right", position: { x: away[0], y: away[1], z: away[2] }, duration: 0.3 });
+  await app.settle(10_000, 6);
+  expect(await ray()).toBe(true);
 });
 
 // --- Cost -------------------------------------------------------------------------------------------------------
 
 test("holding the lantern: cost in the first seconds, before the engine has optimised it", async ({ page, boot }, testInfo) => {
   // Code V8 has not optimised yet boxes its floating point numbers (a few bytes a frame in every hot function, ours
-  // or not) and runs slower: measured and reported, loosely bounded. The strict check is in lantern-cost.spec.ts.
+  // or not) and runs slower: measured and reported only (mean, median, p95, allocation). The gate is in
+  // lantern-cost.spec.ts, on optimised code.
   const c = await measureCost(boot, page, testInfo, "before optimisation");
-  expect(c.pinch.p95Ms + c.lan.p95Ms).toBeLessThanOrEqual(LOOSE_MS);
+  expect(c.frames).toBe(TIMED_FRAMES);
 });
 
 // --- Shots ------------------------------------------------------------------------------------------------------

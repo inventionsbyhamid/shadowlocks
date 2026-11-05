@@ -132,6 +132,8 @@ export interface NsScene {
 export interface NsApi {
   state(): NsState;
   perf(): NsPerf;
+  /** The named app systems' update time per frame (real ms), summed per frame, oldest first, over perf()'s window. */
+  perfFrames(systems: string[]): number[];
   resetPerf(): void;
   clock: NsClock;
   /** Bus events seen so far (newest last; at least the last 2000), optionally of one type. */

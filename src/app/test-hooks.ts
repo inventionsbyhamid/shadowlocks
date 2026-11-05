@@ -113,6 +113,20 @@ function instrument(world: World, realNow: () => number) {
       last = 0;
       for (const p of per) p.n = 0;
     },
+    /** The named systems' update time per frame, summed, oldest frame first (the same window as perf()). */
+    frames(names: string[]): number[] {
+      const sel = per.filter((p) => names.includes(p.name));
+      if (!sel.length) return [];
+      const end = sel[0]!.n;
+      const n = Math.min(end, PERF_WINDOW);
+      const out: number[] = [];
+      for (let k = end - n; k < end; k++) {
+        let s = 0;
+        for (const p of sel) s += p.ring[k % PERF_WINDOW]!;
+        out.push(s);
+      }
+      return out;
+    },
   };
 }
 
@@ -138,7 +152,7 @@ function listen(sound: Sound): { log: NsSound[] } {
   return { log };
 }
 
-export function installTestHooks(world: World, shell: Shell, system: ShellSystem, app: { sound: Sound; lantern?: Lantern }): void {
+export function installTestHooks(world: World, shell: Shell, system: ShellSystem, app: { sound: Sound; lantern: Lantern }): void {
   const w = window as unknown as { __vt?: VirtualClock; __ns?: NsApi; __sl?: SlApi };
   const realNow = w.__vt ? w.__vt.realNow : performance.now.bind(performance);
   const timing = instrument(world, realNow);
@@ -201,11 +215,11 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
   };
 
   const box = shell.box;
-  const lan = app.lantern ?? null;
-  // Through the lantern's controller when there is one (the view follows it every frame).
-  const placeLantern = (p: V3) => (lan ? lan.place(p) : box.lantern.setPos(p));
+  const lan = app.lantern;
+  // Through the lantern's controller: the view follows the controller every frame, so a view-only move would not stay.
+  const placeLantern = (p: V3) => lan.place(p);
   const feelLog: SlFeelEvent[] = [];
-  lan?.onFeel((e) => feelLog.push({ ...e, at: performance.now() }));
+  lan.onFeel((e) => feelLog.push({ ...e, at: performance.now() }));
   const scene: NsScene = {
     show(spec, mirrored = false) {
       const made = generateBox("n" in spec ? { kind: "box", n: spec.n } : { kind: "daily", day: spec.day });
@@ -255,6 +269,7 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
     scene,
     state,
     perf: () => timing.perf(),
+    perfFrames: (systems) => timing.frames(systems),
     resetPerf: () => timing.reset(),
     clock,
     events: (type) => (type ? log.filter((e) => e.type === type) : [...log]),
@@ -292,7 +307,6 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
   };
 
   const lanternNow = (): SlLantern => {
-    if (!lan) return { pos: box.lantern.getPos([0, 0, 0]), held: false, mode: "free", holder: null, glow: 0 };
     const c = lan.ctrl;
     return { pos: [c.pos[0], c.pos[1], c.pos[2]], held: c.held, mode: c.mode, holder: lan.grab.holder, glow: lan.grab.brightness };
   };
@@ -309,10 +323,7 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
       const n = shadowPolys(b.elements, lanternNow().pos, out, SKIP_MISSING);
       return out.slice(0, n).map((poly) => poly.map((p): V2 => [p[0], p[1]]));
     },
-    ringLines: () =>
-      lan
-        ? lan.feel.ctx.lines.map((l) => ({ lock: l.lock, mark: [...l.mark] as V3, dir: [...l.dir] as V3, aligned: l.aligned }))
-        : [],
+    ringLines: () => lan.feel.ctx.lines.map((l) => ({ lock: l.lock, mark: [...l.mark] as V3, dir: [...l.dir] as V3, aligned: l.aligned })),
     feelEvents: () => feelLog.map((e) => ({ ...e })),
     clearFeelEvents: () => {
       feelLog.length = 0;
