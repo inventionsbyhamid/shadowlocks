@@ -1,3 +1,4 @@
+import type { GameSounds } from "../audio/cues";
 import type { V3, Vec3 } from "../core/types";
 import type { FeedbackEvent } from "./bus";
 import type { Screen } from "./screens";
@@ -85,11 +86,15 @@ export interface NsUi {
   panelPosition(screen: Screen): Vec3 | null;
 }
 
-/** A sound the game asked for: effect id (stings as `sting:<id>`, music as `music:<state>`), pitch, virtual ms. */
+/**
+ * A sound the game asked for: effect id (stings as `sting:<id>`, music as `music:<state>`), pitch,
+ * virtual ms, and how long after that it starts on the audio clock (layered sounds).
+ */
 export interface NsSound {
   id: string;
   pitch?: number;
   at: number;
+  delayMs?: number;
 }
 
 /** Sound, for tests: what the game asked the audio engine to play (heard or not: no gesture in tests). */
@@ -102,6 +107,8 @@ export interface NsAudio {
   running(): boolean;
   /** Voices playing now (effects started and not yet ended). */
   voices(): number;
+  /** The music: state asked for, whether the bed plays, the low-pass it heads for and has now (Hz). */
+  music(): { state: string; playing: boolean; cutoffHz: number; filterHz: number };
 }
 
 /** The box scene, for tests: which box it shows, where its points are, what it draws. */
@@ -190,6 +197,10 @@ export interface SlApi {
    * textures, and each step's median ms (setBox first).
    */
   etchTimes(count: number): { total: number[]; worstStep: number[]; steps: number; upload: number[]; perStep: number[] };
+  /** The box's sounds and haptics, as the box session calls them (lock opened, warmth, menus...). */
+  sound: GameSounds;
+  /** The caption texts up now. */
+  captions(): string[];
 }
 
 declare global {

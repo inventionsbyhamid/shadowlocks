@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { makePlaceholders } from "../../src/audio/placeholder";
-import { BASE_SFX_IDS } from "../../src/audio/manifest";
+import { BASE_SFX_IDS, DERIVED_SFX_IDS, type AudioManifest } from "../../src/audio/manifest";
 import { FakeAudioContext, asCtx } from "./helpers/fake-audio";
 import { AudioEngine } from "../../src/audio/engine";
 
@@ -8,10 +9,27 @@ describe("placeholder sounds", () => {
   const ctx = new FakeAudioContext();
   const { manifest, buffers } = makePlaceholders(asCtx(ctx));
 
-  it("covers every base sound id and nothing else", () => {
+  it("covers every base sound id and nothing else, and derives the other notes and the lesson beat as the pack does", () => {
     for (const id of BASE_SFX_IDS) expect(manifest.sfx[id], id).toBeDefined();
     expect(Object.keys(manifest.sfx).sort()).toEqual([...BASE_SFX_IDS].sort());
-    expect(manifest.derived).toEqual({});
+    expect(Object.keys(manifest.derived).sort()).toEqual([...DERIVED_SFX_IDS].sort());
+    const real = JSON.parse(readFileSync("public/audio/manifest.json", "utf8")) as AudioManifest;
+    expect(manifest.derived).toEqual(real.derived);
+  });
+
+  it("tunes each music-box sample to its note", () => {
+    // Zero crossings over the first 0.2 s give the frequency within a few hertz.
+    const hz = (id: string) => {
+      const b = buffers.get(manifest.sfx[id]!.files[0]!) as unknown as { sampleRate: number; getChannelData(c: number): Float32Array };
+      const d = b.getChannelData(0);
+      const n = Math.floor(b.sampleRate * 0.2);
+      let crossings = 0;
+      for (let i = 1; i < n; i++) if (d[i - 1]! <= 0 && d[i]! > 0) crossings++;
+      return crossings / 0.2;
+    };
+    for (const [id, f] of [["mb_g4", 392], ["mb_b4", 493.9], ["mb_g5", 784], ["mb_d6", 1174.7], ["mb_g6", 1568]] as const) {
+      expect(Math.abs(hz(id) / f - 1), id).toBeLessThan(0.02);
+    }
   });
 
   it("gives every file a non-silent buffer under 1.5 seconds", () => {
@@ -41,12 +59,14 @@ describe("placeholder sounds", () => {
     expect(manifest.musicStates.menu).toBe(manifest.musicStates.calm);
     expect(manifest.musicStates.results).toBe(manifest.musicStates.calm);
     expect(manifest.musicStateFx?.menu?.lowpassHz).toBe(800);
+    // The same mix as the pack: music bus 0.5.
+    expect(manifest.buses.music).toBe(0.5);
     expect(manifest.stings.solve).toBe("sting_solve");
     expect(manifest.music.sting_solve?.role).toBe("sting");
   });
 
   it("tonal sounds have no pitch jitter, and the tick follows its pitch exactly", () => {
-    for (const id of ["ring_chime", "crystallise", "reward_lift", "daily_streak", "hint_reveal", "lock_hum", "dial_tick"]) {
+    for (const id of ["ring_chime", "crystallise", "reward_lift", "daily_streak", "hint_reveal", "lock_hum", "dial_tick", "mb_g4", "mb_g5", "mb_g6"]) {
       expect(manifest.sfx[id]!.pitchCents, id).toBe(0);
     }
   });

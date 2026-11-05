@@ -1,0 +1,977 @@
+{
+  "version": 1,
+  "sampleRate": 48000,
+  "container": "ogg",
+  "codec": "opus",
+  "buses": {
+    "music": 0.5,
+    "sfx": 1,
+    "ui": 0.8,
+    "ambience": 0.3
+  },
+  "sfx": {
+    "lantern_pick": {
+      "files": [
+        "sfx/lantern_pick_a.ogg",
+        "sfx/lantern_pick_b.ogg",
+        "sfx/lantern_pick_c.ogg"
+      ],
+      "durations": [
+        0.512,
+        0.414,
+        0.501
+      ],
+      "sources": [
+        "lantern_pick__t3v3__4f3a0a0093f1.mp3",
+        "lantern_pick__t3v2__8b82747b38f5.mp3",
+        "lantern_pick__t2v1__2e6284889b6f.mp3"
+      ],
+      "renderGainDb": [
+        -6.7,
+        -6.4,
+        -2.3
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 80,
+      "gainRandDb": 1,
+      "cooldownMs": 60,
+      "maxVoices": 2,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "lantern_set": {
+      "files": [
+        "sfx/lantern_set_a.ogg",
+        "sfx/lantern_set_b.ogg",
+        "sfx/lantern_set_c.ogg"
+      ],
+      "durations": [
+        0.488,
+        0.441,
+        0.482
+      ],
+      "sources": [
+        "lantern_set__t1v1__3261eb99032f.mp3",
+        "lantern_set__t3v1__6f86269b5eb0.mp3",
+        "lantern_set__t3v3__6744b9d25658.mp3"
+      ],
+      "renderGainDb": [
+        -3.8,
+        -4.6,
+        -0.7
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 80,
+      "gainRandDb": 1,
+      "cooldownMs": 60,
+      "maxVoices": 2,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "lantern_creak": {
+      "files": [
+        "sfx/lantern_creak_a.ogg",
+        "sfx/lantern_creak_b.ogg",
+        "sfx/lantern_creak_c.ogg"
+      ],
+      "durations": [
+        0.5,
+        0.385,
+        0.475
+      ],
+      "sources": [
+        "lantern_creak__t1v3__2871e3da6779.mp3",
+        "lantern_creak__t2v3__317a55e7e066.mp3",
+        "lantern_creak__t2v2__f46a738822e7.mp3"
+      ],
+      "renderGainDb": [
+        -14.77,
+        -6.27,
+        -2.47
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 150,
+      "gainRandDb": 2,
+      "cooldownMs": 700,
+      "maxVoices": 1,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "glass_tick": {
+      "files": [
+        "sfx/glass_tick_a.ogg",
+        "sfx/glass_tick_b.ogg",
+        "sfx/glass_tick_c.ogg"
+      ],
+      "durations": [
+        0.35,
+        0.128,
+        0.35
+      ],
+      "sources": [
+        "glass_tick__t2v3__548c19e6d0d0.mp3",
+        "glass_tick__t2v1__232b8a74219e.mp3",
+        "glass_tick__t3v3__76644d1c7199.mp3"
+      ],
+      "renderGainDb": [
+        -0.47,
+        4.43,
+        -0.67
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 50,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 3,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "brass_clunk": {
+      "files": [
+        "sfx/brass_clunk_a.ogg",
+        "sfx/brass_clunk_b.ogg",
+        "sfx/brass_clunk_c.ogg"
+      ],
+      "durations": [
+        0.45,
+        0.426,
+        0.5
+      ],
+      "sources": [
+        "brass_clunk__t3v3__f24171a8370c.mp3",
+        "brass_clunk__t2v1__6d5be8c45aff.mp3",
+        "brass_clunk__t1v1__ca2905575ada.mp3"
+      ],
+      "renderGainDb": [
+        -4.4,
+        -7.3,
+        -7.7
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 40,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 3,
+      "duckMusicDb": 0,
+      "caption": "Lock opens",
+      "loop": false
+    },
+    "ring_chime": {
+      "files": [
+        "sfx/ring_chime.ogg"
+      ],
+      "durations": [
+        1.1
+      ],
+      "sources": [
+        "ring_chime__t3v2__3683f8799bde.mp3"
+      ],
+      "renderGainDb": [
+        -0.1
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": -5,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 400,
+      "maxVoices": 3,
+      "duckMusicDb": 0,
+      "caption": "Rings line up",
+      "loop": false
+    },
+    "dial_tick": {
+      "files": [
+        "sfx/dial_tick_a.ogg",
+        "sfx/dial_tick_b.ogg",
+        "sfx/dial_tick_c.ogg"
+      ],
+      "durations": [
+        0.12,
+        0.09,
+        0.12
+      ],
+      "sources": [
+        "dial_tick__t2v3__9f24051a9a6e.mp3",
+        "dial_tick__t2v2__6e7719576cc5.mp3",
+        "dial_tick__t1v2__0a396c424a68.mp3"
+      ],
+      "renderGainDb": [
+        -8.83,
+        -10.03,
+        -2.43
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 80,
+      "maxVoices": 2,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "crystallise": {
+      "files": [
+        "sfx/crystallise.ogg"
+      ],
+      "durations": [
+        1.5
+      ],
+      "sources": [
+        "crystallise__t1v2__a07ceb147f8d.mp3"
+      ],
+      "renderGainDb": [
+        -9.4
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 125,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 3,
+      "duckMusicDb": 3,
+      "caption": "Piece formed",
+      "loop": false
+    },
+    "fingertip_hum": {
+      "files": [
+        "sfx/fingertip_hum.flac"
+      ],
+      "durations": [
+        3.1
+      ],
+      "sources": [
+        "fingertip_hum__t2v1__8ddf3a31eedd.mp3"
+      ],
+      "renderGainDb": [
+        7.4
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 0,
+      "gainRandDb": 0,
+      "cooldownMs": 0,
+      "maxVoices": 1,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": true
+    },
+    "lock_hum": {
+      "files": [
+        "sfx/lock_hum.flac"
+      ],
+      "durations": [
+        5.4
+      ],
+      "sources": [
+        "lock_hum__t3v1__f3a7b8e6e581.mp3"
+      ],
+      "renderGainDb": [
+        -26.1
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": -2,
+      "pitchCents": 0,
+      "gainRandDb": 0,
+      "cooldownMs": 0,
+      "maxVoices": 3,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": true
+    },
+    "thread_shimmer": {
+      "files": [
+        "sfx/thread_shimmer_a.ogg",
+        "sfx/thread_shimmer_b.ogg"
+      ],
+      "durations": [
+        1.462,
+        1.363
+      ],
+      "sources": [
+        "thread_shimmer__t2v1__5c7f999dfc27.mp3",
+        "thread_shimmer__t3v1__72f18f4d1c56.mp3"
+      ],
+      "renderGainDb": [
+        2.7,
+        -2.8
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 2,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "walls_hinge": {
+      "files": [
+        "sfx/walls_hinge.ogg"
+      ],
+      "durations": [
+        1.501
+      ],
+      "sources": [
+        "walls_hinge__t2v1__091deeba26d6.mp3"
+      ],
+      "renderGainDb": [
+        -4
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 2,
+      "duckMusicDb": 3,
+      "caption": "Box opens",
+      "loop": false
+    },
+    "drawer_slide": {
+      "files": [
+        "sfx/drawer_slide.ogg"
+      ],
+      "durations": [
+        1.016
+      ],
+      "sources": [
+        "drawer_slide__t3v1__fe75b969d863.mp3"
+      ],
+      "renderGainDb": [
+        1.9
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 2,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "reward_lift": {
+      "files": [
+        "sfx/reward_lift_a.ogg",
+        "sfx/reward_lift_b.ogg"
+      ],
+      "durations": [
+        1.373,
+        1.453
+      ],
+      "sources": [
+        "reward_lift__t2v1__f1f68875d768.mp3",
+        "reward_lift__t1v2__84cd7bf31c95.mp3"
+      ],
+      "renderGainDb": [
+        11.7,
+        17.45
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 2,
+      "duckMusicDb": 4,
+      "caption": "Reward",
+      "loop": false
+    },
+    "collection_drop": {
+      "files": [
+        "sfx/collection_drop_a.ogg",
+        "sfx/collection_drop_b.ogg"
+      ],
+      "durations": [
+        1.144,
+        1.012
+      ],
+      "sources": [
+        "collection_drop__t2v2__56bc7ab4f4d3.mp3",
+        "collection_drop__t1v2__2272ae4ea81c.mp3"
+      ],
+      "renderGainDb": [
+        -9.25,
+        -3.9
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 2,
+      "duckMusicDb": 0,
+      "caption": "Added to collection",
+      "loop": false
+    },
+    "daily_streak": {
+      "files": [
+        "sfx/daily_streak.ogg"
+      ],
+      "durations": [
+        1.232
+      ],
+      "sources": [
+        "daily_streak__t1v1__f06258babe8b.mp3"
+      ],
+      "renderGainDb": [
+        2.7
+      ],
+      "bus": "sfx",
+      "spatial": "none",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 2,
+      "duckMusicDb": 4,
+      "caption": "Daily streak",
+      "loop": false
+    },
+    "theatre_dim": {
+      "files": [
+        "sfx/theatre_dim.ogg"
+      ],
+      "durations": [
+        0.93
+      ],
+      "sources": [
+        "theatre_dim__t1v1__ed3b953fd3e1.mp3"
+      ],
+      "renderGainDb": [
+        -16.4
+      ],
+      "bus": "sfx",
+      "spatial": "none",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 0,
+      "gainRandDb": 0,
+      "cooldownMs": 0,
+      "maxVoices": 1,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "theatre_up": {
+      "files": [
+        "sfx/theatre_up.ogg"
+      ],
+      "durations": [
+        0.922
+      ],
+      "sources": [
+        "theatre_up__t3v1__a1cec3dd2490.mp3"
+      ],
+      "renderGainDb": [
+        -18
+      ],
+      "bus": "sfx",
+      "spatial": "none",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 0,
+      "gainRandDb": 0,
+      "cooldownMs": 0,
+      "maxVoices": 1,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "hint_reveal": {
+      "files": [
+        "sfx/hint_reveal.ogg"
+      ],
+      "durations": [
+        1.36
+      ],
+      "sources": [
+        "hint_reveal__t1v2__1ce7f476abd3.mp3"
+      ],
+      "renderGainDb": [
+        8.5
+      ],
+      "bus": "sfx",
+      "spatial": "equalpower",
+      "gainDb": 0,
+      "detuneCents": -310,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 60,
+      "maxVoices": 2,
+      "duckMusicDb": 0,
+      "caption": "Hint",
+      "loop": false
+    },
+    "gentle_error": {
+      "files": [
+        "sfx/gentle_error_a.ogg",
+        "sfx/gentle_error_b.ogg"
+      ],
+      "durations": [
+        0.476,
+        0.5
+      ],
+      "sources": [
+        "gentle_error__t1v1__7bf47a28c3af.mp3",
+        "gentle_error__t1v2__a67fe3bffdf1.mp3"
+      ],
+      "renderGainDb": [
+        6,
+        7.4
+      ],
+      "bus": "sfx",
+      "spatial": "equalpower",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 300,
+      "maxVoices": 2,
+      "duckMusicDb": 0,
+      "caption": "Not yet",
+      "loop": false
+    },
+    "ui_hover": {
+      "files": [
+        "sfx/ui_hover_a.ogg",
+        "sfx/ui_hover_b.ogg",
+        "sfx/ui_hover_c.ogg"
+      ],
+      "durations": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "sources": [
+        "ui_hover__t3v1__548c9b290e03.mp3",
+        "ui_hover__t2v3__4f7038dfcfe4.mp3",
+        "ui_hover__t2v2__651c1246401a.mp3"
+      ],
+      "renderGainDb": [
+        -6.3,
+        -11.9,
+        -16.6
+      ],
+      "bus": "ui",
+      "spatial": "equalpower",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 80,
+      "gainRandDb": 0.5,
+      "cooldownMs": 50,
+      "maxVoices": 2,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "ui_press": {
+      "files": [
+        "sfx/ui_press_a.ogg",
+        "sfx/ui_press_b.ogg",
+        "sfx/ui_press_c.ogg"
+      ],
+      "durations": [
+        0.25,
+        0.166,
+        0.159
+      ],
+      "sources": [
+        "ui_press__t3v1__dd86f1fc7105.mp3",
+        "ui_press__t2v1__dd724f6fa9d5.mp3",
+        "ui_press__t2v2__8adbbfc0ebfc.mp3"
+      ],
+      "renderGainDb": [
+        -12.03,
+        -13.73,
+        -9.93
+      ],
+      "bus": "ui",
+      "spatial": "equalpower",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 60,
+      "gainRandDb": 0.5,
+      "cooldownMs": 40,
+      "maxVoices": 2,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "ui_back": {
+      "files": [
+        "sfx/ui_back_a.ogg",
+        "sfx/ui_back_b.ogg"
+      ],
+      "durations": [
+        0.32,
+        0.28
+      ],
+      "sources": [
+        "ui_back__t1v1__ee284853ba50.mp3",
+        "ui_back__t2v2__5f7e7d487aa0.mp3"
+      ],
+      "renderGainDb": [
+        -13.95,
+        -3.25
+      ],
+      "bus": "ui",
+      "spatial": "equalpower",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 60,
+      "gainRandDb": 0.5,
+      "cooldownMs": 40,
+      "maxVoices": 2,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "drawer_pull": {
+      "files": [
+        "sfx/drawer_pull_a.ogg",
+        "sfx/drawer_pull_b.ogg"
+      ],
+      "durations": [
+        0.55,
+        0.8
+      ],
+      "sources": [
+        "drawer_pull__t1v2__468140b94ea4.mp3",
+        "drawer_pull__t2v2__ecaeaf111a9f.mp3"
+      ],
+      "renderGainDb": [
+        -5.1,
+        9.3
+      ],
+      "bus": "ui",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 0,
+      "pitchCents": 40,
+      "gainRandDb": 0.5,
+      "cooldownMs": 40,
+      "maxVoices": 2,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "mb_g4": {
+      "files": [
+        "sfx/mb_g4.ogg"
+      ],
+      "durations": [
+        1.283
+      ],
+      "sources": [
+        "mb_g4__t3v1__70c59b08fdff.mp3"
+      ],
+      "renderGainDb": [
+        -6.5
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": -36,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 6,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "mb_b4": {
+      "files": [
+        "sfx/mb_b4.ogg"
+      ],
+      "durations": [
+        1.939
+      ],
+      "sources": [
+        "mb_b4__t2v1__771d5a4f6ebe.mp3"
+      ],
+      "renderGainDb": [
+        2.4
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 4,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 6,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "mb_d5": {
+      "files": [
+        "sfx/mb_d5.ogg"
+      ],
+      "durations": [
+        1.501
+      ],
+      "sources": [
+        "mb_d5__t2v1__1a1ddfac9012.mp3"
+      ],
+      "renderGainDb": [
+        3.5
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": -185,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 6,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "mb_g5": {
+      "files": [
+        "sfx/mb_g5.ogg"
+      ],
+      "durations": [
+        1.927
+      ],
+      "sources": [
+        "mb_g5__t2v1__7dcc7b2b30cb.mp3"
+      ],
+      "renderGainDb": [
+        4.8
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": -7,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 6,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "mb_b5": {
+      "files": [
+        "sfx/mb_b5.ogg"
+      ],
+      "durations": [
+        2
+      ],
+      "sources": [
+        "mb_b4__t1v1__50de45ea19ca.mp3"
+      ],
+      "renderGainDb": [
+        9.7
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 4,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 6,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "mb_d6": {
+      "files": [
+        "sfx/mb_d6.ogg"
+      ],
+      "durations": [
+        1.374
+      ],
+      "sources": [
+        "mb_d5__t1v1__66517df5d548.mp3"
+      ],
+      "renderGainDb": [
+        -4.2
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": -7,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 6,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "mb_e6": {
+      "files": [
+        "sfx/mb_e6.ogg"
+      ],
+      "durations": [
+        0.926
+      ],
+      "sources": [
+        "mb_b5__t1v1__017379223840.mp3"
+      ],
+      "renderGainDb": [
+        -1.4
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 27,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 6,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    },
+    "mb_g6": {
+      "files": [
+        "sfx/mb_g6.ogg"
+      ],
+      "durations": [
+        1.538
+      ],
+      "sources": [
+        "mb_e6__t2v1__b2bee9fe9452.mp3"
+      ],
+      "renderGainDb": [
+        3.7
+      ],
+      "bus": "sfx",
+      "spatial": "hrtf",
+      "gainDb": 0,
+      "detuneCents": 188,
+      "pitchCents": 0,
+      "gainRandDb": 0.5,
+      "cooldownMs": 0,
+      "maxVoices": 6,
+      "duckMusicDb": 0,
+      "caption": null,
+      "loop": false
+    }
+  },
+  "music": {
+    "music_bed": {
+      "file": "music/music_bed.ogg",
+      "role": "loop",
+      "provider": "kie-suno-music",
+      "source": "music_bed__t1__3a7270589455__1.mp3",
+      "loop": true,
+      "durationSec": 160,
+      "lengthSamples": 7680000,
+      "loopStartSec": 0,
+      "loopEndSec": 160,
+      "bpm": 72,
+      "bars": 48,
+      "key": "G major",
+      "sourceStartSec": 0.906,
+      "sourceBpm": 69.641,
+      "startNote": "picked in the selection file",
+      "crossfadeSec": 0.8333,
+      "gainDb": 0,
+      "basis": "integrated",
+      "renderGainDb": -8.8,
+      "duckMusicDb": null,
+      "bus": "music"
+    }
+  },
+  "derived": {
+    "mb_a4": {
+      "from": "mb_g4",
+      "semitones": 2
+    },
+    "mb_c5": {
+      "from": "mb_b4",
+      "semitones": 1
+    },
+    "mb_e5": {
+      "from": "mb_d5",
+      "semitones": 2
+    },
+    "mb_fs5": {
+      "from": "mb_g5",
+      "semitones": -1
+    },
+    "mb_a5": {
+      "from": "mb_g5",
+      "semitones": 2
+    },
+    "mb_c6": {
+      "from": "mb_b5",
+      "semitones": 1
+    },
+    "mb_fs6": {
+      "from": "mb_g6",
+      "semitones": -1
+    },
+    "lesson_step": {
+      "from": "mb_b5",
+      "semitones": 0
+    }
+  },
+  "musicStates": {
+    "calm": "music_bed",
+    "menu": "music_bed"
+  },
+  "stings": {},
+  "musicStateFx": {
+    "menu": {
+      "lowpassHz": 800,
+      "gainDb": -3
+    }
+  },
+  "generatedUtc": "2026-11-05T19:14:59.792Z",
+  "bytes": {
+    "sfx": 651275,
+    "music": 2164505
+  }
+}

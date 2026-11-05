@@ -1,9 +1,28 @@
-// Captions for sound cues (the Captions setting): short words such as "Lock open" or "Rings line up"
+// Captions for sound cues (the Captions setting): short words such as "Lock opens" or "Rings line up"
 // on a strip just in front of the box, leaning toward where the sound came from (lock sounds by the
-// lock, lantern sounds by the lantern, the rest in the middle). The audio engine sends the manifest's
-// caption for every sound it is asked to play, even muted ones (`AudioEngine` option `onCaption`).
+// lock, lantern sounds by the lantern, the rest in the middle). The audio engine reports every sound
+// with a manifest caption it is asked to play, even muted ones (`AudioEngine` option `onCaption`);
+// only the sounds whose meaning a player might miss get one (`captionFor`), in the game's own words.
 // Two at most; each fades in and out over 300 ms, and one pushed out by a newer one fades out first.
 // Pure: the game's caption strip draws them.
+import { COPY } from "./copy";
+
+/**
+ * The sounds that carry meaning a player might miss: a lock opens (one caption for its three
+ * layers), the box opens, a hint appears, the rings line up. Every other sound shows the same
+ * thing where the player looks, so it has no caption (no flicker of words several times a second).
+ */
+const CAPTIONED: ReadonlyMap<string, string> = new Map([
+  ["brass_clunk", COPY.captions.lockOpen],
+  ["walls_hinge", COPY.captions.boxOpens],
+  ["hint_reveal", COPY.captions.hint],
+  ["ring_chime", COPY.captions.ringsLine],
+]);
+
+/** The caption sound `soundId` shows, or null for none. */
+export function captionFor(soundId: string): string | null {
+  return CAPTIONED.get(soundId) ?? null;
+}
 
 export const CAPTIONS = {
   /** Fade in and out (s). Opacity only, so reduced motion keeps it. */

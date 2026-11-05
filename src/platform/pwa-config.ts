@@ -64,11 +64,12 @@ export function webManifest(): WebManifest {
 /**
  * Every file type the build ships. A new kind of asset must be added here or it is not offline
  * (check-dist fails the build when a file is left out). The plugin adds manifest.webmanifest itself.
+ * flac: the two hums (FLAC loops without the tick Opus makes at every wrap).
  */
 export const PRECACHE_EXTENSIONS = [
   "html", "js", "mjs", "css", "json", "uikitml",
   "glb", "gltf", "bin", "ktx2", "png", "jpg", "webp", "svg",
-  "ogg", "mp3", "wav", "wasm", "woff2", "ttf", "txt",
+  "ogg", "flac", "mp3", "wav", "wasm", "woff2", "ttf", "txt",
 ];
 
 /** Above the biggest file we ship (the main bundle, a music loop); workbox's default is 2 MiB. */
