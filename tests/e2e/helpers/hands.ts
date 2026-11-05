@@ -27,7 +27,8 @@ const along = (b: NsButton, k: number): XYZ => ({
  * ```
  */
 export class Hands {
-  private pose: string | null = null;
+  /** The pose last set through usePose (null: unknown, set again on the next use). */
+  protected pose: string | null = null;
   /** The pinch value this helper last set. */
   private select = 0;
   /** Where this helper last put the grasp point. */
@@ -184,7 +185,8 @@ export class Hands {
     await this.reconnect({ select: this.select });
   }
 
-  private async usePose(poseId: string): Promise<void> {
+  /** Hand tracking on, this hand connected and in pose `poseId` (kept, so repeats are free). */
+  protected async usePose(poseId: string): Promise<void> {
     if (this.pose === poseId) return;
     await this.app.queue("set_input_mode", { mode: "hand" });
     await this.app.queue("set_connected", { device: this.device, connected: true });

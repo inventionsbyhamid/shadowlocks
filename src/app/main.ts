@@ -24,6 +24,8 @@ import { registerAppSystem } from "./systems";
 import { addUrlRewrite, installUrlRewrites } from "./url-rewrites";
 
 const TEST_HOOKS = import.meta.env.VITE_TEST_HOOKS === "1";
+/** Demo video renders only (tests/video): the see-through system hand, progress in memory. Never for production builds. */
+const VIDEO = import.meta.env.VITE_VIDEO === "1";
 
 async function main(): Promise<void> {
   // A newer version installed during an earlier visit takes over now, before anything starts.
@@ -35,6 +37,7 @@ async function main(): Promise<void> {
   };
 
   const hooks = TEST_HOOKS ? await import("./test-hooks") : null;
+  const video = VIDEO ? await import("../video/video-mode") : null;
   hooks?.startEventLog();
   on("notice", (e) => {
     console.info(`notice: ${e.text}`);
@@ -54,7 +57,7 @@ async function main(): Promise<void> {
   const recordFor = recordSeconds(location.search);
   if (recordFor) recordHands(world, recordFor, say).catch((err) => console.error("hand recording unavailable", err));
   // The wall clock enters the profile here only (first launch, latest time seen): core code takes times as arguments.
-  const store = await ProfileStore.open(await openStore(), emit, { now: () => Date.now(), build: APP_VERSION });
+  const store = await ProfileStore.open(video ? video.videoStore() : await openStore(), emit, { now: () => Date.now(), build: APP_VERSION });
   const settings = new SettingsStore(store);
   const shell = new Shell(world, store, settings);
   useShell(shell);
@@ -73,6 +76,7 @@ async function main(): Promise<void> {
   hooks?.installTestHooks(world, shell, system, { sound });
   shell.start();
   sound.loadMusicLater();
+  video?.installVideoMode(world);
 
   if (navigator.xr && world.xrEnabled) {
     const failed = COPY.page.enterFailed;

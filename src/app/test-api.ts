@@ -123,8 +123,29 @@ export interface NsApi {
   audio: NsAudio;
 }
 
+/**
+ * The game state a demo video frame's fingerprint reads (tests/video/lib/page-video.ts): small and
+ * stable, so a frame-stepped render can tell that a resumed run replays the same game.
+ */
+export interface SlFrameState {
+  /** The box in play (its generator key). */
+  boxKey: string;
+  /** The lantern's position, in box units. */
+  lantern: [number, number, number];
+  /** Indices of the open locks, ascending. */
+  openLocks: number[];
+  screen: string;
+}
+
+/** `window.__sl`: Shadow Locks' own test hooks, present only in builds made with VITE_TEST_HOOKS=1. */
+export interface SlApi {
+  /** The game's state for a video frame's fingerprint, or null while no box is in play. */
+  frameState(): SlFrameState | null;
+}
+
 declare global {
   interface Window {
     __ns?: NsApi;
+    __sl?: SlApi;
   }
 }

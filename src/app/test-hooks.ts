@@ -1,5 +1,5 @@
-// Test hooks: window.__ns. Only built when VITE_TEST_HOOKS=1 (main.ts imports this module behind
-// that flag, so production bundles drop it).
+// Test hooks: window.__ns and window.__sl. Only built when VITE_TEST_HOOKS=1 (main.ts imports this
+// module behind that flag, so production bundles drop it).
 import { Quaternion, Vector3, type World } from "@iwsdk/core";
 import type { Settings } from "../core/profile";
 import type { Vec3 } from "../core/types";
@@ -13,7 +13,7 @@ import type { SfxId } from "../audio/manifest";
 import type { PlayOptions } from "../audio/engine";
 import type { Sound } from "./sound";
 import { appSystemName, onAppSystem } from "./systems";
-import type { NsApi, NsButton, NsClock, NsPerf, NsSound, NsState } from "./test-api";
+import type { NsApi, NsButton, NsClock, NsPerf, NsSound, NsState, SlApi } from "./test-api";
 import { installVirtualClock, type VirtualClock } from "./virtual-clock";
 
 const MAX_EVENTS = 2000;
@@ -134,7 +134,7 @@ function listen(sound: Sound): { log: NsSound[] } {
 }
 
 export function installTestHooks(world: World, shell: Shell, system: ShellSystem, app: { sound: Sound }): void {
-  const w = window as unknown as { __vt?: VirtualClock; __ns?: NsApi };
+  const w = window as unknown as { __vt?: VirtualClock; __ns?: NsApi; __sl?: SlApi };
   const realNow = w.__vt ? w.__vt.realNow : performance.now.bind(performance);
   const timing = instrument(world, realNow);
   const tmp = new Vector3();
@@ -232,5 +232,10 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
       running: () => app.sound.engine.running,
       voices: () => app.sound.engine.activeVoices,
     },
+  };
+
+  w.__sl = {
+    // No box session yet: the game layer fills this in (box key, lantern, open locks, screen).
+    frameState: () => null,
   };
 }

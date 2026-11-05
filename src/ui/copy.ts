@@ -37,4 +37,10 @@ export const COPY = {
     streak: "Streak",
     hint: "Hint",
   },
+  /** The demo video's end card (tests/video/edits.ts); the hosted link joins it once there is one. */
+  film: {
+    title: "Shadow Locks",
+    tagline: "Your hands. One light. Every shadow a lock.",
+    facts: ["Seated", "Hands only", "Plays offline"],
+  },
 } as const;
