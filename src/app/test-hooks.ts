@@ -134,13 +134,16 @@ function instrument(world: World, realNow: () => number) {
   };
 }
 
-/** Record what the game asks of the audio engine (it stays silent in tests: no gesture). */
+/** Record what the game asks of the audio engine (heard or not: tests often have no gesture). */
 function listen(sound: Sound): { log: NsSound[] } {
   const log: NsSound[] = [];
   const e = sound.engine;
   const play = e.play.bind(e);
   e.play = (id: SfxId, o?: PlayOptions) => {
-    log.push(o?.pitch !== undefined ? { id, pitch: o.pitch, at: performance.now() } : { id, at: performance.now() });
+    const s: NsSound = { id, at: performance.now() };
+    if (o?.pitch !== undefined) s.pitch = o.pitch;
+    if (o?.delay) s.delayMs = o.delay * 1000;
+    log.push(s);
     return play(id, o);
   };
   const sting = e.sting.bind(e);
@@ -334,6 +337,7 @@ export function installTestHooks(
       ready: () => app.sound.loaded,
       running: () => app.sound.engine.running,
       voices: () => app.sound.engine.activeVoices,
+      music: () => app.sound.engine.musicInfo(),
     },
   };
 
@@ -453,5 +457,7 @@ export function installTestHooks(
       });
       return { total, worstStep, steps, upload, perStep };
     },
+    sound: app.sound.game,
+    captions: () => app.sound.captionsShown(),
   };
 }

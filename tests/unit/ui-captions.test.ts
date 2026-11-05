@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { CAPTIONS, CaptionQueue, captionPlace, chipWidthMm, layoutCaptions } from "../../src/ui/captions";
+import { CAPTIONS, CaptionQueue, captionFor, captionPlace, chipWidthMm, layoutCaptions } from "../../src/ui/captions";
+import { COPY } from "../../src/ui/copy";
+import { expectCleanCopy } from "./helpers/ui";
 
 const run = (q: CaptionQueue, seconds: number, dt = 1 / 72) => {
   for (let t = 0; t < seconds - 1e-9; t += dt) q.step(dt);
@@ -182,5 +184,19 @@ describe("caption layout", () => {
     expect(Math.abs(out[1]! - out[0]!)).toBeGreaterThanOrEqual(55 - 1e-9);
     expect(out[0]! - 30).toBeGreaterThanOrEqual(-120 - 1e-9);
     expect(out[1]! + 25).toBeLessThanOrEqual(120 + 1e-9);
+  });
+});
+
+describe("which sounds get a caption", () => {
+  it("only the meaningful ones: a lock opens, the box opens, a hint, the rings line up, in the game's own words", () => {
+    expect(captionFor("brass_clunk")).toBe(COPY.captions.lockOpen);
+    expect(captionFor("walls_hinge")).toBe(COPY.captions.boxOpens);
+    expect(captionFor("hint_reveal")).toBe(COPY.captions.hint);
+    expect(captionFor("ring_chime")).toBe(COPY.captions.ringsLine);
+    for (const id of ["glass_tick", "mb_g5", "crystallise", "gentle_error", "daily_streak", "reward_lift", "collection_drop", "ui_press", "lock_hum"]) {
+      expect(captionFor(id), id).toBeNull();
+    }
+    expect(COPY.captions.lockOpen).toBe("Lock opens");
+    expectCleanCopy(["brass_clunk", "walls_hinge", "hint_reveal", "ring_chime"].map(captionFor));
   });
 });

@@ -18,7 +18,8 @@ function packLike(): AudioManifest {
   const letters = "abcdefgh";
   for (const [id, e] of Object.entries(m.sfx)) e.files = e.files.map((_, i) => `sfx/${id}${e.files.length > 1 ? `_${letters[i]}` : ""}.ogg`);
   for (const [id, e] of Object.entries(m.music)) e.file = `music/${id}.ogg`;
-  // A second loop, so a missing music file can fall back while another loads.
+  // A second loop, so a missing music file can fall back while another loads (the engine supports
+  // one; Shadow Locks ships only the calm bed).
   m.music.music_intense = { ...m.music.music_bed!, file: "music/music_intense.ogg" };
   m.musicStates.intense = "music_intense";
   return m;
@@ -103,10 +104,41 @@ describe("loading the sound pack", () => {
   });
 });
 
-// The real pack lands in public/audio with the sound design work; until then these wait.
-describe.skipIf(!existsSync(PACK))("the pack in public/audio", () => {
-  const real = (existsSync(PACK) ? JSON.parse(readFileSync(PACK, "utf8")) : { sfx: {}, music: {} }) as AudioManifest;
+describe("the pack in public/audio", () => {
+  const real = JSON.parse(readFileSync(PACK, "utf8")) as AudioManifest;
   const files = [...Object.values(real.sfx).flatMap((e) => e.files), ...Object.values(real.music).map((e) => e.file)];
+
+  it("loads as the game loads it, with no stand-in synthesised for anything", async () => {
+    const ctx = new FakeAudioContext();
+    const warnings: string[] = [];
+    const engine = new AudioEngine({ createContext: () => asCtx(ctx), random: () => 0.5, warn: (m) => warnings.push(m) });
+    const fromDisk = async (url: string) => {
+      const b = readFileSync(url.replace(/^\.\/audio\//, "public/audio/"));
+      return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
+    };
+    const created = () => ctx.sources.length;
+    // Placeholders are synthesised into buffers the context makes; the real pack needs none.
+    let synthesised = 0;
+    const createBuffer = ctx.createBuffer.bind(ctx);
+    ctx.createBuffer = (ch: number, len: number, rate: number) => {
+      synthesised++;
+      return createBuffer(ch, len, rate);
+    };
+    const { pack, loadMusic } = await loadSoundPack(engine, { baseUrl: "./audio/", fetchData: fromDisk, warn: (m) => warnings.push(m) });
+    await loadMusic();
+    await engine.unlock();
+    expect(pack.placeholdersOnly).toBe(false);
+    expect(synthesised).toBe(0);
+    // The fake decoder makes 48 kHz buffers; a placeholder would be 24 kHz.
+    engine.setMusic("menu");
+    for (const id of [...Object.keys(real.sfx), ...Object.keys(real.derived)]) {
+      ctx.currentTime += 1;
+      engine.play(id as never);
+    }
+    expect(created()).toBe(1 + Object.keys(real.sfx).length + Object.keys(real.derived).length);
+    expect(ctx.sources.every((s) => (s.buffer as unknown as { sampleRate: number }).sampleRate === 48000)).toBe(true);
+    expect(warnings).toEqual([]);
+  });
 
   it("has every file the manifest names, and nothing else (no audition page or raw takes)", () => {
     for (const file of files) expect(existsSync(`public/audio/${file}`), file).toBe(true);

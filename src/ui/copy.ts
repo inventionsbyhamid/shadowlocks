@@ -30,7 +30,7 @@ export const COPY = {
   /** Sound captions (Settings, Captions), for sounds that carry meaning. */
   captions: {
     notNow: "Not now",
-    lockOpen: "Lock open",
+    lockOpen: "Lock opens",
     ringsLine: "Rings line up",
     pieceFormed: "Piece formed",
     boxOpens: "Box opens",
