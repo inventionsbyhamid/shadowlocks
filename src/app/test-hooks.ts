@@ -1,12 +1,15 @@
 // Test hooks: window.__ns and window.__sl. Only built when VITE_TEST_HOOKS=1 (main.ts imports this
 // module behind that flag, so production bundles drop it).
-import { Quaternion, Vector3, type World } from "@iwsdk/core";
+import { type Matrix4, Quaternion, Vector3, type World } from "@iwsdk/core";
 import { generateBox } from "../core/generator";
 import { mirrorBox } from "../core/mirror";
 import type { Settings } from "../core/profile";
 import { SKIP_MISSING, shadowBuffers, shadowPolys } from "../core/solve";
 import type { V2, V3, Vec3 } from "../core/types";
-import { BOX_ROOT_NAME, boxToWorld, placement } from "../render/placement";
+import { handJoints } from "../input/grab-system";
+import { HAND_JOINTS } from "../input/hand-joints";
+import { crystallise } from "../render/fx/crystallise";
+import { BOX_ROOT_NAME, boxToWorld, placement, worldToBox } from "../render/placement";
 import { slotOf } from "../render/scraps";
 import { emit, type FeedbackEvent, onAny } from "./bus";
 import { Panels } from "./panels";
@@ -15,10 +18,11 @@ import type { Shell } from "./shell";
 import type { ShellSystem } from "./shell-system";
 import type { SfxId } from "../audio/manifest";
 import type { PlayOptions } from "../audio/engine";
+import type { HandsInBox } from "./hand-system";
 import type { Lantern } from "./lantern-system";
 import type { Sound } from "./sound";
 import { appSystemName, onAppSystem } from "./systems";
-import type { NsApi, NsButton, NsClock, NsPerf, NsScene, NsSound, NsState, SlApi, SlFeelEvent, SlLantern } from "./test-api";
+import type { NsApi, NsButton, NsClock, NsPerf, NsScene, NsSound, NsState, SlApi, SlFeelEvent, SlHand, SlLantern } from "./test-api";
 import { installVirtualClock, type VirtualClock } from "./virtual-clock";
 
 const MAX_EVENTS = 2000;
@@ -138,7 +142,28 @@ function listen(sound: Sound): { log: NsSound[] } {
   return { log };
 }
 
-export function installTestHooks(world: World, shell: Shell, system: ShellSystem, app: { sound: Sound; lantern?: Lantern }): void {
+/** One tracked hand for __sl.hands(): its joints in box units, read through the box's matrix. */
+function handNow(hands: HandsInBox, side: "left" | "right", m: Matrix4): SlHand | null {
+  const v = new Vector3();
+  const box = (j: XRHandJoint): V3 => {
+    handJoints.joint(side, j, v);
+    return worldToBox(m, v, [0, 0, 0]);
+  };
+  if (!handJoints.tracked(side)) return null;
+  const minZ = Math.min(...HAND_JOINTS.map((j) => box(j)[2]));
+  return {
+    outlines: hands.shadow.cast[side === "left" ? 0 : 1]!,
+    minZ,
+    index: [box("index-finger-phalanx-intermediate"), box("index-finger-phalanx-distal"), box("index-finger-tip")],
+  };
+}
+
+export function installTestHooks(
+  world: World,
+  shell: Shell,
+  system: ShellSystem,
+  app: { sound: Sound; lantern?: Lantern; hands?: HandsInBox },
+): void {
   const w = window as unknown as { __vt?: VirtualClock; __ns?: NsApi; __sl?: SlApi };
   const realNow = w.__vt ? w.__vt.realNow : performance.now.bind(performance);
   const timing = instrument(world, realNow);
@@ -316,6 +341,36 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
     feelEvents: () => feelLog.map((e) => ({ ...e })),
     clearFeelEvents: () => {
       feelLog.length = 0;
+    },
+    hands: () => {
+      const h = app.hands;
+      const copy = (polys: V2[][], n: number) => polys.slice(0, n).map((poly) => poly.map((p): V2 => [p[0], p[1]]));
+      if (!h) return { outlines: [], finger: [], fingerZ: null, mask: 0, left: null, right: null };
+      box.root.updateWorldMatrix(true, false);
+      const m = box.root.matrixWorld;
+      return {
+        outlines: copy(h.outlines, h.n),
+        finger: copy(h.finger, h.nFinger),
+        fingerZ: Number.isFinite(h.fingerZ) ? h.fingerZ : null,
+        mask: h.mask.count,
+        left: handNow(h, "left", m),
+        right: handNow(h, "right", m),
+      };
+    },
+    fingerLocks: () =>
+      (app.hands?.locks ?? []).map((e) => ({
+        lock: e.lock.i,
+        spot: [...e.lock.L] as V3,
+        piece: e.lock.target[e.lock.missing]!.map((p): V2 => [p[0], p[1]]),
+        state: e.loop.state,
+        progress: e.loop.progress,
+        coverage: { ...e.coverage },
+        meets: e.meets,
+        crystal: box.crystals.piece(e.lock.i),
+      })),
+    crystallise: (lock, fingerZ) => {
+      const l = box.box?.locks[lock];
+      if (l) void crystallise(box, l, fingerZ, { reducedMotion: shell.settings.get().reducedMotion });
     },
   };
 }
