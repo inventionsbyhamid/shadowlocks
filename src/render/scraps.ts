@@ -253,16 +253,20 @@ varying float vGlow;
 varying float vShow;
 `;
 
-/** Lets a material read the slot uniforms: hidden slots collapse and are discarded, glow adds light. */
-function withSlots(slots: Float32Array, glow: Color, lit: boolean) {
+/**
+ * Lets a material read the slot uniforms: hidden slots collapse to a point (their triangles have no area, so nothing
+ * draws), and glow adds light. Lines are also discarded when hidden, since a collapsed line may still draw a dot; the
+ * scrap mesh never discards, which would cost the early depth test on the headset's GPU.
+ */
+function withSlots(slots: Float32Array, glow: Color, lit: boolean, discardHidden: boolean) {
   return (shader: WebGLProgramParametersWithUniforms) => {
     shader.uniforms.uSlots = { value: slots };
     shader.uniforms.uGlowColor = { value: glow };
     shader.vertexShader = SLOT_VERTEX + shader.vertexShader.replace("#include <begin_vertex>", SLOT_BEGIN);
-    let frag = SLOT_FRAGMENT + shader.fragmentShader.replace(
-      "#include <clipping_planes_fragment>",
-      "#include <clipping_planes_fragment>\n  if (vShow < 0.5) discard;",
-    );
+    let frag = SLOT_FRAGMENT + shader.fragmentShader;
+    if (discardHidden) {
+      frag = frag.replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\n  if (vShow < 0.5) discard;");
+    }
     frag = lit
       ? frag.replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n  totalEmissiveRadiance += uGlowColor * vGlow;")
       : frag.replace("#include <color_fragment>", "#include <color_fragment>\n  diffuseColor.rgb += uGlowColor * vGlow;");
@@ -340,7 +344,7 @@ export class Scraps {
     g.setAttribute("aSlot", new BufferAttribute(this.buffers.slot, 1).setUsage(DynamicDrawUsage));
     g.setDrawRange(0, 0);
     const gold = new MeshStandardMaterial({ color: COLORS.metal, ...MATERIALS.gold, envMap: env });
-    gold.onBeforeCompile = withSlots(this.slots, glow, true);
+    gold.onBeforeCompile = withSlots(this.slots, glow, true, false);
     gold.customProgramCacheKey = () => "sl-scraps";
     this.mesh = new Mesh(g, gold);
     this.mesh.name = "Scraps";
@@ -351,7 +355,7 @@ export class Scraps {
     tg.setAttribute("aSlot", new BufferAttribute(this.threadBuffers.slot, 1).setUsage(DynamicDrawUsage));
     tg.setDrawRange(0, 0);
     const thread = new LineBasicMaterial({ color: COLORS.thread, transparent: true, opacity: MATERIALS.threadOpacity, depthWrite: false });
-    thread.onBeforeCompile = withSlots(this.slots, glow, false);
+    thread.onBeforeCompile = withSlots(this.slots, glow, false, true);
     thread.customProgramCacheKey = () => "sl-threads";
     this.threads = new LineSegments(tg, thread);
     this.threads.name = "Threads";
