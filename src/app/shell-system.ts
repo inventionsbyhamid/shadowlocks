@@ -1,7 +1,8 @@
 // Per-frame shell work: place the box in the lap once per XR session (and again on Recenter), lay
-// out what follows the placement, and run debounced saves. Allocation-free per frame.
+// out what follows the placement, step the box's own motion, and run debounced saves. Allocation-free
+// per frame.
 import { createSystem, Quaternion, Vector3 } from "@iwsdk/core";
-import { placement, yawFromQuaternion } from "./placement";
+import { placement, yawFromQuaternion } from "../render/placement";
 import type { Shell } from "./shell";
 
 let shell: Shell | null = null;
@@ -21,7 +22,10 @@ export class ShellSystem extends createSystem({}) {
   private placedFor: XRSession | null = null;
   private laidOut = -1;
 
-  /** Place the box from the current head pose (Recenter, and the test hooks). False while the head is not tracked. */
+  /**
+   * Place the box from the current head pose (Recenter, and the test hooks); the box size stays. False
+   * while the head is not tracked.
+   */
   recenter(): boolean {
     if (!shell) return false;
     const head = this.world.player.head;
@@ -37,7 +41,7 @@ export class ShellSystem extends createSystem({}) {
     return true;
   }
 
-  update(): void {
+  update(delta: number): void {
     const s = shell;
     if (!s) return;
     const now = performance.now();
@@ -53,6 +57,7 @@ export class ShellSystem extends createSystem({}) {
       this.laidOut = placement.version;
       s.layout();
     }
+    s.box.update(Math.min(Math.max(delta, 0), 0.1));
     s.lifecycle.tick(now);
   }
 }

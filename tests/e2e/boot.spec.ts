@@ -1,6 +1,6 @@
 import { expect, test } from "./helpers/test";
 
-test("boots into XR with the box stand-in in the lap and the home panel", async ({ page, boot }, testInfo) => {
+test("boots into XR with the box in the lap and the home panel", async ({ page, boot }, testInfo) => {
   const app = await boot({ mode: "visual" });
   const s = await app.state();
   // The XR session was offered and accepted (boot accepts IWER's offer the way a player would).
@@ -9,7 +9,7 @@ test("boots into XR with the box stand-in in the lap and the home panel", async 
   expect(s.xr.sessionMode).toBe("immersive-ar");
   expect(app.bootVirtualMs).toBeLessThanOrEqual(10_000);
 
-  // The placeholder panel is an entity in the scene, 55 cm in front of the seated head and 28 cm
+  // The box is an entity in the scene, its back panel 55 cm in front of the seated head and 28 cm
   // below the eyes, at the default box size.
   expect(s.box.exists).toBe(true);
   expect(s.box.visible).toBe(true);

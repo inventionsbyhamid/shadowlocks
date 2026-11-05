@@ -7,8 +7,12 @@ export const ENVELOPE = {
   LZ: [1.15, 1.6],
   /** The furthest a spot goes left or right of the box centre (each box uses `amp` of it). */
   LX_MAX: 0.45,
-  /** Spots' height: from below the box centre up to its middle, so the hand stays at sternum height or lower. */
-  LY: [-0.45, 0.0],
+  /**
+   * Spots' height: below the box centre, so the hand stays at sternum height or lower (25 cm under the eyes). The
+   * box leans back 10 degrees (render/placement.ts), which lifts a spot Lz * sin(10 deg) above this, so the top
+   * stays 0.19 under the centre; the comfort spike checks it at box sizes 18-30 cm (tests/e2e/comfort.spec.ts).
+   */
+  LY: [-0.45, -0.19],
   /** Where the lantern starts, right of centre for a right-handed player (mirrored boxes negate x). */
   START: [0.35, -0.3, 1.35],
   /** How deep scraps and rings hang: off the panel and back from the box mouth. */

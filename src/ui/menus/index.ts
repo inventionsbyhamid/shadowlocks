@@ -5,7 +5,7 @@
 // does not allocate.
 import { type Object3D, type UIKitMLAsset, Vector3, type World } from "@iwsdk/core";
 import { emit, on } from "../../app/bus";
-import type { BoxPose } from "../../app/placement";
+import type { BoxPose } from "../../render/placement";
 import type { ProfileStore } from "../../app/profile-store";
 import { go, type Screen } from "../../app/screens";
 import type { SettingsStore } from "../../app/settings";

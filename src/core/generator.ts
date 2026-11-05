@@ -19,7 +19,7 @@ import type { Box, BoxParams, BoxSpec, Element, Lock, Ring, ShapeName, V2, V3 } 
  * shape, a check), and update the golden hashes in tests/unit/generator.test.ts. Saves store it with each box, so a
  * box saved under another version can be told apart.
  */
-export const GENERATOR_VERSION = 1;
+export const GENERATOR_VERSION = 2;
 
 const E = ENVELOPE;
 /** Spacing of the grid points for the start check and the ring marks' clearance. */

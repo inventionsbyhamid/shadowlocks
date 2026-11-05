@@ -1,14 +1,25 @@
 #!/usr/bin/env node
 // Fails when a production build carries test or emulator code, or error reporting/telemetry SDKs,
 // when the service worker would leave a shipped file out of the precache (offline after the first
-// load), or when a signing key or secret file landed in it.
+// load), when a signing key or secret file landed in it, or when code and art (everything precached
+// but audio) weigh more than 5 MB as served: each file Brotli-compressed at quality 11, summed. Audio
+// keeps its own budgets (SFX 1 MB, music 6 MB, checked where the pack is built).
 // Warns about CDN hosts the build mentions (the game must work offline after the first load).
 // Usage (on the build server, after vite build): node scripts/check-dist.mjs [dist]
+// CHECK_DIST_CODE_ART_MAX overrides the 5 MB budget (tests only).
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 
 const dir = process.argv[2] ?? "dist";
+/** Code and art budget: Brotli bytes of every precached file except audio. */
+const CODE_ART_MAX = Number(process.env.CHECK_DIST_CODE_ART_MAX ?? 5_000_000);
+const AUDIO = /\.(?:ogg|oga|opus|mp3|wav|flac|m4a|aac)$/i;
+const brotli = (buf) =>
+  zlib.brotliCompressSync(buf, {
+    params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: buf.length },
+  }).length;
 const FORBIDDEN = [
   ["test hooks", /\b__ns\b/],
   ["test hooks", /\b__sl\b/],
@@ -71,6 +82,11 @@ if (all.includes("sw.js")) {
   for (const u of precached) if (!all.includes(u)) fail(`sw.js precaches ${u}, which the build does not have`);
   const bytes = [...precached].filter((u) => all.includes(u)).reduce((n, u) => n + size(u), 0);
   console.log(`check-dist: precache ${precached.size} files, ${mb(bytes)}`);
+  // The download budget for code and art, as served (Brotli), audio left out.
+  const codeArt = [...precached].filter((u) => all.includes(u) && !AUDIO.test(u));
+  const served = codeArt.reduce((n, u) => n + brotli(fs.readFileSync(path.join(dir, u))), 0);
+  console.log(`check-dist: code and art ${served} bytes Brotli (${codeArt.length} files; budget ${CODE_ART_MAX})`);
+  if (served > CODE_ART_MAX) fail(`code and art are ${served} bytes Brotli, over the ${CODE_ART_MAX} byte budget`);
   // A stamp for this build: scripts/deploy-pages.sh compares it with the copy it pulled.
   console.log(`check-dist: sw.js sha256 ${createHash("sha256").update(sw).digest("hex")}`);
 }

@@ -5,7 +5,7 @@
 //   ?multiview=0  draw the two eyes one after the other instead of together (no OCULUS_multiview), to
 //                 compare frame times with the default
 import { CanvasTexture, Mesh, MeshBasicMaterial, PlaneGeometry, Quaternion, SRGBColorSpace, Vector3, type World } from "@iwsdk/core";
-import { BOX_ROOT_NAME } from "./placement";
+import { BOX_ROOT_NAME } from "../render/placement";
 
 export interface FieldFlags {
   perf: boolean;

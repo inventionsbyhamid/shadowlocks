@@ -1,13 +1,13 @@
-// The app shell: screens, the box placement and its stand-in, pause and save, and XR session
+// The app shell: screens, the box placement and the box scene, pause and save, and XR session
 // handling. Per-frame work lives in ShellSystem; this class reacts to events. The box session
 // (the game) plugs in through `useFlow` and runs boxes the shell restores and saves.
 import { type Object3D, SessionMode, type World } from "@iwsdk/core";
 import type { BoxSnapshot } from "../core/profile";
-import { BoxPlaceholder } from "../render/box-placeholder";
+import { BoxScene } from "../render/box-scene";
+import { placement } from "../render/placement";
 import { on } from "./bus";
 import { Lifecycle, type LifecycleSession, type XrVisibility } from "./lifecycle";
 import { Panels } from "./panels";
-import { placement } from "./placement";
 import type { ProfileStore } from "./profile-store";
 import { currentScreen, go } from "./screens";
 import type { SettingsStore } from "./settings";
@@ -24,8 +24,8 @@ export interface GameFlow {
 export class Shell {
   readonly lifecycle: Lifecycle;
   readonly panels: Panels;
-  /** The box's stand-in, at the box placement. */
-  readonly box: BoxPlaceholder;
+  /** The box in the lap, at the box placement. */
+  readonly box: BoxScene;
   /** The virtual room shown without passthrough (none yet); `updateRoomVisibility` switches it. */
   room: Object3D | null = null;
   /** Recenter was asked for (a key, or Quest's own recenter); ShellSystem places the box on its next frame. */
@@ -39,7 +39,7 @@ export class Shell {
     readonly settings: SettingsStore,
   ) {
     this.lifecycle = new Lifecycle({ persist: (snap) => void this.profiles.setCurrent(snap) });
-    this.box = new BoxPlaceholder(world);
+    this.box = new BoxScene(world);
     // Menus emit `press` themselves and call back here for anything beyond the screens.
     this.panels = new Panels(world, {
       profiles,
@@ -47,8 +47,9 @@ export class Shell {
       actions: { recenter: () => this.requestRecenter() },
     });
     on("screen", (e) => this.panels.show(e.to));
-    this.box.setSize(this.settings.get().boxSizeCm);
-    this.settings.subscribe((s) => this.box.setSize(s.boxSizeCm));
+    // The box size is part of the placement: it scales the box around its panel (ShellSystem lays it out).
+    placement.setSize(this.settings.get().boxSizeCm);
+    this.settings.subscribe((s) => placement.setSize(s.boxSizeCm));
     this.watchPage();
     this.watchXr();
   }
@@ -73,11 +74,10 @@ export class Shell {
     this.recenterAsked = true;
   }
 
-  /** Lay out the box and the panels after the placement changed. */
+  /** Lay out the box and the panels after the placement (or the box size) changed. */
   layout(): void {
-    const pose = placement.pose();
-    this.box.layout(pose);
-    this.panels.layout(pose);
+    this.box.setPlacement(placement.matrix());
+    this.panels.layout(placement.pose());
   }
 
   /** The virtual room shows only without passthrough (VR session or the 2D page). */

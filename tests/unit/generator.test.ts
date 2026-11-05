@@ -171,15 +171,15 @@ describe("golden boxes", () => {
   // Saves keep a box by its spec and GENERATOR_VERSION, so one spec must keep giving one box. A change that alters any
   // box (RNG call order, a constant, a shape) must bump GENERATOR_VERSION and update these hashes.
   const GOLDEN: [BoxSpec, string][] = [
-    [{ kind: "box", n: 1 }, "24d94f165a8c8a00"],
-    [{ kind: "box", n: 7 }, "cb2f2fc4e815eaab"],
-    [{ kind: "box", n: 15 }, "e522d82306833bbb"],
-    [{ kind: "daily", day: "2026-11-06" }, "7ee1ae424f16ac5a"],
+    [{ kind: "box", n: 1 }, "deeb47a2fbea952f"],
+    [{ kind: "box", n: 7 }, "5525aed41fd81621"],
+    [{ kind: "box", n: 15 }, "41fbef5e8e6146dd"],
+    [{ kind: "daily", day: "2026-11-06" }, "daf1ef1549e3b2f6"],
   ];
   const sha = (box: Box) => createHash("sha256").update(JSON.stringify(box)).digest("hex").slice(0, 16);
 
-  it("pins boxes 1, 7, 15 and one day at generator version 1", () => {
-    expect(GENERATOR_VERSION).toBe(1);
+  it("pins boxes 1, 7, 15 and one day at generator version 2", () => {
+    expect(GENERATOR_VERSION).toBe(2);
     expect(GOLDEN.map(([spec]) => [JSON.stringify(spec), sha(generateBox(spec))])).toEqual(
       GOLDEN.map(([spec, hash]) => [JSON.stringify(spec), hash]),
     );
