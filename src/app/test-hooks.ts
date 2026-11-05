@@ -216,8 +216,12 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
 
   const box = shell.box;
   const lan = app.lantern;
-  // Through the lantern's controller: the view follows the controller every frame, so a view-only move would not stay.
-  const placeLantern = (p: V3) => lan.place(p);
+  // Through the lantern's controller (the view follows the controller every frame, so a view-only move would not
+  // stay), then the shadows cast at once (the box would cast them on its next frame anyway).
+  const placeLantern = (p: V3) => {
+    lan.place(p);
+    box.syncShadows();
+  };
   const feelLog: SlFeelEvent[] = [];
   lan.onFeel((e) => feelLog.push({ ...e, at: performance.now() }));
   const scene: NsScene = {
@@ -225,6 +229,8 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
       const made = generateBox("n" in spec ? { kind: "box", n: spec.n } : { kind: "daily", day: spec.day });
       const b = mirrored ? mirrorBox(made) : made;
       box.setBox(b);
+      // The panel etches a new box over several frames; a test sees it etched at once.
+      box.panelArt.finishEtch();
       return b.key;
     },
     box() {
@@ -311,6 +317,7 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
     return { pos: [c.pos[0], c.pos[1], c.pos[2]], held: c.held, mode: c.mode, holder: lan.grab.holder, glow: lan.grab.brightness };
   };
 
+  const lanternAt: V3 = [0, 0, 0];
   w.__sl = {
     // No box session yet: the game layer fills this in (box key, lantern, open locks, screen).
     frameState: () => null,
@@ -327,6 +334,70 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
     feelEvents: () => feelLog.map((e) => ({ ...e })),
     clearFeelEvents: () => {
       feelLog.length = 0;
+    },
+    setWarmth: (lock, v) => box.panelArt.setWarmth(lock, v),
+    setOpen: (lock, open = true) => box.panelArt.setOpen(lock, open),
+    panelState: () => ({
+      warmth: [...box.panelArt.uniforms.uWarmth.value],
+      open: [...box.panelArt.uniforms.uOpen.value],
+    }),
+    showHanging: (v) => {
+      for (const o of [box.scraps.mesh, box.scraps.threads, box.scraps.rings, box.lantern.group]) o.visible = v;
+    },
+    shadowTimes: (path, batch = 1) => {
+      const out: number[] = [];
+      const back = box.lantern.getPos(lanternAt);
+      const saved: V3 = [back[0], back[1], back[2]];
+      for (let i = 0; i + batch <= path.length; i += batch) {
+        const t0 = realNow();
+        for (let k = 0; k < batch; k++) box.shadows.cast(path[i + k]!);
+        out.push((realNow() - t0) / batch);
+      }
+      box.shadows.cast(saved);
+      return out;
+    },
+    shadowStats: () => ({ vertices: box.shadows.mesh.vertexCount, triangles: box.shadows.mesh.indexCount / 3 }),
+    etchTimes: (count) => {
+      const panel = box.panelArt, shown = box.box;
+      const textures = [panel.uniforms.uAlbedo.value, panel.uniforms.uMasks.value, panel.uniforms.uHalo.value].filter(
+        (t): t is NonNullable<typeof t> => t !== null,
+      );
+      // A one-pixel read makes the canvases finish any drawing they defer.
+      const flush = () => {
+        for (const t of textures) (t.image as HTMLCanvasElement).getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, 1, 1);
+      };
+      const total: number[] = [], worstStep: number[] = [], upload: number[] = [], each: number[][] = [];
+      let steps = 0;
+      for (let i = 0; i < count; i++) {
+        let t = realNow();
+        panel.setBox(shown);
+        flush();
+        let worst = realNow() - t, sum = worst;
+        const run = [worst];
+        steps = 0;
+        for (let more = true; more; ) {
+          t = realNow();
+          more = panel.etchStep();
+          flush();
+          const d = realNow() - t;
+          worst = Math.max(worst, d);
+          sum += d;
+          run.push(d);
+          steps++;
+        }
+        t = realNow();
+        for (const tex of textures) world.renderer.initTexture(tex);
+        upload.push(realNow() - t);
+        total.push(sum);
+        worstStep.push(worst);
+        each.push(run);
+      }
+      // Per step (setBox first), the median over the runs.
+      const perStep = (each[0] ?? []).map((_, j) => {
+        const xs = each.map((r) => r[j]!).sort((a, b) => a - b);
+        return xs[Math.floor(xs.length / 2)]!;
+      });
+      return { total, worstStep, steps, upload, perStep };
     },
   };
 }

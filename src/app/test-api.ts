@@ -195,9 +195,12 @@ export interface SlFeelEvent {
 export interface SlApi {
   /** The game's state for a video frame's fingerprint, or null while no box is in play. */
   frameState(): SlFrameState | null;
-  /** The lantern now. */
+  /** The lantern now: a copy of where it is (`pos`, box units), held or not, by which hand, its mode and glow. */
   lantern(): SlLantern;
-  /** Put the lantern at [x, y, z] (box units; never deeper than the box front, z 1). A hand holding it holds on. */
+  /**
+   * Put the lantern at [x, y, z] (box units; never deeper than the box front, z 1) through the lantern's controller,
+   * and cast its shadows now. A hand holding it holds on.
+   */
   placeLantern(p: V3): void;
   /**
    * The shadows of the box shown on the panel (box units), cast from the lantern where it is: core shadowPolys over
@@ -209,6 +212,26 @@ export interface SlApi {
   /** Feel events since the last clear. */
   feelEvents(): SlFeelEvent[];
   clearFeelEvents(): void;
+  /** A lock's warmth (0..1, eased in by the panel) and opening (its gold fill), as the game sets them. */
+  setWarmth(lock: number, w: number): void;
+  setOpen(lock: number, open?: boolean): void;
+  /** The panel's eased warmth and opening per lock, as its shader reads them. */
+  panelState(): { warmth: number[]; open: number[] };
+  /** Show or hide what hangs in the box (scraps, threads, rings, lantern), to read the panel behind it. */
+  showHanging(v: boolean): void;
+  /**
+   * Real ms per shadow update (casting every shadow and writing the mesh) with the lantern moved along
+   * `path` (box units), one point per update; with `batch` > 1, each entry is the mean of that many.
+   */
+  shadowTimes(path: V3[], batch?: number): number[];
+  /** What the shadow mesh holds: vertices and triangles. */
+  shadowStats(): { vertices: number; triangles: number };
+  /**
+   * The panel's etching for the box shown, `count` times: real ms in all and in its slowest step (each
+   * step is one frame's work, its canvas drawing finished), the number of steps, ms to upload its two
+   * textures, and each step's median ms (setBox first).
+   */
+  etchTimes(count: number): { total: number[]; worstStep: number[]; steps: number; upload: number[]; perStep: number[] };
 }
 
 declare global {

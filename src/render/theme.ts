@@ -13,8 +13,10 @@ export const COLORS = {
   frameGrain: "#2a2529",
   /** Ivory frosted back panel. */
   panel: "#efe8da",
-  /** The panel inside a shadow (Task 10's shadows). */
+  /** The panel's ambient: what is left of it inside a full shadow (inky, lifted from #07070b by the owner). */
   panelShadow: "#121016",
+  /** Gold-leaf etching on the panel: outlines, numerals, sight marks, the deco border. */
+  etch: "#b08732",
   /** Polished gold: scraps, rings, pinstripes, stepped corners, lantern fins. */
   metal: "#e2bd62",
   /** Lock warmth glow, scrap glow. */
@@ -37,7 +39,6 @@ export const COLORS = {
 export const MATERIALS = {
   lacquer: { roughness: 0.22, metalness: 0.05, clearcoat: 1.0, clearcoatRoughness: 0.04, envMapIntensity: 2.2 },
   gold: { roughness: 0.16, metalness: 1.0, envMapIntensity: 1.5 },
-  panel: { roughness: 0.9, metalness: 0, envMapIntensity: 0.25 },
   lining: { roughness: 1.0, metalness: 0, envMapIntensity: 0.15 },
   glass: { roughness: 0.04, metalness: 0, opacity: 0.11, envMapIntensity: 1.6 },
   /** Threads drawn at this opacity. */
@@ -58,8 +59,29 @@ export const LIGHTS = {
   hemi: { sky: "#8090a8", ground: "#050506", intensity: 0.14 },
 } as const;
 
-/** The panel's light pool and the penumbra size, for the panel shader (Task 10). */
-export const PANEL_LIGHT = { tightness: 0.58, sigma: 0.5, lanternRadius: 0.016 } as const;
+/**
+ * The panel's light pool, its shadows and the penumbra size (the lookdev's Ebony panel, numbers from
+ * its `DIRS` table unless the owner changed them). Worked out in display (sRGB) values, as the
+ * lookdev's canvas did, so the panel matches it:
+ *   light = 1 - exp(-gain * E * lit), E = q^1.5 * (1 - tightness + tightness * exp(-r^2 / sigma^2)),
+ *   q = Lz^2 / (r^2 + Lz^2), r the distance on the panel from under the lantern;
+ *   colour = albedo * (ambient + light * (1 - shadowDepth * shadow)) + sheen * etch lines.
+ * The owner's brightening: a wider pool (tightness 0.58, sigma 0.5; the lookdev had 0.66 / 0.42) and
+ * the lantern up from 2.9 to 3.4, so the pool's gain rises with it (2.4 * 1.15 * 3.4 / 2.9).
+ * `lanternRadius` sizes the penumbra (crisp Ebony shadows; the plan's default was 0.025).
+ */
+export const PANEL_LIGHT = {
+  tightness: 0.58,
+  sigma: 0.5,
+  gain: (2.4 * 1.15 * 3.4) / 2.9,
+  /** The pool's tint per channel (a warm lamp on ivory). */
+  lit: [1.0, 0.95, 0.86] as const,
+  /** How much of the lantern's light a full shadow takes away (the rest is the frosted glass's glow). */
+  shadowDepth: 0.97,
+  /** Gold-leaf lines catch a little light even in shadow. */
+  sheen: 0.16,
+  lanternRadius: 0.016,
+} as const;
 
 /**
  * Studio reflections for the lacquer and gold (a small environment rendered once, turned with the
@@ -98,3 +120,16 @@ export const LANTERN_GLOW = {
   rippleRadius: 0.16,
   rippleS: 0.5,
 } as const;
+
+/**
+ * An open lock's banded gold foil: colour stops along a diagonal across the lock (0 at its upper
+ * left, 1 at its lower right), from the lookdev's Ebony "lock opens" frame.
+ */
+export const FOIL: readonly (readonly [number, string])[] = [
+  [0, "#8a6a22"],
+  [0.2, "#f7e2a0"],
+  [0.38, "#c9a24a"],
+  [0.56, "#fff4cc"],
+  [0.76, "#b48a33"],
+  [1, "#7d5d1c"],
+];

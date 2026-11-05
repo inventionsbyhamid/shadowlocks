@@ -5,7 +5,8 @@
 //
 // The frame has no rail across the top of the open front: from a seated eye the box's lid is seen
 // from above, and a rail there would cut across the panel. Draw calls: frame, trim, floor, glass,
-// panel, scraps, threads, rings, and four for the lantern; twelve for any box.
+// panel, shadows, scraps, threads, rings, and four for the lantern; thirteen for any box. The panel
+// shader and the shadows live in panel.ts and shadow-mesh.ts.
 import {
   BackSide,
   BoxGeometry,
@@ -39,14 +40,21 @@ import type { Box, V3 } from "../core/types";
 import { LanternView } from "./lantern-view";
 import { mergeParts } from "./merge";
 import { BOX_ROOT_NAME, DEFAULT_BOX_CM } from "./placement";
-import { type ScrapHandle, Scraps } from "./scraps";
+import { Panel } from "./panel";
+import { type ScrapHandle, Scraps, slotOf } from "./scraps";
+import { BoxShadows } from "./shadow-mesh";
 import { COLORS, ENV, LIGHTS, MATERIALS } from "./theme";
 
 /** Frame bars: thickness and edge radius (box units). The radius gives the clearcoat a rim to catch light. */
 const BAR = 0.05;
 const BAR_R = 0.008;
-/** The back panel sits just in front of the back slab. */
+/** The back panel sits just in front of the back slab; its shadows lie exactly on it. */
 const PANEL_Z = 0.002;
+/**
+ * The panel draws after everything opaque at the default order (the scraps and frame in front of it
+ * hide it by depth, since it writes none), and its shadows right after it, darkening it by MIN blending.
+ */
+const PANEL_ORDER = 1;
 /** Glass lid height (threads hang just under it). */
 const LID_Y = 0.49;
 /** Plinth under the box: height, depth (to just past the front), centre. */
@@ -186,11 +194,16 @@ export class BoxScene {
   /** The box root ("Box"): origin at the back panel's centre, +z out of the open front, 1 unit = the box size. */
   readonly root = new Group();
   readonly entity: Entity;
-  /** The frosted back panel (z = 0, 1 x 1); its material is the panel shader's to replace. */
+  /** The frosted back panel (z = 0, 1 x 1), drawn by the panel shader. */
   readonly panel: Mesh;
+  /** The panel's look: light pool, etching, and each lock's warmth (setWarmth) and opening (setOpen). */
+  readonly panelArt: Panel;
+  /** Every scrap's, decoy's and ring's shadow on the panel: one draw call. */
+  readonly shadows: BoxShadows;
   readonly lantern: LanternView;
   readonly scraps: Scraps;
   private current: Box | null = null;
+  private readonly lanternAt: V3 = [0, 0, 0];
 
   constructor(world: World) {
     this.root.name = BOX_ROOT_NAME;
@@ -224,14 +237,20 @@ export class BoxScene {
     );
     glass.name = "Box Glass";
     glass.renderOrder = 2;
-    this.panel = new Mesh(
-      new PlaneGeometry(1, 1).translate(0, 0, PANEL_Z),
-      new MeshStandardMaterial({ color: COLORS.panel, ...MATERIALS.panel, envMap: env }),
-    );
+    // The panel draws after everything opaque in front of it (it writes no depth), then the shadows on it.
+    this.panelArt = new Panel();
+    this.panel = new Mesh(new PlaneGeometry(1, 1).translate(0, 0, PANEL_Z), this.panelArt.material);
     this.panel.name = "Box Panel";
+    this.panel.renderOrder = PANEL_ORDER;
     this.scraps = new Scraps(env);
+    const slots = this.scraps.slots;
+    this.shadows = new BoxShadows((p) => slots[slotOf(p.lock, p.piece) * 2 + 1]! > 0.5);
+    const shadowMesh = this.shadows.mesh.mesh;
+    shadowMesh.material = this.panelArt.shadowMaterial;
+    shadowMesh.position.z = PANEL_Z;
+    shadowMesh.renderOrder = PANEL_ORDER + 1;
     this.lantern = new LanternView({ lacquer, gold });
-    this.root.add(frame, trim, floor, glass, this.panel, this.scraps.mesh, this.scraps.threads, this.scraps.rings, this.lantern.group);
+    this.root.add(frame, trim, floor, glass, this.panel, shadowMesh, this.scraps.mesh, this.scraps.threads, this.scraps.rings, this.lantern.group);
     this.root.add(directional(LIGHTS.key.color, LIGHTS.key.intensity, LIGHTS.key.from, this.root));
     this.root.add(directional(LIGHTS.fill.color, LIGHTS.fill.intensity, LIGHTS.fill.from, this.root));
     // A hemisphere light reads "up" from its world position, so it stays at the scene's top level.
@@ -244,12 +263,26 @@ export class BoxScene {
     this.setBox(null);
   }
 
-  /** The box shown (its scraps, threads and rings; the lantern goes to its start), or none. */
+  /** The box shown (its scraps, threads, rings, etching and shadows; the lantern goes to its start), or none. */
   setBox(box: Box | null): void {
     this.current = box;
     this.scraps.setBox(box);
+    this.panelArt.setBox(box);
+    this.shadows.setBox(box);
     const s = box ? box.start : ENVELOPE.START;
     this.lantern.setPos([s[0], s[1], s[2]]);
+    this.syncShadows();
+  }
+
+  /**
+   * Cast the shadows and move the light pool if the lantern moved or a scrap appeared or went since
+   * the last time; true when it did. Every frame calls it; so can whoever moves the lantern.
+   */
+  syncShadows(): boolean {
+    const L = this.lantern.getPos(this.lanternAt);
+    if (!this.shadows.refresh(L)) return false;
+    this.panelArt.setLantern(L);
+    return true;
   }
 
   get box(): Box | null {
@@ -279,9 +312,11 @@ export class BoxScene {
     return this.scraps.handle(lock, piece);
   }
 
-  /** Per frame: the lantern's flare and ripple. */
+  /** Per frame: the lantern's flare and ripple, the shadows when anything moved, the panel's warmth and opening. */
   update(dt: number): void {
     this.lantern.update(dt);
+    this.syncShadows();
+    this.panelArt.update(dt);
   }
 
   /** What the box draws now: one call per visible part (two for a transparent double-sided one). */
