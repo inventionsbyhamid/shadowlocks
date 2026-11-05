@@ -1,6 +1,6 @@
 // Boxes off the main thread: the generator runs in a worker (src/worker/box.worker.ts), so building a box (tens of
-// milliseconds, a few hundred at worst) never costs a frame. Same results as generateBox. Without workers (Node
-// tests, a browser that refuses one) it builds on this thread instead.
+// milliseconds, a few hundred at worst) never costs a frame. Same results as generateBox. Without a working worker
+// (Node tests, a browser that refuses one, a worker that dies) it builds on this thread instead.
 import { generateBox } from "./generator";
 import type { Box, BoxSpec } from "./types";
 
@@ -69,17 +69,14 @@ export function createBoxClient(): BoxClient {
         const p = pending.get(msg.id);
         if (!p) return;
         pending.delete(msg.id);
-        if (!("error" in msg)) return p.resolve(msg.box);
-        // The worker could not build it. If this thread can, the worker is at fault: stop using it. If not, the box
-        // itself cannot be built, and the caller gets the generator's own error.
-        try {
-          p.resolve(generateBox(p.spec));
-        } catch (err) {
-          return p.reject(err);
-        }
-        disable();
+        // An error reply means the generator itself failed on this spec (it is deterministic, so this thread would
+        // fail the same way): reject, and keep the worker for other boxes.
+        if ("error" in msg) p.reject(new Error(msg.error));
+        else p.resolve(msg.box);
       };
+      // A broken worker, or a reply that cannot be read: stop using it and finish everything on this thread.
       w.onerror = () => disable();
+      w.onmessageerror = () => disable();
       worker = w;
       return w;
     } catch {
