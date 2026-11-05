@@ -3,7 +3,7 @@ import { ENVELOPE } from "../../src/core/envelope";
 import { generateBox } from "../../src/core/generator";
 import { mirrorBox } from "../../src/core/mirror";
 import type { Box, BoxSpec, V2, V3 } from "../../src/core/types";
-import { checkBox, nearHorizontal } from "./helpers/box-checks";
+import { checkBox, fingerAngles, nearHorizontal } from "./helpers/box-checks";
 
 const SPECS: BoxSpec[] = [
   ...Array.from({ length: 200 }, (_, i): BoxSpec => ({ kind: "box", n: i + 1 })),
@@ -25,7 +25,7 @@ describe("mirrorBox", () => {
   it("mirrored boxes keep every guarantee", () => {
     const errs = pairs.flatMap(({ m }) => checkBox(m).map((e) => `${m.key} (mirrored): ${e}`));
     expect(errs).toEqual([]);
-    const angles = pairs.flatMap(({ m }) => m.locks.filter((l) => l.finger).map((l) => l.fingerAngle));
+    const angles = pairs.flatMap(({ m }) => fingerAngles(m));
     expect(angles.filter(nearHorizontal).length / angles.length).toBeGreaterThanOrEqual(0.9);
   });
 
