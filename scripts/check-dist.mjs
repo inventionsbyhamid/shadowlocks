@@ -11,6 +11,7 @@ import path from "node:path";
 const dir = process.argv[2] ?? "dist";
 const FORBIDDEN = [
   ["test hooks", /\b__ns\b/],
+  ["test hooks", /\b__sl\b/],
   ["video helpers", /__nsVideo/],
   ["IWER emulator", /IWER_DEVICE/],
   ["Sentry", /sentry/i],
