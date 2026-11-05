@@ -18,9 +18,15 @@ export const RULE = { COVER_MIN: 0.92, SPILL_MAX: 0.25, SPILL_ALL_MAX: 0.55, GAP
 export const WARMTH_RANGE = 0.2;
 /** The sample grid's spacing at runtime: about 3.8 mm at the default 24 cm box. */
 export const RUNTIME_STEP = 0.016;
-/** The margin around an outline that must stay lit. */
+/**
+ * The margin around an outline that must stay lit. The generator uses it too: a change alters generated boxes, so bump
+ * GENERATOR_VERSION and the golden hashes.
+ */
 export const BAND = 0.04;
-/** A ring's shadow is a polygon of this many sides, on its outer radius. */
+/**
+ * A ring's shadow is a polygon of this many sides, on its outer radius. The generator uses it too: a change alters
+ * generated boxes, so bump GENERATOR_VERSION and the golden hashes.
+ */
 export const RING_SIDES = 14;
 /** shadowPolys options for the scraps actually in the box: a finger lock's missing piece is not there. */
 export const SKIP_MISSING: { readonly skipMissing: true } = { skipMissing: true };
@@ -57,7 +63,7 @@ const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 /**
  * Grid points `step` apart over an outline: those inside it, those in the BAND around it, and which of the inside
  * points fall in piece `missing` (-1 for none). The generator samples with it too (on a finer grid), so boxes are
- * built and judged the same way.
+ * built and judged the same way; a change alters generated boxes, so bump GENERATOR_VERSION and the golden hashes.
  */
 export function lockSamples(target: V2[][], step: number, missing = -1): LockSamples {
   const [x0, y0, x1, y1] = bbox(target.flat());
@@ -96,11 +102,14 @@ function ringPoly(r: Ring): V3[] {
   return pts;
 }
 
-/** An `out` for shadowPolys with every array it needs, so even its first call makes none. Once per box. */
+/**
+ * An `out` for shadowPolys with every array it needs, and every ring's circle built, so even its first call makes
+ * none. Once per box.
+ */
 export function shadowBuffers(elements: Element[], opts?: ShadowOpts): V2[][] {
   return elements
     .filter((e) => !(opts?.skipMissing && e.kind === "piece" && e.missing))
-    .map((e) => Array.from({ length: e.kind === "ring" ? RING_SIDES : e.verts.length }, (): V2 => [0, 0]));
+    .map((e) => Array.from({ length: e.kind === "ring" ? ringPoly(e).length : e.verts.length }, (): V2 => [0, 0]));
 }
 
 /**
@@ -108,6 +117,10 @@ export function shadowBuffers(elements: Element[], opts?: ShadowOpts): V2[][] {
  * into out[k]'s own arrays); returns how many. Rings are RING_SIDES-gons of their outer radius. An `out` from
  * shadowBuffers, or one used before with the same elements and options, is reused without making any array; give
  * options as a constant (SKIP_MISSING), not a fresh object each frame.
+ *
+ * Precondition: L[2] exceeds every element's z (the lantern is in front of every scrap and ring). Otherwise the
+ * projection flips or runs off to infinity and the polygons mean nothing. The generator casts the start's shadows
+ * with it: a change alters generated boxes, so bump GENERATOR_VERSION and the golden hashes.
  */
 export function shadowPolys(elements: Element[], L: V3, out: V2[][], opts?: ShadowOpts): number {
   const skip = opts?.skipMissing === true;
@@ -175,6 +188,8 @@ function hit(pt: V2, polys: V2[][], idx: Int32Array, bb: Float64Array, m: number
 /**
  * How well the shadows fill a lock: `scraps[0..nScraps)` (every element's shadow but missing pieces) and
  * `finger[0..nFinger)` (the fingertip's), against the lock's samples. Writes into `out` and returns it.
+ * `s.missingIdx` must be ascending, as lockSamples makes it. The generator's start check reads `cover`: a change to
+ * it alters generated boxes, so bump GENERATOR_VERSION and the golden hashes.
  */
 export function measure(s: LockSamples, scraps: V2[][], nScraps: number, finger: V2[][], nFinger: number, out: Coverage): Coverage {
   if (nScraps > scrapIdx.length) {

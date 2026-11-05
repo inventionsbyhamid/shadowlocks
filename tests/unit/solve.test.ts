@@ -250,6 +250,7 @@ describe("warmth", () => {
     expect(warmth(c(0.4, 0), 0)).toBe(0);
     expect(warmth(c(0.3, 0), 0)).toBe(0);
     expect(warmth(c(0.66, 0.275), 0.1)).toBeCloseTo(0.25, 12);
+    expect(warmth(c(0.79, 0.11), 0)).toBeCloseTo(0.6, 12); // 0.75 from cover times 0.8 from spill
     expect(warmth(c(1, 0.55), 0)).toBe(0);
     expect(warmth(c(1, 0.7), 0)).toBe(0);
   });
@@ -275,11 +276,12 @@ describe("warmth", () => {
         const d = WARMTH_RANGE * (1 - k / 9);
         return warmth(coverageAt(box, s, add(l.L, dir, d)), d);
       });
-      if (w[9]! < Math.max(...w)) errs.push(`${box.key} lock ${l.i}: ${w.map((v) => v.toFixed(3)).join(" ")}`);
       if (w.slice(0, 9).every((v) => v < w[9]!)) strict++;
+      else errs.push(`${box.key} lock ${l.i}: ${w.map((v) => v.toFixed(3)).join(" ")}`);
     }
-    console.log(`warmest at the spot: ${locks().length - errs.length}/${locks().length}, strictly ${strict}`);
+    console.log(`strictly warmest at the spot: ${strict}/${locks().length}`);
     expect(errs).toEqual([]);
+    expect(strict).toBe(locks().length);
   });
 });
 
