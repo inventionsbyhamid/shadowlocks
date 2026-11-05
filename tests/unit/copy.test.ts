@@ -18,5 +18,11 @@ describe("copy", () => {
       expect(s).not.toMatch(/\.$/);
       expect(s.length).toBeLessThanOrEqual(16);
     }
+    // The film's end card: a tagline sentence, short fact chips.
+    expect(COPY.film.tagline).toMatch(/^[A-Z].*\.$/);
+    for (const s of COPY.film.facts) {
+      expect(s).not.toMatch(/\.$/);
+      expect(s.length).toBeLessThanOrEqual(16);
+    }
   });
 });
