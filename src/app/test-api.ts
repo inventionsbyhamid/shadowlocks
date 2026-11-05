@@ -184,6 +184,12 @@ export interface SlApi {
   shadowTimes(path: V3[], batch?: number): number[];
   /** What the shadow mesh holds: vertices and triangles. */
   shadowStats(): { vertices: number; triangles: number };
+  /**
+   * The panel's etching for the box shown, `count` times: real ms in all and in its slowest step (each
+   * step is one frame's work, its canvas drawing finished), the number of steps, ms to upload its two
+   * textures, and each step's median ms (setBox first).
+   */
+  etchTimes(count: number): { total: number[]; worstStep: number[]; steps: number; upload: number[]; perStep: number[] };
 }
 
 declare global {

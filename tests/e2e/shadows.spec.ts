@@ -2,8 +2,12 @@
 // outline as one solid shape, with no hairline of light along the edges where scraps meet, and the
 // sight rings nest into a bullseye on their mark; from the start they do not fill it. Read from the
 // rendered pixels at headset density (25 px per degree) with what hangs in the box hidden, so only
-// the panel shows. Box 15: every shadow in one draw call, and a shadow update within 0.5 ms (p95) at
-// 4x CPU throttle. Shots for the look review go to test-results/shots/shadows-*.png.
+// the panel shows; close-ups of its sharpest corners. Box 15: every shadow in one draw call, a shadow
+// update within 0.5 ms (p95 of means of 10) at 4x CPU throttle, the lantern moving adding at most
+// about 0.3 ms to a frame, and a new box's etching spread over frames, no step over 8 ms. Shots for
+// the look review go to test-results/shots/shadows-*.png.
+import fs from "node:fs";
+import path from "node:path";
 import type { Page } from "@playwright/test";
 import { generateBox } from "../../src/core/generator";
 import { circlePts, inPoly, proj, segDist } from "../../src/core/geom";
@@ -11,7 +15,7 @@ import { lockSamples, RING_SIDES } from "../../src/core/solve";
 import type { Lock, Ring, V2, V3, Vec3 } from "../../src/core/types";
 import { outlineEdges } from "../../src/render/outline";
 import { expect, test } from "./helpers/test";
-import { addRunNote, type XrApp } from "./helpers/xr-app";
+import { addRunNote, SHOTS_DIR, type XrApp } from "./helpers/xr-app";
 
 /** Luma (0-255) of the panel lit, and in full shadow, with room to spare. */
 const DARK = 70;
@@ -81,6 +85,79 @@ function probe(page: Page, pts: V3[]): Promise<Probe> {
 }
 
 /**
+ * Step one frame and save a close-up round each box point: `half` px either side, enlarged `zoom` times
+ * pixel for pixel, as test-results/shots/<name>-<i>.png. Returns the files.
+ */
+async function crops(page: Page, name: string, pts: V3[], half = 36, zoom = 6): Promise<string[]> {
+  const urls = await page.evaluate(
+    ({ pts, half, zoom }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const w = window as any;
+      w.__vt.step(1000 / 72);
+      const renderer = w.__ns.world.renderer, canvas = renderer.domElement as HTMLCanvasElement, xr = renderer.xr;
+      const cam = xr.getCamera().cameras[0];
+      const layer = xr.getBaseLayer?.();
+      const W = canvas.width, H = canvas.height;
+      const sx = W / (layer?.framebufferWidth ?? W), sy = H / (layer?.framebufferHeight ?? H);
+      const world = w.__ns.scene.toWorld(pts) as [number, number, number][];
+      const V = cam.matrixWorldInverse.elements as number[], P = cam.projectionMatrix.elements as number[], vp = cam.viewport;
+      const out: string[] = [];
+      for (const [x, y, z] of world) {
+        const vx = V[0]! * x + V[4]! * y + V[8]! * z + V[12]!, vy = V[1]! * x + V[5]! * y + V[9]! * z + V[13]!;
+        const vz = V[2]! * x + V[6]! * y + V[10]! * z + V[14]!;
+        const cx = P[0]! * vx + P[4]! * vy + P[8]! * vz + P[12]!, cy = P[1]! * vx + P[5]! * vy + P[9]! * vz + P[13]!;
+        const cw = P[3]! * vx + P[7]! * vy + P[11]! * vz + P[15]!;
+        const px = Math.floor((vp.x + ((cx / cw + 1) / 2) * vp.z) * sx);
+        const py = Math.floor(H - (vp.y + ((cy / cw + 1) / 2) * vp.w) * sy);
+        const c = document.createElement("canvas");
+        c.width = c.height = 2 * half * zoom;
+        const g = c.getContext("2d")!;
+        g.imageSmoothingEnabled = false;
+        g.fillStyle = "#000";
+        g.fillRect(0, 0, c.width, c.height);
+        g.drawImage(canvas, px - half, py - half, 2 * half, 2 * half, 0, 0, c.width, c.height);
+        out.push(c.toDataURL("image/png"));
+      }
+      return out;
+    },
+    { pts, half, zoom },
+  );
+  fs.mkdirSync(SHOTS_DIR, { recursive: true });
+  return urls.map((u, i) => {
+    const file = path.join(SHOTS_DIR, `${name}-${i + 1}.png`);
+    fs.writeFileSync(file, Buffer.from(u.split(",")[1] ?? "", "base64"));
+    return file;
+  });
+}
+
+/**
+ * The outline's sharpest corners (a crescent's horn tips first) and its topmost point, in box units: where a
+ * shadow's skirt would spike if its corners were mitred.
+ */
+function sharpPoints(l: Lock, count: number): V2[] {
+  const edges = outlineEdges(l.target);
+  const key = (p: V2) => `${p[0].toFixed(7)},${p[1].toFixed(7)}`;
+  const nbrs = new Map<string, { p: V2; to: V2[] }>();
+  for (const [a, b] of edges) {
+    for (const [p, q] of [[a, b], [b, a]] as const) {
+      const e = nbrs.get(key(p)) ?? { p, to: [] };
+      e.to.push(q);
+      nbrs.set(key(p), e);
+    }
+  }
+  const angle = ({ p, to }: { p: V2; to: V2[] }) => {
+    const [u, v] = to as [V2, V2];
+    const a = Math.atan2(u[1] - p[1], u[0] - p[0]), b = Math.atan2(v[1] - p[1], v[0] - p[0]);
+    const d = Math.abs(a - b) % (2 * Math.PI);
+    return Math.min(d, 2 * Math.PI - d);
+  };
+  const corners = [...nbrs.values()].filter((e) => e.to.length === 2);
+  const sharp = corners.sort((x, y) => angle(x) - angle(y)).slice(0, count).map((e) => e.p);
+  const top = corners.reduce((a, b) => (b.p[1] > a.p[1] ? b : a)).p;
+  return [...sharp, top];
+}
+
+/**
  * Narrow the emulated view to `ppd` pixels per degree (Quest 3 is about 25) and turn the head to look at
  * `target` (world metres), as app.captureHeadset does; run `fn`; put the view back.
  */
@@ -114,10 +191,22 @@ async function headsetView<T>(app: XrApp, target: Vec3, fn: () => Promise<T>, pp
   }
 }
 
+/**
+ * Put the lantern at p (box units) by the test hook, then step a frame, so whatever drives the lantern's
+ * view (a hand controller follows its own state each frame) has caught up and the shadows are cast.
+ */
+async function place(app: XrApp, p: V3): Promise<void> {
+  await app.page.evaluate((q) => window.__sl!.placeLantern(q), p);
+  await app.step(1);
+}
+
 const on = (p: V2): V3 => [p[0], p[1], 0];
 const lerp = (a: V2, b: V2, t: number): V2 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
 const share = (xs: number[], f: (x: number) => boolean) => xs.filter(f).length / xs.length;
-const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
+const median = (xs: number[]) => {
+  const s = [...xs].sort((a, b) => a - b), h = s.length >> 1;
+  return s.length % 2 ? s[h]! : (s[h - 1]! + s[h]!) / 2;
+};
 const pct = (xs: number[], q: number) => [...xs].sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor(xs.length * q))]!;
 
 /** Grid points inside the outline, clear of its etched lines. */
@@ -156,7 +245,7 @@ test("box 1: from its spot the shadows fill the outline as one shape and the rin
 
   // As the player sees it, scraps and all.
   for (const [name, L] of [["start", box.start], ["spot", lock.L]] as const) {
-    await page.evaluate((p) => window.__sl!.placeLantern(p), L);
+    await place(app, L);
     expect(await page.evaluate(() => window.__sl!.lantern())).toEqual(L);
     await app.capture(`shadows-box1-${name}`);
     await app.captureHeadset(`shadows-box1-${name}-headset`, { x: panel[0], y: panel[1], z: panel[2] });
@@ -177,12 +266,17 @@ test("box 1: from its spot the shadows fill the outline as one shape and the rin
   const lines: string[] = [];
   await page.evaluate(() => window.__sl!.showHanging(false));
   const [fromStart, fromSpot] = await headsetView(app, panel, async () => {
-    await page.evaluate((p) => window.__sl!.placeLantern(p), box.start);
+    await place(app, box.start);
     await app.capture("shadows-box1-start-panel-headset");
     const a = await probe(page, inside.map(on));
-    await page.evaluate((p) => window.__sl!.placeLantern(p), lock.L);
+    await place(app, lock.L);
     await app.capture("shadows-box1-spot-panel-headset");
     const b = await probe(page, [...inside, ...seams, ...hole, ...gap, ...deepBody, ...shallowBody].map(on));
+    // Close-ups (6x) of the shadow at the outline's two sharpest corners (the horn tips) and its top: no spikes.
+    await crops(page, "shadows-box1-spot-tips-panel", sharpPoints(lock, 2).map(on));
+    await page.evaluate(() => window.__sl!.showHanging(true));
+    await crops(page, "shadows-box1-spot-tips", sharpPoints(lock, 2).map(on));
+    await page.evaluate(() => window.__sl!.showHanging(false));
     return [a, b] as const;
   });
   await page.evaluate(() => window.__sl!.showHanging(true));
@@ -230,7 +324,7 @@ test("box 1: from its spot the shadows fill the outline as one shape and the rin
   expect(median(ring.shallow)).toBeLessThan(DARK);
 });
 
-test("box 15: every shadow in one draw call, a shadow update within 0.5 ms p95 at 4x CPU throttle", async ({ page, boot }, testInfo) => {
+test("box 15 at 4x CPU throttle: one draw call for every shadow, an update within 0.5 ms p95, each etch step within 8 ms", async ({ page, boot }, testInfo) => {
   const app = await boot();
   await page.evaluate(() => window.__ns!.ui.go("play"));
   await app.stepUntil((ns) => !ns.ui.busy(), { maxMs: 3_000, label: "menus away" });
@@ -258,18 +352,22 @@ test("box 15: every shadow in one draw call, a shadow update within 0.5 ms p95 a
   // control shows how much of the single-update tail is that.
   const updateMs = batched1.reduce((a, b) => a + b, 0) / batched1.length;
   const spinN = await page.evaluate((ms) => {
-    const now = performance.now.bind(performance), w = window as unknown as { __vt?: { realNow(): number }; __spin?: (n: number) => number };
+    const now = performance.now.bind(performance);
+    const w = window as unknown as { __vt?: { realNow(): number }; __spin?: (n: number) => number; __sink: number };
     const real = w.__vt ? w.__vt.realNow.bind(w.__vt) : now;
+    w.__sink = 0;
+    // The result goes to a global, so the loop cannot be optimised away.
     w.__spin = (n: number) => {
-      let s = 0;
+      let s = w.__sink * 1e-12;
       for (let i = 0; i < n; i++) s += Math.sqrt(i + s * 1e-9);
+      w.__sink += s * 1e-12;
       return s;
     };
     let n = 1000;
     for (;;) {
       const t0 = real();
-      for (let k = 0; k < 100; k++) w.__spin(n);
-      const per = (real() - t0) / 100;
+      for (let k = 0; k < 1000; k++) w.__spin(n);
+      const per = (real() - t0) / 1000;
       if (per >= ms || n > 1e8) return Math.round((n * ms) / Math.max(per, 1e-6));
       n *= 2;
     }
@@ -290,28 +388,42 @@ test("box 15: every shadow in one draw call, a shadow update within 0.5 ms p95 a
       { n: spinN, count },
     );
   const control1 = await timeSpin(path.length);
+  // Etching the panel for a new box, unthrottled (warm-up and reference).
+  await page.evaluate(() => window.__sl!.etchTimes(2));
+  const etch1 = await page.evaluate(() => window.__sl!.etchTimes(5));
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
-  let single: number[], batched: number[], control: number[], frames: { still: number; moving: number; systems: string };
+  let single: number[], batched: number[], control: number[];
+  let etch: { total: number[]; worstStep: number[]; steps: number; upload: number[]; perStep: number[] };
+  let frames: { still: number[]; moving: number[]; rise: number; avgRise: number; systems: string };
   try {
     single = await page.evaluate((p) => window.__sl!.shadowTimes(p, 1), path);
     batched = await page.evaluate((p) => window.__sl!.shadowTimes(p, 10), path);
     control = await timeSpin(path.length);
-    // In the frame loop: the box's own update casts when the lantern moved.
-    await page.evaluate(() => window.__ns!.resetPerf());
-    await app.step(60);
-    const still = (await app.perf()).systems;
-    await page.evaluate(() => window.__ns!.resetPerf());
-    for (let i = 0; i < 60; i++) {
-      await page.evaluate((p) => window.__ns!.scene.setLantern(p), path[i * 20]!);
-      await app.step(1);
-    }
-    const moving = (await app.perf()).systems;
-    const shell = (s: typeof still) => s["shell"]?.p95Ms ?? NaN;
+    etch = await page.evaluate(() => window.__sl!.etchTimes(10));
+    // In the frame loop the box's own update casts when the lantern moved. Short timings under the throttler drift
+    // from block to block, so still and moving frames take turns, one each, 480 frames, and each frame's shell
+    // time is read on its own.
+    const { still, moving } = await page.evaluate((p) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const w = window as any;
+      const out = { still: [] as number[], moving: [] as number[] };
+      for (let i = 0; i < 480; i++) {
+        const move = i % 2 === 1;
+        if (move) w.__ns.scene.setLantern(p[(i * 3) % p.length]);
+        w.__ns.resetPerf();
+        w.__vt.step(1000 / 72);
+        (move ? out.moving : out.still).push(w.__ns.perf().systems["shell"]?.maxMs ?? NaN);
+      }
+      return out;
+    }, path);
+    const avgOf = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
     frames = {
-      still: shell(still),
-      moving: shell(moving),
-      systems: Object.entries(moving).map(([k, v]) => `${k} ${v.avgMs.toFixed(3)}/${v.p95Ms.toFixed(3)}`).join(", "),
+      still: [pct(still, 0.5), pct(still, 0.95)],
+      moving: [pct(moving, 0.5), pct(moving, 0.95)],
+      rise: pct(moving, 0.95) - pct(still, 0.95),
+      avgRise: avgOf(moving) - avgOf(still),
+      systems: `${still.length} frames each`,
     };
   } finally {
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
@@ -333,15 +445,28 @@ test("box 15: every shadow in one draw call, a shadow update within 0.5 ms p95 a
     `p95 ${pct(batched1, 0.95).toFixed(4)} ms; control loop of the same length (unthrottled mean ${avg(control1).toFixed(4)} ms): ` +
     `at 4x singles p95 ${pct(control, 0.95).toFixed(3)} ms, mean ${avg(control).toFixed(4)} ms, ${(share(control, (t) => t >= 0.25) * 100).toFixed(1)}% at 0.25 ms or more ` +
     `(shadow update ${(share(single, (t) => t >= 0.25) * 100).toFixed(1)}%); ` +
-    `shell system p95 per frame ${frames.still.toFixed(3)} ms still, ${frames.moving.toFixed(3)} ms with the lantern moving ` +
-    `(avg/p95 ms: ${frames.systems})`;
-  testInfo.annotations.push({ type: "perf", description: line });
-  console.log(line);
+    `shell system per frame, still and moving frames taking turns (${frames.systems}): median/p95 still ` +
+    `${frames.still.map((v) => v.toFixed(1)).join("/")} ms, lantern moving ${frames.moving.map((v) => v.toFixed(1)).join("/")} ms; ` +
+    `p95 rise ${frames.rise.toFixed(2)} ms (average rise ${frames.avgRise.toFixed(3)} ms)`;
+  const etchLine =
+    `panel etch for box 15 in ${etch.steps} steps, one a frame (drawing finished): slowest step median ${median(etch.worstStep).toFixed(2)} ms ` +
+    `at 4x (${etch.worstStep.map((t) => t.toFixed(1)).join(", ")}), ${median(etch1.worstStep).toFixed(2)} ms unthrottled; all steps ` +
+    `median ${median(etch.total).toFixed(2)} ms at 4x, ${median(etch1.total).toFixed(2)} ms unthrottled; texture upload (software GL ` +
+    `here, not the headset's GPU) median ${median(etch.upload).toFixed(2)} ms at 4x, ${median(etch1.upload).toFixed(2)} ms unthrottled; ` +
+    `each step at 4x (setBox first): ${etch.perStep.map((t) => t.toFixed(1)).join(", ")}; unthrottled: ${etch1.perStep.map((t) => t.toFixed(2)).join(", ")}`;
+  testInfo.annotations.push({ type: "perf", description: `${line}\n${etchLine}` });
+  console.log(`${line}\n${etchLine}`);
   addRunNote(line);
+  addRunNote(etchLine);
   // The budget, on the cost of an update: p95 of means of 10 (single timings read the 0.1 ms timer and the
   // throttler's pauses as much as the work; their p95 is in the note above, beside the control's).
   expect(p95b).toBeLessThanOrEqual(0.5);
   expect(mean).toBeLessThanOrEqual(0.5);
+  // In the frame: moving the lantern (casting every shadow) adds at most about 0.3 ms to the shell's p95. The timer
+  // steps 0.1 ms and a frame that does more catches the throttler's pauses more often, so one step of slack: 0.4.
+  expect(frames.rise).toBeLessThanOrEqual(0.4 + 1e-9);
+  // A new box's etching goes a step a frame, and no step takes more than 8 ms at 4x.
+  expect(median(etch.worstStep)).toBeLessThanOrEqual(8);
 });
 
 test("warmth eases in and never flickers, even when the game's warmth jumps every frame", async ({ page, boot }) => {
@@ -391,12 +516,12 @@ test("look shots: box 5 (a hidden silhouette, three locks) at each spot, warmth 
   const box5 = generateBox({ kind: "box", n: 5 });
   await page.evaluate(() => window.__ns!.scene.show({ n: 5 }));
   for (const l of box5.locks) {
-    await page.evaluate((p) => window.__sl!.placeLantern(p), l.L);
+    await place(app, l.L);
     await app.captureHeadset(`shadows-box5-spot${l.i + 1}${l.hidden ? "-hidden" : ""}-headset`, target);
   }
   // Warm on a shown lock and on the hidden one, then both open.
   const shown = box5.locks.find((l) => !l.hidden)!, hidden = box5.locks.find((l) => l.hidden);
-  await page.evaluate((p) => window.__sl!.placeLantern(p), shown.L);
+  await place(app, shown.L);
   await page.evaluate((i) => window.__sl!.setWarmth(i, 0.8), shown.i);
   if (hidden) await page.evaluate((i) => window.__sl!.setWarmth(i, 0.8), hidden.i);
   await app.step(40);
@@ -410,7 +535,7 @@ test("look shots: box 5 (a hidden silhouette, three locks) at each spot, warmth 
   const box15 = generateBox({ kind: "box", n: 15 });
   await page.evaluate(() => window.__ns!.scene.show({ n: 15 }));
   const upper = box15.locks.reduce((a, b) => (b.center[1] > a.center[1] ? b : a));
-  await page.evaluate((p) => window.__sl!.placeLantern(p), upper.L);
+  await place(app, upper.L);
   await app.captureHeadset("shadows-box15-upper-headset", target);
   await app.capture("shadows-box15-upper");
   await page.evaluate(() => window.__sl!.showHanging(false));
