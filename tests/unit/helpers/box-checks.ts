@@ -289,6 +289,33 @@ export function checkRingsNest(box: Box, stats?: RingStat[]): string[] {
   return errs;
 }
 
+/** From a ringed lock's spot, every shadow but its own two rings stays this far from its mark. */
+export const MARK_SHADOW_CLEAR = 0.07;
+
+/**
+ * Nothing blots a bullseye: from each ringed lock's spot, every other shadow (pieces of any lock, decoys, other
+ * locks' rings, as their true circles) stays MARK_SHADOW_CLEAR from the lock's mark. Pushes each lock's clearance.
+ */
+export function checkMarkClear(box: Box, clearance?: number[]): string[] {
+  const errs: string[] = [];
+  for (const l of box.locks) {
+    if (!l.rings || !l.mark) continue;
+    let min = Infinity;
+    box.elements.forEach((e, k) => {
+      if (e.kind === "ring" && e.lock === l.i) return;
+      const poly = e.kind === "ring" ? castCircle(e, e.rOut, l.L) : e.verts.map((p) => proj(p, l.L));
+      const d = polyDist(l.mark!, poly);
+      min = Math.min(min, d);
+      if (d < MARK_SHADOW_CLEAR) {
+        const what = e.kind === "decoy" ? "a decoy" : `lock ${e.lock}'s ${e.kind}`;
+        errs.push(`lock ${l.i}'s mark has ${what} (#${k}) ${d.toFixed(4)} from it`);
+      }
+    });
+    clearance?.push(min);
+  }
+  return errs;
+}
+
 /** Every per-box guarantee at once. */
 export function checkBox(box: Box, stats?: LockStat[]): string[] {
   return [
@@ -299,6 +326,7 @@ export function checkBox(box: Box, stats?: LockStat[]): string[] {
     ...checkSilhouettes(box),
     ...checkFingerAndDepth(box),
     ...checkRingsNest(box),
+    ...checkMarkClear(box),
   ];
 }
 

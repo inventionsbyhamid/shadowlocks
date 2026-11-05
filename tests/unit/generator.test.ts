@@ -9,6 +9,7 @@ import {
   checkFingerAndDepth,
   checkSilhouettes,
   checkInBox,
+  checkMarkClear,
   checkRingsNest,
   checkSolvable,
   checkSpots,
@@ -94,6 +95,14 @@ describe("generateBox", () => {
     );
   });
 
+  it("keeps every other shadow 0.07 clear of each ringed lock's mark, seen from its spot", () => {
+    const clearance: number[] = [];
+    const errs = failing((b) => checkMarkClear(b, clearance));
+    expect(clearance.length).toBe(265);
+    console.log(`${clearance.length} marks: nearest other shadow ${Math.min(...clearance).toFixed(4)} from a mark`);
+    expect(errs).toEqual([]);
+  });
+
   it("keeps every spot inside the envelope, apart from the others and from the start", () => {
     expect(failing(checkSpots)).toEqual([]);
   });
@@ -172,14 +181,14 @@ describe("golden boxes", () => {
   // box (RNG call order, a constant, a shape) must bump GENERATOR_VERSION and update these hashes.
   const GOLDEN: [BoxSpec, string][] = [
     [{ kind: "box", n: 1 }, "deeb47a2fbea952f"],
-    [{ kind: "box", n: 7 }, "5525aed41fd81621"],
-    [{ kind: "box", n: 15 }, "41fbef5e8e6146dd"],
-    [{ kind: "daily", day: "2026-11-06" }, "daf1ef1549e3b2f6"],
+    [{ kind: "box", n: 7 }, "119035d36b6bac09"],
+    [{ kind: "box", n: 15 }, "7f88fa40663a110a"],
+    [{ kind: "daily", day: "2026-11-06" }, "b31b4836cdf21f93"],
   ];
   const sha = (box: Box) => createHash("sha256").update(JSON.stringify(box)).digest("hex").slice(0, 16);
 
-  it("pins boxes 1, 7, 15 and one day at generator version 2", () => {
-    expect(GENERATOR_VERSION).toBe(2);
+  it("pins boxes 1, 7, 15 and one day at generator version 3", () => {
+    expect(GENERATOR_VERSION).toBe(3);
     expect(GOLDEN.map(([spec]) => [JSON.stringify(spec), sha(generateBox(spec))])).toEqual(
       GOLDEN.map(([spec, hash]) => [JSON.stringify(spec), hash]),
     );
