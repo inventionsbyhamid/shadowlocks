@@ -155,7 +155,7 @@ const OUR_FILES = [
   "/src/core/geom.ts",
 ];
 
-function loadAverage(): number | undefined {
+export function loadAverage(): number | undefined {
   try {
     const v = Number(fs.readFileSync("/proc/loadavg", "utf8").split(" ")[0]);
     return Number.isFinite(v) ? v : undefined;
@@ -171,14 +171,14 @@ interface HeapNode {
   children: HeapNode[];
 }
 
-interface HeapProfile {
+export interface HeapProfile {
   head: HeapNode;
   /** One per sampled allocation: its exact size and where it was made. */
   samples: { size: number; nodeId: number }[];
 }
 
 /** The heap sampler takes one sample per this many bytes allocated, on average. */
-const SAMPLE_BYTES = 64;
+export const SAMPLE_BYTES = 64;
 
 /** Sampled allocations in our files' functions: bytes per frame in all, and by function (file:function:line). */
 export interface Allocations {
@@ -186,11 +186,12 @@ export interface Allocations {
   byFunction: Map<string, number>;
 }
 
-function ourAllocations(profile: HeapProfile, frames: number): Allocations {
+/** Sampled allocations in `files` (the lantern's per-frame files by default) over `frames` frames. */
+export function ourAllocations(profile: HeapProfile, frames: number, files: readonly string[] = OUR_FILES): Allocations {
   const ours = new Map<number, string>();
   const walk = (n: HeapNode) => {
     const url = n.callFrame.url;
-    if (OUR_FILES.some((f) => url.includes(f))) {
+    if (files.some((f) => url.includes(f))) {
       ours.set(n.id, `${url.replace(/^.*\/src\//, "src/").replace(/\?.*$/, "")}:${n.callFrame.functionName}:${n.callFrame.lineNumber + 1}`);
     }
     for (const c of n.children) walk(c);
