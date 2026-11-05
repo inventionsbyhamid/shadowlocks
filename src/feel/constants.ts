@@ -16,6 +16,15 @@ export const SPEED_GATE_MS = 200;
  * 100 ms passes 3 mm of white noise, 10 Hz tremor and a 2 Hz wobble; a sweep still closes the gate within ~0.6 cm.
  */
 export const SPEED_FILTER_MS = 100;
+/**
+ * An assist also needs its target held this long first: the smoothed hand inside SETTLE_RADIUS of the same spot,
+ * or the same lock's line the nearest aligned one. The dwell counts whatever the gate says, so it outlasts the
+ * gate's lag: a fast sweep or a release drift that starts from a deliberate rest just outside the radius (or
+ * beside a line) is caught by the gate before the dwell is up. Keep it at or above the gate's close time for a
+ * 10 cm/s move from rest (122 ms at 90 Hz, about 130 ms in continuous time, with SPEED_FILTER_MS = 100) whenever
+ * SPEED_FILTER_MS is retuned.
+ */
+export const ASSIST_DWELL_MS = 150;
 
 /** While the ring line holds the lantern, hand motion across the line moves it this much. */
 export const LINE_SIDEWAYS_GAIN = 0.2;

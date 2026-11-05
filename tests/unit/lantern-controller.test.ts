@@ -133,24 +133,38 @@ function ringLine() {
 }
 
 describe("LanternController", () => {
-  it("spring follows without overshoot", () => {
+  it("spring follows without overshoot, trailing a moving hand by 80 ms (2 / omega)", () => {
+    // A 10 cm step: the lantern chases it from the frame before the one that sees it (each frame chases the
+    // position it is given over the whole frame). At 80 ms of chase a critically damped spring at omega 25 is at
+    // 59.4%; the last 90 Hz frame inside 80 ms (77.8 ms) is at 57.9%.
     const r = new Rig([0, 0, 0.6], ctxOf());
     r.grab();
     r.hold(200);
     expect(r.c.pos).toEqual([0, 0, 0.6]);
     const step = u(10);
     r.hand = [step, 0, 0.6];
-    const seen = r.t + r.dt; // the first frame that sees the hand 10 cm away
-    let at80 = -1;
+    const chaseFrom = r.t; // = (the first frame that sees the hand 10 cm away) - dt
+    let by80 = -1;
     let furthest = -Infinity;
-    while (r.t < seen + 1000) {
+    while (r.t < chaseFrom + 1000) {
       r.frame(true);
-      if (r.t - seen <= 80) at80 = r.c.pos[0] / step;
+      if (r.t - chaseFrom <= 80) by80 = r.c.pos[0] / step;
       furthest = Math.max(furthest, r.c.pos[0]);
     }
-    expect(at80).toBeGreaterThanOrEqual(0.6);
+    expect(by80).toBeGreaterThanOrEqual(0.57);
     expect(furthest).toBeLessThanOrEqual(step);
     expect(r.c.pos[0]).toBeCloseTo(step, 9);
+
+    // A hand moving steadily at 10 cm/s: the lantern trails it by 2 / omega = 80 ms, 0.8 cm (less half a frame,
+    // since each frame chases where the hand is at its end).
+    const m = new Rig([0, 0, 0.6], ctxOf());
+    m.grab();
+    for (let k = 1; k <= 90; k++) {
+      m.hand = [u((10 * k * m.dt) / 1000), 0, 0.6];
+      m.frame(true);
+    }
+    const lagCm = (m.hand[0] - m.c.pos[0]) * CM;
+    expect(Math.abs(lagCm - 10 * (2 / SPRING_OMEGA - m.dt / 2000))).toBeLessThan(0.01);
   });
 
   it("spring is the same at 72, 90 and 120 Hz", () => {
@@ -196,6 +210,113 @@ describe("LanternController", () => {
     expect(closest * CM).toBeLessThan(0.3); // it really went through the spot
     expect(r.modes.has("settled")).toBe(false);
     expect(r.of("settle")).toEqual([]);
+  });
+
+  it("a deliberate rest just outside the radius, then a fast sweep through, never settles", () => {
+    const spot: Spot = { lock: 0, L: [0.05, -0.1, 0.55], open: false };
+    for (const restCm of [2.45, 2.6, 2.8, 3.0]) {
+      for (const cmps of [15, 20, 30]) {
+        const r = new Rig(add(spot.L, [u(-restCm), 0, 0]), ctxOf([spot]));
+        r.grab();
+        r.hold(300); // deliberate, the settle radius (2.4 cm) only just ahead
+        r.moveTo(add(spot.L, [u(8), 0, 0]), cmps);
+        r.hold(300);
+        expect(r.modes.has("settled"), `rest ${restCm} cm, sweep ${cmps} cm/s`).toBe(false);
+      }
+    }
+  });
+
+  it("a deliberate rest beside a ring line, then a fast flick across it, never locks", () => {
+    for (const restCm of [2.45, 2.6, 2.8, 3.0]) {
+      for (const cmps of [15, 20, 30]) {
+        const { line, along, side, start } = ringLine();
+        line.aligned = false;
+        const r = new Rig(add(start, side, u(restCm)), ctxOf([], [line]));
+        // Aligned while the lantern is near the line, with hysteresis like the ring check: a wide band, as when
+        // the rings hang close to the panel.
+        r.watch = () => {
+          const d = sub(r.c.pos, start);
+          const off = Math.hypot(...sub(d, add([0, 0, 0], along, dot(d, along)))) * CM;
+          line.aligned = line.aligned ? off <= 3.45 : off <= 2.3;
+        };
+        r.grab();
+        r.hold(300);
+        r.moveTo(add(start, side, u(-8)), cmps);
+        r.hold(300);
+        expect(r.of("line"), `rest ${restCm} cm, flick ${cmps} cm/s`).toEqual([]);
+      }
+    }
+  });
+
+  it("release drift into the radius does not settle", () => {
+    const spot: Spot = { lock: 0, L: [0.05, -0.1, 0.55], open: false };
+    for (const restCm of [2.45, 2.6, 2.8]) {
+      const r = new Rig(add(spot.L, [u(restCm), 0, 0]), ctxOf([spot]));
+      r.grab();
+      r.hold(300); // deliberate, just outside the radius
+      const rest: V3 = [...r.c.pos];
+      r.moveBy([u(-1.2), 0, 0], 12); // the pinch opening drags the point 1.2 cm toward the spot in 100 ms
+      r.release();
+      expect(r.of("settle"), `rest ${restCm} cm`).toEqual([]);
+      expect(dist(r.c.pos, rest) * CM).toBeLessThan(0.2);
+    }
+  });
+
+  it("place ends an assist with line off or unsettle", () => {
+    const spot: Spot = { lock: 0, L: [0.05, -0.1, 0.55], open: false };
+    const s = new Rig(add(spot.L, [u(1), 0, 0]), ctxOf([spot]));
+    s.grab();
+    s.hold(500);
+    expect(s.c.mode).toBe("settled");
+    const there = add(spot.L, [0, u(5), 0]);
+    s.c.place(there);
+    s.hold(300); // still held: it holds on from where the hand is, with no jump back and no ticks
+    expect(s.c.mode).toBe("free");
+    expect(s.c.held).toBe(true);
+    expect(s.c.pos).toEqual(there);
+    expect(s.events.filter((e) => e.type !== "tick")).toEqual([
+      { type: "grab" },
+      { type: "settle", lock: 0 },
+      { type: "unsettle", lock: 0 },
+    ]);
+    expect(s.of("tick").every((e) => e.cm <= 1)).toBe(true); // only the ticks of settling in
+
+    const { line, start } = ringLine();
+    const l = new Rig(start, ctxOf([], [line]));
+    l.grab();
+    l.hold(300);
+    expect(l.c.mode).toBe("line");
+    l.c.place(add(start, [u(5), 0, 0]));
+    l.frame(true);
+    expect(l.c.mode).toBe("free");
+    expect(l.of("line")).toEqual([
+      { type: "line", lock: 1, on: true },
+      { type: "line", lock: 1, on: false },
+    ]);
+  });
+
+  it("a NaN joint is treated like lost tracking", () => {
+    const r = new Rig([0, -0.1, 0.6], ctxOf());
+    r.grab();
+    r.moveBy([u(2), 0, 0], 6);
+    const kept: V3 = [...r.c.pos];
+    const back: V3 = [...r.hand];
+    for (let i = 0; i < 20; i++) {
+      r.hand = i % 3 === 0 ? [Number.NaN, -0.1, 0.6] : [back[0], Number.POSITIVE_INFINITY, 0.6];
+      r.frame(i % 2 === 0);
+      expect(r.c.pos).toEqual(kept);
+    }
+    expect(r.c.held).toBe(true);
+    expect(r.events.map((e) => e.type)).toEqual(["grab"]);
+    r.hand = kept;
+    r.release();
+    expect(r.c.pos).toEqual(kept);
+
+    const idle = new Rig([0, -0.1, 0.6], ctxOf());
+    idle.hand = [Number.NaN, -0.1, 0.6];
+    idle.grab();
+    expect(idle.c.held).toBe(false);
+    expect(idle.events).toEqual([]);
   });
 
   it("slow approach settles exactly", () => {

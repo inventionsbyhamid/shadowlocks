@@ -1,4 +1,5 @@
 import {
+  ASSIST_DWELL_MS,
   DIAL_TICKS_CM,
   GRAB_RADIUS_CM,
   LINE_BREAK_CM,
@@ -47,8 +48,11 @@ export interface LanternCtx {
 
 /**
  * What the lantern did, for sound, haptics and visuals. `line` on and off always pair up (a release or `place`
- * ends a line lock with an off). `unsettle` means the hand pulled free of a settle; a release while settled
- * confirms the settle and sends only `release`.
+ * ends a line lock with an off). `unsettle` means a settle ended unconfirmed: the hand pulled free, or `place`
+ * moved the lantern. A release while settled confirms the settle and sends only `release`.
+ *
+ * POOLED: the event objects `drain` hands out are reused by the controller. Read them before its next `update`
+ * or `place`, and copy any you keep or pass on (a queue, a deferred bus, a log).
  */
 export type FeelEvent =
   | { type: "grab" }
@@ -139,9 +143,11 @@ function spring(x: V3, v: V3, target: Readonly<V3>, dtS: number): void {
  *
  * While pinched it follows the hand on a critically damped spring, keeping the offset it was grabbed at. Speeds
  * and distances are measured on the "smoothed hand": the hand target on that same spring with no assist. The
- * assists (ring line lock, settle onto a spot) engage only once the hand is deliberate: its smoothed velocity,
- * low-passed as a vector, has stayed under SPEED_GATE_CMPS for SPEED_GATE_MS. On release the lantern goes back
- * to where it was RELEASE_LOOKBACK_MS before the pinch opened (or exactly onto the spot when settled) and floats.
+ * assists (ring line lock, settle onto a spot) engage only once the hand is deliberate (its smoothed velocity,
+ * low-passed as a vector, has stayed under SPEED_GATE_CMPS for SPEED_GATE_MS) and its target has held for
+ * ASSIST_DWELL_MS (inside the settle radius of the same spot, or the same line the nearest aligned one), which
+ * outlasts the gate's lag at the start of a fast move. On release the lantern goes back to where it was
+ * RELEASE_LOOKBACK_MS before the pinch opened (or exactly onto the spot when settled) and floats.
  */
 export class LanternController {
   /** Where the lantern is, in box units; updated in place. */
@@ -166,6 +172,12 @@ export class LanternController {
   private readonly gateVel: V3 = [0, 0, 0];
   /** How long the gate speed has stayed under SPEED_GATE_CMPS. */
   private slowMs = 0;
+  /** Dwell: the lock whose line has been the nearest aligned one, and for how long. */
+  private lineCand: number | null = null;
+  private lineCandMs = 0;
+  /** Dwell: the spot whose settle radius the smoothed hand has stayed inside, and for how long. */
+  private insideLock: number | null = null;
+  private insideMs = 0;
 
   private lineOn = false;
   private lineLock = 0;
@@ -227,9 +239,9 @@ export class LanternController {
     this.lastT = inp.tMs;
 
     const p = inp.pinchPos;
-    if (p === null) {
-      // Out of tracking: nothing changes. A held lantern stays held and stands still where it is (its springs
-      // come to rest), and the lookback notes that it stood still.
+    if (p === null || !(Number.isFinite(p[0]) && Number.isFinite(p[1]) && Number.isFinite(p[2]))) {
+      // Out of tracking (or a NaN joint): nothing changes. A held lantern stays held and stands still where it is
+      // (its springs come to rest), and the lookback notes that it stood still.
       if (this.isHeld) {
         zero(this.vel);
         zero(this.handVel);
@@ -249,12 +261,16 @@ export class LanternController {
     this.updateTicks(ctx);
   }
 
-  /** Puts the lantern at `p` (restoring a box, test hooks): no assist, no ticks for the jump. */
+  /** Puts the lantern at `p` (restoring a box, test hooks): ends any assist (line off, unsettle), no ticks. */
   place(p: V3): void {
     copy(this.pos, p);
     zero(this.vel);
     this.endLine();
-    this.isSettled = false;
+    if (this.isSettled) {
+      this.isSettled = false;
+      this.emit("unsettle", this.settleLock);
+    }
+    this.resetDwell();
     this.histLen = 0;
     this.ticksStale = true;
     if (this.isHeld) this.regrip = true;
@@ -288,7 +304,15 @@ export class LanternController {
     zero(this.handVel);
     zero(this.gateVel);
     this.slowMs = 0;
+    this.resetDwell();
     this.histLen = 0;
+  }
+
+  private resetDwell(): void {
+    this.lineCand = null;
+    this.lineCandMs = 0;
+    this.insideLock = null;
+    this.insideMs = 0;
   }
 
   private release(tMs: number): void {
@@ -296,6 +320,7 @@ export class LanternController {
     else this.lookBack(tMs - RELEASE_LOOKBACK_MS);
     zero(this.vel);
     this.isSettled = false;
+    this.resetDwell();
     this.endLine();
     this.isHeld = false;
     this.emit("release");
@@ -318,25 +343,37 @@ export class LanternController {
     this.slowMs = len(this.gateVel) * cm < SPEED_GATE_CMPS ? this.slowMs + dtMs : 0;
     const deliberate = this.slowMs >= SPEED_GATE_MS - EPS_MS;
 
-    // Ring line: breaks when the hand pulls far enough off it, engages when deliberate on an aligned line.
+    // Ring line: breaks when the hand pulls far enough off it; engages when deliberate on the line that has been
+    // the nearest aligned one for the dwell.
     if (this.lineOn) {
       if (offLine(this.hand, this.lineAnchor, this.lineDir) * cm >= LINE_BREAK_CM) {
         this.endLine();
         this.slowMs = 0; // earn the gate again before anything catches the lantern
       }
-    } else if (deliberate && !this.isSettled) {
-      this.startLine(ctx);
+    } else {
+      const i = this.nearestLine(ctx);
+      const lock = i < 0 ? null : ctx.lines[i]!.lock;
+      this.lineCandMs = lock !== null && lock === this.lineCand ? this.lineCandMs + dtMs : 0;
+      this.lineCand = lock;
+      if (i >= 0 && deliberate && !this.isSettled && this.lineCandMs >= ASSIST_DWELL_MS - EPS_MS) {
+        this.startLine(ctx.lines[i]!);
+      }
     }
 
-    // Settle, measured on the smoothed hand as the line lock carries it.
+    // Settle, measured on the smoothed hand as the line lock carries it; engages when deliberate after the hand
+    // has stayed inside the same spot's radius for the dwell.
     this.onLine(this.hand, this.ctrl);
     if (this.isSettled) {
       if (dist(this.ctrl, this.settleSpot) > SETTLE_RADIUS * SETTLE_RELEASE_MULT) {
         this.isSettled = false;
         this.emit("unsettle", this.settleLock);
       }
-    } else if (deliberate) {
-      this.startSettle(ctx.spots);
+    } else {
+      const i = this.nearestSpot(ctx.spots);
+      const lock = i < 0 ? null : ctx.spots[i]!.lock;
+      this.insideMs = lock !== null && lock === this.insideLock ? this.insideMs + dtMs : 0;
+      this.insideLock = lock;
+      if (i >= 0 && deliberate && this.insideMs >= ASSIST_DWELL_MS - EPS_MS) this.startSettle(ctx.spots[i]!);
     }
 
     if (this.isSettled) {
@@ -374,29 +411,34 @@ export class LanternController {
     out[2] = a[2] + t * d[2] + g * (z - t * d[2]);
   }
 
-  /** Engage the aligned line (of a lock not yet open) nearest the smoothed hand, if any. */
-  private startLine(ctx: LanternCtx): void {
+  /** Index of the aligned line (of a lock not yet open) nearest the smoothed hand, or -1. Only while no line is on. */
+  private nearestLine(ctx: LanternCtx): number {
     const lines = ctx.lines;
-    let best: RingLine | null = null;
+    let best = -1;
     let bestOff = Infinity;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]!;
       const n = len(line.dir);
       if (!line.aligned || !(n > 0) || isOpen(ctx.spots, line.lock)) continue;
-      for (let j = 0; j < 3; j++) this.lineDir[j] = line.dir[j]! / n;
+      for (let j = 0; j < 3; j++) this.lineDir[j] = line.dir[j]! / n; // scratch until a line engages
       const off = offLine(this.hand, line.mark, this.lineDir);
       if (off < bestOff) {
         bestOff = off;
-        best = line;
+        best = i;
       }
     }
-    if (best === null) return;
-    const n = len(best.dir);
-    for (let j = 0; j < 3; j++) this.lineDir[j] = best.dir[j]! / n;
+    return best;
+  }
+
+  private startLine(line: RingLine): void {
+    const n = len(line.dir);
+    for (let j = 0; j < 3; j++) this.lineDir[j] = line.dir[j]! / n;
     copy(this.lineAnchor, this.hand);
     this.lineOn = true;
-    this.lineLock = best.lock;
-    this.emit("line", best.lock, true);
+    this.lineLock = line.lock;
+    this.lineCand = null;
+    this.lineCandMs = 0;
+    this.emit("line", line.lock, true);
   }
 
   private endLine(): void {
@@ -405,9 +447,9 @@ export class LanternController {
     this.emit("line", this.lineLock, false);
   }
 
-  /** Settle onto the nearest unopened spot within SETTLE_RADIUS of the smoothed hand, if any. */
-  private startSettle(spots: Spot[]): void {
-    let best: Spot | null = null;
+  /** Index of the nearest unopened spot within SETTLE_RADIUS of the smoothed hand (as carried), or -1. */
+  private nearestSpot(spots: Spot[]): number {
+    let best = -1;
     let bestD = SETTLE_RADIUS;
     for (let i = 0; i < spots.length; i++) {
       const s = spots[i]!;
@@ -415,16 +457,21 @@ export class LanternController {
       const d = dist(this.ctrl, s.L);
       if (d <= bestD) {
         bestD = d;
-        best = s;
+        best = i;
       }
     }
-    if (best === null) return;
+    return best;
+  }
+
+  private startSettle(spot: Spot): void {
     this.isSettled = true;
-    this.settleLock = best.lock;
-    copy(this.settleSpot, best.L);
+    this.settleLock = spot.lock;
+    copy(this.settleSpot, spot.L);
     copy(this.easeFrom, this.pos);
     this.easeMs = 0;
-    this.emit("settle", best.lock);
+    this.insideLock = null;
+    this.insideMs = 0;
+    this.emit("settle", spot.lock);
   }
 
   private record(tMs: number): void {
