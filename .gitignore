@@ -1,0 +1,21 @@
+node_modules
+dist
+test-results
+playwright-report
+.iwsdk
+.env*
+*.keystore
+*.jks
+__pycache__/
+.e2e-build
+dist-e2e*
+
+# Quest app: only the Bubblewrap config is kept; bubblewrap update writes the rest.
+twa/*
+!twa/twa-manifest.json
+*.apk
+*.aab
+*.p12
+.secrets
+video-assets/
+.video-cache/

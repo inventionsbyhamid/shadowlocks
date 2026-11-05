@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# Build the game for production on the build server and publish it to Cloudflare Pages.
+# Usage: scripts/deploy-pages.sh --project <pages project> [--branch <name>] [--create] [--dry-run] [--allow-dirty]
+#        scripts/deploy-pages.sh --verify <host>
+#   --project <name>  the Pages project (lowercase letters, digits, hyphens)
+#   --branch <name>   Pages branch; the production branch (default main) is the live site,
+#                     any other name makes a preview at <branch>.<project>.pages.dev
+#   --create          create the project first (once), with main as its production branch
+#   --dry-run         build and check only, and list what would be published; needs no token
+#   --allow-dirty     publish a working tree with uncommitted changes (off by default)
+#   --verify <host>   only check a live site, e.g. shadowlocks.pages.dev or a custom domain
+# A real publish reads CLOUDFLARE_API_TOKEN (a token with "Cloudflare Pages: Edit") and
+# CLOUDFLARE_ACCOUNT_ID from .secrets/cloudflare.env next to the repo (NS_CLOUDFLARE_ENV overrides).
+# The token reaches the server only on stdin: never on a command line, never in a server-side
+# environment outside the throwaway deploy container. Wrangler runs there, in shadowlocks-deploy-*.
+set -euo pipefail
+
+HOST=ioflood
+WRANGLER=wrangler@4.150.0
+IMAGE=node:22-bookworm
+NPM_VOLUME=shadowlocks-npm-user
+MAX_LOAD=${NS_MAX_LOAD:-25}
+MIN_FREE_GB=${NS_MIN_FREE_GB:-100}
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+
+usage() {
+  sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' >&2
+  exit 2
+}
+
+PROJECT= BRANCH=main CREATE=0 DRY=0 DIRTY=0 VERIFY=
+while [ $# -gt 0 ]; do
+  case $1 in
+    --project) [ $# -ge 2 ] || usage; PROJECT=$2; shift 2 ;;
+    --branch) [ $# -ge 2 ] || usage; BRANCH=$2; shift 2 ;;
+    --create) CREATE=1; shift ;;
+    --dry-run) DRY=1; shift ;;
+    --allow-dirty) DIRTY=1; shift ;;
+    --verify) [ $# -ge 2 ] || usage; VERIFY=$2; shift 2 ;;
+    *) usage ;;
+  esac
+done
+
+# The hosting contract: what the browser, the service worker and the Quest app need from the site.
+# head_ok (scripts/http-check.sh) compares status, type and header literally.
+. "$ROOT/scripts/http-check.sh"
+verify() {
+  local host=$1 bad=0
+  check() { # path, status, types ("a|b"), header line (optional)
+    head_ok "$(curl -s -o /dev/null -D - --max-time 20 "https://$host$1" || true)" "$@" || bad=1
+  }
+  check / 200 text/html "content-security-policy-report-only: default-src 'self'"
+  check /manifest.webmanifest 200 application/manifest+json "cache-control: no-cache"
+  check /sw.js 200 "application/javascript|text/javascript" "cache-control: no-cache"
+  check /icons/icon-192.png 200 image/png
+  check /icons/icon-512.png 200 image/png
+  check /icons/icon-512-maskable.png 200 image/png
+  check /.well-known/assetlinks.json 200 application/json
+  # A missing URL gets the 404 page, not index.html with 200.
+  check "/no-such-page-$RANDOM" 404 text/html
+  if curl -s --max-time 20 "https://$host/.well-known/assetlinks.json" | grep -q REPLACE_WITH; then
+    echo "note assetlinks.json still has the placeholder fingerprint (fine until the Quest app exists)"
+  fi
+  return $bad
+}
+
+if [ -n "$VERIFY" ]; then
+  [[ $VERIFY =~ ^[A-Za-z0-9.-]+$ ]] || { echo "bad host: $VERIFY" >&2; exit 2; }
+  verify "$VERIFY"
+  exit
+fi
+
+[ -n "$PROJECT" ] || usage
+[[ $PROJECT =~ ^[a-z0-9][a-z0-9-]{0,57}$ ]] || { echo "bad project name: $PROJECT" >&2; exit 2; }
+[[ $BRANCH =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$ ]] || { echo "bad branch name: $BRANCH" >&2; exit 2; }
+
+COMMIT=$(git -C "$ROOT" rev-parse HEAD)
+SUBJECT=$(git -C "$ROOT" log -1 --format=%s | tr -cd 'A-Za-z0-9 .,:()/_-' | cut -c1-200)
+if [ -n "$(git -C "$ROOT" status --porcelain)" ] && [ "$DIRTY" -eq 0 ]; then
+  echo "refused: uncommitted changes (commit them, or pass --allow-dirty)" >&2
+  exit 2
+fi
+
+# Build on the server (vite build, then check-dist), and pull dist/ back to check it here too. An
+# old dist/ must never be published: it is removed first, and the pulled sw.js must match the stamp
+# check-dist printed for this build.
+DIST=$ROOT/dist
+rm -rf "$DIST"
+LOG=$(mktemp "${TMPDIR:-/tmp}/deploy-build.XXXXXX")
+trap 'rm -f "$LOG"' EXIT
+echo "building $COMMIT on $HOST"
+set +e
+"$ROOT/scripts/remote.sh" deploy --pull dist -- npm run build 2>&1 | tee "$LOG"
+rc=${PIPESTATUS[0]}
+set -e
+[ "$rc" -eq 0 ] || { echo "refused: the build failed (exit $rc)" >&2; exit 3; }
+if grep -q "could not pull dist" "$LOG"; then echo "refused: dist/ did not come back from $HOST" >&2; exit 3; fi
+STAMP=$(sed -n 's/^check-dist: sw.js sha256 \([0-9a-f]\{64\}\)$/\1/p' "$LOG" | tail -1)
+[ -n "$STAMP" ] || { echo "refused: the build printed no sw.js stamp" >&2; exit 3; }
+for f in index.html sw.js manifest.webmanifest _headers .well-known/assetlinks.json icons/icon-512.png; do
+  [ -f "$DIST/$f" ] || { echo "refused: dist/$f is missing" >&2; exit 3; }
+done
+if find "$DIST" -type f \( -name '*.keystore' -o -name '*.jks' -o -name '*.p12' -o -name '.env*' \) | grep -q .; then
+  echo "refused: a key or secret file is in dist/" >&2
+  exit 3
+fi
+[ "$(shasum -a 256 "$DIST/sw.js" | cut -d' ' -f1)" = "$STAMP" ] || { echo "refused: dist/sw.js is not this build's" >&2; exit 3; }
+FILES=$(find "$DIST" -type f | wc -l | tr -d ' ')
+echo "dist: $FILES files, $(du -sh "$DIST" | cut -f1)"
+
+if [ "$DRY" -eq 1 ]; then
+  (cd "$DIST" && find . -type f | sed 's#^\./##' | sort)
+  echo "dry run: would publish dist/ to Pages project '$PROJECT', branch '$BRANCH'"
+  exit 0
+fi
+
+SECRETS=${NS_CLOUDFLARE_ENV:-$(dirname "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)")/../.secrets/cloudflare.env}
+[ -f "$SECRETS" ] || { echo "missing $SECRETS (CLOUDFLARE_API_TOKEN=..., CLOUDFLARE_ACCOUNT_ID=...)" >&2; exit 2; }
+TOKEN=$(sed -n 's/^CLOUDFLARE_API_TOKEN=//p' "$SECRETS" | tail -1)
+ACCOUNT=$(sed -n 's/^CLOUDFLARE_ACCOUNT_ID=//p' "$SECRETS" | tail -1)
+[ -n "$TOKEN" ] || { echo "no CLOUDFLARE_API_TOKEN in $SECRETS" >&2; exit 2; }
+[[ $ACCOUNT =~ ^[0-9a-f]{32}$ ]] || { echo "no CLOUDFLARE_ACCOUNT_ID (32 hex) in $SECRETS" >&2; exit 2; }
+
+gate=$(ssh "$HOST" "awk '{print \$1}' /proc/loadavg && df -BG --output=avail / | tail -1 | tr -dc 0-9") \
+  || { echo "cannot reach $HOST (is the VPN on?)" >&2; exit 3; }
+LOAD=$(printf '%s\n' "$gate" | sed -n 1p)
+FREE=$(printf '%s\n' "$gate" | sed -n 2p)
+if awk -v l="$LOAD" -v m="$MAX_LOAD" 'BEGIN{exit !(l>m)}'; then echo "refused: $HOST load $LOAD > $MAX_LOAD" >&2; exit 3; fi
+if [ "${FREE:-0}" -lt "$MIN_FREE_GB" ]; then echo "refused: $HOST free disk ${FREE:-0} GB < $MIN_FREE_GB GB" >&2; exit 3; fi
+
+# In the container: the first stdin line is the token, the rest is dist/ as a tar stream.
+INNER="set -euo pipefail
+IFS= read -r CLOUDFLARE_API_TOKEN
+export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID=$ACCOUNT WRANGLER_SEND_METRICS=false CI=1
+mkdir -p /tmp/site && tar -C /tmp/site --no-same-owner -xf -
+find /tmp/site -name '._*' -delete
+[ \$(find /tmp/site -type f | wc -l) -eq $FILES ] || { echo 'deploy: dist did not arrive whole' >&2; exit 3; }
+cd /tmp
+if [ $CREATE -eq 1 ]; then npx -y $WRANGLER pages project create $PROJECT --production-branch main; fi
+npx -y $WRANGLER pages deploy /tmp/site --project-name $PROJECT --branch $BRANCH \
+  --commit-hash $COMMIT --commit-message $(printf '%q' "$SUBJECT") --commit-dirty=$([ -n "$(git -C "$ROOT" status --porcelain)" ] && echo true || echo false)"
+NAME="shadowlocks-deploy-$(date -u +%m%d%H%M%S)-$RANDOM"
+# macOS tar would add ._* files (extended attributes) for every file; leave them out.
+TAR=(tar)
+if tar --version 2>/dev/null | grep -q bsdtar; then TAR=(env COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs); fi
+echo "publishing to Pages project '$PROJECT', branch '$BRANCH'"
+{ printf '%s\n' "$TOKEN"; "${TAR[@]}" -C "$DIST" -cf - .; } | ssh "$HOST" "docker run --rm -i --name $NAME --cpus 2 --memory 2g \
+  --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 \
+  -v $NPM_VOLUME:/npm-cache -e npm_config_cache=/npm-cache $IMAGE bash -c $(printf '%q' "$INNER")"
+unset TOKEN
+
+if [ "$BRANCH" = main ]; then
+  echo "checking https://$PROJECT.pages.dev"
+  verify "$PROJECT.pages.dev"
+fi

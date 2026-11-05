@@ -1,0 +1,26 @@
+{
+  "version": "iwsdk.scene.v1",
+  "units": "meters",
+  "environment": {
+    "toneMapping": "aces",
+    "exposure": 1,
+    "shadows": false
+  },
+  "resources": {},
+  "nodes": [
+    {
+      "id": "home-panel",
+      "name": "Home Panel",
+      "content": { "type": "asset", "asset": "home-panel" },
+      "components": { "PokeInteractable": {}, "RayInteractable": {} },
+      "transform": { "position": [0, 0.8, -0.4], "scale": 0.1 }
+    },
+    {
+      "id": "settings-panel",
+      "name": "Settings Panel",
+      "content": { "type": "asset", "asset": "settings-panel" },
+      "components": { "PokeInteractable": {}, "RayInteractable": {} },
+      "transform": { "position": [0, 0.8, -0.4], "scale": 0.1 }
+    }
+  ]
+}
