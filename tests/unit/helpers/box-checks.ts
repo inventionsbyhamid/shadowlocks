@@ -1,7 +1,7 @@
 // Independent checks of the generator's guarantees, shared by the generator and mirror tests. They rebuild the sample
 // grid and the shadows from geom.ts alone, so a bug in the generator's own checks cannot hide here.
 import { ENVELOPE } from "../../../src/core/envelope";
-import { area, bbox, circlePts, inPoly, polyDist, proj } from "../../../src/core/geom";
+import { area, bbox, circlePts, inPoly, polyDist, proj, segDist } from "../../../src/core/geom";
 import { boxParams, dailyParams } from "../../../src/core/params";
 import { SILHOUETTES } from "../../../src/core/shapes";
 import type { Box, BoxParams, Element, Piece, Ring, V2, V3 } from "../../../src/core/types";
@@ -215,6 +215,63 @@ export function checkFingerAndDepth(box: Box): string[] {
   return errs;
 }
 
+/** From the spot, a lock's ring shadows share a centre within this, and the deep ring sits in the shallow one's hole. */
+export const RING_CONCENTRIC = 0.002;
+export const RING_GAP = 0.008;
+/**
+ * Slack on the gap, for two effects far below anything visible (2e-5 box units is 0.005 mm at 24 cm):
+ * - Perspective shifts each projected ellipse's centre by about tan(tilt) * rho^2 / Lz, a little more for the bigger
+ *   circle. At small tilts, where the stretch doesn't make up for it, the deep ring sits up to
+ *   (0.032^2 - 0.024^2)^2 / (0.032 * Lz^2), about 1e-5, nearer one side of the hole. Measured: 1.1e-5.
+ * - Sampling the circles as 180-gons, about 1e-6.
+ */
+const RING_GAP_SLACK = 2e-5;
+
+export interface RingStat {
+  /** Largest distance between any two projected circle centres, or from one to the mark. */
+  offset: number;
+  /** Smallest distance from the deep ring's outer edge to the shallow ring's inner edge, on the panel. */
+  gap: number;
+}
+
+/** Points of a ring's circle of radius r, cast on the panel from L. */
+const castCircle = (r: Ring, radius: number, L: V3) => circlePts(r.c, r.nrm, radius, 180).map((p) => proj(p, L));
+const centreOf = (pts: V2[]): V2 => {
+  const [x0, y0, x1, y1] = bbox(pts);
+  return [(x0 + x1) / 2, (y0 + y1) / 2];
+};
+
+/**
+ * At each lock's spot its two ring shadows make a bullseye on the mark: all four circles (projected ellipses, as the
+ * rings face the lantern, not the panel) share a centre, and the deep ring's outer edge stays inside the shallow
+ * ring's hole with a clean gap all round.
+ */
+export function checkRingsNest(box: Box, stats?: RingStat[]): string[] {
+  const errs: string[] = [];
+  for (const l of box.locks) {
+    if (!l.rings || !l.mark) continue;
+    const rings = box.elements.filter((e): e is Ring => e.kind === "ring" && e.lock === l.i).sort((a, b) => a.c[2] - b.c[2]);
+    if (rings.length !== 2) continue; // checkCounts reports it
+    const [deep, shallow] = rings as [Ring, Ring];
+    const deepOut = castCircle(deep, deep.rOut, l.L), shallowIn = castCircle(shallow, shallow.rIn, l.L);
+    const centres = [l.mark, centreOf(deepOut), centreOf(castCircle(deep, deep.rIn, l.L)), centreOf(shallowIn),
+      centreOf(castCircle(shallow, shallow.rOut, l.L))];
+    let offset = 0;
+    for (let i = 0; i < centres.length; i++) {
+      for (let j = 0; j < i; j++) offset = Math.max(offset, Math.hypot(centres[i]![0] - centres[j]![0], centres[i]![1] - centres[j]![1]));
+    }
+    let gap = Infinity;
+    for (const p of deepOut) {
+      if (!inPoly(p, shallowIn)) gap = -Infinity;
+      for (let i = 0; i < shallowIn.length; i++) gap = Math.min(gap, segDist(p, shallowIn[i]!, shallowIn[(i + 1) % shallowIn.length]!));
+    }
+    stats?.push({ offset, gap });
+    if (offset > RING_CONCENTRIC) errs.push(`lock ${l.i} ring shadows ${offset.toFixed(5)} off centre`);
+    if (gap < RING_GAP - RING_GAP_SLACK) errs.push(`lock ${l.i} deep ring shadow gap ${gap.toFixed(7)} inside the shallow ring's hole`);
+  }
+  return errs;
+}
+
 /** Every per-box guarantee at once. */
 export function checkBox(box: Box, stats?: LockStat[]): string[] {
   return [
@@ -224,6 +281,7 @@ export function checkBox(box: Box, stats?: LockStat[]): string[] {
     ...checkCounts(box),
     ...checkSilhouettes(box),
     ...checkFingerAndDepth(box),
+    ...checkRingsNest(box),
   ];
 }
 

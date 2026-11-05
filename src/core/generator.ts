@@ -38,13 +38,15 @@ const LAYOUTS: Record<1 | 2 | 3, { c: V2; size: number }[]> = {
 };
 /** A lock's outline turns by up to this much either way, in radians. */
 const ROT_MAX = 0.5;
-/** Depth ranges of a lock's two sight rings: the front ring, then the back one. */
-const RING_Z: [number, number][] = [
-  [0.5, 0.7],
-  [0.18, 0.35],
+/**
+ * A lock's two sight rings: a depth range, and the outer and inner radius of the ring's shadow on the panel when
+ * the lantern is at the spot. Each ring is sized for its depth, so from the spot the deep ring's shadow sits inside
+ * the shallow ring's hole with a 0.008 gap: a bullseye on the mark.
+ */
+const RINGS: { z: [number, number]; out: number; in: number }[] = [
+  { z: [0.5, 0.7], out: 0.044, in: 0.032 }, // shallow: nearer the lantern
+  { z: [0.18, 0.35], out: 0.024, in: 0.014 }, // deep: nearer the panel
 ];
-const RING_R_OUT = 0.032;
-const RING_R_IN = 0.017;
 const RING_SIDES = 14;
 /**
  * The rings' etched mark: this many lock sizes from the lock's centre in one of eight directions, at least
@@ -293,9 +295,11 @@ export function buildBox(spec: BoxSpec): BoxBuild {
         if (Math.abs(m[0]) > MARK_MAX || Math.abs(m[1]) > MARK_MAX) continue;
         const near = (s: V2) => Math.hypot(s[0] - m[0], s[1] - m[1]) < MARK_CLEAR;
         if (locks.some((o) => o.samples.inside.some(near) || o.samples.band.some(near))) continue;
-        const rings = RING_Z.map(([z0, z1]): Ring => {
-          const c = onRay(l.L, m, R(z0, z1));
-          return { kind: "ring", lock: l.i, c, nrm: unit([l.L[0] - c[0], l.L[1] - c[1], l.L[2] - c[2]]), rOut: RING_R_OUT, rIn: RING_R_IN };
+        const rings = RINGS.map(({ z: [z0, z1], out, in: inner }): Ring => {
+          // A ring at depth z casts its shadow k = Lz / (Lz - z) times its size.
+          const c = onRay(l.L, m, R(z0, z1)), k = l.L[2] / (l.L[2] - c[2]);
+          const nrm = unit([l.L[0] - c[0], l.L[1] - c[1], l.L[2] - c[2]]);
+          return { kind: "ring", lock: l.i, c, nrm, rOut: out / k, rIn: inner / k };
         });
         if (!rings.every(ringInBox)) continue;
         if (rings.some((r) => intrudes(circlePts(r.c, r.nrm, r.rOut, RING_SIDES), -1, locks))) continue;

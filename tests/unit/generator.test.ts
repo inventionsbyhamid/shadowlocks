@@ -8,9 +8,11 @@ import {
   checkFingerAndDepth,
   checkSilhouettes,
   checkInBox,
+  checkRingsNest,
   checkSolvable,
   checkSpots,
   type LockStat,
+  type RingStat,
   missingShares,
   nearHorizontal,
   paramsFor,
@@ -65,6 +67,9 @@ describe("generateBox", () => {
     const errs = failing((b) => checkSolvable(b, stats));
     const plain = stats.filter((s) => !s.finger), finger = stats.filter((s) => s.finger);
     const min = (v: number[]) => Math.min(...v).toFixed(3), max = (v: number[]) => Math.max(...v).toFixed(3);
+    const worst = (f: (s: LockStat) => number) => stats.reduce((a, b) => (f(b) > f(a) ? b : a));
+    console.log(`worst spill ${worst((s) => s.spill).box} lock ${worst((s) => s.spill).lock}; ` +
+      `worst other scraps ${worst((s) => s.foreign).box} lock ${worst((s) => s.foreign).lock}`);
     console.log(
       `${stats.length} locks (${finger.length} finger): plain coverage min ${min(plain.map((s) => s.cov))}; ` +
         `finger with piece min ${min(finger.map((s) => s.covAll))}, without max ${max(finger.map((s) => s.cov))} ` +
@@ -74,6 +79,16 @@ describe("generateBox", () => {
         `${finger.filter((s) => nearHorizontal(s.fingerAngle)).length}/${finger.length}`,
     );
     expect(errs).toEqual([]);
+  });
+
+  it("nests each lock's two ring shadows into a bullseye at its spot", () => {
+    const stats: RingStat[] = [];
+    expect(failing((b) => checkRingsNest(b, stats))).toEqual([]);
+    expect(stats.length).toBe(265); // 1 + 2 + 2 + 1 + 3 * 2 for boxes 1-7, 193 for 8-200, 30 * 2 for the days
+    console.log(
+      `${stats.length} ring pairs: centres within ${Math.max(...stats.map((s) => s.offset)).toFixed(5)}, ` +
+        `gap ${Math.min(...stats.map((s) => s.gap)).toFixed(6)}..${Math.max(...stats.map((s) => s.gap)).toFixed(6)}`,
+    );
   });
 
   it("keeps every spot inside the envelope, apart from the others and from the start", () => {
