@@ -238,7 +238,7 @@ export class BoxScene {
     glass.name = "Box Glass";
     glass.renderOrder = 2;
     // The panel draws after everything opaque in front of it (it writes no depth), then the shadows on it.
-    this.panelArt = new Panel(world.renderer.capabilities.getMaxAnisotropy());
+    this.panelArt = new Panel();
     this.panel = new Mesh(new PlaneGeometry(1, 1).translate(0, 0, PANEL_Z), this.panelArt.material);
     this.panel.name = "Box Panel";
     this.panel.renderOrder = PANEL_ORDER;

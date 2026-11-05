@@ -5,12 +5,16 @@
 // shadows overlap the panel shows the strongest one, never two multiplied, and a soft skirt over a
 // neighbour's solid interior changes nothing.
 //
-// The etching is drawn once per box on two canvases: the albedo (frosted ivory, outlines, numerals,
-// sight marks, the deco border) and three masks (red: inside every outline, for the open lock's gold
-// fill; green: a glowing band round every outline, for warmth and opening; blue: the gold lines,
-// which glint even in shadow). Warmth and opening are per lock: the shader picks the lock whose
+// The etching is drawn once per box: the albedo (1024 px: frosted ivory, outlines, numerals, sight
+// marks, the deco border), two masks at half that (red: inside every outline, for the open lock's gold
+// fill; green: a crisp band along every outline, for warmth and opening) and the band's soft halo
+// (128 px, blurred). The gold lines glint even in shadow; the shader finds them in the albedo by their
+// warm colour, so they need no mask. Warmth and opening are per lock: the shader picks the lock whose
 // centre is nearest (locks sit far apart). A hidden lock's warmth lights its dotted frame instead of
 // its outline, which would give the shape away.
+//
+// The etching is CPU canvas drawing clipped to each lock, done a small step a frame (see Panel), so a
+// new box never stalls a frame.
 //
 // Colour maths runs in display values, as the lookdev's canvas did (theme.ts, PANEL_LIGHT), and is
 // handed to three as linear at the end, so the panel looks as it did there. Sunbursts and glitter
@@ -32,8 +36,14 @@ import type { Box, Lock, V2, V3 } from "../core/types";
 import { outlineEdges } from "./outline";
 import { COLORS, FOIL, PANEL_LIGHT } from "./theme";
 
-/** Etch canvas size: the panel's 1 x 1 box units. */
+/** The albedo canvas: the panel's 1 x 1 box units at this many pixels. */
 export const ETCH_PX = 1024;
+/** The masks' canvas (a fill and a soft glow need less). */
+export const MASK_PX = 512;
+/** The glow's soft halo is blurred at this size, then scaled up onto the masks (a blur costs by area). */
+export const HALO_PX = 128;
+/** Texture anisotropy: the panel is seen at a slant from the seated eye. */
+export const PANEL_ANISOTROPY = 4;
 /** Warmth eases toward its target with this time constant (s), so the glow never flickers. */
 export const WARMTH_EASE_S = 0.12;
 /** An opening lock's gold fill comes up over this long (s). */
@@ -44,7 +54,7 @@ const LOCKS = 3;
 const FAR = 1e3;
 
 /**
- * The etching, from the lookdev's Ebony panel: sizes in canvas pixels at ETCH_PX (1 px = 1/1024 of
+ * The etching, from the lookdev's Ebony panel: sizes in albedo pixels at ETCH_PX (1 px = 1/1024 of
  * the panel), radii of marks in box units.
  */
 const ART = {
@@ -64,9 +74,11 @@ const ART = {
   outline: 4,
   inner: [8, 10] as const,
   innerAlpha: 0.65,
-  /** The warmth and opening glow: a band 0..6 px outside the outline, and its blur. */
+  /** The warmth and opening glow: a band 6 px either side of the outline, and its blur. */
   glowBand: 6,
   glowBlur: 34,
+  /** Room round a lock's outline for its etched bands (px). */
+  margin: 16,
   /**
    * Roman numerals (drawn as deco strokes, no font needed): cap height (px); placed at a corner of the
    * lock (these shares of its size from its centre), upper left first, the first one clear of every
@@ -91,6 +103,11 @@ function rgb(hex: string): [number, number, number] {
 }
 const vec3 = (hex: string) => new Vector3(...rgb(hex));
 const glsl3 = ([r, g, b]: readonly number[]) => `vec3(${r!.toFixed(4)}, ${g!.toFixed(4)}, ${b!.toFixed(4)})`;
+/** How warm a colour is, whatever its brightness: (red - blue) / red. Ivory is barely warm, the etch gold very. */
+const warmthOf = (hex: string) => {
+  const [r, , b] = rgb(hex);
+  return (r - b) / r;
+};
 
 /** The banded gold foil of an open lock, along a diagonal across it (the lookdev's stops). */
 function foilGlsl(): string {
@@ -122,6 +139,8 @@ void main() {
 const FRAGMENT = /* glsl */ `
 uniform sampler2D uAlbedo;
 uniform sampler2D uMasks;
+// The glow band's soft halo, in alpha (a small canvas, blurred).
+uniform sampler2D uHalo;
 uniform vec3 uLantern;
 uniform float uWarmth[3];
 uniform float uOpen[3];
@@ -138,6 +157,9 @@ uniform vec3 uGoldHot;
 uniform float uSheen;
 varying vec2 vP;
 varying float vCov;
+// How warm the ivory and the etch gold are ((red - blue) / red), to find the gold lines in the albedo.
+const float IVORY_WARM = ${warmthOf(COLORS.panel).toFixed(4)};
+const float ETCH_WARM = ${warmthOf(COLORS.etch).toFixed(4)};
 ${foilGlsl()}
 void main() {
 #ifdef SHADOW
@@ -149,13 +171,17 @@ void main() {
 #endif
   vec2 uv = vP + 0.5;
   vec3 albedo = texture2D(uAlbedo, uv).rgb;
-  vec3 m = texture2D(uMasks, uv).rgb;
+  vec2 m = texture2D(uMasks, uv).rg;
+  // The glow band: crisp along the outline, a soft halo round it.
+  float band = min(1.0, m.g + texture2D(uHalo, uv).a);
+  // The gold lines: where the albedo is as warm as the etch gold (frost and shading change brightness, not warmth).
+  float line = clamp(((albedo.r - albedo.b) / max(albedo.r, 0.01) - IVORY_WARM) / (ETCH_WARM - IVORY_WARM), 0.0, 1.0);
   // The lantern's pool: inverse square and cosine falloff, gathered toward the spot under it.
   vec2 d = vP - uLantern.xy;
   float r2 = dot(d, d), z2 = uLantern.z * uLantern.z, q = z2 / (r2 + z2);
   float E = q * sqrt(q) * (1.0 - uPool.x + uPool.x * exp(-r2 * uPool.y));
   vec3 light = 1.0 - exp(-uPool.z * E * uLit);
-  vec3 c = albedo * (uAmbient + light * (1.0 - uPool.w * cov)) + uSheen * m.b * uEtch;
+  vec3 c = albedo * (uAmbient + light * (1.0 - uPool.w * cov)) + uSheen * line * uEtch;
   // This point's lock: the nearest centre.
   float d0 = distance(vP, uLockCenter[0]), d1 = distance(vP, uLockCenter[1]), d2 = distance(vP, uLockCenter[2]);
   float w = uWarmth[0], o = uOpen[0];
@@ -166,14 +192,14 @@ void main() {
   vec2 rel = vP - lc;
   // Warmth: gold light on the outline, or on a hidden lock's dotted frame.
   float inFrame = 1.0 - smoothstep(sh.y + 0.01, sh.y + 0.03, max(abs(rel.x), abs(rel.y)));
-  float glow = mix(m.g, m.b * inFrame, sh.z);
+  float glow = mix(band, line * inFrame, sh.z);
   c += clamp(1.2 * w, 0.0, 1.0) * glow * uGold;
   // Open: banded gold foil fills the shape and its outline burns bright.
   if (o > 0.0) {
     float f = m.r * o;
     c = mix(c, foil(0.5 + (rel.x - rel.y) / (2.2 * sh.x)), 0.5 * f);
     c *= mix(vec3(1.0), albedo, 0.85 * f);
-    c += 0.55 * o * m.g * uGoldHot;
+    c += 0.55 * o * band * uGoldHot;
   }
   gl_FragColor = sRGBTransferEOTF(vec4(clamp(c, 0.0, 1.0), 1.0));
   #include <colorspace_fragment>
@@ -184,6 +210,7 @@ export interface PanelUniforms {
   [name: string]: { value: unknown };
   uAlbedo: { value: Texture | null };
   uMasks: { value: Texture | null };
+  uHalo: { value: Texture | null };
   uLantern: { value: Vector3 };
   uWarmth: { value: Float32Array };
   uOpen: { value: Float32Array };
@@ -205,6 +232,7 @@ export function panelUniforms(): PanelUniforms {
   return {
     uAlbedo: { value: null },
     uMasks: { value: null },
+    uHalo: { value: null },
     uLantern: { value: new Vector3(0.35, -0.3, 1.35) },
     uWarmth: { value: new Float32Array(LOCKS) },
     uOpen: { value: new Float32Array(LOCKS) },
@@ -253,20 +281,29 @@ interface Surface {
   g: Ctx;
 }
 
-function surface(): Surface {
-  const S = ETCH_PX;
-  const c: Canvas = typeof document !== "undefined" ? Object.assign(document.createElement("canvas"), { width: S, height: S }) : new OffscreenCanvas(S, S);
-  const g = c.getContext("2d") as Ctx | null;
+/**
+ * A canvas drawn on the CPU (`willReadFrequently`): its drawing costs what it costs on the main thread,
+ * where it can be measured and spread over frames, rather than a GPU round trip per call.
+ */
+function surface(size: number): Surface {
+  const c: Canvas =
+    typeof document !== "undefined" ? Object.assign(document.createElement("canvas"), { width: size, height: size }) : new OffscreenCanvas(size, size);
+  const g = c.getContext("2d", { willReadFrequently: true }) as Ctx | null;
   if (!g) throw new Error("panel: no 2D canvas");
   return { c, g };
 }
 
-/** Panel box units to canvas pixels (y down). */
+/** Panel box units to albedo pixels (y down). */
 const X = (x: number) => (x + 0.5) * ETCH_PX;
 const Y = (y: number) => (0.5 - y) * ETCH_PX;
 const rgba = (hex: string, a: number) => {
   const [r, g, b] = rgb(hex);
   return `rgba(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)},${a})`;
+};
+/** The opaque colour of `over` laid at alpha `a` on `under`, as the canvas composites it. */
+const mixHex = (under: string, over: string, a: number) => {
+  const u = rgb(under), o = rgb(over);
+  return `rgb(${u.map((v, i) => Math.round((v + (o[i]! - v) * a) * 255)).join(",")})`;
 };
 const signedArea = (p: V2[]) => {
   let a = 0;
@@ -277,9 +314,8 @@ const signedArea = (p: V2[]) => {
   return a;
 };
 
-/** Every piece as a subpath wound the same way, so a nonzero fill is their union, seams and all. */
-function unionPath(g: Ctx, polys: V2[][]): void {
-  g.beginPath();
+/** Every piece as a subpath wound the same way (added to the current path), so a nonzero fill is their union. */
+function addPieces(g: Ctx, polys: V2[][]): void {
   for (const p of polys) {
     const n = p.length, ccw = signedArea(p) > 0;
     for (let i = 0; i < n; i++) {
@@ -291,19 +327,44 @@ function unionPath(g: Ctx, polys: V2[][]): void {
   }
 }
 
-/** One pen: where it draws, how (an opaque colour on the albedo, a channel added on the masks), in what colour. */
-interface Pen {
-  g: Ctx;
-  op: GlobalCompositeOperation;
-  col: (a: number) => string;
+/** The union of the pieces as a new path. */
+function unionPath(g: Ctx, polys: V2[][]): void {
+  g.beginPath();
+  addPieces(g, polys);
 }
 
+/** The outline's edges as a new path (stroked as one shape, so overlapping caps never add up). */
+function edgePath(g: Ctx, edges: [V2, V2][]): void {
+  g.beginPath();
+  for (const [p, q] of edges) {
+    g.moveTo(X(p[0]), Y(p[1]));
+    g.lineTo(X(q[0]), Y(q[1]));
+  }
+}
+
+/** A lock's bounding box in albedo pixels, grown by ART.margin: [x, y, w, h]. */
+function lockRect(l: Lock): [number, number, number, number] {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of l.target) {
+    for (const v of p) {
+      x0 = Math.min(x0, X(v[0]));
+      x1 = Math.max(x1, X(v[0]));
+      y0 = Math.min(y0, Y(v[1]));
+      y1 = Math.max(y1, Y(v[1]));
+    }
+  }
+  const m = ART.margin;
+  return [x0 - m, y0 - m, x1 - x0 + 2 * m, y1 - y0 + 2 * m];
+}
+
+type Col = (a: number) => string;
+
 /** The two stepped deco borders. */
-function decoBorder(p: Pen): void {
-  const S = ETCH_PX, s = ART.borderStep, g = p.g;
+function decoBorder(g: Ctx, col: Col): void {
+  const S = ETCH_PX, s = ART.borderStep;
   for (const b of ART.border) {
     const x0 = b.inset, y0 = b.inset, x1 = S - b.inset, y1 = S - b.inset;
-    g.strokeStyle = p.col(b.alpha);
+    g.strokeStyle = col(b.alpha);
     g.lineWidth = b.width;
     g.beginPath();
     g.moveTo(x0 + s, y0);
@@ -332,9 +393,8 @@ function decoBorder(p: Pen): void {
 }
 
 /** A half sunburst fan with its arcs and baseline. */
-function fanCrest(p: Pen, x: number, y: number, r: number, n: number, a: number): void {
-  const g = p.g;
-  g.strokeStyle = p.col(a);
+function fanCrest(g: Ctx, col: Col, x: number, y: number, r: number, n: number, a: number): void {
+  g.strokeStyle = col(a);
   g.lineWidth = 1.5;
   g.beginPath();
   for (let k = 0; k <= n; k++) {
@@ -352,10 +412,10 @@ function fanCrest(p: Pen, x: number, y: number, r: number, n: number, a: number)
 }
 
 /** Roman numeral n (1-3) as deco strokes: stems with serifs, centred on (x, y). */
-function numeral(p: Pen, n: number, x: number, y: number): void {
-  const g = p.g, h = ART.numeral.h, stem = 0.2 * h, serif = 0.62 * h, bar = 0.11 * h, gap = 0.1 * h;
+function numeral(g: Ctx, col: Col, n: number, x: number, y: number): void {
+  const h = ART.numeral.h, stem = 0.2 * h, serif = 0.62 * h, bar = 0.11 * h, gap = 0.1 * h;
   let x0 = x - (n * serif + (n - 1) * gap) / 2;
-  g.fillStyle = p.col(1);
+  g.fillStyle = col(1);
   g.beginPath();
   for (let i = 0; i < n; i++) {
     g.rect(x0 + (serif - stem) / 2, y - h / 2, stem, h);
@@ -367,9 +427,9 @@ function numeral(p: Pen, n: number, x: number, y: number): void {
 }
 
 /** The sight rings' mark: a diamond, a dot and four ticks. */
-function sightMark(p: Pen, m: V2): void {
-  const g = p.g, M = ART.mark, S = ETCH_PX, x = X(m[0]), y = Y(m[1]), t = M.tip * S;
-  g.strokeStyle = p.col(1);
+function sightMark(g: Ctx, col: Col, m: V2): void {
+  const M = ART.mark, S = ETCH_PX, x = X(m[0]), y = Y(m[1]), t = M.tip * S;
+  g.strokeStyle = col(1);
   g.lineWidth = M.line;
   g.beginPath();
   g.moveTo(x, y - t);
@@ -385,7 +445,7 @@ function sightMark(p: Pen, m: V2): void {
     g.lineTo(x + dx * M.tick[1] * S, y + dy * M.tick[1] * S);
   }
   g.stroke();
-  g.fillStyle = p.col(1);
+  g.fillStyle = col(1);
   g.beginPath();
   g.arc(x, y, M.dot * S, 0, Math.PI * 2);
   g.fill();
@@ -412,10 +472,10 @@ function frameHalf(l: Lock): number {
 }
 
 /** A dotted square round a hidden lock, small diamonds at its corners. */
-function dottedFrame(p: Pen, l: Lock): void {
-  const g = p.g, S = ETCH_PX, h = frameHalf(l), D = ART.dots, cx = l.center[0], cy = l.center[1];
+function dottedFrame(g: Ctx, col: Col, l: Lock): void {
+  const S = ETCH_PX, h = frameHalf(l), D = ART.dots, cx = l.center[0], cy = l.center[1];
   const n = Math.max(2, Math.round((2 * h) / D.gap));
-  g.fillStyle = p.col(0.9);
+  g.fillStyle = col(0.9);
   g.beginPath();
   for (let k = 1; k < n; k++) {
     const t = -h + (2 * h * k) / n;
@@ -436,8 +496,52 @@ function dottedFrame(p: Pen, l: Lock): void {
 }
 
 /**
- * The back panel's look: its two textures (drawn once per box), its materials, and the per-lock
- * warmth and opening. `update(dt)` eases warmth and opening each frame; nothing allocates per frame.
+ * A shown lock's etching: clean ivory with a whisper of gold inside, a gold-leaf inner line 8..10 px
+ * inside the outline, the gold-leaf outline 0..4 px outside. Clipped to the lock, along the union's
+ * boundary only, so seams between pieces are never etched.
+ */
+function etchOutline(g: Ctx, l: Lock, edges: [V2, V2][]): void {
+  const gold = COLORS.etch, inside = mixHex(COLORS.panel, gold, ART.tint), [rx, ry, rw, rh] = lockRect(l);
+  g.save();
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  // Inside: fill, then the 0..10 px band in gold, then 0..8 px back to the fill, leaving the 8..10 line.
+  unionPath(g, l.target);
+  g.clip();
+  g.fillStyle = inside;
+  g.fillRect(rx, ry, rw, rh);
+  edgePath(g, edges);
+  g.strokeStyle = rgba(gold, ART.innerAlpha);
+  g.lineWidth = 2 * ART.inner[1];
+  g.stroke();
+  g.strokeStyle = inside;
+  g.lineWidth = 2 * ART.inner[0];
+  g.stroke();
+  g.restore();
+  // Outside: the lock's box less its shape, then the outline's 0..4 px band.
+  g.save();
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  g.beginPath();
+  g.rect(rx, ry, rw, rh);
+  addPieces(g, l.target);
+  g.clip("evenodd");
+  edgePath(g, edges);
+  g.strokeStyle = gold;
+  g.lineWidth = 2 * ART.outline;
+  g.stroke();
+  g.restore();
+}
+
+/**
+ * The back panel's look: its two textures (etched once per box), its materials, and the per-lock
+ * warmth and opening. `update(dt)` eases warmth and opening each frame and does one step of a new
+ * box's etching (finishEtch does the rest at once); nothing allocates per frame.
+ *
+ * A new box's etching goes in small steps, one a frame: the frosted base (a quarter at a time), the
+ * border, each lock's fan, numeral and mark, each lock's outline, the masks (each lock's in turn), the
+ * glow's halo, and the uploads (masks and halo, then the albedo). The textures show the previous etching until the new one is uploaded, so a
+ * half-drawn panel is never seen; a box transition can wait for `etched`.
  */
 export class Panel {
   readonly uniforms = panelUniforms();
@@ -445,29 +549,58 @@ export class Panel {
   readonly material: ShaderMaterial;
   /** For the shadow mesh (draw it after the panel). */
   readonly shadowMaterial: ShaderMaterial;
-  private readonly base = surface();
-  private readonly albedo = surface();
-  private readonly masks = surface();
-  private readonly scratch = surface();
-  private readonly tint = surface();
+  private readonly base = surface(ETCH_PX);
+  private readonly albedo = surface(ETCH_PX);
+  private readonly masks = surface(MASK_PX);
+  private readonly halo = surface(HALO_PX);
   private readonly albedoTex: CanvasTexture;
   private readonly masksTex: CanvasTexture;
+  private readonly haloTex: CanvasTexture;
   private readonly warmTarget = new Float32Array(LOCKS);
   private readonly openTarget = new Float32Array(LOCKS);
+  private steps: (() => void)[] = [];
+  private stepAt = 0;
 
-  constructor(anisotropy = 4) {
+  constructor(anisotropy = PANEL_ANISOTROPY) {
     const m = panelMaterials(this.uniforms);
     this.material = m.panel;
     this.shadowMaterial = m.shadow;
     this.albedoTex = this.texture(this.albedo.c, anisotropy);
     this.masksTex = this.texture(this.masks.c, anisotropy);
+    this.haloTex = this.texture(this.halo.c, 1);
     this.uniforms.uAlbedo.value = this.albedoTex;
     this.uniforms.uMasks.value = this.masksTex;
+    this.uniforms.uHalo.value = this.haloTex;
     this.drawBase();
-    this.setBox(null);
+    // Until a box is etched the panel is plain frosted ivory (the textures' first upload).
+    this.albedo.g.drawImage(this.base.c, 0, 0);
+    this.masks.g.fillStyle = "#000";
+    this.masks.g.fillRect(0, 0, MASK_PX, MASK_PX);
   }
 
-  /** Etch this box's locks (or none) and reset warmth and opening. Once per box. */
+  /** The last box's etching is done and queued for upload. */
+  get etched(): boolean {
+    return this.stepAt >= this.steps.length;
+  }
+
+  /** Steps the etching takes for the box set last. */
+  get etchSteps(): number {
+    return this.steps.length;
+  }
+
+  /** Do the next step of the etching; true while steps remain after it. */
+  etchStep(): boolean {
+    if (this.stepAt >= this.steps.length) return false;
+    this.steps[this.stepAt++]!();
+    return this.stepAt < this.steps.length;
+  }
+
+  /** Do every remaining step of the etching now (boot, tests). */
+  finishEtch(): void {
+    while (this.etchStep());
+  }
+
+  /** Start etching this box's locks (or none), and reset warmth and opening. Once per box. */
   setBox(box: Box | null): void {
     const u = this.uniforms, c = u.uLockCenter.value, s = u.uLockShape.value;
     c.fill(FAR);
@@ -484,9 +617,8 @@ export class Panel {
     u.uOpen.value.fill(0);
     this.warmTarget.fill(0);
     this.openTarget.fill(0);
-    this.etch(box);
-    this.albedoTex.needsUpdate = true;
-    this.masksTex.needsUpdate = true;
+    this.steps = this.etchPlan(box);
+    this.stepAt = 0;
   }
 
   /** Where the lantern is (box units): its pool of light follows. */
@@ -504,8 +636,9 @@ export class Panel {
     if (lock >= 0 && lock < LOCKS) this.openTarget[lock] = open ? 1 : 0;
   }
 
-  /** Ease warmth (WARMTH_EASE_S) and opening (OPEN_FILL_S) by `dt` seconds. */
+  /** Ease warmth (WARMTH_EASE_S) and opening (OPEN_FILL_S) by `dt` seconds, and do one step of etching. */
   update(dt: number): void {
+    this.etchStep();
     const w = this.uniforms.uWarmth.value, o = this.uniforms.uOpen.value;
     const k = dt > 0 ? 1 - Math.exp(-dt / WARMTH_EASE_S) : 0, step = dt / OPEN_FILL_S;
     for (let i = 0; i < LOCKS; i++) {
@@ -558,134 +691,106 @@ export class Panel {
     }
   }
 
-  /** A white band `a`..`b` px outside (or inside) the outline of `polys`, into the scratch canvas. */
-  private band(polys: V2[][], edges: [V2, V2][], a: number, b: number, inside: boolean): Canvas {
-    const s = this.scratch.g, S = ETCH_PX;
-    s.save();
-    s.globalCompositeOperation = "source-over";
-    s.clearRect(0, 0, S, S);
-    s.lineCap = "round";
-    s.lineJoin = "round";
-    s.strokeStyle = "#fff";
-    s.fillStyle = "#fff";
-    s.beginPath();
-    for (const [p, q] of edges) {
-      s.moveTo(X(p[0]), Y(p[1]));
-      s.lineTo(X(q[0]), Y(q[1]));
-    }
-    s.lineWidth = 2 * b;
-    s.stroke();
-    if (a > 0) {
-      s.globalCompositeOperation = "destination-out";
-      s.lineWidth = 2 * a;
-      s.stroke();
-    }
-    s.globalCompositeOperation = inside ? "destination-in" : "destination-out";
-    unionPath(s, polys);
-    s.fill();
-    s.restore();
-    return this.scratch.c;
-  }
-
-  /** Draw a white mask onto a pen's canvas in `color` (optionally with a soft glow of `blur` px). */
-  private stamp(p: Pen, mask: Canvas, color: string, blur = 0): void {
-    const t = this.tint.g, S = ETCH_PX;
-    t.save();
-    t.globalCompositeOperation = "copy";
-    t.drawImage(mask, 0, 0);
-    t.globalCompositeOperation = "source-in";
-    t.fillStyle = color;
-    t.fillRect(0, 0, S, S);
-    t.restore();
-    p.g.save();
-    p.g.globalCompositeOperation = p.op;
-    if (blur > 0) {
-      p.g.shadowColor = color;
-      p.g.shadowBlur = blur;
-    }
-    p.g.drawImage(this.tint.c, 0, 0);
-    p.g.restore();
-  }
-
-  /** The box's etching onto the albedo and the masks. */
-  private etch(box: Box | null): void {
+  /**
+   * The steps that etch a box (or none): the albedo (base and border, then per lock its fan, numeral
+   * and mark, then per lock its outline or dotted frame), the masks (red inside every outline, a crisp
+   * green band along it), the green band's soft halo, then the masks' upload and the albedo's.
+   */
+  private etchPlan(box: Box | null): (() => void)[] {
     const S = ETCH_PX, gold = COLORS.etch, g = this.albedo.g, m = this.masks.g;
-    g.globalCompositeOperation = "copy";
-    g.drawImage(this.base.c, 0, 0);
-    g.globalCompositeOperation = "source-over";
-    m.globalCompositeOperation = "copy";
-    m.fillStyle = "#000";
-    m.fillRect(0, 0, S, S);
-    m.globalCompositeOperation = "lighter";
-    // The gold lines go on the albedo and, as glints that show in shadow, on the masks' blue channel.
-    const leaf: Pen = { g, op: "source-over", col: (a) => rgba(gold, a) };
-    const sheen: Pen = { g: m, op: "lighter", col: (a) => `rgba(0,0,255,${a})` };
-    const both = (draw: (p: Pen) => void) => {
-      for (const p of [leaf, sheen]) {
-        p.g.save();
-        p.g.globalCompositeOperation = p.op;
-        draw(p);
-        p.g.restore();
-      }
-    };
-    both(decoBorder);
+    const col: Col = (a) => rgba(gold, a);
     const locks = box?.locks ?? [];
-    const crestX = 0, crestY = 0.5 - ART.crest.y / S;
-    if (!locks.some((l) => l.mark && Math.hypot(l.mark[0] - crestX, l.mark[1] - crestY) < ART.crest.clear)) {
-      both((p) => fanCrest(p, S / 2, ART.crest.y, ART.crest.r, ART.crest.rays, ART.crest.alpha));
+    const edges = locks.map((l) => outlineEdges(l.target));
+    const steps: (() => void)[] = [];
+    // The frosted base, a quarter of its rows a step. It is opaque, so drawing it over replaces those rows
+    // ("copy" would clear the rest of the canvas).
+    for (let q = 0; q < 4; q++) {
+      steps.push(() => {
+        const y = (q * S) / 4, h = S / 4;
+        g.globalCompositeOperation = "source-over";
+        g.drawImage(this.base.c, 0, y, S, h, 0, y, S, h);
+      });
     }
+    steps.push(() => {
+      decoBorder(g, col);
+      const crestY = 0.5 - ART.crest.y / S;
+      if (!locks.some((l) => l.mark && Math.hypot(l.mark[0], l.mark[1] - crestY) < ART.crest.clear)) {
+        fanCrest(g, col, S / 2, ART.crest.y, ART.crest.r, ART.crest.rays, ART.crest.alpha);
+      }
+    });
     for (const l of locks) {
-      const edges = outlineEdges(l.target), cx = X(l.center[0]), cy = Y(l.center[1]), R = l.size * S, F = ART.fan;
-      // A faint fan and ring behind the lock (the albedo only).
-      g.save();
-      g.strokeStyle = rgba(gold, F.alpha);
-      g.lineWidth = 1.6;
-      g.beginPath();
-      for (let k = 0; k < F.rays; k++) {
-        const a = (k / F.rays) * Math.PI * 2;
-        g.moveTo(cx + Math.cos(a) * R * F.r0, cy + Math.sin(a) * R * F.r0);
-        g.lineTo(cx + Math.cos(a) * R * F.r1, cy + Math.sin(a) * R * F.r1);
-      }
-      g.stroke();
-      g.strokeStyle = rgba(gold, F.ringAlpha);
-      g.lineWidth = 2;
-      g.beginPath();
-      g.arc(cx, cy, R * F.ring, 0, Math.PI * 2);
-      g.stroke();
-      g.restore();
-      if (l.hidden) {
-        both((p) => dottedFrame(p, l));
-      } else {
-        // Clean ivory inside the outline with a whisper of gold, the gold-leaf outline and its inner line.
-        g.save();
-        unionPath(g, l.target);
-        g.fillStyle = COLORS.panel;
-        g.fill();
-        g.fillStyle = rgba(gold, ART.tint);
-        g.fill();
-        g.restore();
-        const outer = this.band(l.target, edges, 0, ART.outline, false);
-        this.stamp(leaf, outer, rgba(gold, 1));
-        this.stamp(sheen, outer, "rgba(0,0,255,1)");
-        const inner = this.band(l.target, edges, ART.inner[0], ART.inner[1], true);
-        this.stamp(leaf, inner, rgba(gold, ART.innerAlpha));
-        this.stamp(sheen, inner, `rgba(0,0,255,${ART.innerAlpha})`);
-      }
-      const at = numeralAt(l, locks);
-      both((p) => numeral(p, l.i + 1, X(at[0]), Y(at[1])));
-      if (l.mark) {
-        const mk = l.mark;
-        both((p) => sightMark(p, mk));
-      }
-      // Masks: red inside the outline, green the glowing band round it.
-      m.save();
-      m.globalCompositeOperation = "lighter";
-      m.fillStyle = "#ff0000";
-      unionPath(m, l.target);
-      m.fill();
-      m.restore();
-      const glow = this.band(l.target, edges, 0, ART.glowBand, false);
-      this.stamp({ g: m, op: "lighter", col: () => "#00ff00" }, glow, "#00ff00", ART.glowBlur);
+      steps.push(() => {
+        // A faint fan and ring behind the lock, its numeral and its sight mark.
+        const cx = X(l.center[0]), cy = Y(l.center[1]), R = l.size * S, F = ART.fan;
+        g.strokeStyle = col(F.alpha);
+        g.lineWidth = 1.6;
+        g.beginPath();
+        for (let r = 0; r < F.rays; r++) {
+          const a = (r / F.rays) * Math.PI * 2;
+          g.moveTo(cx + Math.cos(a) * R * F.r0, cy + Math.sin(a) * R * F.r0);
+          g.lineTo(cx + Math.cos(a) * R * F.r1, cy + Math.sin(a) * R * F.r1);
+        }
+        g.stroke();
+        g.strokeStyle = col(F.ringAlpha);
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(cx, cy, R * F.ring, 0, Math.PI * 2);
+        g.stroke();
+        const at = numeralAt(l, locks);
+        numeral(g, col, l.i + 1, X(at[0]), Y(at[1]));
+        if (l.mark) sightMark(g, col, l.mark);
+      });
     }
+    locks.forEach((l, i) => steps.push(() => (l.hidden ? dottedFrame(g, col, l) : etchOutline(g, l, edges[i]!))));
+    steps.push(() => {
+      // The masks: black, then per lock (a step each) red inside its outline and a crisp green band along it.
+      m.setTransform(1, 0, 0, 1, 0, 0);
+      m.globalCompositeOperation = "source-over";
+      m.fillStyle = "#000";
+      m.fillRect(0, 0, MASK_PX, MASK_PX);
+    });
+    locks.forEach((l, i) => {
+      steps.push(() => {
+        const k = MASK_PX / S;
+        m.setTransform(k, 0, 0, k, 0, 0);
+        m.globalCompositeOperation = "lighter";
+        m.lineCap = "round";
+        m.lineJoin = "round";
+        m.fillStyle = "#ff0000";
+        unionPath(m, l.target);
+        m.fill();
+        m.strokeStyle = "#00ff00";
+        m.lineWidth = 2 * ART.glowBand;
+        edgePath(m, edges[i]!);
+        m.stroke();
+        m.setTransform(1, 0, 0, 1, 0, 0);
+      });
+    });
+    steps.push(() => {
+      // The band's soft halo, blurred on its own small texture (a blur costs by area).
+      const h = this.halo.g, k = HALO_PX / S;
+      h.setTransform(1, 0, 0, 1, 0, 0);
+      h.clearRect(0, 0, HALO_PX, HALO_PX);
+      h.setTransform(k, 0, 0, k, 0, 0);
+      h.lineCap = "round";
+      h.lineJoin = "round";
+      h.strokeStyle = "#00ff00";
+      h.lineWidth = 2 * ART.glowBand;
+      h.shadowColor = "#00ff00";
+      h.shadowBlur = ART.glowBlur * k;
+      for (const e of edges) {
+        edgePath(h, e);
+        h.stroke();
+      }
+    });
+    // One upload a frame: the masks and halo first (unused until a lock warms or opens), then the albedo.
+    steps.push(() => {
+      this.masksTex.needsUpdate = true;
+      this.haloTex.needsUpdate = true;
+    });
+    steps.push(() => {
+      this.albedoTex.needsUpdate = true;
+    });
+    return steps;
   }
 }
