@@ -5,9 +5,10 @@
 //
 // What every box guarantees (tests/unit/generator.test.ts): from its spot, each lock's scraps tile its outline and
 // leave the band around it lit; a finger lock is short exactly its missing piece; no other scrap or ring falls on a
-// lock from its spot; the start solves nothing; every spot is inside the envelope and apart from the others.
+// lock or near its ring mark from its spot; the start solves nothing; every spot is inside the envelope and apart from
+// the others.
 import { ENVELOPE } from "./envelope";
-import { area, bbox, circlePts, elongation, hash, inPoly, proj, rng32, segDist } from "./geom";
+import { area, bbox, circlePts, elongation, hash, inPoly, polyDist, proj, rng32, segDist } from "./geom";
 import { boxParams, dailyParams } from "./params";
 import { SHAPES, SILHOUETTES } from "./shapes";
 import { BAND, type Coverage, type LockSamples, lockSamples, measure, RING_SIDES, shadowPolys } from "./solve";
@@ -19,7 +20,7 @@ import type { Box, BoxParams, BoxSpec, Element, Lock, Ring, ShapeName, V2, V3 } 
  * shape, a check), and update the golden hashes in tests/unit/generator.test.ts. Saves store it with each box, so a
  * box saved under another version can be told apart.
  */
-export const GENERATOR_VERSION = 2;
+export const GENERATOR_VERSION = 3;
 
 const E = ENVELOPE;
 /** Spacing of the grid points for the start check and the ring marks' clearance. */
@@ -61,6 +62,13 @@ const MARK_DIST = 0.74;
 const MARK_CLEAR = 0.065;
 const MARK_MAX = 0.42;
 const MARK_DIRS: V2[] = [[0, -1], [0, 1], [-1, 0], [1, 0], [0.71, -0.71], [-0.71, -0.71], [0.71, 0.71], [-0.71, 0.71]];
+/**
+ * From a ringed lock's spot, every shadow but that lock's own two rings (pieces of any lock, decoys, other locks'
+ * rings) stays this far from its mark, so nothing blots the bullseye when the player needs it.
+ */
+const MARK_SHADOW_CLEAR = 0.07;
+/** Grows a ring's RING_SIDES-gon to hold its true circle (an inscribed polygon falls short by up to 2.5%). */
+const RING_CIRCUMSCRIBE = 1 / Math.cos(Math.PI / RING_SIDES);
 /**
  * A finger piece is between these shares of its shape: big enough to matter, small enough for one finger's shadow
  * to fill. One within 45 degrees of horizontal scores FINGER_FLAT_BONUS more.
@@ -152,6 +160,17 @@ function intrudes(verts: V3[], skipLock: number, locks: Draft[]): boolean {
     }
   }
   return false;
+}
+
+/** The shadow an element casts on the panel from L; a ring as a polygon around its whole circle. */
+function castFrom(e: Element, L: V3): V2[] {
+  if (e.kind === "ring") return circlePts(e.c, e.nrm, e.rOut * RING_CIRCUMSCRIBE, RING_SIDES).map((p) => proj(p, L));
+  return e.verts.map((p) => proj(p, L));
+}
+
+/** True when this element, seen from a ringed lock's spot (any lock but `skipLock`), comes near that lock's mark. */
+function blotsMark(e: Element, skipLock: number, locks: Draft[]): boolean {
+  return locks.some((o) => o.i !== skipLock && o.mark !== null && polyDist(o.mark, castFrom(e, o.L)) < MARK_SHADOW_CLEAR);
 }
 
 /**
@@ -302,6 +321,8 @@ export function buildBox(spec: BoxSpec): BoxBuild {
         if (Math.abs(m[0]) > MARK_MAX || Math.abs(m[1]) > MARK_MAX) continue;
         const near = (s: V2) => Math.hypot(s[0] - m[0], s[1] - m[1]) < MARK_CLEAR;
         if (locks.some((o) => o.samples.inside.some(near) || o.samples.band.some(near))) continue;
+        // Every shadow placed so far (all pieces, earlier locks' rings) stays clear of this mark from this spot.
+        if (elements.some((e) => polyDist(m, castFrom(e, l.L)) < MARK_SHADOW_CLEAR)) continue;
         const rings = RINGS.map(({ z: [z0, z1], out, in: inner }): Ring => {
           // A ring at depth z casts its shadow k = Lz / (Lz - z) times its size.
           const c = onRay(l.L, m, R(z0, z1)), k = l.L[2] / (l.L[2] - c[2]);
@@ -310,6 +331,8 @@ export function buildBox(spec: BoxSpec): BoxBuild {
         });
         if (!rings.every(ringInBox)) continue;
         if (rings.some((r) => intrudes(circlePts(r.c, r.nrm, r.rOut, RING_SIDES), -1, locks))) continue;
+        // ...and these rings stay clear of the marks already set, seen from those locks' spots.
+        if (rings.some((r) => blotsMark(r, l.i, locks))) continue;
         l.mark = m;
         elements.push(...rings);
         done = true;
@@ -327,8 +350,9 @@ export function buildBox(spec: BoxSpec): BoxBuild {
           const a = a0 + k * 2.1 + R(-0.4, 0.4);
           return [c[0] + Math.cos(a) * s, c[1] + Math.sin(a) * s, clamp(c[2] + R(-DECOY_WOBBLE, DECOY_WOBBLE), PZ0, PZ1)];
         });
-        if (verts.every(inBox) && !intrudes(verts, -1, locks)) {
-          elements.push({ kind: "decoy", verts });
+        const decoy: Element = { kind: "decoy", verts };
+        if (verts.every(inBox) && !intrudes(verts, -1, locks) && !blotsMark(decoy, -1, locks)) {
+          elements.push(decoy);
           placed = true;
         }
       }
