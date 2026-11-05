@@ -7,7 +7,7 @@ import {
   type RingLine,
   type Spot,
 } from "../../src/feel/lantern-controller";
-import type { V3 } from "../../src/feel/types";
+import type { V3 } from "../../src/core/types";
 
 /** Centimetres per box unit (a 24 cm box). */
 const CM = 24;

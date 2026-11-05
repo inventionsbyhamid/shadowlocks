@@ -15,7 +15,7 @@ import {
   SPRING_OMEGA,
   TICK_REARM_CM,
 } from "./constants";
-import type { V3 } from "./types";
+import type { V3 } from "../core/types";
 
 /** One frame of the holding hand, in box units. */
 export interface LanternInput {
