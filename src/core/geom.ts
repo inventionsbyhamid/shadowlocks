@@ -33,8 +33,15 @@ export function hash(s: string): number {
 
 /** Where point P's shadow lands on the panel when the lantern is at L: L + (P - L) * Lz / (Lz - Pz). */
 export function proj(P: V3, L: V3): V2 {
+  return projInto(P, L, [0, 0]);
+}
+
+/** proj written into `out` (and returned), for per-frame code that must not allocate. */
+export function projInto(P: V3, L: V3, out: V2): V2 {
   const k = L[2] / (L[2] - P[2]);
-  return [L[0] + (P[0] - L[0]) * k, L[1] + (P[1] - L[1]) * k];
+  out[0] = L[0] + (P[0] - L[0]) * k;
+  out[1] = L[1] + (P[1] - L[1]) * k;
+  return out;
 }
 
 /** Even-odd test: is pt inside the polygon? */

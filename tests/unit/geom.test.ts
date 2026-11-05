@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { area, elongation, hash, inPoly, proj, rng32 } from "../../src/core/geom";
+import { area, elongation, hash, inPoly, proj, projInto, rng32 } from "../../src/core/geom";
 import type { V2 } from "../../src/core/types";
 
 const SQUARE: V2[] = [
@@ -13,6 +13,12 @@ describe("geom", () => {
   it("projects a point onto the panel from the lantern", () => {
     expect(proj([0, 0, 0.5], [0, 0, 1])).toEqual([0, 0]);
     expect(proj([0.1, 0, 0.5], [0, 0, 1])).toEqual([0.2, 0]);
+  });
+
+  it("projects into a given point without making one", () => {
+    const out: V2 = [9, 9];
+    expect(projInto([0.1, -0.2, 0.3], [0.05, 0.1, 1.4], out)).toBe(out);
+    expect(out).toEqual(proj([0.1, -0.2, 0.3], [0.05, 0.1, 1.4]));
   });
 
   it("tells inside from outside a polygon", () => {
