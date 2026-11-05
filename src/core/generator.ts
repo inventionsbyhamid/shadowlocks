@@ -7,9 +7,10 @@
 // leave the band around it lit; a finger lock is short exactly its missing piece; no other scrap or ring falls on a
 // lock from its spot; the start solves nothing; every spot is inside the envelope and apart from the others.
 import { ENVELOPE } from "./envelope";
-import { area, bbox, circlePts, elongation, hash, inPoly, polyDist, proj, rng32, segDist } from "./geom";
+import { area, bbox, circlePts, elongation, hash, inPoly, proj, rng32, segDist } from "./geom";
 import { boxParams, dailyParams } from "./params";
 import { SHAPES, SILHOUETTES } from "./shapes";
+import { BAND, type Coverage, type LockSamples, lockSamples, measure, RING_SIDES, shadowPolys } from "./solve";
 import { LOOT, OWNERS } from "./story";
 import type { Box, BoxParams, BoxSpec, Element, Lock, Ring, ShapeName, V2, V3 } from "./types";
 
@@ -21,8 +22,6 @@ import type { Box, BoxParams, BoxSpec, Element, Lock, Ring, ShapeName, V2, V3 } 
 export const GENERATOR_VERSION = 1;
 
 const E = ENVELOPE;
-/** The margin around an outline that must stay lit. */
-const BAND = 0.04;
 /** Spacing of the grid points for the start check and the ring marks' clearance. */
 const STEP = 0.008;
 /** Whole-box attempts before giving up, and tries per spot, piece and decoy within one attempt. */
@@ -54,7 +53,6 @@ const RINGS: { z: [number, number]; out: number; in: number }[] = [
   { z: [0.5, 0.7], out: 0.044, in: 0.032 }, // shallow: nearer the lantern
   { z: [0.18, 0.35], out: 0.024, in: 0.014 }, // deep: nearer the panel
 ];
-const RING_SIDES = 14;
 /**
  * The rings' etched mark: this many lock sizes from the lock's centre in one of eight directions, at least
  * MARK_CLEAR from every outline and band point, and within MARK_MAX of the panel centre.
@@ -99,34 +97,11 @@ const onRay = (L: V3, v: V2, z: number): V3 => {
   return [L[0] + (v[0] - L[0]) * k, L[1] + (v[1] - L[1]) * k, z];
 };
 
-interface Samples {
-  inside: V2[];
-  band: V2[];
-  box: [number, number, number, number];
-}
 interface Draft extends Lock {
-  /** Grid points for the start check and the ring mark's clearance. */
-  samples: Samples;
+  /** Grid points for the start check and the ring mark's clearance (the solve rule's, on the STEP grid). */
+  samples: LockSamples;
   /** Each outline piece's bbox grown by BAND: a shadow outside it cannot come within BAND of that piece. */
   reach: [number, number, number, number][];
-}
-
-/** Points that must be dark (inside the outline) or stay lit (the band around it), for checking where shadows land. */
-function lockSamples(target: V2[][], step: number): Samples {
-  const [x0, y0, x1, y1] = bbox(target.flat());
-  const inside: V2[] = [], band: V2[] = [];
-  for (let x = x0 - BAND; x <= x1 + BAND; x += step) {
-    for (let y = y0 - BAND; y <= y1 + BAND; y += step) {
-      let d = Infinity;
-      for (const p of target) {
-        d = Math.min(d, polyDist([x, y], p));
-        if (d === 0) break;
-      }
-      if (d === 0) inside.push([x, y]);
-      else if (d <= BAND) band.push([x, y]);
-    }
-  }
-  return { inside, band, box: [x0 - BAND, y0 - BAND, x1 + BAND, y1 + BAND] };
 }
 
 const inBox = (p: V3) =>
@@ -177,12 +152,6 @@ function intrudes(verts: V3[], skipLock: number, locks: Draft[]): boolean {
     }
   }
   return false;
-}
-
-function shadowPolys(elements: Element[], L: V3): V2[][] {
-  return elements.map((e) =>
-    e.kind === "ring" ? circlePts(e.c, e.nrm, e.rOut, RING_SIDES).map((p) => proj(p, L)) : e.verts.map((p) => proj(p, L)),
-  );
 }
 
 /**
@@ -366,12 +335,10 @@ export function buildBox(spec: BoxSpec): BoxBuild {
       if (!placed) return "decoy";
     }
 
-    // The start must not already half solve anything.
-    const fromStart = shadowPolys(elements, start);
-    for (const l of locks) {
-      const lit = l.samples.inside.filter((s) => fromStart.some((p) => inPoly(s, p))).length;
-      if (lit / l.samples.inside.length >= START_COVER_MAX) return "start";
-    }
+    // The start must not already half solve anything: the solve rule's coverage, missing pieces counted too.
+    const fromStart: V2[][] = [], n = shadowPolys(elements, start, fromStart);
+    const cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 1 };
+    for (const l of locks) if (measure(l.samples, fromStart, n, [], 0, cov).cover >= START_COVER_MAX) return "start";
 
     return {
       key,
