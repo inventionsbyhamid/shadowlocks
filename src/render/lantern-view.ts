@@ -12,16 +12,14 @@ import {
   DataTexture,
   Group,
   LinearFilter,
+  type Material,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
-  MeshPhysicalMaterial,
-  MeshStandardMaterial,
   PointLight,
   RGBAFormat,
   Sprite,
   SpriteMaterial,
-  type Texture,
   TorusGeometry,
   BoxGeometry,
 } from "@iwsdk/core";
@@ -29,7 +27,7 @@ import type { V3 } from "../core/types";
 import { clamp01, outCubic } from "./fx/ease";
 import { FlashBudget } from "./fx/flash-budget";
 import { mergeParts } from "./merge";
-import { COLORS, LANTERN_GLOW, LIGHTS, MATERIALS } from "./theme";
+import { COLORS, LANTERN_GLOW, LIGHTS } from "./theme";
 
 /** A soft round glow (alpha falls from the middle), or a thin ring for the ripple. */
 function radialTexture(size: number, ring: boolean): DataTexture {
@@ -69,10 +67,10 @@ export class LanternView {
   private sizeM = 0.24;
   private readonly budget = new FlashBudget();
 
-  constructor(env: Texture | null) {
+  /** Built from the box's own lacquer and gold materials (one shader program each, shared with the frame and trim). */
+  constructor(mats: { lacquer: Material; gold: Material }) {
     this.group.name = "Lantern";
-    const lacquer = new MeshPhysicalMaterial({ color: COLORS.frame, ...MATERIALS.lacquer, envMap: env });
-    const gold = new MeshStandardMaterial({ color: COLORS.metal, ...MATERIALS.gold, envMap: env });
+    const { lacquer, gold } = mats;
     // Lacquer foot.
     const foot = new Mesh(at(new CylinderGeometry(0.052, 0.058, 0.026, 8), 0, -0.074, 0), lacquer);
     // Gold: a band on the foot, eight fins round the core, three steps, a spire and the ring to hold it by.
@@ -110,9 +108,13 @@ export class LanternView {
     this.group.position.set(p[0], p[1], p[2]);
   }
 
-  get pos(): V3 {
+  /** Where the lantern is, in box units, written into `out` (read every frame: no allocation). */
+  getPos(out: V3): V3 {
     const p = this.group.position;
-    return [p.x, p.y, p.z];
+    out[0] = p.x;
+    out[1] = p.y;
+    out[2] = p.z;
+    return out;
   }
 
   /** 0 (no hand near) to 1 (hand on it): the glow and core brighten; the light always lights the panel. */

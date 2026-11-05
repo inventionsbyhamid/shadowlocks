@@ -230,7 +230,7 @@ export class BoxScene {
     );
     this.panel.name = "Box Panel";
     this.scraps = new Scraps(env);
-    this.lantern = new LanternView(env);
+    this.lantern = new LanternView({ lacquer, gold });
     this.root.add(frame, trim, floor, glass, this.panel, this.scraps.mesh, this.scraps.threads, this.scraps.rings, this.lantern.group);
     this.root.add(directional(LIGHTS.key.color, LIGHTS.key.intensity, LIGHTS.key.from, this.root));
     this.root.add(directional(LIGHTS.fill.color, LIGHTS.fill.intensity, LIGHTS.fill.from, this.root));

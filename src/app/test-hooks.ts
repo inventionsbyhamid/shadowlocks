@@ -212,7 +212,7 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
     toWorld: (points) => points.map((p) => v3(boxToWorld(placement.matrix(), p, tmp))),
     matrix: () => [...placement.matrix().elements],
     setLantern: (p) => box.lantern.setPos(p),
-    lantern: () => box.lantern.pos,
+    lantern: () => box.lantern.getPos([0, 0, 0]),
     draws: () => box.drawStats(),
     setVisible: (v) => {
       box.root.visible = v;
