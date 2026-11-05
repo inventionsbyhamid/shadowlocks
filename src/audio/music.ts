@@ -104,6 +104,22 @@ export class MusicDirector {
     return this.current;
   }
 
+  /** A loop is playing (started and not fading out to off). */
+  get playing(): boolean {
+    const g = this.group;
+    return !!g && g.stopAt === null;
+  }
+
+  /** The low-pass cutoff the calm loop is heading for (Hz). */
+  get cutoff(): number {
+    return this.group?.cutoff ?? OPEN_LOWPASS_HZ;
+  }
+
+  /** The calm loop's low-pass cutoff right now (Hz). */
+  get filterHz(): number {
+    return this.group?.filter?.frequency.value ?? OPEN_LOWPASS_HZ;
+  }
+
   setTracks(tracks: MusicTracks, fx: MusicFx = {}): void {
     this.tracks = tracks;
     this.fx = fx;

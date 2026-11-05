@@ -69,8 +69,8 @@ async function main(): Promise<void> {
   attachInput(world);
   // The rays' cursor in the game's look (rays press keys too).
   styleRayCursors(world);
-  // Sound hears every bus event after everyone else.
-  const sound = new Sound({ world, settings, lifecycle: shell.lifecycle, menuButtons: (screen) => shell.panels.buttons(screen) });
+  // Sound hears every bus event after everyone else; the box tells it where the locks are.
+  const sound = new Sound({ world, settings, lifecycle: shell.lifecycle, menuButtons: (screen) => shell.panels.buttons(screen), box: shell.box });
   useSound(sound);
   registerAppSystem(world, SoundSystem, { name: "sound" });
   hooks?.installTestHooks(world, shell, system, { sound });

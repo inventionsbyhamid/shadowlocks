@@ -501,3 +501,130 @@ describe("ambience", () => {
     expect(() => bare.engine.setAmbience(true)).not.toThrow();
   });
 });
+
+describe("delayed starts", () => {
+  it("starts a sound later on the audio clock, at its full level then", async () => {
+    const r = await makeRig();
+    r.ctx.currentTime = 1;
+    r.engine.play("glass_tick", { delay: 0.12 });
+    const src = r.ctx.sources[0]!;
+    expect(src.startedAt).toBeCloseTo(1.12, 9);
+    expect(([...src.out][0] as FakeGain).gain.at(1.12)).toBeCloseTo(1, 9);
+    // It holds its voice from now, so the pool counts it.
+    expect(r.engine.activeVoices).toBe(1);
+  });
+
+  it("ducks the music from when the sound starts, not from when it was asked for", async () => {
+    const r = await makeRig();
+    r.ctx.currentTime = 2;
+    r.engine.play("walls_hinge", { delay: 0.7 });
+    const down = r.duckEvents().find((e) => e.type === "linear" && e.value !== 1)!;
+    expect(down.time).toBeCloseTo(2.7 + 0.05, 9);
+  });
+});
+
+describe("loops (the hums)", () => {
+  const humOf = (r: Awaited<ReturnType<typeof makeRig>>) => r.ctx.sources.find((s) => s.buffer === (r.buf("hum_a") as unknown))!;
+  const gainOf = (src: FakeSource) => [...src.out][0] as FakeGain;
+
+  it("loops the sound outside the voice pool, so one-shots never steal it", async () => {
+    const r = await makeRig();
+    const hum = r.engine.loop("lock_hum", { position: [0, 1, -1.9] })!;
+    expect(hum).not.toBeNull();
+    const src = humOf(r);
+    expect(src.loop).toBe(true);
+    for (let i = 0; i < 40; i++) {
+      r.ctx.currentTime += 0.001;
+      r.engine.play("lantern_pick");
+    }
+    expect(src.stoppedAt).toBeNull();
+    expect(hum.playing).toBe(true);
+    expect(r.engine.activeVoices).toBe(16);
+  });
+
+  it("is pitched from the sound's tuning, at its position through the sound's panner", async () => {
+    const r = await makeRig();
+    r.engine.loop("lock_hum", { pitch: 4, position: [0.1, 1, -1.9] });
+    const src = humOf(r);
+    expect(cents(src)).toBeCloseTo(-2 + 400, 6);
+    const panner = [...gainOf(src).out][0] as FakePanner;
+    expect(panner.panningModel).toBe("HRTF");
+    expect([panner.positionX.value, panner.positionY.value, panner.positionZ.value]).toEqual([0.1, 1, -1.9]);
+    expect([...panner.out][0]).toBe(r.engine.busGain("sfx"));
+  });
+
+  it("starts silent and ramps its gain over about 40 ms (no zipper noise)", async () => {
+    const r = await makeRig();
+    r.ctx.currentTime = 1;
+    const hum = r.engine.loop("lock_hum")!;
+    const g = gainOf(humOf(r)).gain;
+    expect(g.value).toBe(0);
+    hum.setGain(0.5);
+    expect(g.at(1.02)).toBeCloseTo(0.25, 6);
+    expect(g.at(1.04)).toBeCloseTo(0.5, 9);
+    // A change half way through a ramp starts from where the level is, not from the old target.
+    r.ctx.currentTime = 1.02;
+    hum.setGain(1, 50);
+    expect(g.at(1.02)).toBeCloseTo(0.25, 6);
+    expect(g.at(1.07)).toBeCloseTo(1, 9);
+    expect(g.events.filter((e) => e.type === "linear").map((e) => e.time)).toEqual([1.04, 1.07].map((t) => expect.closeTo(t, 9)));
+  });
+
+  it("applies the sound's trim to every level, the starting one too", async () => {
+    const r = await makeRig({ tweak: (m) => (m.sfx.lock_hum!.gainDb = -6) });
+    r.ctx.currentTime = 1;
+    const hum = r.engine.loop("lock_hum", { gain: 0.5 })!;
+    const g = gainOf(humOf(r)).gain;
+    expect(g.value).toBeCloseTo(0.5 * 10 ** (-6 / 20), 9);
+    hum.setGain(1, 0);
+    expect(g.value).toBeCloseTo(10 ** (-6 / 20), 9);
+  });
+
+  it("glides its pitch, moves with its position and fades out when stopped", async () => {
+    const r = await makeRig();
+    r.ctx.currentTime = 3;
+    const hum = r.engine.loop("lock_hum", { position: [0, 0, 0] })!;
+    const src = humOf(r);
+    hum.setPitch(2, 100);
+    r.ctx.currentTime = 3.1;
+    expect(cents(src)).toBeCloseTo(-2 + 200, 6);
+    hum.setPosition([1, 2, 3]);
+    const panner = [...gainOf(src).out][0] as FakePanner;
+    expect(panner.positionZ.value).toBe(3);
+    hum.setGain(1, 0);
+    hum.stop(150);
+    expect(hum.playing).toBe(false);
+    expect(src.stoppedAt).toBeCloseTo(3.1 + 0.15 + 0.005, 9);
+    r.ctx.currentTime = 3.25;
+    expect(gainOf(src).gain.value).toBeCloseTo(0, 9);
+    src.end();
+    expect(src.out.size).toBe(0);
+    // A stopped loop ignores later calls.
+    expect(() => {
+      hum.setGain(1);
+      hum.stop();
+    }).not.toThrow();
+  });
+
+  it("is not made before audio starts, for a sound the pack lacks, or while effects are off", async () => {
+    const locked = await makeRig({ unlock: false });
+    expect(locked.engine.loop("lock_hum")).toBeNull();
+    const r = await makeRig();
+    expect(r.engine.loop(id("fingertip_hum"))).toBeNull();
+    r.engine.setVolumes({ music: 1, sfx: 0 });
+    expect(r.engine.loop("lock_hum")).toBeNull();
+    expect(r.ctx.sources).toHaveLength(0);
+  });
+});
+
+describe("music state for tests", () => {
+  it("reports the state, whether the bed plays, and the low-pass it heads for", async () => {
+    const r = await makeRig();
+    r.ctx.currentTime = 1;
+    expect(r.engine.musicInfo()).toEqual({ state: "off", playing: false, cutoffHz: 20000, filterHz: 20000 });
+    r.engine.setMusic("menu");
+    expect(r.engine.musicInfo()).toEqual({ state: "menu", playing: true, cutoffHz: 1500, filterHz: 1500 });
+    r.engine.setMusic("calm");
+    expect(r.engine.musicInfo().cutoffHz).toBe(20000);
+  });
+});

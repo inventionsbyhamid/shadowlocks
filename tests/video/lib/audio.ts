@@ -301,7 +301,8 @@ export function planMix(frames: FrameEvents[], m: AudioManifest, o: PlanOptions)
   for (const f of frames) {
     current = f;
     if (f.events.length === 0) continue;
-    for (const cue of mapper.map(f.events)) apply(f.t, cue);
+    // Layered sounds (a lock opening, the box's tune) land their delay after the event.
+    for (const cue of mapper.map(f.events)) apply(f.t + (cue.kind === "sfx" && cue.delayMs ? cue.delayMs / 1000 : 0), cue);
   }
   return plan;
 }
