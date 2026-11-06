@@ -8,8 +8,8 @@
 #                  (process list, docker inspect): never pass secrets this way.
 #   --lock <name>  wait (up to NS_LOCK_WAIT s, default 3600; exit 75 when it gives up) for a server-wide
 #                  lock and hold it until the container is gone (one run at a time)
-#   --lock-shared <name>  the same lock (same file, locks/<name>.lock), held shared: up to two
-#                  --lock-shared runs at once (each also holds one of two slots, <name>.slot1/2.lock),
+#   --lock-shared <name>  the same lock (same file, locks/<name>.lock), held shared: up to four
+#                  --lock-shared runs at once (each also holds one of four slots, <name>.slot1..4.lock),
 #                  never together with a --lock run of that name, older scripts' included. A --lock run
 #                  that is waiting goes first: no new --lock-shared run starts until it has run. Same
 #                  wait limit and exit 75.
@@ -37,8 +37,9 @@ MAX_LOAD=${NS_MAX_LOAD:-25}
 MIN_FREE_GB=${NS_MIN_FREE_GB:-100}
 RUN_USER=1000:1000
 NPM_VOLUME=shadowlocks-npm-user
-# How many --lock-shared runs of one lock may go at once.
-SHARED_SLOTS=2
+# How many --lock-shared runs of one lock may go at once (Ruling 111: four functional e2e runs; keep
+# scripts/e2e.sh's FUNCTIONAL_SLOTS the same).
+SHARED_SLOTS=4
 
 usage() {
   echo "usage: $0 <lane> [--image <img>] [--shm <size>] [--env K=V]... [--lock <name> | --lock-shared <name>] [--pull <output>]... [--expect-gb <n>] -- <command...>" >&2
