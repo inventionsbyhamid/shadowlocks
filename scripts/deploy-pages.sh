@@ -16,6 +16,8 @@
 #   --judge-after-deadline  publish to shadowlocks-judge after the competition deadline (refused otherwise)
 #   --verify <host>   only check a live site, e.g. shadowlocks.pages.dev or a custom domain
 #   --check-token     only check that the token in .secrets/cloudflare.env is active for the account
+#   --placeholder     publish the coming-soon page (site-placeholder/index.html) and public/privacy.html, nothing
+#                     else, to shadowlocks only, until the game itself goes live there
 # Every publish starts with that check, then publishes; after publishing, each host it went to (<project>.pages.dev, or <branch>.<project>.pages.dev for a
 # preview) is checked, its asset links byte for byte against the build's (the Quest apps open only
 # when those match their package and key).
@@ -43,14 +45,15 @@ DEADLINE_EPOCH=1795032000
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 
 usage() {
-  sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
-PROJECTS=() BRANCH=main CREATE=0 DRY=0 DIRTY=0 VERIFY= LATE_JUDGE=0 PREVIEW=0 CHECK_TOKEN=0
+PROJECTS=() BRANCH=main CREATE=0 DRY=0 DIRTY=0 VERIFY= LATE_JUDGE=0 PREVIEW=0 CHECK_TOKEN=0 PLACEHOLDER=0
 while [ $# -gt 0 ]; do
   case $1 in
     --both) PROJECTS+=("$PUBLIC_PROJECT" "$JUDGE_PROJECT"); shift ;;
+    --placeholder) PLACEHOLDER=1; shift ;;
     --check-token) CHECK_TOKEN=1; shift ;;
     --preview) PREVIEW=1; shift ;;
     --project) [ $# -ge 2 ] || usage; PROJECTS+=("$2"); shift 2 ;;
@@ -131,6 +134,12 @@ if [ "$PREVIEW" -eq 1 ]; then
   PROJECTS=("$PUBLIC_PROJECT")
   BRANCH=preview
 fi
+if [ "$PLACEHOLDER" -eq 1 ]; then
+  # Only the public project's live site; never the judge host.
+  [ ${#PROJECTS[@]} -eq 0 ] && [ "$BRANCH" = main ] && [ "$CREATE" -eq 0 ] && [ "$PREVIEW" -eq 0 ] \
+    || { echo "--placeholder takes no --both, --project, --branch, --create or --preview" >&2; exit 2; }
+  PROJECTS=("$PUBLIC_PROJECT")
+fi
 [ ${#PROJECTS[@]} -gt 0 ] || usage
 for p in "${PROJECTS[@]}"; do
   [[ $p =~ ^[a-z0-9][a-z0-9-]{0,57}$ ]] || { echo "bad project name: $p" >&2; exit 2; }
@@ -160,6 +169,17 @@ if [ -n "$(git -C "$ROOT" status --porcelain)" ] && [ "$DIRTY" -eq 0 ]; then
   exit 2
 fi
 
+if [ "$PLACEHOLDER" -eq 1 ]; then
+# The placeholder: exactly two files, in a folder of their own (no game, no service worker, no asset links).
+DIST=$(mktemp -d "${TMPDIR:-/tmp}/deploy-placeholder.XXXXXX")
+trap 'rm -rf "$DIST"' EXIT
+cp "$ROOT/site-placeholder/index.html" "$DIST/index.html"
+cp "$ROOT/public/privacy.html" "$DIST/privacy.html"
+if grep -q REPLACE_WITH "$DIST/privacy.html"; then echo "refused: privacy.html still has a placeholder" >&2; exit 3; fi
+FILES=$(find "$DIST" -type f | wc -l | tr -d ' ')
+[ "$FILES" -eq 2 ] || { echo "refused: the placeholder is not exactly two files" >&2; exit 3; }
+echo "placeholder: index.html and privacy.html"
+else
 # Build on the server (vite build, then check-dist), and pull dist/ back to check it here too. An
 # old dist/ must never be published: it is removed first, and the pulled sw.js must match the stamp
 # check-dist printed for this build.
@@ -190,6 +210,7 @@ FILES=$(find "$DIST" -type f | wc -l | tr -d ' ')
 echo "dist: $FILES files, $(du -sh "$DIST" | cut -f1)"
 if grep -q REPLACE_WITH "$DIST/.well-known/assetlinks.json"; then
   echo "note: the asset links still have placeholders (fine until the Quest apps exist; scripts/twa-fill.sh fills them)"
+fi
 fi
 
 if [ "$DRY" -eq 1 ]; then
@@ -232,6 +253,22 @@ echo "publishing to Pages project(s) $LIST, branch '$BRANCH'"
 { send_token; "${TAR[@]}" -C "$DIST" -cf - .; } | ssh "$HOST" "docker run --rm -i --name $NAME --cpus 2 --memory 2g \
   --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 \
   -v $NPM_VOLUME:/npm-cache -e npm_config_cache=/npm-cache $IMAGE bash -c $(printf '%q' "$INNER")"
+
+# The placeholder's checks: both pages answer 200 as HTML, and the privacy page is the one sent (its
+# support address in, no placeholder left). Pages redirects /privacy.html to /privacy (308).
+if [ "$PLACEHOLDER" -eq 1 ]; then
+  host=$PUBLIC_PROJECT.pages.dev bad=0
+  echo "checking https://$host"
+  for path in / /privacy; do
+    head_ok "$(curl -s -o /dev/null -D - --max-time 20 "https://$host$path" || true)" "$path" 200 text/html || bad=1
+  done
+  echo "info /privacy.html: $(curl -s -o /dev/null -w '%{http_code} -> %{redirect_url}' --max-time 20 "https://$host/privacy.html" || true)"
+  body=$(curl -s --max-time 20 "https://$host/privacy" || true)
+  want=$(sed -n 's/.*id="support-email" href="mailto:\([^"]*\)".*/\1/p' "$DIST/privacy.html" | head -1)
+  case $body in *REPLACE_WITH*) echo "FAIL /privacy: still has a placeholder"; bad=1 ;; esac
+  case $body in *"mailto:$want"*) echo "ok   /privacy: has the support address" ;; *) echo "FAIL /privacy: no support address"; bad=1 ;; esac
+  exit $bad
+fi
 
 # Each host this deploy went to: the live one for main, <branch>.<project>.pages.dev for a preview
 # (Pages may take a few seconds to serve a new preview alias).
