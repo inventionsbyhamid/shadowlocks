@@ -105,6 +105,22 @@ export const ENV = {
   ],
 } as const;
 
+/**
+ * Theatre lights (theatre.ts): while a box is in play the room dims so the lantern and the shadows carry the scene,
+ * and the light comes back up when the box opens. Brightness the room keeps (the owner: 35% in play, 55% in menus,
+ * never darker than 35%). The veil over the passthrough is near black with a breath of the film's cool tint
+ * (#b9c8de at 30% saturation in the lookdev): passthrough cannot be desaturated from a web page, so dimming carries
+ * it, and the faint cool lift keeps the dimmed room reading as night rather than as a brown haze.
+ * The virtual room (no passthrough): a dark studio, cool charcoal above, a warm glow low in front where the lap is.
+ */
+export const ROOM = {
+  play: 0.35,
+  menu: 0.55,
+  fadeS: 0.8,
+  veil: "#080a0e",
+  studio: { top: "#060608", horizon: "#16171c", floor: "#0e0c0b", glow: "#3a2c1c" },
+} as const;
+
 /** The lantern's glow sprite and how brightness, flare and ripple move it. */
 export const LANTERN_GLOW = {
   /** Sprite size in box units at full brightness. */

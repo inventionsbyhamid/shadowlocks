@@ -5,6 +5,7 @@ import { type Object3D, SessionMode, type World } from "@iwsdk/core";
 import type { BoxSnapshot } from "../core/profile";
 import { BoxScene } from "../render/box-scene";
 import { placement } from "../render/placement";
+import { roomLightFor, Theatre } from "../render/theatre";
 import { on } from "./bus";
 import { Lifecycle, type LifecycleSession, type XrVisibility } from "./lifecycle";
 import { Panels } from "./panels";
@@ -26,7 +27,9 @@ export class Shell {
   readonly panels: Panels;
   /** The box in the lap, at the box placement. */
   readonly box: BoxScene;
-  /** The virtual room shown without passthrough (none yet); `updateRoomVisibility` switches it. */
+  /** Theatre lights: the room dims while a box is in play, half way in menus (ShellSystem steps it). */
+  readonly theatre: Theatre;
+  /** The virtual room shown without passthrough (the theatre's studio); `updateRoomVisibility` switches it. */
   room: Object3D | null = null;
   /** Recenter was asked for (a key, or Quest's own recenter); ShellSystem places the box on its next frame. */
   recenterAsked = false;
@@ -40,6 +43,14 @@ export class Shell {
   ) {
     this.lifecycle = new Lifecycle({ persist: (snap) => void this.profiles.setCurrent(snap) });
     this.box = new BoxScene(world);
+    this.theatre = new Theatre();
+    world.scene.add(this.theatre.veil, this.theatre.room);
+    this.room = this.theatre.room;
+    this.updateRoomVisibility();
+    // Menus dim the room half way, a box in play the most; the dimming setting can turn it off.
+    this.theatre.setEnabled(this.settings.get().dimming);
+    this.settings.subscribe((s) => this.theatre.setEnabled(s.dimming));
+    on("screen", (e) => this.theatre.setLight(roomLightFor(e.to)));
     // Menus emit `press` themselves and call back here for anything beyond the screens.
     this.panels = new Panels(world, {
       profiles,
@@ -77,7 +88,9 @@ export class Shell {
   /** Lay out the box and the panels after the placement (or the box size) changed. */
   layout(): void {
     this.box.setPlacement(placement.matrix());
-    this.panels.layout(placement.pose());
+    const pose = placement.pose();
+    this.panels.layout(pose);
+    this.theatre.placeRoom(pose.position[0], pose.position[2]);
   }
 
   /** The virtual room shows only without passthrough (VR session or the 2D page). */
