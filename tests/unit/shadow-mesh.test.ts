@@ -517,6 +517,33 @@ describe("BoxShadows", () => {
     expect(sh.refresh(L)).toBe(false);
   });
 
+  it("refresh with extras casts only when something changed: the lantern, a scrap, the extras' count, or the caller says so", () => {
+    const L: V3 = [0.1, -0.3, 1.3];
+    const { box } = moonBox(L);
+    const sh = new BoxShadows();
+    sh.setBox(box);
+    sh.cast(L);
+    const boxOnly = sh.mesh.indexCount;
+    const bones = [ngon(0.25, -0.2, 0.03, 10), ngon(0.3, -0.2, 0.02, 10)];
+    const soft = new Float32Array([0.004, 0.004]);
+    expect(sh.refresh(L, bones, 2, soft)).toBe(true);
+    expect(coverage(sh.mesh, 0.3, -0.2)).toBeCloseTo(1, 6);
+    // Nothing changed: no work. The caller says the extras moved: a cast.
+    expect(sh.refresh(L, bones, 2, soft)).toBe(false);
+    expect(sh.refresh(L, bones, 2, soft, true)).toBe(true);
+    // One fewer extra: a cast, and the dropped one's shadow is gone.
+    const one = [ngon(0.25, -0.2, 0.03, 10)];
+    expect(sh.refresh(L, one, 1, soft)).toBe(true);
+    expect(coverage(sh.mesh, 0.3, -0.2)).toBe(0);
+    expect(sh.refresh(L, one, 1, soft)).toBe(false);
+    // None: once, back to the box alone; then no work.
+    expect(sh.refresh(L)).toBe(true);
+    expect(sh.mesh.indexCount).toBe(boxOnly);
+    expect(sh.refresh(L)).toBe(false);
+    // The lantern moved: a cast, extras or not.
+    expect(sh.refresh([L[0] + 0.01, L[1], L[2]], one, 1, soft)).toBe(true);
+  });
+
   it("has room for the largest box plus MAX_EXTRAS bones of up to MAX_CASTER_CORNERS corners", () => {
     const sh = new BoxShadows(allShown);
     const big = all.reduce((a, b) => (b.elements.length > a.elements.length ? b : a));

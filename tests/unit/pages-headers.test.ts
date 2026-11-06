@@ -68,15 +68,15 @@ describe("public/_headers", () => {
     expect(rules.some((r) => r.pattern.test("/index.html") && !r.pattern.test("/sw.js"))).toBe(false);
   });
 
-  it("ships the CSP report-only until it is checked on a headset", () => {
+  it("enforces the CSP (the offline e2e runs the game under it), with no report-only copy left", () => {
     const h = headersFor(rules, "/");
-    expect(h["Content-Security-Policy-Report-Only"]).toBeDefined();
-    expect(h["Content-Security-Policy"]).toBeUndefined();
+    expect(h["Content-Security-Policy"]).toBeDefined();
+    expect(h["Content-Security-Policy-Report-Only"]).toBeUndefined();
   });
 
   it("allows only our own origin in the CSP, and never blocks WebXR", () => {
     const h = headersFor(rules, "/");
-    const csp = h["Content-Security-Policy-Report-Only"] ?? "";
+    const csp = h["Content-Security-Policy"] ?? "";
     expect(csp).toMatch(/default-src 'self'/);
     expect(csp).not.toMatch(/https?:|\*|'unsafe-eval'/);
     expect(h["Permissions-Policy"]).toMatch(/xr-spatial-tracking=\(self\)/);
