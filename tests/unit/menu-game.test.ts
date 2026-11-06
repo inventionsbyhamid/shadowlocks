@@ -70,6 +70,18 @@ describe("GameMenus", () => {
     expect(c.menus.behind()).toEqual({ kind: "lesson" });
   });
 
+  it("a lesson's box waits behind the menus only while the lessons run it", () => {
+    const l = fakeLessons();
+    const b = bench({ lessons: l });
+    b.session.spec = { kind: "lesson", id: "l2" };
+    b.session.stage = "offered";
+    l.running = true;
+    expect(b.menus.behind()).toEqual({ kind: "lesson" });
+    // Lesson 2 over (its last step pulls the drawer): Continue starts the first box, not the finished lesson.
+    l.running = false;
+    expect(b.menus.behind()).toBeNull();
+  });
+
   it("Continue goes back to the box behind, or resumes the saved one, or starts the next", () => {
     const b = bench();
     b.session.spec = { kind: "box", n: 5 };

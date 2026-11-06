@@ -11,7 +11,7 @@ import type { Behind, ExampleKey } from "../ui/menus/types";
 import type { Stage } from "./session-deps";
 import type { MenuGame } from "./shell";
 
-/** What the menus need of the lessons (Task 15's LessonsDirector, as its wiring offers it). */
+/** What the menus need of the lessons (lessons.ts's Lessons offers it). */
 export interface MenuLessons {
   /** A lesson or a replay is in the lap now. */
   readonly running: boolean;
@@ -60,7 +60,8 @@ export class GameMenus implements MenuGame {
     if (this.let || !spec || this.d.session.stage === "idle") return null;
     if (spec.kind === "box") return { kind: "box", n: spec.n };
     if (spec.kind === "daily") return { kind: "daily" };
-    return { kind: "lesson" };
+    // A lesson's box the lessons no longer run (lesson 2 ends on this menu) waits for nothing.
+    return null;
   }
 
   back(): void {
