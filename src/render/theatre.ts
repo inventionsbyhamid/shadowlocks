@@ -51,9 +51,45 @@ export const THEATRE = {
   poolRadiusM: 1.6,
 } as const;
 
-/** The light for a screen: play dims the most; every other screen is a menu. */
-export function roomLightFor(screen: string): RoomLight {
-  return screen === "play" ? "play" : "menu";
+/**
+ * The light for a screen and the box: every screen but play is a menu (half way); in play the room is dimmed, and
+ * full again once the box has opened (until the next box starts).
+ */
+export function roomLightFor(screen: string, boxOpen = false): RoomLight {
+  if (screen !== "play") return "menu";
+  return boxOpen ? "up" : "play";
+}
+
+/**
+ * The room's light as the game moves on: the screen (a menu or play) and whether the box in play has opened (the
+ * `box-open` event; the next `box-start` closes it). Sets the theatre's light and says when it changed (the theatre's
+ * sounds), from and to.
+ */
+export class RoomLights {
+  private screenNow = "boot";
+  private open = false;
+
+  constructor(
+    private readonly theatre: Theatre,
+    private readonly changed?: (from: RoomLight, to: RoomLight) => void,
+  ) {}
+
+  screen(to: string): void {
+    this.screenNow = to;
+    this.apply();
+  }
+
+  boxOpen(open: boolean): void {
+    this.open = open;
+    this.apply();
+  }
+
+  private apply(): void {
+    const from = this.theatre.light, to = roomLightFor(this.screenNow, this.open);
+    if (to === from) return;
+    this.theatre.setLight(to);
+    this.changed?.(from, to);
+  }
 }
 
 /** Linear RGB of an sRGB hex colour, written into `out` at `i`. */

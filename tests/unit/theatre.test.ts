@@ -11,7 +11,7 @@ import {
 } from "@iwsdk/core";
 import { HAND_MASK_ORDER } from "../../src/render/hand-mask";
 import { ROOM } from "../../src/render/theme";
-import { roomLightFor, Theatre, THEATRE } from "../../src/render/theatre";
+import { RoomLights, roomLightFor, Theatre, THEATRE } from "../../src/render/theatre";
 
 const DT = 1 / 72;
 
@@ -186,5 +186,31 @@ describe("theatre lights", () => {
     expect(roomLightFor("home")).toBe("menu");
     expect(roomLightFor("settings")).toBe("menu");
     expect(roomLightFor("boot")).toBe("menu");
+  });
+
+  it("an opened box brings the light up in play; a menu over it dims half way; the next box dims it again", () => {
+    // box-open: up while in play.
+    expect(roomLightFor("play", true)).toBe("up");
+    // A menu opened over the opened box: the menu's light.
+    expect(roomLightFor("home", true)).toBe("menu");
+    // The next box starts (the box is no longer open): back down.
+    expect(roomLightFor("play", false)).toBe("play");
+  });
+
+  it("the shell's room light follows the screen and the box opening, and says when the room goes down or up", () => {
+    const t = new Theatre();
+    const changes: string[] = [];
+    const light = new RoomLights(t, (from, to) => changes.push(`${from}>${to}`));
+    light.screen("home");
+    light.screen("play");
+    light.boxOpen(true);
+    light.screen("home");
+    light.screen("play");
+    light.boxOpen(false);
+    expect(t.light).toBe("play");
+    expect(changes).toEqual(["up>menu", "menu>play", "play>up", "up>menu", "menu>up", "up>play"]);
+    // Nothing changes, nothing is said.
+    light.screen("play");
+    expect(changes.length).toBe(6);
   });
 });

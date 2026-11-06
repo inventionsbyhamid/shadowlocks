@@ -6,7 +6,7 @@ import { specOfKey } from "../core/generator";
 import type { BoxSnapshot } from "../core/profile";
 import { BoxScene } from "../render/box-scene";
 import { placement } from "../render/placement";
-import { roomLightFor, Theatre } from "../render/theatre";
+import { type RoomLight, RoomLights, Theatre } from "../render/theatre";
 import { on } from "./bus";
 import { Lifecycle, type LifecycleSession, type XrVisibility } from "./lifecycle";
 import { Panels } from "./panels";
@@ -32,6 +32,10 @@ export class Shell {
   readonly box: BoxScene;
   /** Theatre lights: the room dims while a box is in play, half way in menus (ShellSystem steps it). */
   readonly theatre: Theatre;
+  /** Which light the room has: the screen and whether the box in play has opened. */
+  readonly roomLights: RoomLights;
+  /** Called when the room's light changes, from and to (the theatre's sounds). */
+  onRoomLight: ((from: RoomLight, to: RoomLight) => void) | null = null;
   /** The virtual room shown without passthrough (the theatre's studio); `updateRoomVisibility` switches it. */
   room: Object3D | null = null;
   /** Recenter was asked for (a key, or Quest's own recenter); ShellSystem places the box on its next frame. */
@@ -50,10 +54,14 @@ export class Shell {
     world.scene.add(this.theatre.veil, this.theatre.room);
     this.room = this.theatre.room;
     this.updateRoomVisibility();
-    // Menus dim the room half way, a box in play the most; the dimming setting can turn it off.
+    // Menus dim the room half way, a box in play the most, and the light comes up when the box opens until the next
+    // box starts; the dimming setting can turn it off. The theatre's sounds hook in through onRoomLight.
     this.theatre.setEnabled(this.settings.get().dimming);
     this.settings.subscribe((s) => this.theatre.setEnabled(s.dimming));
-    on("screen", (e) => this.theatre.setLight(roomLightFor(e.to)));
+    this.roomLights = new RoomLights(this.theatre, (from, to) => this.onRoomLight?.(from, to));
+    on("screen", (e) => this.roomLights.screen(e.to));
+    on("box-open", () => this.roomLights.boxOpen(true));
+    on("box-start", () => this.roomLights.boxOpen(false));
     // Menus emit `press` themselves and call back here for anything beyond the screens.
     this.panels = new Panels(world, {
       profiles,
