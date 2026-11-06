@@ -30,7 +30,7 @@ import { mergeParts } from "./merge";
 import { COLORS, LANTERN_GLOW, LIGHTS } from "./theme";
 
 /** A soft round glow (alpha falls from the middle), or a thin ring for the ripple. */
-function radialTexture(size: number, ring: boolean): DataTexture {
+export function radialTexture(size: number, ring: boolean): DataTexture {
   const data = new Uint8Array(size * size * 4);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
