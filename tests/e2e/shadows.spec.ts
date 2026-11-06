@@ -1,3 +1,4 @@
+// e2e: exclusive (box 15's test times real milliseconds at 4x throttle: scripts/e2e.sh runs this spec alone)
 // The shadows on the panel, as rendered. Box 1 from its lock's spot: the shadows fill the etched
 // outline as one solid shape, with no hairline of light along the edges where scraps meet, and the
 // sight rings nest into a bullseye on their mark; from the start they do not fill it. Read from the

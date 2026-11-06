@@ -135,6 +135,18 @@ While the repo has no sound pack (and the edit has no voice-over) the mix is sil
 brings to -14 LUFS: the edit then skips the loudness step with a warning instead of failing. Every shot's version is printed; stale
 shots are refused unless `--reuse-stale`.
 
+## Store art
+
+`scripts/store-art.sh` renders the Meta Horizon Store images from the game with `store.spec.ts`
+(`playwright.store.config.ts`, through `scripts/e2e.sh`): plates first (the box lit by its lantern, the
+room not drawn, a camera set in box units, one boot per size), then the hero cover, the three covers, the
+mini landscape, the icon and the logo cut from them with the title in Limelight (OFL,
+`assets/fonts/OFL-Limelight.txt`), and five screenshots as real frames with the room. Each file is written
+at Meta's size and pixel format (24-bit, the logo 32-bit with transparency, checked with ffprobe); the
+render fails when a title enters the top or bottom 20%. Results go to `test-results/store/` and are copied
+to the planning folder's `store/assets/`, with `store-art.json` and `overview.png`. Sizes, views and title
+placement live in `lib/store-art.ts`. About 25 minutes on the shared browser lock.
+
 ## Attached and detached
 
 Both first wait (as `scripts/e2e.sh` does) up to an hour until no other `shadowlocks-e2e` browser

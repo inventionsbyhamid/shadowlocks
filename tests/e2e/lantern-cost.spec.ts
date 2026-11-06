@@ -1,3 +1,4 @@
+// e2e: exclusive (times real milliseconds: scripts/e2e.sh runs this spec alone on the server)
 // What holding the lantern costs a frame once the engine has optimised it: our per-frame path (hand-pinch reads the
 // hands, lantern runs the grab, the feel and the view) at 4x CPU throttle, and what it allocates.
 //
