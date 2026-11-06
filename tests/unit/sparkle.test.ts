@@ -3,7 +3,7 @@ import { type BufferAttribute, type PointsMaterial, ShaderLib, type WebGLProgram
 import { generateBox } from "../../src/core/generator";
 import { inPoly } from "../../src/core/geom";
 import type { Lock, V2 } from "../../src/core/types";
-import { MIN_GAP_S } from "../../src/render/fx/flash-budget";
+import { FlashBudget, MIN_GAP_S } from "../../src/render/fx/flash-budget";
 import { PER_LOCK, SPARKLE, Sparkle, SPARKLE_S, sharpTips } from "../../src/render/fx/sparkle";
 import { outlineEdges } from "../../src/render/outline";
 
@@ -99,6 +99,39 @@ describe("an opened lock's sparkle", () => {
     const last = frames.at(-1)!;
     expect(last.bright.every((b) => b === 0)).toBe(true);
     expect(last.visible).toBe(false);
+    expect(s.running).toBe(false);
+  });
+
+  it("shares the box's flash budget: glints wait their turn after the opening's own flash and other locks' glints", () => {
+    const budget = new FlashBudget();
+    const s = new Sparkle(budget);
+    s.setBox(box5);
+    // Two locks open in the same frame; the first opening's sunburst took the budget.
+    expect(budget.take()).toBe(true);
+    s.burst(0, 1, false);
+    s.burst(2, 1, false);
+    const peaks: { t: number; lock: number; k: number }[] = [];
+    const last = new Float32Array(s.bright.length), rising = new Uint8Array(s.bright.length);
+    for (let t = 0; t < 3 * SPARKLE_S; t += DT) {
+      budget.step(DT);
+      s.update(DT);
+      for (const lock of [0, 2]) {
+        for (let k = 0; k < G; k++) {
+          const j = lock * PER_LOCK + k, b = s.bright[j]!;
+          if (b < last[j]! && rising[j]) peaks.push({ t, lock, k });
+          rising[j] = b > last[j]! ? 1 : 0;
+          last[j] = b;
+        }
+      }
+    }
+    // Every glint of both locks flared, and no two brightenings (the opening's flash at 0, then each glint's start)
+    // came closer than the budget's gap.
+    expect(peaks.length).toBe(2 * G);
+    const starts = budget.started;
+    expect(starts).toBe(1 + 2 * G);
+    peaks.sort((a, b) => a.t - b.t);
+    for (let i = 1; i < peaks.length; i++) expect(peaks[i]!.t - peaks[i - 1]!.t).toBeGreaterThanOrEqual(MIN_GAP_S - DT);
+    expect(peaks[0]!.t).toBeGreaterThanOrEqual(MIN_GAP_S);
     expect(s.running).toBe(false);
   });
 

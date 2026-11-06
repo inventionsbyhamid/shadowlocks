@@ -1,11 +1,14 @@
 // An opened lock's sparkle, from the owner's pick (pick.md, "Lock opens"): four-point gold glints flare at the
 // shape's sharpest tips one after another, and fine star glitter rises from inside the shape and twinkles out. It
-// plays over the lock's sunburst and the panel's gold foil; the lock opening starts it and owns its one flash.
+// plays over the lock's sunburst and the panel's gold foil; the lock opening starts it.
 //
-// Comfort: the sparkle is part of that one flash (the caller takes it from the box's FlashBudget and passes its
-// strength, half when refused); the glints peak at least MIN_GAP_S apart, so never more than three a second; each
-// spark twinkles at most SPARKLE.twinkleHz (under three a second), out of phase with the others, so the glitter as a
-// whole shimmers without strobing. Reduced motion: the glints fade in place at one size, and there is no glitter.
+// Comfort: every brightening in the box goes through the box's one FlashBudget, glints too. The opening's sunburst
+// takes it first; each glint is due a gap after that and one gap after the last, takes the budget when its turn
+// comes (the earliest due first, across every lock) and waits while it is refused, so the sunbursts, the glints of
+// every lock, the crystallises and the lantern's flares together never brighten more than three times a second. A
+// glint more than glintLateS late is let go. The glitter's strength is the opening's (half when its flash was
+// refused); each spark twinkles at most twinkleHz, out of phase with the others, so it shimmers without strobing.
+// Reduced motion: the glints fade in place at one size, and there is no glitter.
 //
 // One draw call for every lock: one Points object in the box root (box units), a point per glint and spark, each
 // with its own size and brightness (added as light), drawn as a four-point star in the fragment shader. Nothing is
@@ -26,7 +29,7 @@ import type { Box, V2 } from "../../core/types";
 import { outlineEdges } from "../outline";
 import { COLORS } from "../theme";
 import { clamp01, outCubic, smoothstep } from "./ease";
-import { MIN_GAP_S } from "./flash-budget";
+import { FlashBudget, MIN_GAP_S } from "./flash-budget";
 
 export const SPARKLE = {
   /** Glints a lock gets, at its sharpest tips at least tipGap of its size apart. */
@@ -34,8 +37,11 @@ export const SPARKLE = {
   tipGap: 0.25,
   /** One glint's flare (s): up over the first quarter, then out. */
   glintS: 0.6,
-  /** The next tip flares this much later (s): never more than three glints a second. */
+  /** The first glint is due this long after the opening (its sunburst's flash comes first), the next a gap later. */
+  glintDelay: MIN_GAP_S,
   glintGap: MIN_GAP_S,
+  /** A glint still waiting for the flash budget this long after it was due is let go (s). */
+  glintLateS: 1.5,
   /** A glint's size at its peak, and a spark's (metres, as PointsMaterial sizes points at a distance). */
   glintSize: 0.045,
   sparkSize: 0.011,
@@ -54,8 +60,13 @@ export const SPARKLE = {
 
 /** Points per lock: its glints, then its sparks. */
 export const PER_LOCK = SPARKLE.glints + SPARKLE.sparks;
-/** A whole sparkle, from the first glint to the last spark gone (s). */
-export const SPARKLE_S = Math.max((SPARKLE.glints - 1) * SPARKLE.glintGap + SPARKLE.glintS, SPARKLE.sparkSpread + SPARKLE.glitterS);
+/** A whole sparkle with the budget to itself, from the opening to the last glint or spark gone (s). */
+export const SPARKLE_S = Math.max(
+  SPARKLE.glintDelay + (SPARKLE.glints - 1) * SPARKLE.glintGap + SPARKLE.glintS,
+  SPARKLE.sparkSpread + SPARKLE.glitterS,
+);
+/** A glint's state: waiting for its turn, flaring (or done), let go. */
+const PENDING = 0, STARTED = 1, DROPPED = 2;
 const SLOTS = 3;
 
 /**
@@ -110,10 +121,14 @@ function starShader(shader: WebGLProgramParametersWithUniforms): void {
 interface Slot {
   /** A lock is laid out in this slot. */
   on: boolean;
-  /** Seconds since its burst began (large: none running), its strength, reduced motion. */
-  t: number;
+  /** When its burst began on the sparkle's clock (s; far back: none), its strength, reduced motion. */
+  t0: number;
   strength: number;
   reduced: boolean;
+  /** Each glint's state (PENDING, STARTED, DROPPED), when it is due and when it started (the sparkle's clock). */
+  readonly glintState: Uint8Array;
+  readonly glintDue: Float64Array;
+  readonly glintAt: Float64Array;
   /** Tips (x, y) for its glints and how many there are; sparks' starts (x, y), drift, and phase (start, twinkle). */
   readonly tips: Float32Array;
   tipCount: number;
@@ -133,8 +148,19 @@ export class Sparkle {
   private readonly slots: Slot[] = [];
   private readonly glintColor = new Color(COLORS.goldHot);
   private readonly sparkColor = new Color(COLORS.gold);
+  private readonly budget: FlashBudget;
+  /** The budget is this object's own (it steps it), not the box's shared one. */
+  private readonly ownBudget: boolean;
+  /** The sparkle's clock (s). */
+  private now = 0;
 
-  constructor() {
+  /**
+   * `budget`: the box's one flash budget (the box scene steps it), which every glint takes in turn; without one, a
+   * budget of its own, stepped by update.
+   */
+  constructor(budget?: FlashBudget) {
+    this.budget = budget ?? new FlashBudget();
+    this.ownBudget = !budget;
     const n = SLOTS * PER_LOCK;
     const g = new BufferGeometry();
     this.pos = new BufferAttribute(new Float32Array(n * 3), 3).setUsage(DynamicDrawUsage);
@@ -163,9 +189,12 @@ export class Sparkle {
     for (let s = 0; s < SLOTS; s++) {
       this.slots.push({
         on: false,
-        t: 1e9,
+        t0: -1e9,
         strength: 0,
         reduced: false,
+        glintState: new Uint8Array(SPARKLE.glints).fill(DROPPED),
+        glintDue: new Float64Array(SPARKLE.glints),
+        glintAt: new Float64Array(SPARKLE.glints),
         tips: new Float32Array(SPARKLE.glints * 2),
         tipCount: 0,
         sparks: new Float32Array(SPARKLE.sparks * 2),
@@ -175,9 +204,9 @@ export class Sparkle {
     }
   }
 
-  /** True while any lock's sparkle runs. */
+  /** True while any lock's sparkle runs (a glint waiting its turn, flaring, or a spark alive). */
   get running(): boolean {
-    for (const s of this.slots) if (s.on && s.t < SPARKLE_S) return true;
+    for (let i = 0; i < SLOTS; i++) if (this.live(this.slots[i]!)) return true;
     return false;
   }
 
@@ -185,7 +214,8 @@ export class Sparkle {
   setBox(box: Box | null): void {
     for (const s of this.slots) {
       s.on = false;
-      s.t = 1e9;
+      s.t0 = -1e9;
+      s.glintState.fill(DROPPED);
     }
     this.bright.fill(0);
     for (const l of box?.locks ?? []) {
@@ -216,22 +246,53 @@ export class Sparkle {
   burst(lock: number, strength: number, reduced: boolean): void {
     const s = this.slots[lock];
     if (!s?.on) return;
-    s.t = 0;
+    s.t0 = this.now;
     s.strength = strength;
     s.reduced = reduced;
+    for (let k = 0; k < SPARKLE.glints; k++) {
+      s.glintState[k] = k < s.tipCount ? PENDING : DROPPED;
+      s.glintDue[k] = this.now + SPARKLE.glintDelay + k * SPARKLE.glintGap;
+    }
     this.write();
   }
 
-  /** Advance by `dt` seconds. Allocation-free. */
+  /** Advance by `dt` seconds: glints start in turn through the flash budget. Allocation-free. */
   update(dt: number): void {
-    let any = false;
+    if (this.ownBudget) this.budget.step(dt);
+    const was = this.running;
+    this.now += dt > 0 ? dt : 0;
+    if (!was) return;
+    // The earliest glint due, across every lock, takes the budget (one a frame at most); one too late is let go.
+    let bs = -1, bk = -1, due = Infinity;
     for (let i = 0; i < SLOTS; i++) {
       const s = this.slots[i]!;
-      if (!s.on || s.t >= SPARKLE_S) continue;
-      s.t += dt > 0 ? dt : 0;
-      any = true;
+      for (let k = 0; k < SPARKLE.glints; k++) {
+        if (s.glintState[k] !== PENDING || s.glintDue[k]! > this.now || s.glintDue[k]! >= due) continue;
+        due = s.glintDue[k]!;
+        bs = i;
+        bk = k;
+      }
     }
-    if (any) this.write();
+    if (bs >= 0) {
+      const s = this.slots[bs]!;
+      if (this.now - due > SPARKLE.glintLateS) s.glintState[bk] = DROPPED;
+      else if (this.budget.take()) {
+        s.glintState[bk] = STARTED;
+        s.glintAt[bk] = this.now;
+      }
+    }
+    this.write();
+  }
+
+  /** A slot's sparkle runs: a glint waiting or flaring, or a spark still alive. */
+  private live(s: Slot): boolean {
+    if (!s.on) return false;
+    if (this.now - s.t0 < SPARKLE.sparkSpread + SPARKLE.glitterS) return true;
+    for (let k = 0; k < SPARKLE.glints; k++) {
+      const st = s.glintState[k];
+      if (st === PENDING || (st === STARTED && this.now - s.glintAt[k]! < SPARKLE.glintS)) return true;
+    }
+    return false;
   }
 
   /**
@@ -243,12 +304,12 @@ export class Sparkle {
     const B = this.bright, gc = this.glintColor, sc = this.sparkColor;
     let shown = false;
     for (let i = 0; i < SLOTS; i++) {
-      const s = this.slots[i]!, base = i * PER_LOCK, live = s.on && s.t < SPARKLE_S;
+      const s = this.slots[i]!, base = i * PER_LOCK, st = this.now - s.t0, live = s.on;
       for (let k = 0; k < S.glints; k++) {
         const j = base + k;
         let b = 0, size = S.glintSize;
-        if (live && k < s.tipCount) {
-          const q = (s.t - k * S.glintGap) / S.glintS;
+        if (live && s.glintState[k] === STARTED) {
+          const q = (this.now - s.glintAt[k]!) / S.glintS;
           if (q >= 0 && q < 1) {
             const env = q < 0.25 ? outCubic(q / 0.25) : (1 - (q - 0.25) / 0.75) ** 2;
             b = s.strength * env;
@@ -269,7 +330,7 @@ export class Sparkle {
         const j = base + S.glints + k;
         let b = 0, x = s.sparks[k * 2]!, y = s.sparks[k * 2 + 1]!, size = S.sparkSize;
         if (live && !s.reduced) {
-          const t = s.t - s.phase[k * 2]! * S.sparkSpread, q = t / S.glitterS;
+          const t = st - s.phase[k * 2]! * S.sparkSpread, q = t / S.glitterS;
           if (q >= 0 && q < 1) {
             const rise = outCubic(q);
             x += s.drift[k]! * rise;
