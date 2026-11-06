@@ -17,10 +17,13 @@
 #   --verify <host>   only check a live site, e.g. shadowlocks.pages.dev or a custom domain
 #   --check-token     only check that the token in .secrets/cloudflare.env is active for the account
 #   --placeholder     publish the coming-soon page (site-placeholder/index.html) and public/privacy.html, nothing
-#                     else, to shadowlocks only, until the game itself goes live there
-# Every publish starts with that check, then publishes; after publishing, each host it went to (<project>.pages.dev, or <branch>.<project>.pages.dev for a
-# preview) is checked, its asset links byte for byte against the build's (the Quest apps open only
-# when those match their package and key).
+#                     else, to shadowlocks only; refused once the game is live there (it serves asset links)
+#   --over-game       let --placeholder replace a live game anyway
+#   --print-plan      only print the projects, branch and mode these options resolve to, then stop (NS_DEPLOY_NOW,
+#                     epoch seconds, stands in for the clock here only, to test the deadline)
+# Every publish checks the token first, then publishes; after publishing, each host it went to (<project>.pages.dev,
+# or <branch>.<project>.pages.dev for a preview) is checked, its asset links byte for byte against the build's (the
+# Quest apps open only when those match their package and key).
 # A real publish reads CLOUDFLARE_API_TOKEN (a token with "Cloudflare Pages: Edit" only) and
 # CLOUDFLARE_ACCOUNT_ID from .secrets/cloudflare.env next to the repo (NS_CLOUDFLARE_ENV overrides).
 # The token may be account-owned: wrangler then needs CLOUDFLARE_ACCOUNT_ID (always set here) and
@@ -45,15 +48,17 @@ DEADLINE_EPOCH=1795032000
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 
 usage() {
-  sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
-PROJECTS=() BRANCH=main CREATE=0 DRY=0 DIRTY=0 VERIFY= LATE_JUDGE=0 PREVIEW=0 CHECK_TOKEN=0 PLACEHOLDER=0
+PROJECTS=() BRANCH=main CREATE=0 DRY=0 DIRTY=0 VERIFY= LATE_JUDGE=0 PREVIEW=0 CHECK_TOKEN=0 PLACEHOLDER=0 OVER_GAME=0 PRINT_PLAN=0
 while [ $# -gt 0 ]; do
   case $1 in
     --both) PROJECTS+=("$PUBLIC_PROJECT" "$JUDGE_PROJECT"); shift ;;
     --placeholder) PLACEHOLDER=1; shift ;;
+    --over-game) OVER_GAME=1; shift ;;
+    --print-plan) PRINT_PLAN=1; shift ;;
     --check-token) CHECK_TOKEN=1; shift ;;
     --preview) PREVIEW=1; shift ;;
     --project) [ $# -ge 2 ] || usage; PROJECTS+=("$2"); shift 2 ;;
@@ -93,6 +98,22 @@ verify() { # host, the asset links file the site must serve
   return $bad
 }
 
+if [ "$PRINT_PLAN" -eq 1 ] && { [ -n "$VERIFY" ] || [ "$CHECK_TOKEN" -eq 1 ]; }; then
+  echo "--print-plan is for publishing options, not --verify or --check-token" >&2
+  exit 2
+fi
+
+# The build server's load and free disk, checked before anything runs there.
+gate() {
+  local g load free
+  g=$(ssh "$HOST" "awk '{print \$1}' /proc/loadavg && df -BG --output=avail / | tail -1 | tr -dc 0-9") \
+    || { echo "cannot reach $HOST (is the VPN on?)" >&2; exit 3; }
+  load=$(printf '%s\n' "$g" | sed -n 1p)
+  free=$(printf '%s\n' "$g" | sed -n 2p)
+  if awk -v l="$load" -v m="$MAX_LOAD" 'BEGIN{exit !(l>m)}'; then echo "refused: $HOST load $load > $MAX_LOAD" >&2; exit 3; fi
+  if [ "${free:-0}" -lt "$MIN_FREE_GB" ]; then echo "refused: $HOST free disk ${free:-0} GB < $MIN_FREE_GB GB" >&2; exit 3; fi
+}
+
 if [ -n "$VERIFY" ]; then
   [[ $VERIFY =~ ^[A-Za-z0-9.-]+$ ]] || { echo "bad host: $VERIFY" >&2; exit 2; }
   # What the site should serve: the asset links committed here (redeploy after a fill).
@@ -118,6 +139,7 @@ else echo "deploy: the Cloudflare token did not verify for this account (account
 
 if [ "$CHECK_TOKEN" -eq 1 ]; then
   load_account
+  gate
   CHECK_INNER="set -euo pipefail
 IFS= read -r CLOUDFLARE_API_TOKEN
 CLOUDFLARE_ACCOUNT_ID=$ACCOUNT
@@ -151,7 +173,12 @@ for p in "${PROJECTS[@]}"; do
 done
 PROJECTS=("${UNIQUE[@]}")
 [[ $BRANCH =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$ ]] || { echo "bad branch name: $BRANCH" >&2; exit 2; }
-if [ "$DRY" -eq 0 ] && [ "$LATE_JUDGE" -eq 0 ] && [ "$(date -u +%s)" -ge "$DEADLINE_EPOCH" ]; then
+NOW=$(date -u +%s)
+if [ "$PRINT_PLAN" -eq 1 ] && [ -n "${NS_DEPLOY_NOW:-}" ]; then
+  [[ $NS_DEPLOY_NOW =~ ^[0-9]{1,12}$ ]] || { echo "bad NS_DEPLOY_NOW: $NS_DEPLOY_NOW (epoch seconds)" >&2; exit 2; }
+  NOW=$NS_DEPLOY_NOW
+fi
+if [ "$DRY" -eq 0 ] && [ "$LATE_JUDGE" -eq 0 ] && [ "$NOW" -ge "$DEADLINE_EPOCH" ]; then
   for p in "${PROJECTS[@]}"; do
     if [ "$p" = "$JUDGE_PROJECT" ]; then
       echo "refused: the competition deadline has passed; $JUDGE_PROJECT stays as the judges saw it (--judge-after-deadline overrides)" >&2
@@ -161,6 +188,11 @@ if [ "$DRY" -eq 0 ] && [ "$LATE_JUDGE" -eq 0 ] && [ "$(date -u +%s)" -ge "$DEADL
 fi
 LIST=$(printf "'%s', " "${PROJECTS[@]}")
 LIST=${LIST%, }
+if [ "$PRINT_PLAN" -eq 1 ]; then
+  if [ "$PLACEHOLDER" -eq 1 ]; then mode=placeholder; elif [ "$BRANCH" != main ]; then mode=preview; else mode=game; fi
+  echo "plan: mode=$mode projects=$(IFS=,; echo "${PROJECTS[*]}") branch=$BRANCH dry-run=$([ "$DRY" -eq 1 ] && echo yes || echo no)"
+  exit 0
+fi
 
 COMMIT=$(git -C "$ROOT" rev-parse HEAD)
 SUBJECT=$(git -C "$ROOT" log -1 --format=%s | tr -cd 'A-Za-z0-9 .,:()/_-' | cut -c1-200)
@@ -219,19 +251,23 @@ if [ "$DRY" -eq 1 ]; then
   exit 0
 fi
 
+# The placeholder never replaces the game: once the public host serves real asset links, the game is live there.
+if [ "$PLACEHOLDER" -eq 1 ] && [ "$OVER_GAME" -eq 0 ]; then
+  if curl -s --max-time 20 "https://$PUBLIC_PROJECT.pages.dev/.well-known/assetlinks.json" | grep -q delegate_permission; then
+    echo "refused: $PUBLIC_PROJECT.pages.dev already serves asset links (the game is live); --over-game replaces it anyway" >&2
+    exit 2
+  fi
+fi
+
 load_account
+gate
 
-gate=$(ssh "$HOST" "awk '{print \$1}' /proc/loadavg && df -BG --output=avail / | tail -1 | tr -dc 0-9") \
-  || { echo "cannot reach $HOST (is the VPN on?)" >&2; exit 3; }
-LOAD=$(printf '%s\n' "$gate" | sed -n 1p)
-FREE=$(printf '%s\n' "$gate" | sed -n 2p)
-if awk -v l="$LOAD" -v m="$MAX_LOAD" 'BEGIN{exit !(l>m)}'; then echo "refused: $HOST load $LOAD > $MAX_LOAD" >&2; exit 3; fi
-if [ "${FREE:-0}" -lt "$MIN_FREE_GB" ]; then echo "refused: $HOST free disk ${FREE:-0} GB < $MIN_FREE_GB GB" >&2; exit 3; fi
-
-# In the container: the first stdin line is the token, the rest is dist/ as a tar stream. The token
-# is checked first; then every project gets the same files, one after the other; the first failure
-# stops the rest.
+# In the container: wrangler is installed first, with nothing on stdin and no token in the environment, so no
+# package install script can see the token. Then the first stdin line is the token, the rest is dist/ as a tar stream.
+# The token is checked; then every project gets the same files, one after the other; the first failure stops the rest.
 INNER="set -euo pipefail
+cd /tmp
+npx -y $WRANGLER --version </dev/null >/dev/null
 IFS= read -r CLOUDFLARE_API_TOKEN
 export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID=$ACCOUNT WRANGLER_SEND_METRICS=false CI=1
 $TOKEN_CHECK
