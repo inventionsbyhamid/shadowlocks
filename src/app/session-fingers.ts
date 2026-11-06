@@ -1,0 +1,151 @@
+// The box session's finger locks: the one place the hand system plugs into the game. It brings three things, all
+// optional (without them a finger lock simply cannot be filled):
+// - `fingers` (FingerSource): this frame's finger shadow on the panel, the finger's depth, and whether a hand that can
+//   cast it is in tracking (the hand system's HandsInBox);
+// - `makeFingerLoop` (FingerLoop): one hold per finger lock per box, FingerHold fed the solve rule with the finger
+//   (the hand system's FingerLockLoop);
+// - `crystals` (CrystalSink): the missing piece forming where the finger was, or put back at once for a resumed box
+//   (render/fx/crystallise.ts and the box scene's Crystals).
+// Per finger lock and frame: "one piece short" once its scraps are in place but not its piece, the hold fed this
+// frame's coverage (nothing fills it away from its spot), the hold's progress on the bus, and on the frame it completes
+// the piece forms; the session then opens the lock once the piece has formed (CRYSTAL_MS). The fingertip hum follows a
+// finger in the beam. Per frame it allocates nothing.
+import type { GameSounds } from "../audio/cues";
+import type { Coverage } from "../core/solve";
+import { isShort } from "../core/solve";
+import type { Box, Lock, V2 } from "../core/types";
+import type { FeedbackEvent } from "./bus";
+import { CRYSTALLISE, MAX_LOCKS, reusedEvents, SHORT } from "./events";
+
+/** A finger lock's piece forms over this long (fx/crystallise.ts); the lock opens when it has. */
+export const CRYSTAL_MS = 700;
+/** A finger hold's progress on the bus moves in steps of this (or to 0 or 1). */
+const FINGER_EVENT_STEP = 0.1;
+
+/** The finger's shadow this frame, as the hand system casts it (panel, box units). */
+export interface FingerSource {
+  readonly finger: V2[][];
+  readonly nFinger: number;
+  /** The finger's depth (box z), NaN with no finger in the beam. */
+  readonly fingerZ: number;
+  /** A hand that can cast the finger (one not holding the lantern) is in tracking. */
+  readonly tracked: boolean;
+}
+
+/** A finger lock's hold (the hand system's FingerLockLoop): FingerHold fed the solve rule with the finger. */
+export interface FingerLoop {
+  update(dtMs: number, coverage: Coverage, tracked: boolean): "idle" | "holding" | "done";
+  readonly progress: number;
+}
+
+/** The finger lock's piece in the box: formed now (gold fill, then the piece), or put back at once (a resumed box). */
+export interface CrystalSink {
+  crystallise(lock: Lock, z: number): void;
+  place(lock: Lock, z: number): void;
+}
+
+export interface FingerLocksDeps {
+  fingers?: FingerSource;
+  /** A finger lock's hold, one per finger lock per box (`onDone` runs once, when it completes). */
+  makeFingerLoop?: (onDone: () => void) => FingerLoop;
+  crystals?: CrystalSink;
+  sound: Pick<GameSounds, "finger" | "crystallise">;
+  emit: (e: FeedbackEvent) => void;
+}
+
+const NOOP = () => {};
+const NO_POLYS: V2[][] = [];
+/** A finger lock out of the lantern's range: nothing fills it. */
+const ZERO: Readonly<Coverage> = Object.freeze({ cover: 0, spill: 0, spillAll: 0, gap: 0 });
+
+/** The depth a piece hangs at in the generated box: where to form it when no finger depth is known. */
+function pieceDepth(box: Box, lock: Lock): number {
+  for (const e of box.elements) {
+    if (e.kind === "piece" && e.lock === lock.i && e.piece === lock.missing) return e.verts.reduce((s, v) => s + v[2], 0) / e.verts.length;
+  }
+  return 0.5;
+}
+
+export class FingerLocks {
+  private box: Box | null = null;
+  private loops: (FingerLoop | null)[] = [];
+  private readonly short = new Uint8Array(MAX_LOCKS);
+  /** The progress last sent on the bus, per lock. */
+  private readonly sent = new Float64Array(MAX_LOCKS);
+  private readonly events = reusedEvents().finger;
+  /** The furthest hold this frame (the fingertip hum's glide). */
+  private hold = 0;
+  private fingerIn = false;
+
+  constructor(private readonly d: FingerLocksDeps) {}
+
+  /** This frame's finger shadow (none without the hand system): what the locks are measured with. */
+  get polys(): V2[][] {
+    return this.d.fingers ? this.d.fingers.finger : NO_POLYS;
+  }
+
+  get count(): number {
+    return this.d.fingers ? this.d.fingers.nFinger : 0;
+  }
+
+  /** A new box: a hold for each of its finger locks; the fingertip hum ends. */
+  setBox(box: Box): void {
+    const make = this.d.makeFingerLoop;
+    this.box = box;
+    this.loops = box.locks.map((l) => (l.finger && make ? make(NOOP) : null));
+    this.short.fill(0);
+    this.sent.fill(0);
+    if (this.fingerIn) this.d.sound.finger(null);
+    this.fingerIn = false;
+  }
+
+  /** Before the locks, each frame. */
+  begin(): void {
+    this.hold = 0;
+  }
+
+  /**
+   * One frame of finger lock `lock` with this frame's coverage (`near`: the lantern within warmth range of its spot).
+   * Returns the depth its piece forms at on the frame its hold completes (the piece starts forming), else NaN.
+   */
+  update(lock: Lock, cov: Coverage, near: boolean, dt: number): number {
+    const d = this.d, i = lock.i;
+    const short = near && isShort(cov, true);
+    if (short && !this.short[i]) d.emit(SHORT[i]!);
+    this.short[i] = short ? 1 : 0;
+    const loop = this.loops[i], f = d.fingers;
+    if (!loop || !f) return Number.NaN;
+    const state = loop.update(dt, near ? cov : ZERO, f.tracked);
+    const p = loop.progress, sent = this.sent[i]!;
+    if (p > this.hold) this.hold = p;
+    if (p !== sent && (Math.abs(p - sent) >= FINGER_EVENT_STEP || p === 0 || p === 1)) {
+      this.sent[i] = p;
+      const e = this.events[i]!;
+      e.progress = p;
+      d.emit(e);
+    }
+    if (state !== "done") return Number.NaN;
+    const z = Number.isFinite(f.fingerZ) ? f.fingerZ : pieceDepth(this.box!, lock);
+    d.crystals?.crystallise(lock, z);
+    d.emit(CRYSTALLISE[i]!);
+    d.sound.crystallise(i);
+    return z;
+  }
+
+  /** A formed piece put back at once (a resumed box). */
+  place(lock: Lock, z: number): void {
+    this.d.crystals?.place(lock, z);
+  }
+
+  /** After the locks: the fingertip hum while a finger is in the beam (toward the panel, through the hold), off when it leaves. */
+  end(): void {
+    const f = this.d.fingers;
+    if (f && f.nFinger > 0) {
+      this.d.sound.finger(1 - Math.min(1, Math.max(0, f.fingerZ)), this.hold);
+      this.fingerIn = true;
+    } else if (this.fingerIn) {
+      this.d.sound.finger(null);
+      this.fingerIn = false;
+    }
+  }
+}

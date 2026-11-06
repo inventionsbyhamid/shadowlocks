@@ -1,31 +1,38 @@
 // The box in play, one frame at a time: each lock measured from where the lantern is (only locks within WARMTH_RANGE
 // of it, and only when the lantern or a finger moved), its warmth on the panel and in its hum, its rings lining up,
-// a finger lock's hold and its piece forming, locks opening, the head's gaze choosing the lock in focus, the stuck
-// watch lighting the hint lantern, then the box opening, its reward taken, and the next box offered on the plate.
-// It owns the rules around a box: the Warmth setting, hints, saves (every 2 s of play, and whenever the lifecycle
-// asks), the collection, the next box and the daily streak. Play time counts only while the player can see the box.
+// a finger lock's hold and its piece forming (session-fingers.ts), locks opening, the head's gaze choosing the lock in
+// focus, the stuck watch lighting the hint lantern, then the box opening, its reward taken, and the next box offered
+// on the plate. It owns the rules around a box (session-rules.ts): the Warmth setting, hints, saves (every 2 s of
+// play, and whenever the lifecycle asks), the collection, the next box and the daily streak. Play time counts only
+// while the player can see the box.
 //
 // The session runs right after the lantern and the hands (priority -2.8), before the box scene draws the frame. The
-// renderer, the hands and the sounds come in as small interfaces (BoxSessionDeps), so the unit tests run it on a
+// renderer, the hands and the sounds come in as small interfaces (session-deps.ts), so the unit tests run it on a
 // fake clock with fake frames. Per frame it allocates nothing: lock state, shadow buffers and coverage are made once
 // per box, and the events it sends every frame or so are shared or reused (events.ts).
-import type { BoxClient } from "../core/box-client";
-import { recordDailySolve } from "../core/daily";
+import { HINT_GLOW_GAIN } from "../audio/cues";
 import { ENVELOPE } from "../core/envelope";
 import { GENERATOR_VERSION, seedKey } from "../core/generator";
 import { mirrorBox } from "../core/mirror";
-import type { BoxSnapshot, Profile, Settings } from "../core/profile";
-import { type Coverage, isShort, type LockSamples, measure, meets, prepareLock, ShadowCaster, SKIP_MISSING, warmth, WARMTH_RANGE } from "../core/solve";
-import type { Box, BoxSpec, Lock, V2, V3, Vec3 } from "../core/types";
+import type { BoxSnapshot } from "../core/profile";
+import { type Coverage, type LockSamples, measure, meets, prepareLock, ShadowCaster, SKIP_MISSING, warmth, WARMTH_RANGE } from "../core/solve";
+import type { Box, BoxSpec, Lock, V3, Vec3 } from "../core/types";
 import { LANTERN_MIN_Z, MAX_STEP_MS, OPEN_DWELL_MS } from "../feel/constants";
 import { GazeFocus } from "../feel/gaze-focus";
 import type { FeelEvent } from "../feel/lantern-controller";
 import { StuckWatch } from "../feel/stuck-watch";
-import { type GameSounds, HINT_GLOW_GAIN } from "../audio/cues";
-import type { FeedbackEvent } from "./bus";
-import { CRYSTALLISE, FOCUS, HINT, type HintLevel, LOCK_OPEN, RING, reusedEvents, SHORT, STUCK } from "./events";
+import { FOCUS, HINT, type HintLevel, LOCK_OPEN, RING, reusedEvents, STUCK } from "./events";
 import { HintBook } from "./hints";
 import type { Phase } from "./lifecycle";
+import { ACT_HINT, ACT_NEXT, ACT_SHOW_ME, ACT_TAKE, type BoxSessionDeps, NULL_VIEW, type SessionView, type Stage } from "./session-deps";
+import { CRYSTAL_MS, FingerLocks } from "./session-fingers";
+import { collect, lockOnPanel, solveBox } from "./session-rules";
+
+// The session's surface in one import (its deps, its stages and the finger seam live beside it).
+export { ACT_HINT, ACT_NEXT, ACT_SHOW_ME, ACT_TAKE, NULL_VIEW } from "./session-deps";
+export type { BoxSessionDeps, HeadRay, SessionLantern, SessionProfiles, SessionScene, SessionSound, SessionView, Stage } from "./session-deps";
+export { CRYSTAL_MS } from "./session-fingers";
+export type { CrystalSink, FingerLoop, FingerSource } from "./session-fingers";
 
 /** From the last lock opening to the box opening: the lock's own celebration reads first. */
 export const LOCK_TO_BOX_MS = 700;
@@ -33,150 +40,14 @@ export const LOCK_TO_BOX_MS = 700;
 export const REWARD_UP_MS = 2500;
 /** A reward nobody takes goes into the collection by itself this long after it is up. */
 export const REWARD_AUTO_MS = 8000;
-/** A finger lock's piece forms over this long (fx/crystallise.ts); the lock opens when it has. */
-export const CRYSTAL_MS = 700;
 /** A box in play is saved this often (the lifecycle debounces it), besides on hide and after anything that matters. */
 export const SAVE_EVERY_MS = 2000;
 /** A lock's warmth on the bus moves in steps of this (or to 0 or 1). */
 const WARMTH_EVENT_STEP = 0.05;
-/** A finger hold's progress on the bus moves in steps of this (or to 0 or 1). */
-const FINGER_EVENT_STEP = 0.1;
 /** The warmth a lock's hum follows is eased with this time constant (the panel eases its glow itself). */
 const WARMTH_EASE_MS = 120;
-/** The head's gaze picks a lock within this share of its size from its centre (between locks it picks none). */
-const GAZE_REACH = 0.62;
 /** Float slack for times added up frame by frame. */
 const EPS_MS = 1e-6;
-
-/** What the player did this frame, as SessionView.update reports it. */
-export const ACT_TAKE = 1;
-export const ACT_NEXT = 2;
-export const ACT_HINT = 4;
-export const ACT_SHOW_ME = 8;
-
-/**
- * idle: no box. loading: a box is being built (a resumed one keeps its save meanwhile). playing: the locks.
- * opening: every lock is open, the box opens and its reward rises. reward: the reward can be taken. offered: it was
- * taken, the next box waits on the plate.
- */
-export type Stage = "idle" | "loading" | "playing" | "opening" | "reward" | "offered";
-
-/** What the session needs of the box scene (BoxScene has it all). */
-export interface SessionScene {
-  readonly box: Box | null;
-  setBox(box: Box | null): void;
-  readonly panelArt: { setWarmth(lock: number, w: number): void; setOpen(lock: number, open?: boolean): void; readonly etched: boolean };
-  readonly lantern: { setPos(p: V3): void; getPos(out: V3): V3 };
-}
-
-/** What the session needs of the lantern (the app's Lantern has it all). */
-export interface SessionLantern {
-  readonly grab: { readonly holder: "left" | "right" | null };
-  readonly feel: { setOpen(lock: number, open: boolean): void; aligned(lock: number): boolean };
-  onFeel(fn: (e: FeelEvent) => void): () => void;
-}
-
-export type SessionSound = Pick<
-  GameSounds,
-  "boxStart" | "warmth" | "focus" | "dialTick" | "settle" | "ring" | "finger" | "crystallise" | "lockOpened" | "boxOpened" | "hint" | "muteRelease"
->;
-
-export interface SessionProfiles {
-  readonly profile: Profile;
-  save(): Promise<void>;
-}
-
-/** The head's gaze ray in box units this frame (origin and direction written in place); false when there is none. */
-export interface HeadRay {
-  read(frame: XRFrame | null, origin: V3, dir: V3): boolean;
-}
-
-/** The finger's shadow this frame, as the hand system casts it (panel, box units). */
-export interface FingerSource {
-  readonly finger: V2[][];
-  readonly nFinger: number;
-  /** The finger's depth (box z), NaN with no finger in the beam. */
-  readonly fingerZ: number;
-  /** A hand that can cast the finger (one not holding the lantern) is in tracking. */
-  readonly tracked: boolean;
-}
-
-/** A finger lock's hold (the hand system's FingerLockLoop): FingerHold fed the solve rule with the finger. */
-export interface FingerLoop {
-  update(dtMs: number, coverage: Coverage, tracked: boolean): "idle" | "holding" | "done";
-  readonly progress: number;
-}
-
-/** The finger lock's piece in the box: formed now (gold fill, then the piece), or put back at once (a resumed box). */
-export interface CrystalSink {
-  crystallise(lock: Lock, z: number): void;
-  place(lock: Lock, z: number): void;
-}
-
-/** What the player sees of the session beyond the panel: celebrations, the plate, the hint lantern, the reward. */
-export interface SessionView {
-  /** A new box: the plate's number and latch lights, the last box's celebration put away, its scraps held back until the panel is etched. */
-  setBox(box: Box, spec: BoxSpec): void;
-  /** The panel shows this box's etching: what hangs in the box appears. */
-  reveal(): void;
-  /** Lock `lock` opened, the `order`-th: its latch light, and (unless restored) its celebration. */
-  lockOpened(lock: number, order: number, restored: boolean): void;
-  focus(lock: number | null): void;
-  /** The hint lantern glows (on) or not. */
-  stuck(on: boolean): void;
-  hint(lock: number, level: HintLevel): void;
-  clearHint(lock: number): void;
-  /** The box opens: gold sweep, walls, drawer, and the reward rising with its story line. */
-  boxOpened(): void;
-  rewardTaken(): void;
-  /** The plate offers the next box (on), or not. */
-  offerNext(on: boolean): void;
-  /** Where the hint lantern is in the world (its sounds play there); false when unknown. */
-  hintLanternAt(out: Vec3): boolean;
-  /** Per frame: animations and the box's keys and reward. Returns what the player did (ACT_* bits). */
-  update(dtMs: number, stage: Stage): number;
-}
-
-export interface BoxSessionDeps {
-  scene: SessionScene;
-  lantern: SessionLantern;
-  boxes: Pick<BoxClient, "get" | "prefetch">;
-  profiles: SessionProfiles;
-  settings: { get(): Readonly<Settings> };
-  sound: SessionSound;
-  emit: (e: FeedbackEvent) => void;
-  /** Wall-clock ms (Date.now): when a reward went into the collection. */
-  wallNow: () => number;
-  head?: HeadRay;
-  /** The hand system's finger shadow; without it finger locks cannot be filled. */
-  fingers?: FingerSource;
-  /** A finger lock's hold, one per finger lock per box (`onDone` runs once, when it completes). */
-  makeFingerLoop?: (onDone: () => void) => FingerLoop;
-  crystals?: CrystalSink;
-  view?: SessionView;
-  /** Something worth saving changed: the lifecycle saves within its debounce. */
-  saveSoon?: (nowMs: number) => void;
-}
-
-const NOOP = () => {};
-const NO_POLYS: V2[][] = [];
-/** A finger lock out of the lantern's range: nothing fills it. */
-const ZERO: Readonly<Coverage> = Object.freeze({ cover: 0, spill: 0, spillAll: 0, gap: 0 });
-
-export const NULL_VIEW: SessionView = {
-  setBox: NOOP,
-  reveal: NOOP,
-  lockOpened: NOOP,
-  focus: NOOP,
-  stuck: NOOP,
-  hint: NOOP,
-  clearHint: NOOP,
-  boxOpened: NOOP,
-  rewardTaken: NOOP,
-  offerNext: NOOP,
-  hintLanternAt: () => false,
-  update: () => 0,
-};
 
 /** A lock of the box in play: its samples and this frame's coverage, made once per box. */
 class LockState {
@@ -191,24 +62,13 @@ class LockState {
   smooth = 0;
   sentW = -1;
   ring = false;
-  short = false;
-  sentProgress = 0;
   crystalZ = Number.NaN;
   openInMs = -1;
 
   constructor(
     readonly lock: Lock,
     readonly samples: LockSamples,
-    readonly loop: FingerLoop | null,
   ) {}
-}
-
-/** The depth a piece hangs at in the generated box: where to form it when no finger depth is known. */
-function pieceDepth(box: Box, lock: Lock): number {
-  for (const e of box.elements) {
-    if (e.kind === "piece" && e.lock === lock.i && e.piece === lock.missing) return e.verts.reduce((s, v) => s + v[2], 0) / e.verts.length;
-  }
-  return 0.5;
 }
 
 export class BoxSession {
@@ -219,6 +79,7 @@ export class BoxSession {
   private stageNow: Stage = "idle";
   private locks: LockState[] = [];
   private caster = new ShadowCaster([]);
+  private readonly fingers: FingerLocks;
   private book = new HintBook(0);
   private watch = new StuckWatch();
   private gazeFocus = new GazeFocus();
@@ -231,8 +92,6 @@ export class BoxSession {
   private elapsed = 0;
   private saveMs = 0;
   private best = 0;
-  private hold = 0;
-  private fingerIn = false;
   private lastT = Number.NaN;
   private nowMs = 0;
   private paused = false;
@@ -252,6 +111,7 @@ export class BoxSession {
 
   constructor(private readonly deps: BoxSessionDeps) {
     this.view = deps.view ?? NULL_VIEW;
+    this.fingers = new FingerLocks({ fingers: deps.fingers, makeFingerLoop: deps.makeFingerLoop, crystals: deps.crystals, sound: deps.sound, emit: deps.emit });
     deps.lantern.onFeel((e) => this.onFeel(e));
   }
 
@@ -430,18 +290,8 @@ export class BoxSession {
   /** The reward goes into the collection (dropped toward the player, or by itself after 8 s). False when there is none to take. */
   takeReward(): boolean {
     if (this.stageNow !== "reward" || !this.current) return false;
-    const box = this.current, d = this.deps, p = d.profiles.profile;
-    if (!p.collection.some((c) => c.key === box.key)) {
-      p.collection.push({
-        key: box.key,
-        owner: box.owner,
-        loot: box.loot,
-        shapes: box.locks.map((l) => l.shape),
-        atMs: d.wallNow(),
-        timeMs: this.elapsed,
-        hints: this.book.count,
-      });
-    }
+    const box = this.current, d = this.deps;
+    collect(d.profiles.profile, box, d.wallNow(), this.elapsed, this.book.count);
     void d.profiles.save();
     d.emit({ type: "reward-taken", key: box.key });
     this.stageNow = "offered";
@@ -454,11 +304,11 @@ export class BoxSession {
 
   private apply(box: Box, spec: BoxSpec, snap: BoxSnapshot | null): void {
     const d = this.deps;
-    const make = d.makeFingerLoop;
     this.current = box;
     this.currentSpec = spec;
-    this.locks = box.locks.map((l) => new LockState(l, prepareLock(l), l.finger && make ? make(NOOP) : null));
+    this.locks = box.locks.map((l) => new LockState(l, prepareLock(l)));
     this.caster = new ShadowCaster(box.elements, SKIP_MISSING);
+    this.fingers.setBox(box);
     this.book = new HintBook(box.locks.length);
     this.watch = new StuckWatch();
     this.gazeFocus = new GazeFocus();
@@ -473,8 +323,6 @@ export class BoxSession {
     this.best = 0;
     this.lastL[0] = Number.NaN;
     this.lastNF = 0;
-    if (this.fingerIn) d.sound.finger(null);
-    this.fingerIn = false;
     d.scene.setBox(box);
     if (snap) {
       const p = snap.lantern;
@@ -503,7 +351,7 @@ export class BoxSession {
       if (!s || !s.lock.finger || !Number.isFinite(c.z)) continue;
       s.done = true;
       s.crystalZ = c.z;
-      this.deps.crystals?.place(s.lock, c.z);
+      this.fingers.place(s.lock, c.z);
     }
     for (const s of this.locks) if ((s.done || snap.open.includes(s.lock.i)) && !s.open) this.openLock(s, true);
     for (const s of this.locks) {
@@ -535,9 +383,9 @@ export class BoxSession {
 
   /** Measure, warm and open the locks; true when one opened this frame. */
   private measureLocks(dt: number): boolean {
-    const d = this.deps, f = d.fingers;
+    const d = this.deps, fingers = this.fingers;
     const L = d.scene.lantern.getPos(this.L), last = this.lastL;
-    const nF = f ? f.nFinger : 0;
+    const nF = fingers.count;
     const moved = L[0] !== last[0] || L[1] !== last[1] || L[2] !== last[2] || nF > 0 || this.lastNF > 0;
     last[0] = L[0];
     last[1] = L[1];
@@ -545,7 +393,7 @@ export class BoxSession {
     this.lastNF = nF;
     const warmOn = d.settings.get().warmth;
     let ns = -1, best = 0, opened = false;
-    this.hold = 0;
+    fingers.begin();
     for (let i = 0; i < this.locks.length; i++) {
       const s = this.locks[i]!;
       if (s.open) continue;
@@ -567,13 +415,15 @@ export class BoxSession {
         s.meets = false;
       } else if (moved) {
         if (ns < 0) ns = this.caster.cast(L);
-        measure(s.samples, this.caster.polys, ns, f ? f.finger : NO_POLYS, nF, s.cov);
+        measure(s.samples, this.caster.polys, ns, fingers.polys, nF, s.cov);
         s.w = warmth(s.cov, dist);
         s.meets = meets(s.cov, lock.finger);
       }
       if (s.w > best) best = s.w;
-      if (lock.finger) this.fingerLock(s, near, dt);
-      else {
+      if (lock.finger) {
+        const z = fingers.update(lock, s.cov, near, dt);
+        if (z === z) this.pieceForming(s, z);
+      } else {
         s.meetMs = s.meets ? s.meetMs + dt : 0;
         if (s.meetMs >= OPEN_DWELL_MS - EPS_MS) {
           this.openLock(s, false);
@@ -584,41 +434,15 @@ export class BoxSession {
       this.showWarmth(s, warmOn ? s.w : 0, dt);
     }
     this.best = best;
-    if (nF > 0 && f) {
-      d.sound.finger(1 - Math.min(1, Math.max(0, f.fingerZ)), this.hold);
-      this.fingerIn = true;
-    } else if (this.fingerIn) {
-      d.sound.finger(null);
-      this.fingerIn = false;
-    }
+    fingers.end();
     return opened;
   }
 
-  /** A finger lock: "one piece short", the finger's hold, and the piece forming when the hold is done. */
-  private fingerLock(s: LockState, near: boolean, dt: number): void {
-    const d = this.deps, i = s.lock.i;
-    const short = near && isShort(s.cov, true);
-    if (short && !s.short) d.emit(SHORT[i]!);
-    s.short = short;
-    const loop = s.loop, f = d.fingers;
-    if (!loop || !f) return;
-    const state = loop.update(dt, near ? s.cov : ZERO, f.tracked);
-    const p = loop.progress;
-    if (p > this.hold) this.hold = p;
-    if (p !== s.sentProgress && (Math.abs(p - s.sentProgress) >= FINGER_EVENT_STEP || p === 0 || p === 1)) {
-      s.sentProgress = p;
-      const e = this.reused.finger[i]!;
-      e.progress = p;
-      d.emit(e);
-    }
-    if (state !== "done") return;
-    const z = Number.isFinite(f.fingerZ) ? f.fingerZ : pieceDepth(this.current!, s.lock);
+  /** A finger lock's hold is done: its piece forms at depth `z`, and the lock opens once it has. */
+  private pieceForming(s: LockState, z: number): void {
     s.done = true;
     s.crystalZ = z;
     s.openInMs = CRYSTAL_MS;
-    d.crystals?.crystallise(s.lock, z);
-    d.emit(CRYSTALLISE[i]!);
-    d.sound.crystallise(i);
     this.saveSoon();
   }
 
@@ -695,31 +519,13 @@ export class BoxSession {
   /** The lock the head's gaze rests on, after the dwell. */
   private gaze(dt: number, frame: XRFrame | null): void {
     const head = this.deps.head;
-    const hit = head && head.read(frame, this.origin, this.dir) ? this.lockAt(this.origin, this.dir) : null;
+    const hit = head && head.read(frame, this.origin, this.dir) ? lockOnPanel(this.locks, this.origin, this.dir) : null;
     const f = this.gazeFocus.update(dt, hit);
     if (f === this.focused) return;
     this.focused = f;
     this.deps.emit(FOCUS[f === null ? 0 : f + 1]!);
     this.deps.sound.focus(f);
     this.view.focus(f);
-  }
-
-  /** The lock whose outline the ray from `o` along `dir` meets on the panel (nearest centre within reach), or null. */
-  private lockAt(o: V3, dir: V3): number | null {
-    if (!(dir[2] < 0) || !(o[2] > 0)) return null;
-    const t = -o[2] / dir[2];
-    const x = o[0] + dir[0] * t, y = o[1] + dir[1] * t;
-    let best = -1, bd = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < this.locks.length; i++) {
-      const l = this.locks[i]!.lock;
-      const dx = x - l.center[0], dy = y - l.center[1];
-      const r = Math.sqrt(dx * dx + dy * dy);
-      if (r <= l.size * GAZE_REACH && r < bd) {
-        bd = r;
-        best = l.i;
-      }
-    }
-    return best < 0 ? null : best;
   }
 
   /** The lock a hint is for: the one in focus if it is still closed, else the warmest closed one, else -1. */
@@ -751,19 +557,13 @@ export class BoxSession {
   }
 
   private openBox(): void {
-    const d = this.deps, box = this.current!, spec = this.currentSpec!;
+    const d = this.deps, box = this.current!, p = d.profiles.profile;
     this.boxOpenSent = true;
     d.emit({ type: "box-open", key: box.key });
     d.sound.boxOpened(box.key);
     this.view.boxOpened();
     // Solved: the profile moves on now (the reward goes into the collection when it is taken).
-    const p = d.profiles.profile;
-    if (spec.kind === "box") {
-      if (p.nextBox < spec.n + 1) p.nextBox = spec.n + 1;
-      p.current = null;
-    } else if (spec.kind === "daily") {
-      p.daily = { ...recordDailySolve(p, spec.day).daily, current: null };
-    }
+    solveBox(p, this.currentSpec!);
     void d.profiles.save();
     d.boxes.prefetch({ kind: "box", n: p.nextBox });
   }
