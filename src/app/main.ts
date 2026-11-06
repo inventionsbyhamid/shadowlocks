@@ -24,7 +24,7 @@ import { attachHands } from "./hand-system";
 import { localInputProfileUrl } from "./input-profiles";
 import { attachLantern } from "./lantern-system";
 import { attachLessons } from "./lessons";
-import { GameMenus, NO_LESSONS } from "./menu-game";
+import { GameMenus } from "./menu-game";
 import { ProfileStore } from "./profile-store";
 import { go } from "./screens";
 import { SettingsStore } from "./settings";
@@ -110,7 +110,12 @@ async function main(): Promise<void> {
   // The game (priority -2.8, after the hands): the box session (its finger locks fed by the hands), its
   // celebrations, the plate and the hint lantern.
   const play = attachGame({ world, shell, lantern, sound, hands });
-  // The lessons (priority -2.7, after the game): the director, the ghost, the coach line; "Show me" on the hint lantern.
+  // Where the player starts: a field flag's box or lesson (practice), else a first launch's lesson, else Home. Test
+  // builds can keep Home (the e2e boot does, unless a test asks for the lessons).
+  const box = startBox(location.search), lesson = startLesson(location.search);
+  const skipLessons = TEST_HOOKS && !!(window as { __slSkipLessons?: boolean }).__slSkipLessons;
+  // The lessons (priority -2.7, after the game): the director, the ghost, the coach line; "Show me" on the hint
+  // lantern; the menus' lesson rows.
   const lessons = attachLessons({
     world,
     scene: shell.box,
@@ -121,23 +126,28 @@ async function main(): Promise<void> {
     sound,
     play,
     presenting: () => shell.sessionMode !== null,
+    autoStart: () => !box && !lesson && !skipLessons,
   });
-  // What the menus play through: the box session, and the lessons once they are wired (none yet: a first
-  // launch then opens on Home, and lesson rows stay put).
+  // What the menus play through: the box session and the lessons. A progress reset lets a lesson or replay in the
+  // lap go as well as the box.
   const menuGame = new GameMenus({
     game: play.game,
     session: play.session,
-    lessons: NO_LESSONS,
+    lessons,
     toPlay: () => go("play"),
-    clearBox: () => shell.box.setBox(null),
+    clearBox: () => {
+      lessons.stop();
+      shell.box.setBox(null);
+    },
   });
   shell.useMenuGame(menuGame);
   // The menu drawer in the box's plinth (priority -2.7, after the lantern: the hand holding it never pulls). Not
-  // while the box is opening or its reward is up; a menu over play holds the box (its clock stops, it saves).
+  // while the box is opening or its reward is up, nor while a lesson's example plays; a menu over play holds the box
+  // (its clock stops, it saves).
   const drawer = attachDrawer(world, {
     root: shell.box.root,
     busy: (side) => lantern.grab.holding(side),
-    allowed: () => play.session.stage !== "opening" && play.session.stage !== "reward",
+    allowed: () => play.session.stage !== "opening" && play.session.stage !== "reward" && lessons.drawerAllowed,
     reducedMotion: () => settings.get().reducedMotion,
     pulled: (at, hand) => sound.game.drawerPull(at, hand),
     menuOpen: (open) => {
@@ -150,13 +160,10 @@ async function main(): Promise<void> {
     },
   });
   hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play, drawer, access, fakeBilling: bill.fake, menuGame, lessons });
+  // A first launch goes straight into its lesson (the shell asks the lessons); a field flag's box or lesson after.
   shell.start();
-  // Where the player starts: a field flag's box or lesson (practice), else a first launch's lesson, else Home. Test
-  // builds can keep Home (the e2e boot does, unless a test asks for the lessons).
-  const box = startBox(location.search), lesson = startLesson(location.search);
   if (box) play.game.playBox(box);
   else if (lesson) lessons.start(lesson, { practice: true });
-  else if (!(TEST_HOOKS && (window as { __slSkipLessons?: boolean }).__slSkipLessons)) lessons.firstLaunch();
   sound.loadMusicLater();
   video?.installVideoMode(world);
 

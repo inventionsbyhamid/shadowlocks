@@ -354,10 +354,15 @@ export interface SlLessonsState {
   step: number;
   done: boolean;
   replaying: string | null;
+  /** A lesson or replay is in the lap (the menus' "Your lesson"), and the drawer may be pulled. */
+  running: boolean;
+  drawerAllowed: boolean;
   practice: boolean;
   /** The coach line the director asks for, and what the chip shows now (text, opacity). */
   line: string | null;
   coach: { text: string | null; opacity: number };
+  /** The ghost hand as drawn now (its opacity; the frame's `hand` is what the director asks for). */
+  ghost: number;
   form: number;
   /** The ghost hand: its opacity, pose, side, anchor and where that is (box units). */
   hand: { opacity: number; pose: string; side: string; anchor: string; at: V3 };
@@ -382,15 +387,13 @@ export interface SlLessons {
   state(): SlLessonsState;
   /** Show one example alone; false while one is showing. */
   replay(example: "move" | "near-far" | "rings" | "finger"): boolean;
-  /** Open the menu drawer (until the menus' drawer is in, the lessons' stand-in). */
-  pullDrawer(): void;
 }
 
 /** `window.__sl`: Shadow Locks' own test hooks, present only in builds made with VITE_TEST_HOOKS=1. */
 export interface SlApi {
   /** The box session (play, state, saves, the box's keys and reward). */
   session: SlSession;
-  /** The lessons (start, state, replay, the drawer). */
+  /** The lessons (start, state, replay). */
   lessons: SlLessons;
   /** The game's state for a video frame's fingerprint, or null while no box is in play. */
   frameState(): SlFrameState | null;

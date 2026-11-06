@@ -26,7 +26,7 @@ import type { SfxId } from "../audio/manifest";
 import type { PlayOptions } from "../audio/engine";
 import type { HandsInBox } from "./hand-system";
 import type { Lantern } from "./lantern-system";
-import { DrawerStub, type Lessons } from "./lessons";
+import type { Lessons } from "./lessons";
 import type { Sound } from "./sound";
 import { appSystemName, onAppSystem } from "./systems";
 import type { NsApi, NsButton, NsClock, NsPerf, NsScene, NsSound, NsState, SlApi, SlFeelEvent, SlHand, SlLantern, SlLessons, SlSession } from "./test-api";
@@ -466,9 +466,12 @@ export function installTestHooks(
         step: d.step,
         done: d.done,
         replaying: d.replaying,
+        running: les.running,
+        drawerAllowed: les.drawerAllowed,
         practice: les.practice,
         line: f.line,
         coach: { text: les.view.coach.text, opacity: les.view.coach.opacity },
+        ghost: les.view.ghost.opacity,
         form: f.form,
         hand: { opacity: f.hand.opacity, pose: f.hand.poseB, side: f.hand.side, anchor: f.hand.anchor, at: c3(f.hand.at) },
         lamp: { opacity: f.lamp.opacity, at: c3(f.lamp.at) },
@@ -483,9 +486,6 @@ export function installTestHooks(
       };
     },
     replay: (ex) => les.replay(ex),
-    pullDrawer: () => {
-      if (les.drawer instanceof DrawerStub) les.drawer.pull();
-    },
   };
   w.__sl = {
     session,

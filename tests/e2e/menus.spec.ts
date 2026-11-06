@@ -245,7 +245,7 @@ test("poke every home button", async ({ page, boot }) => {
   await app.poke("home-daily");
   await app.step(20);
   expect((await app.events("press")).map((e: any) => e.id)).not.toContain("home-daily");
-  // Continue starts box 1 (a first launch with lessons not wired yet opens on Home).
+  // Continue starts box 1 (the e2e boot keeps Home on a first launch, not lesson 1).
   await shows(app, "home-continue-sub", "Start Box No. 1");
   await screenAfter("home-continue", "play");
   await playing(app, "shadow-locks/1");
@@ -280,32 +280,46 @@ test("poke every home button", async ({ page, boot }) => {
 test("lessons rows replay", async ({ page, boot }) => {
   const app = await boot();
   await page.evaluate(() => window.__ns!.ui.profile({ tipsSeen: ["ringless"], nextBox: 5 }));
-  // Box 5 in play, then the drawer: the replays happen with the box waiting behind the menu.
+  // Box 5 in play, then the drawer: a replay puts the box by and brings it back as it was.
   await app.poke("home-continue");
   await playing(app, "shadow-locks/5");
   await pullDrawer(app);
   const before = await page.evaluate(() => ({ behind: window.__ns!.ui.behind(), s: window.__sl!.session.snapshot() }));
   expect(before.behind).toEqual({ kind: "box", n: 5 });
-  await app.poke("home-lessons");
-  await app.stepUntil((n) => n.state().screen === "lessons", { maxMs: 5_000, label: "lessons" });
-  // Every example and the tip seen are rows; each asks the lessons to replay it.
+  const toLessons = async () => {
+    await app.poke("home-lessons");
+    await app.stepUntil((n) => n.state().screen === "lessons", { maxMs: 5_000, label: "lessons" });
+  };
+  await toLessons();
+  // Every example and the tip seen are rows.
   const ids = (await app.state()).buttons.map((b) => b.id);
   for (const id of ["lesson-move", "lesson-near-far", "lesson-rings", "lesson-finger", "tip-0"]) expect(ids).toContain(id);
   expect(ids).not.toContain("tip-1");
   await shows(app, "tip-0-label", COPY.menus.lessons.ringless);
-  for (const id of ["lesson-move", "lesson-near-far", "lesson-rings", "lesson-finger", "tip-0"]) {
+  // A row plays its example in the lap (the menu goes, the example's lesson box shows), then box 5 is back.
+  const replay = async (id: string, ex: string) => {
     await app.poke(id);
-    await app.step(20);
-  }
-  const asked = (await page.evaluate(() => window.__ns!.ui.replays())).map((r) => `${r.kind} ${r.id}`);
-  expect(asked).toEqual(["example move", "example near-far", "example rings", "example finger", "tip ringless"]);
-  // A replay never touches box progress: the same box waits, as it was, and Continue goes back to it.
-  const after = await page.evaluate(() => ({ behind: window.__ns!.ui.behind(), s: window.__sl!.session.snapshot() }));
-  expect(after).toEqual(before);
-  await app.poke("lessons-back");
-  await app.stepUntil((n) => n.state().screen === "home", { maxMs: 5_000, label: "home" });
-  await app.poke("home-continue");
-  await app.stepUntil((n) => n.state().screen === "play", { maxMs: 5_000, label: "back to box 5" });
+    await app.stepUntil((n, w, e) => n.state().screen === "play" && (w as any).__sl.lessons.state().replaying === e, { arg: ex, maxMs: 3_000, label: `${ex} replaying` });
+    expect(await page.evaluate(() => window.__ns!.ui.behind())).toEqual({ kind: "lesson" });
+    await app.stepUntil((_n, w) => (w as any).__sl.lessons.state().replaying === null, { maxMs: 30_000, label: `${ex} over` });
+    await playing(app, "shadow-locks/5");
+  };
+  await replay("lesson-move", "move");
+  // A replay never touches box progress: the same box, as it was (its clock ran only while it was in the lap).
+  const after = await page.evaluate(() => window.__sl!.session.snapshot());
+  expect(after!.key).toBe(before.s!.key);
+  expect(after!.open).toEqual(before.s!.open);
+  after!.lantern.forEach((v, k) => expect(v).toBeCloseTo(before.s!.lantern[k]!, 6));
+  expect(after!.elapsedMs - before.s!.elapsedMs).toBeGreaterThanOrEqual(0);
+  expect(after!.elapsedMs - before.s!.elapsedMs).toBeLessThan(2_000);
+  // A tip replays the example that teaches its mechanic.
+  await pullDrawer(app);
+  await toLessons();
+  await replay("tip-0", "move");
+  expect(await page.evaluate(() => window.__ns!.ui.replays())).toEqual([
+    { kind: "example", id: "move", ran: true },
+    { kind: "tip", id: "ringless", ran: true },
+  ]);
   expect((await page.evaluate(() => window.__sl!.session.state()))!.key).toBe("shadow-locks/5");
 });
 

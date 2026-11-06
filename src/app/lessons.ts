@@ -4,12 +4,15 @@
 //
 // A lesson plays its own box in the box session (lesson-boxes.ts serves it); the session never saves a lesson, and
 // lesson progress lives in Profile.lessons: the step a reload resumes at, and each lesson's done flag. Lesson 1
-// leads into lesson 2, and lesson 2 ends on the menu ("Pull the drawer..."). A first launch with lesson 1 not done
-// goes straight into it. `?lesson=l1|l2` plays a lesson as practice: nothing about progress changes.
+// leads into lesson 2, and lesson 2 ends on the menu: "Pull the drawer...", and the pull brings up Home. A first
+// launch with lesson 1 not done goes straight into it (the shell asks, through the menus' MenuLessons); a later
+// launch opens on Home. `?lesson=l1|l2` plays a lesson as practice: nothing about progress changes.
 //
-// A replay ("Show me" on the hint lantern, or the Lessons menu) shows one example on a fresh copy of its lesson's
-// box and then puts back the box that was in play, from a snapshot taken as it started: nothing is saved meanwhile,
-// so neither lesson nor box progress changes. The director runs only while the player is in XR.
+// A replay ("Show me" on the hint lantern, or a row of the Lessons menu) shows one example on a fresh copy of its
+// lesson's box and then puts back the box that was in play, from a snapshot taken as it started: that box's clock
+// cannot run meanwhile (it is not in the lap), and nothing is saved (a lesson box has no save), so neither lesson nor
+// box progress changes. The director runs only while the player is in XR. Under a menu a lesson waits, its ghost and
+// line put away; the drawer stays shut while an example shows; a progress reset lets the lesson or replay go.
 //
 // Tips: the first time a box brings in a mechanic (decoys, a lock without rings, a hidden outline), its line shows
 // on the coach line until the player has done what it says.
@@ -17,41 +20,24 @@ import { createSystem, type World } from "@iwsdk/core";
 import type { LessonId } from "../core/lessons-data";
 import type { BoxSnapshot, TipId } from "../core/profile";
 import type { Box, BoxSpec } from "../core/types";
-import { handJoints } from "../input/grab-system";
-import type { HandJoints } from "../input/hand-joints";
 import type { BoxScene } from "../render/box-scene";
 import type { BoxSession } from "./box-session";
+import { on as onBus } from "./bus";
 import type { Game } from "./game";
 import type { HandsInBox } from "./hand-system";
 import type { Lantern } from "./lantern-system";
 import { lessonSnapshot } from "./lesson-boxes";
 import { LessonView } from "./lesson-view";
 import { EXAMPLES, type ExampleId, exampleFor, type LessonInputs, LessonsDirector } from "./lessons-director";
+import type { MenuLessons } from "./menu-game";
 import type { ProfileStore } from "./profile-store";
-import { go } from "./screens";
+import { go, isMenuScreen } from "./screens";
 import type { SettingsStore } from "./settings";
 import { registerAppSystem } from "./systems";
 import { TIP_LINES, tipDone, tipFor } from "./tips";
 import { LineHold } from "../ui/coach-line";
 import { COPY } from "../ui/copy";
 import type { CoachLine } from "./events";
-
-/** The menu drawer as lesson 2 reads it (the menus' DrawerPull: `update(joints, tMs)` returns its state). */
-export type DrawerState = "closed" | "opening" | "open";
-export interface LessonDrawer {
-  update(joints: HandJoints, tMs: number): DrawerState;
-}
-
-/** A drawer that opens only when told (until the menus' drawer is in): `pull()` opens it. */
-export class DrawerStub implements LessonDrawer {
-  state: DrawerState = "closed";
-  update(): DrawerState {
-    return this.state;
-  }
-  pull(): void {
-    this.state = "open";
-  }
-}
 
 /** The lantern within this brightness of a hand counts as the player reaching for it (lantern-grab.ts: 30 cm). */
 const NEAR_GLOW = 0.05;
@@ -67,18 +53,23 @@ export interface LessonsDeps {
   play: { game: Game; session: BoxSession; view: { readonly coachLine: CoachLine | null } };
   /** The player is in XR: lessons wait outside it (the box forms as they enter). */
   presenting(): boolean;
-  drawer?: LessonDrawer;
+  /** A first launch may go into lesson 1 now (false: a field flag picked what plays, or a test keeps Home). */
+  autoStart?: () => boolean;
 }
 
-export class Lessons {
+export class Lessons implements MenuLessons {
   readonly director: LessonsDirector;
   readonly view: LessonView;
-  readonly drawer: LessonDrawer;
   /** The lesson running is practice (`?lesson=`): its steps and its end change nothing about progress. */
   practice = false;
   /** The box in play when a replay started, put back when it ends. */
   private saved: { spec: BoxSpec; snap: BoxSnapshot | null; practice: boolean } | null = null;
+  /** Lesson 2's drawer was pulled at its last step. */
   private drawerOpen = false;
+  /** A menu is up over the box (the drawer is out). */
+  private menuUp = false;
+  /** Letting the lesson or replay go (a progress reset): a replay's end puts nothing back. */
+  private dropping = false;
   private starting = false;
   private tip: TipId | null = null;
   private tipBox: Box | null = null;
@@ -92,7 +83,14 @@ export class Lessons {
   constructor(private readonly d: LessonsDeps) {
     const { lantern, hands, settings } = d;
     const session = d.play.session;
-    this.drawer = d.drawer ?? new DrawerStub();
+    onBus("screen", (e) => {
+      this.menuUp = isMenuScreen(e.to);
+    });
+    // Lesson 2's last step: "Pull the drawer to find these lessons again."
+    onBus("drawer", () => {
+      const dir = this.director;
+      if (dir.lesson === "l2" && dir.step === LESSON_DRAWER_STEP && !dir.done && !dir.replaying) this.drawerOpen = true;
+    });
     const inputs: LessonInputs = {
       held: () => lantern.grab.holder !== null,
       active: () => lantern.grab.holder !== null || lantern.grab.brightness > NEAR_GLOW || hands.n > 0,
@@ -138,21 +136,45 @@ export class Lessons {
   }
 
   /**
-   * The first launch's lesson: lesson 1 until it is done (resumed at its saved step), then lesson 2 for a player who
-   * has not played a box yet. False when neither is due.
+   * The first launch's lesson: lesson 1 until it is done, resumed at its saved step (a later launch opens on Home).
+   * False when it is done, or when this launch may not start it.
    */
   firstLaunch(): boolean {
-    const p = this.d.profiles.profile, l = p.lessons;
-    const at = (id: LessonId) => (l.step?.id === id ? l.step.index : 0);
-    if (!l.l1) this.start("l1", { step: at("l1") });
-    else if (!l.l2 && (p.nextBox === 1 || l.step?.id === "l2")) this.start("l2", { step: at("l2") });
-    else return false;
+    const l = this.d.profiles.profile.lessons;
+    if (l.l1 || !(this.d.autoStart?.() ?? true)) return false;
+    this.start("l1", { step: l.step?.id === "l1" ? l.step.index : 0 });
     return true;
   }
 
-  /** Show one example alone (the Lessons menu, "Show me"); false while one is already showing. */
+  /** A lesson or a replay is in the lap (the menus show "Your lesson" behind them). Lesson 2 ends with its pull. */
+  get running(): boolean {
+    const dir = this.director;
+    return dir.replaying !== null || (dir.lesson !== null && !dir.done && !this.drawerOpen);
+  }
+
+  /** The menus' first launch (the shell asks while lesson 1 is not done). */
+  startFirst(): boolean {
+    return this.firstLaunch();
+  }
+
+  /** Show one example alone (a Lessons menu row, "Show me"); false while one is already showing. */
   replay(example: ExampleId): boolean {
     return this.director.replay(example);
+  }
+
+  /** The menu drawer may be pulled: not while an example shows (the ghost has the lantern in its cradle). */
+  get drawerAllowed(): boolean {
+    return !this.director.showing;
+  }
+
+  /** Let the lesson or replay in the lap go (a progress reset): nothing is put back, nothing more is saved. */
+  stop(): void {
+    this.saved = null;
+    this.dropping = true;
+    this.director.stop();
+    this.dropping = false;
+    this.practice = false;
+    this.drawerOpen = false;
   }
 
   update(tMs: number): void {
@@ -166,15 +188,16 @@ export class Lessons {
       if (!s || s.kind !== "lesson" || s.id !== lesson) dir.stop();
     }
     const on = dir.replaying ? EXAMPLES[dir.replaying].lesson : dir.done ? null : dir.lesson;
-    if (on && this.d.presenting()) {
-      if (dir.lesson === "l2" && dir.step === LESSON_DRAWER_STEP && !dir.replaying && this.drawer.update(handJoints, tMs) === "open") this.drawerOpen = true;
-      dir.update(tMs);
-    }
-    // One coach line: a lesson's, else the session's suggestion (held through brief drops), else a tip.
+    // Under a menu the lesson waits, but for the pull that ends lesson 2.
+    if (on && this.d.presenting() && (!this.menuUp || this.drawerOpen)) dir.update(tMs);
+    // One coach line: a lesson's, else the session's suggestion (held through brief drops), else a tip; none under a
+    // menu (the lesson's ghost is put away there too).
     const asked = this.d.play.view.coachLine;
     const held = this.hold.update(asked ? COPY.game[asked] : null, dt);
-    this.onScreen.lesson = on;
-    this.view.update(dir.frame, this.onScreen, on ? dir.frame.line : (held ?? this.tipLine(session)), dt, tMs);
+    const shown = this.menuUp ? null : on;
+    this.onScreen.lesson = shown;
+    const line = this.menuUp ? null : shown ? dir.frame.line : (held ?? this.tipLine(session));
+    this.view.update(dir.frame, this.onScreen, line, dt, tMs);
   }
 
   /** The tip for the box in play: shown the first time its mechanic matters, until the player has done it. */
@@ -229,7 +252,7 @@ export class Lessons {
     const saved = this.saved;
     this.saved = null;
     if (saved) game.play(saved.spec, saved.snap, saved.practice);
-    else go("home");
+    else if (!this.dropping) go("home");
   }
 }
 

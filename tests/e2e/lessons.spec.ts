@@ -2,9 +2,10 @@
 // The lessons end to end, in IWER's emulated headset with scripted hands on the virtual clock: a first launch going
 // straight into lesson 1 and through it (a hand picks the lantern up, the locks are opened from their spots, both
 // staged examples run with the lantern parked in its cradle and the scraps swinging home, the reward is lifted out
-// by hand), lesson 2 (shadow puppets, the ghost finger's example, the player's crown filled by a finger, the drawer),
-// "Show me" replaying an example without touching progress, a reload resuming the lesson step, and lesson 1 for a
-// left-handed player.
+// by hand), lesson 2 (shadow puppets, the ghost finger's example, the player's crown filled by a finger, the real
+// drawer pulled by hand), the drawer over a lesson (it waits; Continue goes back; a progress reset lets it go), "Show
+// me" replaying an example without touching progress (the drawer shut meanwhile), a reload resuming the lesson step,
+// and lesson 1 for a left-handed player.
 import type { Page } from "@playwright/test";
 import type { SlLessonsState, SlSessionState } from "../../src/app/test-api";
 import { COPY } from "../../src/ui/copy";
@@ -29,6 +30,27 @@ async function untilStep(app: XrApp, lesson: string, step: number, maxMs = 30_00
     },
     { arg: { lesson, step }, maxMs, label: `${lesson} step ${step}` },
   );
+}
+
+/**
+ * Reach for the menu drawer's handle with the right hand, pinch it and draw it 6 cm toward you; let go and take the
+ * hand away. Returns whether Home came up (false: the drawer would not come).
+ */
+async function pullDrawer(app: XrApp): Promise<boolean> {
+  const d = await app.page.evaluate(() => window.__ns!.ui.drawer());
+  const along = (k: number): V3 => add(d.handle as V3, [d.toward[0] * k, d.toward[1] * k, d.toward[2] * k]);
+  const hand = new Hands(app, "right");
+  await hand.pinchAt(d.handle);
+  await hand.moveTo(along(0.06), 400);
+  let home = true;
+  try {
+    await app.stepUntil((n) => n.state().screen === "home", { maxMs: 1_500, label: "home after the pull" });
+  } catch {
+    home = false;
+  }
+  await hand.release();
+  await hand.moveTo(along(0.3), 300);
+  return home;
 }
 
 /** The session's box is `key`, in play and shown. */
@@ -193,11 +215,51 @@ test("lesson 2 completes and teaches the drawer", async ({ page, boot }) => {
   await app.stepUntil((_ns, w, t) => w.__sl.lessons.state().line === t, { arg: C.drawer, maxMs: 2_000, label: "the drawer line" });
   await app.step(120);
   expect((await lessons(page)).done).toBe(false);
-  await page.evaluate(() => window.__sl!.lessons.pullDrawer());
+  // The real drawer, pulled by hand: Home comes up and the lesson is over; nothing waits behind the menu, so Continue
+  // starts the first box.
+  expect(await pullDrawer(app)).toBe(true);
   await app.stepUntil((_ns, w) => w.__sl.lessons.state().done, { maxMs: 1_000, label: "lesson 2 done" });
   const s = await lessons(page);
   expect(s.progress).toEqual({ l1: false, l2: true, step: null });
+  expect(s.running).toBe(false);
   expect((await app.state()).screen).toBe("home");
+  expect(await page.evaluate(() => window.__ns!.ui.behind())).toBeNull();
+  await app.stepUntil((n) => n.ui.text("home-continue-sub") === "Start Box No. 1", { maxMs: 2_000, label: "Continue starts box 1" });
+  await app.step(30);
+  expect((await lessons(page)).coach.opacity).toBe(0);
+});
+
+test("the drawer over a lesson: the lesson waits, Continue goes back, a reset lets it go", async ({ page, boot }) => {
+  const app = await boot({ lessons: true, expectScreen: "play" });
+  await untilBox(app, "shadow-locks/lesson/l1");
+  await app.stepUntil((_ns, w, t) => w.__sl.lessons.state().line === t, { arg: C.pickUp, maxMs: 4_000, label: "pick up the lantern" });
+  // The drawer: Home over the lesson, "Your lesson" behind it, the ghost and the coach line put away.
+  expect(await pullDrawer(app)).toBe(true);
+  expect(await page.evaluate(() => window.__ns!.ui.behind())).toEqual({ kind: "lesson" });
+  await app.stepUntil((n, _w, t) => n.ui.text("home-continue-sub") === t, { arg: COPY.menus.home.backToLesson, maxMs: 2_000, label: "Your lesson" });
+  await app.step(60);
+  let s = await lessons(page);
+  expect([s.lesson, s.step, s.running]).toEqual(["l1", 0, true]);
+  expect(s.coach.opacity).toBe(0);
+  expect(s.ghost).toBe(0);
+  // Continue: back to the lesson, its line again.
+  await app.poke("home-continue");
+  await app.stepUntil((n) => n.state().screen === "play", { maxMs: 5_000, label: "back to the lesson" });
+  await app.stepUntil((_ns, w, t) => w.__sl.lessons.state().coach.text === t, { arg: C.pickUp, maxMs: 3_000, label: "the line again" });
+  // A progress reset from Settings: the lesson is let go, nothing waits, nothing more is saved.
+  expect(await pullDrawer(app)).toBe(true);
+  await app.poke("home-settings");
+  await app.stepUntil((n) => n.state().screen === "settings", { maxMs: 5_000, label: "settings" });
+  await app.poke("settings-reset");
+  await app.stepUntil((n) => n.state().screen === "reset", { maxMs: 5_000, label: "reset confirm" });
+  await app.poke("reset-confirm");
+  await app.stepUntil((n) => n.state().screen === "home", { maxMs: 5_000, label: "home after reset" });
+  await app.step(30);
+  s = await lessons(page);
+  expect([s.lesson, s.running, s.replaying]).toEqual([null, false, null]);
+  expect(s.progress).toEqual({ l1: false, l2: false, step: null });
+  expect(await page.evaluate(() => window.__ns!.ui.behind())).toBeNull();
+  expect(app.logs()).not.toMatch(/PAGEERROR/);
 });
 
 test("replay leaves progress unchanged", async ({ page, boot }) => {
@@ -238,7 +300,11 @@ test("replay leaves progress unchanged", async ({ page, boot }) => {
   const r = await lessons(page);
   expect(["near-far", "rings", "finger"]).toContain(r.replaying);
   expect(r.box).toBe(r.replaying === "finger" ? "l2" : "l1");
+  expect([r.running, r.drawerAllowed]).toEqual([true, false]);
   await untilBox(app, `shadow-locks/lesson/${r.box}`);
+  // The drawer stays shut while the example shows.
+  expect(await pullDrawer(app)).toBe(false);
+  expect((await app.state()).screen).toBe("play");
   await app.stepUntil((_ns, w) => w.__sl.lessons.state().replaying === null, { maxMs: 25_000, label: "the replay over" });
   // The box is back as it was, and nothing about progress changed.
   await untilBox(app, "shadow-locks/2");
