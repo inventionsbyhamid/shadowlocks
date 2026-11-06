@@ -168,8 +168,15 @@ interface PlateInfo {
 async function renderPlate(page: Page, boot: BootFn, p: Plate): Promise<PlateInfo> {
   const { app } = await bootAt(page, boot, p.width, p.height);
   await page.evaluate(stopRoomRender);
-  // The covers keep their own dark backdrop: no theatre layer over the box (the setting players have too).
-  await page.evaluate(() => (window as any).__ns.ui.setSettings({ dimming: false }));
+  // The covers keep their own dark backdrop: no theatre layer over the box (the setting players have too). A build
+  // without the setting gets a warning, not a guess: its plates may carry the veil.
+  const dimming = await page.evaluate(() => {
+    const ui = (window as any).__ns.ui;
+    if (typeof ui.settings()?.dimming !== "boolean") return "missing";
+    ui.setSettings({ dimming: false });
+    return ui.settings().dimming === false ? "off" : "stuck";
+  });
+  if (dimming !== "off") console.warn(`store art: the dimming setting is ${dimming}; the ${p.name} plate may show the theatre veil`);
   const lantern = await stage(app, page, p.scene);
   let eyeW: Vec3, atW: Vec3, vfov: number, eyeBox: readonly [number, number, number];
   let boxRect: Rect | null = null;
