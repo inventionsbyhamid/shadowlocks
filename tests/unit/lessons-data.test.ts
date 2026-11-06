@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ENVELOPE } from "../../src/core/envelope";
-import { elongation, proj } from "../../src/core/geom";
+import { GENERATOR_VERSION } from "../../src/core/generator";
+import { area, elongation, proj } from "../../src/core/geom";
 import {
   buildLessonLock,
   LESSON_1,
@@ -88,6 +89,21 @@ describe("buildLessonLock", () => {
     expect(elements).toHaveLength(1);
     expect(lock.target).toHaveLength(1);
     expect(lock.target[0]).toHaveLength(MOON_OUTLINE.length);
+  });
+
+  it("keeps the two-scrap Arrow to the lessons: no generated box can pick it, and the generator's goldens are untouched", () => {
+    const { lock, elements } = buildLessonLock("ArrowInTwo", [0, 0], 0.3, [0.1, -0.3, 1.4], [0.7, 0.2]);
+    // A lesson lock names the shape it outlines; the shape library and its names know only the Arrow.
+    expect(lock.shape).toBe("Arrow");
+    expect(elements).toHaveLength(2);
+    expect(Object.keys(SHAPES)).not.toContain("ArrowInTwo");
+    expect(Object.keys(SHAPES)).not.toContain("MoonOutline");
+    // Its two pieces cover exactly what the Arrow's four do.
+    const area4 = SHAPES.Arrow.reduce((s, p) => s + area(p), 0);
+    const area2 = lock.target.reduce((s, p) => s + area(p), 0) / (0.3 * 0.3);
+    expect(area2).toBeCloseTo(area4, 9);
+    // The goldens: generated boxes are pinned by tests/unit/generator.test.ts; the lessons' version is the same.
+    expect(GENERATOR_VERSION).toBe(3);
   });
 
   it("refuses a depth list that does not match the pieces", () => {
