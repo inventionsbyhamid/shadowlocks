@@ -80,7 +80,7 @@ verify() { # host, the asset links file the site must serve
   check() { # path, status, types ("a|b"), header line (optional)
     head_ok "$(curl -s -o /dev/null -D - --max-time 20 "https://$host$1" || true)" "$@" || bad=1
   }
-  check / 200 text/html "content-security-policy-report-only: default-src 'self'"
+  check / 200 text/html "content-security-policy: default-src 'self'"
   check /manifest.webmanifest 200 application/manifest+json "cache-control: no-cache"
   check /sw.js 200 "application/javascript|text/javascript" "cache-control: no-cache"
   check /icons/icon-192.png 200 image/png

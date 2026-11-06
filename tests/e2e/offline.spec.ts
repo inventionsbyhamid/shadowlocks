@@ -2,8 +2,8 @@
 // The installed or bookmarked game must play with no network after the first load: the first launch
 // downloads and precaches it, and every launch after that runs from the service worker. These tests
 // build the app for production (with the test hooks and the emulator) and serve it like the host,
-// headers included, because the dev server has no service worker. The CSP is served enforced (it
-// ships report-only), so these tests also prove that switching it on is safe. Violations are seen
+// headers included, because the dev server has no service worker. The CSP is served enforced, as it
+// ships, so these tests also prove the game runs under it. Violations are seen
 // twice over: the document's securitypolicyviolation events (these work offline) and the reports
 // browsers send to the test server's report-uri (these also cover workers).
 import type { Page } from "@playwright/test";
