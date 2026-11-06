@@ -38,6 +38,8 @@ export const SAVE_DEBOUNCE_MS = 1000;
 export class Lifecycle {
   private docHidden = false;
   private xr: XrVisibility = "non-immersive";
+  /** A menu is up over the box: the box waits (sound does not). */
+  private heldByMenu = false;
   private current: LifecycleSession | null = null;
   private pausedByUs = false;
   private audioSuspended = false;
@@ -54,8 +56,31 @@ export class Lifecycle {
     return !this.docHidden && this.xr === "visible";
   }
 
+  /** A menu is up over the box (the drawer is open while a box or lesson waits). */
+  get held(): boolean {
+    return this.heldByMenu;
+  }
+
+  /** The session's clock runs: the player can see it and no menu is up over it. */
+  private get running(): boolean {
+    return this.active && !this.heldByMenu;
+  }
+
   get session(): LifecycleSession | null {
     return this.current;
+  }
+
+  /**
+   * A menu came up over the box (true) or went away (false). While held the box is paused (its
+   * clock stops) and saved at once; sound keeps playing (the menus click). It runs again once the
+   * menu is gone and the player can see it.
+   */
+  setHeld(held: boolean, now: number): void {
+    if (held === this.heldByMenu) return;
+    const was = this.running;
+    this.heldByMenu = held;
+    this.runChanged(was, now);
+    if (held) this.flush(now, true);
   }
 
   setAudio(audio: LifecycleAudio | undefined): void {
@@ -67,7 +92,7 @@ export class Lifecycle {
     this.current = session;
     this.pausedByUs = false;
     if (session) {
-      if (this.active) session.resume(now);
+      if (this.running) session.resume(now);
       else {
         session.pause(now);
         this.pausedByUs = true;
@@ -78,14 +103,16 @@ export class Lifecycle {
 
   setDocumentHidden(hidden: boolean, now: number): void {
     const was = this.active;
+    const run = this.running;
     this.docHidden = hidden;
-    this.changed(was, now);
+    this.changed(was, run, now);
   }
 
   setXrVisibility(v: XrVisibility, now: number): void {
     const was = this.active;
+    const run = this.running;
     this.xr = v;
-    this.changed(was, now);
+    this.changed(was, run, now);
   }
 
   /** Something worth saving changed; save within the debounce time. */
@@ -111,28 +138,35 @@ export class Lifecycle {
     this.deps.persist(live ? s.snapshot(now) : null);
   }
 
-  private changed(was: boolean, now: number): void {
+  /** Seen or not changed (`was`: active before, `wasRunning`: the box ran before): the box, sound and a save. */
+  private changed(was: boolean, wasRunning: boolean, now: number): void {
+    this.runChanged(wasRunning, now);
     const is = this.active;
+    if (was === is) return;
+    if (!is) {
+      if (this.deps.audio && !this.audioSuspended) {
+        this.deps.audio.suspend();
+        this.audioSuspended = true;
+      }
+      this.flush(now, true);
+    } else if (this.deps.audio && this.audioSuspended) {
+      this.deps.audio.resume();
+      this.audioSuspended = false;
+    }
+  }
+
+  /** The box pauses when it stops running (hidden, or under a menu) and resumes when it runs again. */
+  private runChanged(was: boolean, now: number): void {
+    const is = this.running;
     if (was === is) return;
     if (!is) {
       if (this.current) {
         this.current.pause(now);
         this.pausedByUs = true;
       }
-      if (this.deps.audio && !this.audioSuspended) {
-        this.deps.audio.suspend();
-        this.audioSuspended = true;
-      }
-      this.flush(now, true);
-    } else {
-      if (this.current && this.pausedByUs) {
-        this.current.resume(now);
-        this.pausedByUs = false;
-      }
-      if (this.deps.audio && this.audioSuspended) {
-        this.deps.audio.resume();
-        this.audioSuspended = false;
-      }
+    } else if (this.current && this.pausedByUs) {
+      this.current.resume(now);
+      this.pausedByUs = false;
     }
   }
 }

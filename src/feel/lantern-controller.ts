@@ -227,6 +227,15 @@ export class LanternController {
     return this.isSettled ? "settled" : this.lineOn ? "line" : "free";
   }
 
+  /**
+   * The lantern is at rest: floating where it was left (not held), settled on a spot, or held by a deliberate hand
+   * (the speed gate the line lock and settle use: slower than SPEED_GATE_CMPS for SPEED_GATE_MS). A lock's open dwell
+   * counts only then (OPEN_DWELL_MS).
+   */
+  get atRest(): boolean {
+    return !this.isHeld || this.isSettled || this.slowMs >= SPEED_GATE_MS - EPS_MS;
+  }
+
   /** The lock of the active assist (settle first, then line), or null when free. */
   get lock(): number | null {
     return this.isSettled ? this.settleLock : this.lineOn ? this.lineLock : null;

@@ -5,6 +5,7 @@
 // in the installed Quest app); offline last.
 import { AssetManager, World } from "@iwsdk/core";
 import projectOptions from "virtual:iwsdk-project";
+import { PAYWALL_ON } from "../core/entitlement";
 import { attachInput } from "../input/grab-system";
 import { installOffline, showBriefly, takeOverAtBoot } from "../platform/offline";
 import { openStore } from "../platform/store";
@@ -12,14 +13,19 @@ import { APP_VERSION } from "../platform/version";
 import { COPY } from "../ui/copy";
 import { MenuSystem, useMenus } from "../ui/menu-system";
 import { styleRayCursors } from "../ui/ray-cursor";
+import { Access, billingFor } from "./access";
 import { emit, on } from "./bus";
+import { attachDrawer } from "./drawer-system";
+import { detectEdition, installedApp, paywallFor, testOverrides } from "./edition";
 import { disableMultiview, readFieldFlags, showPerfPanel, startBox } from "./field-flags";
 import { attachGame } from "./game";
 import { recordHands, recordSeconds } from "./hand-recorder";
 import { attachHands } from "./hand-system";
 import { localInputProfileUrl } from "./input-profiles";
 import { attachLantern } from "./lantern-system";
+import { GameMenus, NO_LESSONS } from "./menu-game";
 import { ProfileStore } from "./profile-store";
+import { go } from "./screens";
 import { SettingsStore } from "./settings";
 import { Shell } from "./shell";
 import { ShellSystem, useShell } from "./shell-system";
@@ -39,6 +45,14 @@ async function main(): Promise<void> {
   const say = (text: string) => {
     if (status) status.textContent = text;
   };
+  // The landing page (box art, the name, "Open the box") is for the hosted link: the installed
+  // Quest apps skip it and go straight into XR.
+  document.body.classList.toggle("installed", installedApp(window));
+  if (enter) enter.textContent = COPY.landing.open;
+  for (const [id, text] of [["tagline", COPY.landing.tagline], ["facts", COPY.landing.facts]] as const) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
 
   const hooks = TEST_HOOKS ? await import("./test-hooks") : null;
   const video = VIDEO ? await import("../video/video-mode") : null;
@@ -63,7 +77,12 @@ async function main(): Promise<void> {
   // The wall clock enters the profile here only (first launch, latest time seen): core code takes times as arguments.
   const store = await ProfileStore.open(video ? video.videoStore() : await openStore(), emit, { now: () => Date.now(), build: APP_VERSION });
   const settings = new SettingsStore(store);
-  const shell = new Shell(world, store, settings);
+  // The edition from the host (a test build may force the store edition, the paywall and fake
+  // billing from the address); with the paywall off, as in all of v1, billing is never asked.
+  const over = testOverrides(location.search, TEST_HOOKS);
+  const bill = billingFor(over?.billing);
+  const access = new Access(detectEdition(location, over), paywallFor(PAYWALL_ON, over), bill.billing, () => store.profile, () => Date.now());
+  const shell = new Shell(world, store, settings, access);
   useShell(shell);
   // Register app systems through registerAppSystem so the test hooks time them all.
   const system = registerAppSystem(world, ShellSystem, { name: "shell" });
@@ -90,7 +109,34 @@ async function main(): Promise<void> {
   // The game (priority -2.8, after the hands): the box session (its finger locks fed by the hands), its
   // celebrations, the plate and the hint lantern.
   const play = attachGame({ world, shell, lantern, sound, hands });
-  hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play });
+  // What the menus play through: the box session, and the lessons once they are wired (none yet: a first
+  // launch then opens on Home, and lesson rows stay put).
+  const menuGame = new GameMenus({
+    game: play.game,
+    session: play.session,
+    lessons: NO_LESSONS,
+    toPlay: () => go("play"),
+    clearBox: () => shell.box.setBox(null),
+  });
+  shell.useMenuGame(menuGame);
+  // The menu drawer in the box's plinth (priority -2.7, after the lantern: the hand holding it never pulls). Not
+  // while the box is opening or its reward is up; a menu over play holds the box (its clock stops, it saves).
+  const drawer = attachDrawer(world, {
+    root: shell.box.root,
+    busy: (side) => lantern.grab.holding(side),
+    allowed: () => play.session.stage !== "opening" && play.session.stage !== "reward",
+    reducedMotion: () => settings.get().reducedMotion,
+    pulled: (at, hand) => sound.game.drawerPull(at, hand),
+    menuOpen: (open) => {
+      sound.game.menuOpen(open);
+      shell.lifecycle.setHeld(open, performance.now());
+    },
+    away: (away) => {
+      lantern.setAway(away, performance.now());
+      shell.box.lantern.group.visible = !away;
+    },
+  });
+  hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play, drawer, access, fakeBilling: bill.fake, menuGame });
   shell.start();
   const box = startBox(location.search);
   if (box) play.game.playBox(box);
@@ -117,11 +163,13 @@ async function main(): Promise<void> {
     });
     world.renderer.xr.addEventListener("sessionstart", () => {
       if (status?.textContent === failed) say("");
+      document.body.classList.add("in-xr");
     });
+    world.renderer.xr.addEventListener("sessionend", () => document.body.classList.remove("in-xr"));
     if (status && status.textContent === "Loading") say("");
     // Installed Quest app (the TWA exposes the Digital Goods API): go straight into XR with no
     // gesture; Enter shows if that fails. Audio then starts on the first pinch (startAudio retries).
-    if ("getDigitalGoodsService" in window) void tryEnter();
+    if (installedApp(window)) void tryEnter();
     else if (enter) enter.hidden = false;
   } else {
     say(COPY.page.noXr);

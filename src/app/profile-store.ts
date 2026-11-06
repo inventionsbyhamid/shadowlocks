@@ -1,4 +1,4 @@
-import type { BoxSnapshot, Profile } from "../core/profile";
+import { type BoxSnapshot, type Profile, withProgressReset } from "../core/profile";
 import type { Store } from "../platform/store";
 import { COPY } from "../ui/copy";
 import type { FeedbackEvent } from "./bus";
@@ -84,6 +84,12 @@ export class ProfileStore {
   /** Set (or clear) the numbered box in progress and save. */
   setCurrent(snapshot: BoxSnapshot | null): Promise<void> {
     this.profile.current = snapshot;
+    return this.save();
+  }
+
+  /** Start progress over (settings, the first launch and the latest time seen stay) and save. */
+  resetProgress(): Promise<void> {
+    Object.assign(this.profile, withProgressReset(this.profile));
     return this.save();
   }
 

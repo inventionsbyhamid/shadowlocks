@@ -10,5 +10,9 @@ const ui = (file: string, name: string) => ({
 
 export default defineAssets({
   "home-panel": ui("home.uikitml", "Home Panel"),
+  "lessons-panel": ui("lessons.uikitml", "Lessons Panel"),
+  "collection-panel": ui("collection.uikitml", "Collection Panel"),
   "settings-panel": ui("settings.uikitml", "Settings Panel"),
+  "reset-panel": ui("reset.uikitml", "Reset Panel"),
+  "trial-panel": ui("trial.uikitml", "Trial Panel"),
 });

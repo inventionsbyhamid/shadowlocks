@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SETTLE_RADIUS, SPRING_OMEGA } from "../../src/feel/constants";
+import { SETTLE_RADIUS, SPEED_GATE_MS, SPRING_OMEGA } from "../../src/feel/constants";
 import {
   LanternController,
   type FeelEvent,
@@ -429,6 +429,49 @@ describe("LanternController", () => {
     r.release();
     expect(r.c.pos).toEqual(kept);
     expect(r.events.map((e) => e.type)).toEqual(["grab", "release"]);
+  });
+
+  it("is at rest left alone, settled, or held by a deliberate hand; never while swept at 5 to 30 cm/s", () => {
+    const spot: Spot = { lock: 0, L: [0, -0.1, 0.5], open: false };
+    const r = new Rig(add(spot.L, [u(-8), 0, 0]), ctxOf([spot]));
+    expect(r.c.atRest).toBe(true);
+    // Held still: at rest once the speed gate has been under 4 cm/s for its 200 ms.
+    r.grab();
+    expect(r.c.atRest).toBe(false);
+    r.hold(SPEED_GATE_MS - 2 * r.dt);
+    expect(r.c.atRest).toBe(false);
+    r.hold(3 * r.dt);
+    expect(r.c.atRest).toBe(true);
+    // Swept (beside the spot, so nothing settles): not at rest once the gate has caught up (well within 0.4 s), at
+    // every speed.
+    for (const cmps of [5, 10, 20, 30]) {
+      const from = r.t;
+      const rest: boolean[] = [];
+      r.watch = () => {
+        if (r.t - from > 400) rest.push(r.c.atRest);
+      };
+      r.moveTo(add(spot.L, [u(r.hand[0] < spot.L[0] ? 8 : -8), u(6), 0]), cmps);
+      r.watch = null;
+      expect(rest.length, `${cmps} cm/s`).toBeGreaterThan(5);
+      expect(rest.some((x) => x), `${cmps} cm/s`).toBe(false);
+      r.hold(800);
+      expect(r.c.atRest).toBe(true);
+    }
+    // Settled: at rest at once, and while the hand wanders inside the release radius.
+    r.moveTo(add(spot.L, [u(1), 0, 0]), 2);
+    r.hold(300);
+    expect(r.c.mode).toBe("settled");
+    expect(r.c.atRest).toBe(true);
+    const settled: boolean[] = [];
+    r.watch = () => settled.push(r.c.atRest);
+    r.moveBy([u(2), u(1), 0], 10);
+    r.moveBy([u(-3), u(-1), 0], 10);
+    r.watch = null;
+    expect(r.c.mode).toBe("settled");
+    expect(settled.every((x) => x)).toBe(true);
+    // Let go: at rest.
+    r.release();
+    expect(r.c.atRest).toBe(true);
   });
 
   it("3 mm of hand jitter neither blocks nor fakes the speed gate", () => {

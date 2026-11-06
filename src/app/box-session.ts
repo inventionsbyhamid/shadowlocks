@@ -1,10 +1,10 @@
 // The box in play, one frame at a time: each lock measured from where the lantern is (only locks within WARMTH_RANGE
 // of it, and only when the lantern or a finger moved), its warmth on the panel and in its hum, its rings lining up,
-// a finger lock's hold and its piece forming (session-fingers.ts), locks opening, the head's gaze choosing the lock in
-// focus, the stuck watch lighting the hint lantern, then the box opening, its reward taken, and the next box offered
-// on the plate. It owns the rules around a box (session-rules.ts): the Warmth setting, hints, saves (every 2 s of
-// play, and whenever the lifecycle asks), the collection, the next box and the daily streak. Play time counts only
-// while the player can see the box.
+// a finger lock's hold and its piece forming (session-fingers.ts), locks opening (the rule met for OPEN_DWELL_MS with
+// the lantern at rest), the head's gaze choosing the lock in focus, the stuck watch lighting the hint lantern, then
+// the box opening, its reward taken, and the next box offered on the plate. It owns the rules around a box
+// (session-rules.ts): the Warmth setting, hints, saves (every 2 s of play, and whenever the lifecycle asks), the
+// collection, the next box and the daily streak. Play time counts only while the player can see the box.
 //
 // The session runs right after the lantern and the hands (priority -2.8), before the box scene draws the frame. The
 // renderer, the hands and the sounds come in as small interfaces (session-deps.ts), so the unit tests run it on a
@@ -386,7 +386,7 @@ export class BoxSession {
     last[1] = L[1];
     last[2] = L[2];
     this.lastVersion = v;
-    const warmOn = d.settings.get().warmth;
+    const warmOn = d.settings.get().warmth, rest = d.lantern.atRest;
     let ns = -1, best = 0, opened = false;
     fingers.begin();
     for (let i = 0; i < this.locks.length; i++) {
@@ -419,7 +419,8 @@ export class BoxSession {
         const z = fingers.update(lock, s.cov, near, dt);
         if (z === z) this.pieceForming(s, z);
       } else {
-        s.meetMs = s.meets ? s.meetMs + dt : 0;
+        // The open dwell counts only while the lantern is at rest: a sweep, even along the lock's ray, opens nothing.
+        s.meetMs = s.meets && rest ? s.meetMs + dt : 0;
         if (s.meetMs >= OPEN_DWELL_MS - EPS_MS) {
           this.openLock(s, false);
           opened = true;

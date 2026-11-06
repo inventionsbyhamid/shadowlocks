@@ -16,9 +16,37 @@
       "transform": { "position": [0, 0.8, -0.4], "scale": 0.1 }
     },
     {
+      "id": "lessons-panel",
+      "name": "Lessons Panel",
+      "content": { "type": "asset", "asset": "lessons-panel" },
+      "components": { "PokeInteractable": {}, "RayInteractable": {} },
+      "transform": { "position": [0, 0.8, -0.4], "scale": 0.1 }
+    },
+    {
+      "id": "collection-panel",
+      "name": "Collection Panel",
+      "content": { "type": "asset", "asset": "collection-panel" },
+      "components": { "PokeInteractable": {}, "RayInteractable": {} },
+      "transform": { "position": [0, 0.8, -0.4], "scale": 0.1 }
+    },
+    {
       "id": "settings-panel",
       "name": "Settings Panel",
       "content": { "type": "asset", "asset": "settings-panel" },
+      "components": { "PokeInteractable": {}, "RayInteractable": {} },
+      "transform": { "position": [0, 0.8, -0.4], "scale": 0.1 }
+    },
+    {
+      "id": "reset-panel",
+      "name": "Reset Panel",
+      "content": { "type": "asset", "asset": "reset-panel" },
+      "components": { "PokeInteractable": {}, "RayInteractable": {} },
+      "transform": { "position": [0, 0.8, -0.4], "scale": 0.1 }
+    },
+    {
+      "id": "trial-panel",
+      "name": "Trial Panel",
+      "content": { "type": "asset", "asset": "trial-panel" },
       "components": { "PokeInteractable": {}, "RayInteractable": {} },
       "transform": { "position": [0, 0.8, -0.4], "scale": 0.1 }
     }
