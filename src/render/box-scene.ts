@@ -5,8 +5,10 @@
 //
 // The frame has no rail across the top of the open front: from a seated eye the box's lid is seen
 // from above, and a rail there would cut across the panel. Draw calls: frame, trim, floor, glass,
-// panel, shadows, scraps, threads, rings, and four for the lantern; thirteen for any box. The panel
-// shader and the shadows live in panel.ts and shadow-mesh.ts.
+// panel, shadows, scraps, threads, rings, and four for the lantern; thirteen for any box, plus one
+// for each crystallised piece (three more while one forms). The panel shader and the shadows live in
+// panel.ts and shadow-mesh.ts. The hands' shadows and the crystallised pieces' join the box's own in
+// the one shadow mesh, after them.
 import {
   BackSide,
   BoxGeometry,
@@ -36,13 +38,15 @@ import {
   type World,
 } from "@iwsdk/core";
 import { ENVELOPE } from "../core/envelope";
-import type { Box, V3 } from "../core/types";
+import type { Box, V2, V3 } from "../core/types";
+import { Crystals } from "./fx/crystallise";
+import { FlashBudget } from "./fx/flash-budget";
 import { LanternView } from "./lantern-view";
 import { mergeParts } from "./merge";
 import { BOX_ROOT_NAME, DEFAULT_BOX_CM } from "./placement";
 import { Panel } from "./panel";
 import { type ScrapHandle, Scraps, slotOf } from "./scraps";
-import { BoxShadows } from "./shadow-mesh";
+import { BoxShadows, MAX_EXTRAS, penumbra } from "./shadow-mesh";
 import { COLORS, ENV, LIGHTS, MATERIALS } from "./theme";
 
 /** Frame bars: thickness and edge radius (box units). The radius gives the clearcoat a rim to catch light. */
@@ -202,8 +206,24 @@ export class BoxScene {
   readonly shadows: BoxShadows;
   readonly lantern: LanternView;
   readonly scraps: Scraps;
+  /** Finger locks' crystallised pieces (fx/crystallise.ts). */
+  readonly crystals: Crystals;
+  /**
+   * The one flash budget of everything in the box that brightens (the lantern's flares, crystallises): never more
+   * than three flashes a second between them. Stepped once a frame here.
+   */
+  readonly flashes = new FlashBudget();
   private current: Box | null = null;
   private readonly lanternAt: V3 = [0, 0, 0];
+  /** This frame's extra shadows (crystallised pieces, then hands) and their softness. */
+  private readonly extras: V2[][] = Array.from({ length: MAX_EXTRAS }, (): V2[] => []);
+  private readonly extraSoft = new Float32Array(MAX_EXTRAS);
+  /** The hands' outlines and depths as the hand system last gave them. */
+  private handOutlines: readonly V2[][] = [];
+  private handCount = 0;
+  private handDepth: Float32Array = new Float32Array(0);
+  /** The crystals' version at the last cast (a piece made, growing or gone since recasts). */
+  private castCrystals = -1;
 
   constructor(world: World) {
     this.root.name = BOX_ROOT_NAME;
@@ -249,8 +269,10 @@ export class BoxScene {
     shadowMesh.material = this.panelArt.shadowMaterial;
     shadowMesh.position.z = PANEL_Z;
     shadowMesh.renderOrder = PANEL_ORDER + 1;
-    this.lantern = new LanternView({ lacquer, gold });
+    this.lantern = new LanternView({ lacquer, gold }, this.flashes);
+    this.crystals = new Crystals(env, this.flashes);
     this.root.add(frame, trim, floor, glass, this.panel, shadowMesh, this.scraps.mesh, this.scraps.threads, this.scraps.rings, this.lantern.group);
+    this.root.add(this.crystals.group);
     this.root.add(directional(LIGHTS.key.color, LIGHTS.key.intensity, LIGHTS.key.from, this.root));
     this.root.add(directional(LIGHTS.fill.color, LIGHTS.fill.intensity, LIGHTS.fill.from, this.root));
     // A hemisphere light reads "up" from its world position, so it stays at the scene's top level.
@@ -267,20 +289,47 @@ export class BoxScene {
   setBox(box: Box | null): void {
     this.current = box;
     this.scraps.setBox(box);
+    this.crystals.setBox(box);
     this.panelArt.setBox(box);
     this.shadows.setBox(box);
+    // The hands' outlines were for the last box; the hand system gives this box's on the next frame.
+    this.handCount = 0;
     const s = box ? box.start : ENVELOPE.START;
     this.lantern.setPos([s[0], s[1], s[2]]);
     this.syncShadows();
   }
 
   /**
-   * Cast the shadows and move the light pool if the lantern moved or a scrap appeared or went since
-   * the last time; true when it did. Every frame calls it; so can whoever moves the lantern.
+   * The hands' shadows this frame: outlines on the panel (box units, a fixed corner count each) in
+   * outlines[0..n), each one's depth (box z) for its softness. The hand system gives them every frame
+   * before the box updates; they are drawn after the crystallised pieces'.
+   */
+  setHandShadows(outlines: readonly V2[][], n: number, depth: Float32Array): void {
+    this.handOutlines = outlines;
+    this.handCount = n;
+    this.handDepth = depth;
+  }
+
+  /**
+   * Cast the shadows and move the light pool if anything changed since the last time; true when it
+   * did. Every frame calls it; so can whoever moves the lantern. The extra shadows (crystallised
+   * pieces, then the hands) go with the box's in one refresh, which casts if the lantern moved, a scrap
+   * appeared or went or the extras' count changed, and here also whenever hands are in the beam (they
+   * move) or a piece changed. Allocation-free.
    */
   syncShadows(): boolean {
     const L = this.lantern.getPos(this.lanternAt);
-    if (!this.shadows.refresh(L)) return false;
+    const extras = this.extras, soft = this.extraSoft;
+    let n = this.crystals.castShadows(L, extras, soft);
+    const hands = Math.min(this.handCount, MAX_EXTRAS - n);
+    for (let i = 0; i < hands; i++) {
+      extras[n] = this.handOutlines[i]!;
+      soft[n] = penumbra(this.handDepth[i]!, L[2]);
+      n++;
+    }
+    const changed = hands > 0 || this.crystals.version !== this.castCrystals;
+    if (!this.shadows.refresh(L, extras, n, soft, changed)) return false;
+    this.castCrystals = this.crystals.version;
     this.panelArt.setLantern(L);
     return true;
   }
@@ -312,9 +361,14 @@ export class BoxScene {
     return this.scraps.handle(lock, piece);
   }
 
-  /** Per frame: the lantern's flare and ripple, the shadows when anything moved, the panel's warmth and opening. */
+  /**
+   * Per frame: the lantern's flare and ripple, any crystallise running, the shadows when anything
+   * moved (the hands' among them), the panel's warmth and opening.
+   */
   update(dt: number): void {
+    this.flashes.step(dt);
     this.lantern.update(dt);
+    this.crystals.update(dt);
     this.syncShadows();
     this.panelArt.update(dt);
   }

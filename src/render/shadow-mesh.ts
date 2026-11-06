@@ -535,13 +535,15 @@ export class BoxShadows {
   }
 
   /**
-   * Cast with the lantern at L (no extra shadows) only if it moved, a scrap appeared or went, or the
-   * last cast had extras; true when it cast.
+   * Cast with the lantern at L and `nExtra` extra shadows (none by default) only if the lantern moved, a
+   * scrap appeared or went, the number of extras changed (so the last cast's extras go once they are
+   * gone), or the caller says the extras themselves changed (`extraChanged`: a hand moved, a piece grew);
+   * true when it cast. The one place that decides whether the shadows need casting.
    */
-  refresh(L: V3): boolean {
+  refresh(L: V3, extra?: readonly V2[][], nExtra = 0, extraSoft?: Float32Array, extraChanged = false): boolean {
     const moved = L[0] !== this.last[0] || L[1] !== this.last[1] || L[2] !== this.last[2];
-    if (!moved && !this.visibilityChanged() && this.extras === 0) return false;
-    this.cast(L);
+    if (!moved && !this.visibilityChanged() && nExtra === this.extras && !extraChanged) return false;
+    this.cast(L, extra, nExtra, extraSoft);
     return true;
   }
 

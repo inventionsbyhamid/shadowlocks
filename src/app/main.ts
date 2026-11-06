@@ -16,6 +16,7 @@ import { emit, on } from "./bus";
 import { disableMultiview, readFieldFlags, showPerfPanel, startBox } from "./field-flags";
 import { attachGame } from "./game";
 import { recordHands, recordSeconds } from "./hand-recorder";
+import { attachHands } from "./hand-system";
 import { localInputProfileUrl } from "./input-profiles";
 import { attachLantern } from "./lantern-system";
 import { ProfileStore } from "./profile-store";
@@ -72,15 +73,22 @@ async function main(): Promise<void> {
   attachInput(world);
   // The lantern (priority -3, right after the hands): held, carried, let go, settled on a spot.
   const lantern = attachLantern(world, shell.box);
+  // The hands in the box (priority -2.9): the real hand in front of the box, the hands' shadows, the finger locks.
+  const hands = attachHands(world, {
+    scene: shell.box,
+    lantern,
+    passthrough: () => shell.sessionMode === "immersive-ar",
+    reducedMotion: () => settings.get().reducedMotion,
+  });
   // The rays' cursor in the game's look (rays press keys too).
   styleRayCursors(world);
   // Sound hears every bus event after everyone else; the box tells it where the locks are.
   const sound = new Sound({ world, settings, lifecycle: shell.lifecycle, menuButtons: (screen) => shell.panels.buttons(screen), box: shell.box });
   useSound(sound);
   registerAppSystem(world, SoundSystem, { name: "sound" });
-  // The game (priority -2.8, after the lantern): the box session, its celebrations, the plate and the hint lantern.
+  // The game (priority -2.8, after the hands): the box session, its celebrations, the plate and the hint lantern.
   const play = attachGame({ world, shell, lantern, sound });
-  hooks?.installTestHooks(world, shell, system, { sound, lantern, play });
+  hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play });
   shell.start();
   const box = startBox(location.search);
   if (box) play.game.playBox(box);
