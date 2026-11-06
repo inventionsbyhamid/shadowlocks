@@ -554,6 +554,16 @@ describe("the lantern and the rings", () => {
     expect(engine.played[1]!.position).toEqual([0, 1, -1.7]);
   });
 
+  it("the theatre's lights going down and coming up play their sounds, head-locked", () => {
+    const { engine, game } = setup();
+    game.theatre(false);
+    game.theatre(true);
+    expect(engine.played.map((p) => [p.id, p.position])).toEqual([
+      ["theatre_dim", undefined],
+      ["theatre_up", undefined],
+    ]);
+  });
+
   it("a hint plays at its lock, or at the hint lantern and 6 dB down for the stuck glow", () => {
     const { engine, game } = setup();
     game.hint(2);

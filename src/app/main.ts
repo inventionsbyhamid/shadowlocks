@@ -86,6 +86,11 @@ async function main(): Promise<void> {
   const sound = new Sound({ world, settings, lifecycle: shell.lifecycle, menuButtons: (screen) => shell.panels.buttons(screen), box: shell.box });
   useSound(sound);
   registerAppSystem(world, SoundSystem, { name: "sound" });
+  // The theatre lights' own sounds: the room going down for a box in play, coming up when the box opens (none when
+  // room dimming is off, or for a menu's half light: menus have their own sounds).
+  shell.onRoomLight = (_from, to) => {
+    if (settings.get().dimming && (to === "play" || to === "up")) sound.game.theatre(to === "up");
+  };
   // The game (priority -2.8, after the hands): the box session (its finger locks fed by the hands), its
   // celebrations, the plate and the hint lantern.
   const play = attachGame({ world, shell, lantern, sound, hands });
