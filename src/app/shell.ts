@@ -198,6 +198,30 @@ export class Shell {
     });
   }
 
+  /**
+   * Compile every shader the scene can show, hidden ones too (a crystallise, the settle ripple, the ring beam, the
+   * theatre's veil and studio, menus not shown yet), for the session's own render target: a program compiled before
+   * the session (or for the page) does not serve a multiview XR target, and a compile the first time something shows
+   * stalls that frame on the headset. Call it inside an XR frame (three sets the session's target per frame):
+   * ShellSystem does, on each session's first frame. Links in the background where the browser can; a failure
+   * only costs that. The panel's etched textures upload now too, not on the first frame they show.
+   */
+  prewarm(): Promise<void> {
+    const r = this.world.renderer;
+    try {
+      for (const t of [this.box.panelArt.uniforms.uAlbedo.value, this.box.panelArt.uniforms.uMasks.value, this.box.panelArt.uniforms.uHalo.value]) {
+        if (t) r.initTexture(t);
+      }
+      return r.compileAsync(this.world.scene, this.world.camera).then(
+        () => undefined,
+        (err: unknown) => console.warn("shaders could not be compiled ahead", err),
+      );
+    } catch (err) {
+      console.warn("shaders could not be compiled ahead", err);
+      return Promise.resolve();
+    }
+  }
+
   /** Ask for 90 Hz and full foveation where the headset supports them; never fail over it. */
   private tuneSession(s: XRSession): void {
     try {

@@ -46,10 +46,12 @@ export class ShellSystem extends createSystem({}) {
     if (!s) return;
     const now = performance.now();
     const xrSession = this.world.session ?? null;
-    // Once per XR session, on its first frame with a tracked head.
+    // Once per XR session, on its first frame with a tracked head: place the box, and compile every shader for the
+    // session's render target (set only inside its frames) so nothing compiles the first time it shows.
     if (xrSession && this.placedFor !== xrSession && this.world.xrFrame && this.recenter()) {
       this.placedFor = xrSession;
       s.recenterAsked = false;
+      void s.prewarm();
     }
     // A Recenter waits for a frame with a tracked head.
     if (s.recenterAsked && this.recenter()) s.recenterAsked = false;
