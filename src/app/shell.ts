@@ -2,6 +2,7 @@
 // handling. Per-frame work lives in ShellSystem; this class reacts to events. The box session
 // (the game) plugs in through `useFlow` and runs boxes the shell restores and saves.
 import { type Object3D, SessionMode, type World } from "@iwsdk/core";
+import { specOfKey } from "../core/generator";
 import type { BoxSnapshot } from "../core/profile";
 import { BoxScene } from "../render/box-scene";
 import { placement } from "../render/placement";
@@ -20,6 +21,8 @@ export const ENTER_TIMEOUT_MS = 120_000;
 export interface GameFlow {
   /** Resume a saved box (Continue): returns the session the lifecycle drives; throws when it cannot be played on. */
   resume(snapshot: BoxSnapshot): LifecycleSession;
+  /** Which save the session's snapshots go to: the numbered box in progress, the Daily Box's, or none. */
+  slot(): "box" | "daily" | null;
 }
 
 export class Shell {
@@ -41,7 +44,7 @@ export class Shell {
     readonly profiles: ProfileStore,
     readonly settings: SettingsStore,
   ) {
-    this.lifecycle = new Lifecycle({ persist: (snap) => void this.profiles.setCurrent(snap) });
+    this.lifecycle = new Lifecycle({ persist: (snap) => this.persist(snap) });
     this.box = new BoxScene(world);
     this.theatre = new Theatre();
     world.scene.add(this.theatre.veil, this.theatre.room);
@@ -167,6 +170,16 @@ export class Shell {
   /** No box in progress: the session and its saves are let go. */
   private drop(): void {
     this.lifecycle.attach(null, performance.now());
+  }
+
+  /**
+   * The lifecycle's save of the box in play: a Daily Box's goes to the daily save, a numbered box's to the box in
+   * progress (by its key; nothing in play: by the box the game says the saves are about). Lessons keep their own.
+   */
+  private persist(snap: BoxSnapshot | null): void {
+    const kind = snap ? specOfKey(snap.key)?.kind : this.flow?.slot();
+    if (kind === "daily") void this.profiles.setDailyCurrent(snap);
+    else if (kind === "box") void this.profiles.setCurrent(snap);
   }
 
   private watchPage(): void {

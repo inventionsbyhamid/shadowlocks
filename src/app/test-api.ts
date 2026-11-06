@@ -1,5 +1,6 @@
 import type { GameSounds } from "../audio/cues";
-import type { V2, V3, Vec3 } from "../core/types";
+import type { BoxSnapshot } from "../core/profile";
+import type { BoxSpec, V2, V3, Vec3 } from "../core/types";
 import type { FeedbackEvent } from "./bus";
 import type { Screen } from "./screens";
 
@@ -198,6 +199,73 @@ export interface SlFeelEvent {
   at: number;
 }
 
+/** A lock of the box in play, as the session hook reports it (box units). */
+export interface SlLock {
+  i: number;
+  center: [number, number];
+  size: number;
+  spot: V3;
+  finger: boolean;
+  rings: boolean;
+  hidden: boolean;
+}
+
+/** The box session now (copies). */
+export interface SlSessionState {
+  /** idle, loading, playing, opening, reward, offered. */
+  stage: string;
+  key: string | null;
+  spec: BoxSpec | null;
+  locks: SlLock[];
+  /** Open locks, ascending. */
+  open: number[];
+  /** Finger pieces formed: lock and depth. */
+  crystals: { lock: number; z: number }[];
+  /** Each lock's measured warmth (0..1). */
+  warmth: number[];
+  focus: number | null;
+  stuck: boolean;
+  hints: number;
+  hintLevel: Record<number, number>;
+  elapsedMs: number;
+  /** The box's etching is on the panel and what hangs in it is shown. */
+  revealed: boolean;
+  /** The lifecycle's view: "playing" (saved) or "finished". */
+  phase: string;
+  /** Items in the collection, and the numbered box to play next. */
+  collected: number;
+  nextBox: number;
+  /** The hint lantern glows; its choices are open. */
+  hintGlow: boolean;
+  hintChoices: boolean;
+}
+
+/** A key on the box (the plate's Next, the hint lantern and its choices): world centre, facing, size (m), live. */
+export interface SlKey {
+  id: string;
+  world: Vec3;
+  normal: Vec3;
+  size: [number, number];
+  live: boolean;
+}
+
+/** The box session, for tests. */
+export interface SlSession {
+  /** Play a box now, as the menus will (the play screen; the lifecycle saves it). */
+  play(spec: BoxSpec): void;
+  /** Continue the saved numbered box (Shell.continueSaved); false when there is none to continue. */
+  continue(): boolean;
+  state(): SlSessionState | null;
+  snapshot(): BoxSnapshot | null;
+  /** Save now, as on hide (the lifecycle's forced flush). */
+  save(): void;
+  keys(): SlKey[];
+  /** The reward: where it is (world), whether it can be taken now, whether a hand holds it; null with none shown. */
+  reward(): { world: Vec3; up: boolean; held: boolean } | null;
+  /** The hint lantern's "Hint" (the lock in focus); the level shown, or null. */
+  hint(): number | null;
+}
+
 /** One tracked hand in the box this frame. */
 export interface SlHand {
   /** Shadow outlines it cast this frame (0 while it holds the lantern or is out of the mouth). */
@@ -244,6 +312,8 @@ export interface SlFingerLock {
 
 /** `window.__sl`: Shadow Locks' own test hooks, present only in builds made with VITE_TEST_HOOKS=1. */
 export interface SlApi {
+  /** The box session (play, state, saves, the box's keys and reward). */
+  session: SlSession;
   /** The game's state for a video frame's fingerprint, or null while no box is in play. */
   frameState(): SlFrameState | null;
   /** The lantern now: a copy of where it is (`pos`, box units), held or not, by which hand, its mode and glow. */

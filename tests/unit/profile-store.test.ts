@@ -95,6 +95,33 @@ describe("profile store", () => {
     expect(store.saves.at(-1)?.current).toBeNull();
   });
 
+  it("writes and clears the Daily Box in progress apart from the numbered one", async () => {
+    const store = new FakeStore();
+    const ps = await ProfileStore.open(store, () => {}, ENV);
+    const box: BoxSnapshot = { key: "shadow-locks/3", lantern: [0.3, -0.3, 1.3], open: [], crystal: [], elapsedMs: 10, hints: 0, hintLevel: {} };
+    const daily: BoxSnapshot = { ...box, key: "shadow-locks/daily/2026-11-06", gen: 3 };
+    await ps.setCurrent(box);
+    await ps.setDailyCurrent(daily);
+    expect(store.saves.at(-1)).toMatchObject({ current: box, daily: { current: daily } });
+    await ps.setDailyCurrent(null);
+    expect(store.saves.at(-1)).toMatchObject({ current: box, daily: { current: null } });
+  });
+
+  it("a box saved right after open, while the open's own write is still going, is the last thing written", async () => {
+    const store = new FakeStore();
+    let open!: () => void;
+    // The store holds every write until released: open's first write is still in flight when the box is saved.
+    store.gate = new Promise<void>((r) => (open = r));
+    const ps = await ProfileStore.open(store, () => {}, ENV);
+    const snap: BoxSnapshot = { key: "shadow-locks/2", gen: 3, lantern: [0.1, -0.3, 1.3], open: [0], crystal: [], elapsedMs: 900, hints: 0, hintLevel: {} };
+    const saved = ps.setCurrent(snap);
+    expect(store.saves).toHaveLength(0);
+    open();
+    await saved;
+    expect(store.saves.length).toBeGreaterThanOrEqual(2);
+    expect(store.saves.at(-1)?.current).toEqual(snap);
+  });
+
   it("writes the profile at open: the first-launch marker and the latest time seen", async () => {
     const store = new FakeStore();
     let t = NOW;

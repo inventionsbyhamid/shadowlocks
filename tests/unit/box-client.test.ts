@@ -69,6 +69,26 @@ describe("createBoxClient", () => {
     expect(FakeWorker.args[1]).toEqual({ type: "module" });
   });
 
+  it("rebuilds a box from the worker with arrays of its own, equal in every value", async () => {
+    const { reviveBox } = await import("../../src/core/box-client");
+    for (const n of [1, 3, 5, 9]) {
+      const sent = structuredClone(generateBox(box(n)));
+      const got = reviveBox(sent);
+      expect(got).toEqual(sent);
+      // Every coordinate array is new (none of the clone's arrays carry on).
+      expect(got.start).not.toBe(sent.start);
+      got.elements.forEach((e, k) => {
+        const s = sent.elements[k]!;
+        if (e.kind === "ring" && s.kind === "ring") expect(e.c).not.toBe(s.c);
+        else if (e.kind !== "ring" && s.kind !== "ring") e.verts.forEach((v, j) => expect(v).not.toBe(s.verts[j]));
+      });
+      got.locks.forEach((l, k) => {
+        expect(l.L).not.toBe(sent.locks[k]!.L);
+        l.target.forEach((p, j) => p.forEach((v, i) => expect(v).not.toBe(sent.locks[k]!.target[j]![i])));
+      });
+    }
+  });
+
   it("prefetches: a later get uses the box already on its way", async () => {
     vi.stubGlobal("Worker", FakeWorker);
     const { createBoxClient } = await import("../../src/core/box-client");

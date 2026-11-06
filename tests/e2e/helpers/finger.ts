@@ -245,8 +245,15 @@ export const takeFingerTrail = (page: Page): Promise<FingerFrame[]> =>
  * `z` must lie to fill the gap: the middle of the missing piece and the way it runs, on the rays from the spot.
  */
 export async function atFingerLock(app: XrApp, page: Page, z: number) {
-  await page.evaluate(() => window.__ns!.scene.show({ n: 3 }));
-  await app.step(2);
+  // Played as the game plays it: the box session measures the finger lock and runs its hold.
+  await page.evaluate(() => window.__sl!.session.play({ kind: "box", n: 3 }));
+  await app.stepUntil(
+    (_ns, w) => {
+      const s = w.__sl.session.state();
+      return s?.key === "shadow-locks/3" && s.stage === "playing" && s.revealed;
+    },
+    { maxMs: 10_000, label: "box 3 in play" },
+  );
   let [lock] = await fingerLocks(page);
   if (!lock) throw new Error("box 3 has no finger lock");
   await page.evaluate((L) => window.__sl!.placeLantern(L), lock.spot);

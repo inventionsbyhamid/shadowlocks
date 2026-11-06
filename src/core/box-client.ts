@@ -2,7 +2,7 @@
 // milliseconds, a few hundred at worst) never costs a frame. Same results as generateBox. Without a working worker
 // (Node tests, a browser that refuses one, a worker that dies) it builds on this thread instead.
 import { generateBox } from "./generator";
-import type { Box, BoxSpec } from "./types";
+import type { Box, BoxSpec, Element, Lock, V2, V3 } from "./types";
 
 export interface BoxRequest {
   id: number;
@@ -19,6 +19,21 @@ export interface BoxClient {
 
 /** How many recent boxes a client keeps ready. */
 const KEEP = 6;
+
+const v2 = (p: V2): V2 => [p[0], p[1]];
+const v3 = (p: V3): V3 => [p[0], p[1], p[2]];
+
+/**
+ * A box as it came from the worker, rebuilt with plain arrays of numbers (equal to it in every value). A structured
+ * clone comes back with generic (holey) array elements on V8, and code that measures the box every frame meets those
+ * arrays: V8 then generalises every array that passes the same code, double arrays included, and each coordinate
+ * written into one afterwards boxes a double. Once per box.
+ */
+export function reviveBox(b: Box): Box {
+  const elements: Element[] = b.elements.map((e) => (e.kind === "ring" ? { ...e, c: v3(e.c), nrm: v3(e.nrm) } : { ...e, verts: e.verts.map(v3) }));
+  const locks: Lock[] = b.locks.map((l) => ({ ...l, center: v2(l.center), target: l.target.map((p) => p.map(v2)), L: v3(l.L), mark: l.mark && v2(l.mark) }));
+  return { ...b, spec: { ...b.spec }, params: { ...b.params }, start: v3(b.start), elements, locks };
+}
 
 const keyOf = (spec: BoxSpec) =>
   spec.kind === "box" ? `box/${spec.n}` : spec.kind === "daily" ? `daily/${spec.day}` : `lesson/${spec.id}`;
@@ -72,7 +87,7 @@ export function createBoxClient(): BoxClient {
         // An error reply means the generator itself failed on this spec (it is deterministic, so this thread would
         // fail the same way): reject, and keep the worker for other boxes.
         if ("error" in msg) p.reject(new Error(msg.error));
-        else p.resolve(msg.box);
+        else p.resolve(reviveBox(msg.box));
       };
       // A broken worker, or a reply that cannot be read: stop using it and finish everything on this thread.
       w.onerror = () => disable();
