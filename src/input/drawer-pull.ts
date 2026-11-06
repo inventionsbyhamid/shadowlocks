@@ -1,7 +1,8 @@
 // The menu drawer in the box's plinth: pinch its handle and pull it 4 cm or more toward the player
 // and it opens (the menus then raise their panel). A poke does nothing: only a pinch that *starts*
 // within the grip radius of the handle takes hold, and only the pull along the drawer's own outward
-// direction counts, so pushing, sliding sideways or lifting never opens it, and a pinch made
+// direction counts, measured at the index knuckle (so fingers closing or opening are no pull), so
+// pushing, sliding sideways or lifting never opens it, and a pinch made
 // elsewhere and dragged over the handle never takes it. A short pull let go springs back closed;
 // a hand lost from tracking mid pull lets go (never a release that opens). The hand holding the
 // lantern never pulls it. Once open it stays open until the menus close it.
@@ -30,7 +31,15 @@ export interface DrawerHands {
   pinchPoint(h: HandSide, out: Vector3): boolean;
   /** Thumb tip to index tip (m); NaN when not tracked. */
   pinchDistance(h: HandSide): number;
+  /** A joint's world position (the pull follows the index knuckle); false when it has no pose. */
+  joint(h: HandSide, j: XRHandJoint, out: Vector3): boolean;
 }
+
+/**
+ * The pull is measured at the index knuckle, which carries what the hand holds: the fingertips' midpoint
+ * swings by centimetres as the fingers close and open, and a release must never read as a pull.
+ */
+const KNUCKLE: XRHandJoint = "index-finger-phalanx-proximal";
 
 /** Where the drawer is: its handle's centre and the unit direction it slides out along (world). */
 export interface DrawerFrame {
@@ -86,10 +95,10 @@ export class DrawerPull {
       return this.state;
     }
     if (this.who < 0 && started >= 0 && joints.pinchPoint(SIDES[started]!, this.at)) {
-      if (this.at.distanceTo(this.frame.handle(this.handlePos)) <= DRAWER_PULL.gripM) {
+      const side = SIDES[started]!;
+      if (this.at.distanceTo(this.frame.handle(this.handlePos)) <= DRAWER_PULL.gripM && joints.joint(side, KNUCKLE, this.start)) {
         this.who = started;
-        this.hand = SIDES[started]!;
-        this.start.copy(this.at);
+        this.hand = side;
         this.state = "opening";
         this.progress = 0;
       }
@@ -97,7 +106,7 @@ export class DrawerPull {
     if (this.who >= 0) {
       const side = SIDES[this.who]!;
       // Out of tracking: the pull holds where it was until the hand comes back or the pinch times out.
-      if (joints.pinchPoint(side, this.at)) {
+      if (joints.joint(side, KNUCKLE, this.at)) {
         const pulled = this.at.sub(this.start).dot(this.frame.toward(this.out));
         this.progress = Math.min(1, Math.max(0, pulled / DRAWER_PULL.openM));
         if (pulled >= DRAWER_PULL.openM) {

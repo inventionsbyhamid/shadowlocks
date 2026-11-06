@@ -28,6 +28,13 @@ class FakeHands implements DrawerHands {
   pinchDistance(h: HandSide): number {
     return this.on[h] ? this.gap[h] : Number.NaN;
   }
+  /** The index knuckle: where the pinch is, unless a test moves the fingertips alone (`tips`). */
+  readonly tips: Record<HandSide, Vector3> = { left: new Vector3(), right: new Vector3() };
+  joint(h: HandSide, _j: XRHandJoint, out: Vector3): boolean {
+    if (!this.on[h]) return false;
+    out.copy(this.at[h]).sub(this.tips[h]);
+    return true;
+  }
 }
 
 class Bench {
@@ -112,6 +119,24 @@ describe("DrawerPull", () => {
     expect(b.drawer.progress).toBe(0);
     expect(b.drawer.hand).toBeNull();
     expect(b.seen).toEqual(["closed", "opening", "closed"]);
+  });
+
+  it("fingers closing and opening never count as a pull: the pull is the hand's (its index knuckle's)", () => {
+    const b = bench();
+    b.pinchAt("right", HANDLE);
+    b.move("right", new Vector3(0, 0, 0.025));
+    expect(b.drawer.state).toBe("opening");
+    // Letting go: the fingertips spread and their midpoint swings 3 cm toward the player before the
+    // pinch counts as over; the hand itself stays.
+    const swing = new Vector3(0, 0, 0.03);
+    b.hands.gap.right = 0.022;
+    b.hands.at.right.add(swing);
+    b.hands.tips.right.copy(swing);
+    b.step();
+    b.hands.gap.right = 0.06;
+    b.step(3);
+    expect(b.seen).toEqual(["closed", "opening", "closed"]);
+    expect(b.drawer.opened).toBe(0);
   });
 
   it("a pinch that starts away from the handle never takes it, even dragged over it", () => {
