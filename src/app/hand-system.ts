@@ -55,8 +55,12 @@ export class HandsInBox implements FingerSource {
   standInBy = -1;
   private readonly last = new Float64Array(MAX_COMPARED * OUTLINE_CORNERS * 2);
   private lastCount = 0;
+  /** The casting stand-in's front (world), and each controller's this frame. */
   private readonly front = new Vector3();
+  private readonly fronts = [new Vector3(), new Vector3()];
   private readonly back = new Vector3();
+  /** Each controller's stand-in ends this frame (box units: left's front, back, then right's), z NaN for none. */
+  private readonly ends = new Float64Array(12);
   private readonly at = new Vector3();
   private readonly box: V3 = [0, 0, 0];
 
@@ -103,12 +107,18 @@ export class HandsInBox implements FingerSource {
     scene.setHandShadows(this.outlines, r.n, this.shadow.depth);
   }
 
-  /** A held controller (not the one holding the lantern) casts the stand-in finger along its aim, if in the mouth. */
+  /**
+   * A held controller (not the one holding the lantern) casts the stand-in finger along its aim, if in the mouth.
+   * With both free, the one whose tip is deepest in the beam (nearest the panel) casts; the other only if it is out.
+   */
   private standIn(holder: number, L: Readonly<V3>): void {
-    const rays = this.deps.rays, m = this.deps.scene.root.matrixWorld, s = this.shadow.standIn;
+    const rays = this.deps.rays, m = this.deps.scene.root.matrixWorld, s = this.shadow.standIn, ends = this.ends;
     if (!rays) return;
+    const past = STAND_IN.pastCm / 100, len = STAND_IN.lengthCm / 100;
     for (let h = 0; h < 2; h++) {
       const p = hands[h as 0 | 1];
+      // NaN: no stand-in from this controller.
+      ends[h * 6 + 2] = Number.NaN;
       if (h === holder || p.kind !== "controller" || !p.tracked) continue;
       const ray = h === 0 ? rays.left : rays.right;
       ray.updateWorldMatrix(true, false);
@@ -119,19 +129,27 @@ export class HandsInBox implements FingerSource {
       ax *= k;
       ay *= k;
       az *= k;
-      const past = STAND_IN.pastCm / 100, len = STAND_IN.lengthCm / 100;
-      this.front.set(e[12]! + ax * past, e[13]! + ay * past, e[14]! + az * past);
-      this.back.set(this.front.x - ax * len, this.front.y - ay * len, this.front.z - az * len);
-      worldToBox(m, this.front, this.box);
-      s[0] = this.box[0];
-      s[1] = this.box[1];
-      s[2] = this.box[2];
+      const front = this.fronts[h]!;
+      front.set(e[12]! + ax * past, e[13]! + ay * past, e[14]! + az * past);
+      this.back.set(front.x - ax * len, front.y - ay * len, front.z - az * len);
+      worldToBox(m, front, this.box);
+      ends[h * 6] = this.box[0];
+      ends[h * 6 + 1] = this.box[1];
+      ends[h * 6 + 2] = this.box[2];
       worldToBox(m, this.back, this.box);
-      s[3] = this.box[0];
-      s[4] = this.box[1];
-      s[5] = this.box[2];
+      ends[h * 6 + 3] = this.box[0];
+      ends[h * 6 + 4] = this.box[1];
+      ends[h * 6 + 5] = this.box[2];
+    }
+    // The deeper tip first (a NaN one never).
+    const first = !(ends[8]! < ends[2]!) && ends[2] === ends[2] ? 0 : 1;
+    for (let k = 0; k < 2; k++) {
+      const h = k === 0 ? first : 1 - first, o = h * 6;
+      if (ends[o + 2] !== ends[o + 2]) continue;
+      for (let j = 0; j < 6; j++) s[j] = ends[o + j]!;
       if (this.shadow.castStandIn(h as 0 | 1, m, L, this.outlines, this.finger).nFinger > 0) {
         this.standInBy = h;
+        this.front.copy(this.fronts[h]!);
         return;
       }
     }

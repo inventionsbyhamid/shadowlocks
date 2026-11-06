@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { BoxSession, LOCK_TO_BOX_MS, REWARD_AUTO_MS, REWARD_UP_MS } from "../../src/app/box-session";
 import { ACT_HINT, ACT_NEXT, ACT_TAKE, type BoxSessionDeps, type SessionView } from "../../src/app/session-deps";
-import { CRYSTAL_MS, type FingerLoop } from "../../src/app/session-fingers";
+import { COACH_HOLD_MS, CRYSTAL_MS, type FingerLoop } from "../../src/app/session-fingers";
 import type { FeedbackEvent } from "../../src/app/bus";
 import { GENERATOR_VERSION, generateBox } from "../../src/core/generator";
 import { type BoxSnapshot, defaultSettings, newProfile, type Profile } from "../../src/core/profile";
@@ -672,9 +672,10 @@ describe("box session", () => {
     expect(h.session.isOpen(0)).toBe(true);
   });
 
-  it("Next after a Daily Box resumes the box in progress", async () => {
+  it("Next after a Daily Box resumes the box in progress, as Continue does, even one that is not the next box", async () => {
     const profile = newProfile(0, "test");
-    profile.nextBox = 2;
+    // Box 2 in progress while the next box is 5 (a box in progress is never dropped for another).
+    profile.nextBox = 5;
     const a = harness({ profile });
     await a.session.start(BOX(2));
     a.place(a.session.box!.locks[0]!.L);
@@ -692,6 +693,19 @@ describe("box session", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(h.session.box?.key).toBe(generateBox(BOX(2)).key);
     expect(h.session.isOpen(0)).toBe(true);
+    expect(h.session.snapshot().elapsedMs).toBe(profile.current!.elapsedMs);
+    // Box 2 solved: none in progress, so Next is the next box (still 5), afresh.
+    openPlainLocks(h);
+    for (const l of h.session.box!.locks) if (l.finger && !h.session.isOpen(l.i)) openFingerLock(h, l);
+    h.until(() => h.session.stage === "reward", LOCK_TO_BOX_MS + REWARD_UP_MS + 100);
+    expect([profile.current, profile.nextBox]).toEqual([null, 5]);
+    h.view.acts = ACT_TAKE;
+    h.frames(1);
+    h.view.acts = ACT_NEXT;
+    h.frames(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.session.box?.key).toBe(generateBox(BOX(5)).key);
+    expect(h.session.isOpen(0)).toBe(false);
   });
 
   it("the fingertip hum stops whenever play does: the last lock, a new box, out of view", async () => {
@@ -782,8 +796,12 @@ describe("box session", () => {
     const fl = h.session.box!.locks.find((l) => l.finger)!;
     h.frames(3);
     expect(h.types("coach")).toEqual([]);
+    // It comes once the lock has been one piece short for COACH_HOLD_MS.
     h.place(fl.L);
-    h.frames(3);
+    const t0 = h.now();
+    h.until(() => h.types("coach").length > 0, 1000);
+    expect(h.now() - t0).toBeGreaterThanOrEqual(COACH_HOLD_MS);
+    expect(h.now() - t0).toBeLessThan(COACH_HOLD_MS + 2 * DT);
     expect(h.types("coach")).toEqual([{ type: "coach", line: "controllerFinger" }]);
     expect(h.view.calls).toContain("coach controllerFinger");
     openFingerLock(h, fl);
@@ -795,8 +813,34 @@ describe("box session", () => {
     const g = harness();
     await g.session.start(BOX(3));
     g.place(fl.L);
-    g.frames(3);
+    g.frames(Math.ceil((2 * COACH_HOLD_MS) / DT));
     expect(g.types("short")).toHaveLength(1);
     expect(g.types("coach")).toEqual([]);
+  });
+
+  it("the coach line does not flicker: on and off the spot faster than its hold changes nothing", async () => {
+    const h = harness();
+    h.finger.controllers = true;
+    await h.session.start(BOX(3));
+    const fl = h.session.box!.locks.find((l) => l.finger)!;
+    const away = [fl.L[0], fl.L[1], fl.L[2] + 1];
+    // On the spot and off it every 200 ms (under the 300 ms hold), for 3 s: never shown.
+    for (let i = 0; i < 15; i++) {
+      h.place(i % 2 ? away : fl.L);
+      h.frames(Math.round(200 / DT));
+    }
+    expect(h.types("short").length).toBeGreaterThan(5);
+    expect(h.types("coach")).toEqual([]);
+    // Held on the spot: shown; leaving it for 200 ms and coming back keeps it; leaving for good puts it out.
+    h.place(fl.L);
+    h.until(() => h.types("coach").length === 1, 1000);
+    h.place(away);
+    h.frames(Math.round(200 / DT));
+    h.place(fl.L);
+    h.frames(Math.round(600 / DT));
+    expect(h.types("coach")).toHaveLength(1);
+    h.place(away);
+    h.until(() => h.types("coach").length === 2, 1000);
+    expect(h.types("coach")[1]).toEqual({ type: "coach", line: null });
   });
 });
