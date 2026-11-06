@@ -48,7 +48,6 @@ test("drawer opens only with a pull", async ({ page, boot }) => {
   await hand.moveTo(along(d.handle, d.toward, 0.02), 300);
   expect(await page.evaluate(() => window.__ns!.ui.drawer().out)).toBeGreaterThan(0);
   await hand.release();
-  addRunNote(`drawer after a short pull let go: ${JSON.stringify(await page.evaluate(() => window.__ns!.ui.drawer()))}`);
   await app.stepUntil((n) => n.ui.drawer().out === 0, { maxMs: 2_000, label: "drawer back shut" });
   expect((await app.state()).screen).toBe("play");
 
