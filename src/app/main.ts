@@ -73,12 +73,12 @@ async function main(): Promise<void> {
   attachInput(world);
   // The lantern (priority -3, right after the hands): held, carried, let go, settled on a spot.
   const lantern = attachLantern(world, shell.box);
-  // The hands in the box (priority -2.9): the real hand in front of the box, the hands' shadows, the finger locks.
+  // The hands in the box (priority -2.9): the real hand in front of the box, the hands' shadows, the finger's shadow
+  // for the finger locks (the game measures them).
   const hands = attachHands(world, {
     scene: shell.box,
     lantern,
     passthrough: () => shell.sessionMode === "immersive-ar",
-    reducedMotion: () => settings.get().reducedMotion,
   });
   // The rays' cursor in the game's look (rays press keys too).
   styleRayCursors(world);
@@ -86,8 +86,9 @@ async function main(): Promise<void> {
   const sound = new Sound({ world, settings, lifecycle: shell.lifecycle, menuButtons: (screen) => shell.panels.buttons(screen), box: shell.box });
   useSound(sound);
   registerAppSystem(world, SoundSystem, { name: "sound" });
-  // The game (priority -2.8, after the hands): the box session, its celebrations, the plate and the hint lantern.
-  const play = attachGame({ world, shell, lantern, sound });
+  // The game (priority -2.8, after the hands): the box session (its finger locks fed by the hands), its
+  // celebrations, the plate and the hint lantern.
+  const play = attachGame({ world, shell, lantern, sound, hands });
   hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play });
   shell.start();
   const box = startBox(location.search);

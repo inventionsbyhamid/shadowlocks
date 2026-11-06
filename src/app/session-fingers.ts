@@ -1,7 +1,7 @@
 // The box session's finger locks: the one place the hand system plugs into the game. It brings three things, all
 // optional (without them a finger lock simply cannot be filled):
-// - `fingers` (FingerSource): this frame's finger shadow on the panel, the finger's depth, and whether a hand that can
-//   cast it is in tracking (the hand system's HandsInBox);
+// - `fingers` (FingerSource): this frame's finger shadow on the panel, whether a hand that can cast it is in tracking,
+//   and the depth of the finger over a lock's gap (the hand system's HandsInBox);
 // - `makeFingerLoop` (FingerLoop): one hold per finger lock per box, FingerHold fed the solve rule with the finger
 //   (the hand system's FingerLockLoop);
 // - `crystals` (CrystalSink): the missing piece forming where the finger was, or put back at once for a resumed box
@@ -11,8 +11,7 @@
 // the piece forms; the session then opens the lock once the piece has formed (CRYSTAL_MS). The fingertip hum follows a
 // finger in the beam. Per frame it allocates nothing.
 import type { GameSounds } from "../audio/cues";
-import type { Coverage } from "../core/solve";
-import { isShort } from "../core/solve";
+import { type Coverage, isShort, type LockSamples } from "../core/solve";
 import type { Box, Lock, V2 } from "../core/types";
 import type { FeedbackEvent } from "./bus";
 import { CRYSTALLISE, MAX_LOCKS, reusedEvents, SHORT } from "./events";
@@ -26,15 +25,20 @@ const FINGER_EVENT_STEP = 0.1;
 export interface FingerSource {
   readonly finger: V2[][];
   readonly nFinger: number;
-  /** The finger's depth (box z), NaN with no finger in the beam. */
+  /** The fingers' depth (box z), NaN with no finger in the beam (the fingertip hum follows it). */
   readonly fingerZ: number;
   /** A hand that can cast the finger (one not holding the lantern) is in tracking. */
   readonly tracked: boolean;
+  /** The depth of the finger whose shadow covers these gap points (box z): where the piece forms; NaN for none. */
+  depthOver(gap: readonly V2[]): number;
 }
+
+export type FingerLoopState = "idle" | "holding" | "done";
 
 /** A finger lock's hold (the hand system's FingerLockLoop): FingerHold fed the solve rule with the finger. */
 export interface FingerLoop {
-  update(dtMs: number, coverage: Coverage, tracked: boolean): "idle" | "holding" | "done";
+  update(dtMs: number, coverage: Coverage, tracked: boolean): FingerLoopState;
+  readonly state: FingerLoopState;
   readonly progress: number;
 }
 
@@ -69,6 +73,8 @@ function pieceDepth(box: Box, lock: Lock): number {
 export class FingerLocks {
   private box: Box | null = null;
   private loops: (FingerLoop | null)[] = [];
+  /** Each finger lock's gap: the sample points inside its missing piece (the finger over them forms the piece). */
+  private gaps: V2[][] = [];
   private readonly short = new Uint8Array(MAX_LOCKS);
   /** The progress last sent on the bus, per lock. */
   private readonly sent = new Float64Array(MAX_LOCKS);
@@ -88,11 +94,20 @@ export class FingerLocks {
     return this.d.fingers ? this.d.fingers.nFinger : 0;
   }
 
-  /** A new box: a hold for each of its finger locks; the fingertip hum ends. */
-  setBox(box: Box): void {
+  /** A finger lock's hold (null for a plain lock, or without the hand system). */
+  loopOf(lock: number): FingerLoop | null {
+    return this.loops[lock] ?? null;
+  }
+
+  /** A new box (`samples`: each lock's, as the session measures it): a hold for each finger lock; the fingertip hum ends. */
+  setBox(box: Box, samples: readonly LockSamples[]): void {
     const make = this.d.makeFingerLoop;
     this.box = box;
     this.loops = box.locks.map((l) => (l.finger && make ? make(NOOP) : null));
+    this.gaps = box.locks.map((l, i) => {
+      const s = samples[i]!;
+      return l.finger ? s.missingIdx.map((k) => s.inside[k]!) : [];
+    });
     this.short.fill(0);
     this.sent.fill(0);
     if (this.fingerIn) this.d.sound.finger(null);
@@ -125,7 +140,9 @@ export class FingerLocks {
       d.emit(e);
     }
     if (state !== "done") return Number.NaN;
-    const z = Number.isFinite(f.fingerZ) ? f.fingerZ : pieceDepth(this.box!, lock);
+    // At the depth of the hand whose finger fills the gap (with two hands in the mouth, not their mean).
+    const over = f.depthOver(this.gaps[i]!);
+    const z = Number.isFinite(over) ? over : pieceDepth(this.box!, lock);
     d.crystals?.crystallise(lock, z);
     d.emit(CRYSTALLISE[i]!);
     d.sound.crystallise(i);

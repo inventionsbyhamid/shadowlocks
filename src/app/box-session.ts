@@ -25,14 +25,14 @@ import { FOCUS, HINT, type HintLevel, LOCK_OPEN, RING, reusedEvents, STUCK } fro
 import { HintBook } from "./hints";
 import type { Phase } from "./lifecycle";
 import { ACT_HINT, ACT_NEXT, ACT_SHOW_ME, ACT_TAKE, type BoxSessionDeps, NULL_VIEW, type SessionView, type Stage } from "./session-deps";
-import { CRYSTAL_MS, FingerLocks } from "./session-fingers";
+import { CRYSTAL_MS, type FingerLoop, FingerLocks } from "./session-fingers";
 import { collect, lockOnPanel, solveBox } from "./session-rules";
 
 // The session's surface in one import (its deps, its stages and the finger seam live beside it).
 export { ACT_HINT, ACT_NEXT, ACT_SHOW_ME, ACT_TAKE, NULL_VIEW } from "./session-deps";
 export type { BoxSessionDeps, HeadRay, SessionLantern, SessionProfiles, SessionScene, SessionSound, SessionView, Stage } from "./session-deps";
 export { CRYSTAL_MS } from "./session-fingers";
-export type { CrystalSink, FingerLoop, FingerSource } from "./session-fingers";
+export type { CrystalSink, FingerLoop, FingerLoopState, FingerSource } from "./session-fingers";
 
 /** From the last lock opening to the box opening: the lock's own celebration reads first. */
 export const LOCK_TO_BOX_MS = 700;
@@ -174,6 +174,12 @@ export class BoxSession {
     return this.locks[lock]?.crystalZ ?? Number.NaN;
   }
 
+  /** Lock `lock`'s coverage as last measured (with the finger), and its finger hold (null for a plain lock). */
+  fingerLock(lock: number): { coverage: Readonly<Coverage>; loop: FingerLoop | null } | null {
+    const s = this.locks[lock];
+    return s ? { coverage: s.cov, loop: this.fingers.loopOf(lock) } : null;
+  }
+
   /** Hints taken on this box, and the level reached per lock. */
   get hints(): HintBook {
     return this.book;
@@ -308,7 +314,7 @@ export class BoxSession {
     this.currentSpec = spec;
     this.locks = box.locks.map((l) => new LockState(l, prepareLock(l)));
     this.caster = new ShadowCaster(box.elements, SKIP_MISSING);
-    this.fingers.setBox(box);
+    this.fingers.setBox(box, this.locks.map((s) => s.samples));
     this.book = new HintBook(box.locks.length);
     this.watch = new StuckWatch();
     this.gazeFocus = new GazeFocus();

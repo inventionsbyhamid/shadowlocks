@@ -4,7 +4,7 @@ import { type Matrix4, Quaternion, Vector3, type World } from "@iwsdk/core";
 import { generateBox } from "../core/generator";
 import { mirrorBox } from "../core/mirror";
 import type { Settings } from "../core/profile";
-import { SKIP_MISSING, shadowBuffers, shadowPolys } from "../core/solve";
+import { meets, SKIP_MISSING, shadowBuffers, shadowPolys } from "../core/solve";
 import type { V2, V3, Vec3 } from "../core/types";
 import { handJoints } from "../input/grab-system";
 import { HAND_JOINTS } from "../input/hand-joints";
@@ -438,17 +438,23 @@ export function installTestHooks(
         right: handNow(h, "right", m),
       };
     },
+    // The box session's finger locks (it measures them and runs their holds).
     fingerLocks: () =>
-      app.hands.locks.map((e) => ({
-        lock: e.lock.i,
-        spot: [...e.lock.L] as V3,
-        piece: e.lock.target[e.lock.missing]!.map((p): V2 => [p[0], p[1]]),
-        state: e.loop.state,
-        progress: e.loop.progress,
-        coverage: { ...e.coverage },
-        meets: e.meets,
-        crystal: box.crystals.piece(e.lock.i),
-      })),
+      (ses.box?.locks ?? [])
+        .filter((l) => l.finger)
+        .map((l) => {
+          const f = ses.fingerLock(l.i)!;
+          return {
+            lock: l.i,
+            spot: [...l.L] as V3,
+            piece: l.target[l.missing]!.map((p): V2 => [p[0], p[1]]),
+            state: f.loop?.state ?? "idle",
+            progress: f.loop?.progress ?? 0,
+            coverage: { ...f.coverage },
+            meets: meets(f.coverage, true),
+            crystal: box.crystals.piece(l.i),
+          };
+        }),
     crystallise: (lock, fingerZ) => {
       const l = box.box?.locks[lock];
       if (l) void crystallise(box, l, fingerZ, { reducedMotion: shell.settings.get().reducedMotion });

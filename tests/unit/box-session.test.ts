@@ -29,16 +29,17 @@ const BOX = (n: number): BoxSpec => ({ kind: "box", n });
 /** A finger lock's hold as the hand system's loop runs it (FingerHold fed `meets` with the finger). */
 function fingerLoop(): FingerLoop {
   const hold = new FingerHold();
-  let done = false;
+  let state: "idle" | "holding" | "done" = "idle";
   return {
     update(dt, c, tracked) {
-      if (done) return "done";
-      const s = hold.update(dt, tracked && meets(c, true), tracked);
-      if (s === "done") done = true;
-      return s;
+      if (state !== "done") state = hold.update(dt, tracked && meets(c, true), tracked);
+      return state;
+    },
+    get state() {
+      return state;
     },
     get progress() {
-      return done ? 1 : hold.progress;
+      return state === "done" ? 1 : hold.progress;
     },
   };
 }
@@ -54,7 +55,7 @@ interface Harness {
   feelOpen: Set<number>;
   aligned: Set<number>;
   pos: V3;
-  finger: { finger: V2[][]; nFinger: number; fingerZ: number; tracked: boolean };
+  finger: { finger: V2[][]; nFinger: number; fingerZ: number; tracked: boolean; depthOver(gap: readonly V2[]): number };
   head: { hit: V3 | null };
   view: { acts: number; calls: string[] };
   saves: () => number;
@@ -173,7 +174,16 @@ function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "ri
       return a;
     },
   };
-  const finger = { finger: [] as V2[][], nFinger: 0, fingerZ: Number.NaN, tracked: false };
+  // One hand: the finger over the gap is the one finger there is (HandsInBox picks the hand whose finger covers it).
+  const finger = {
+    finger: [] as V2[][],
+    nFinger: 0,
+    fingerZ: Number.NaN,
+    tracked: false,
+    depthOver(gap: readonly V2[]) {
+      return gap.length > 0 && this.nFinger > 0 ? this.fingerZ : Number.NaN;
+    },
+  };
   const head = { hit: null as V3 | null };
   let wall = Date.UTC(2026, 10, 6, 12);
   const deps: BoxSessionDeps = {

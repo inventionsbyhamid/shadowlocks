@@ -1,9 +1,9 @@
-// What the hands in the box cost a frame once the engine has optimised them: the "hands" system (the depth mask, both
-// hands' shadow outlines from the lantern, and box 3's finger lock measured with the finger every frame) at 4x CPU
-// throttle, and what it allocates. Both hands in the beam, the right one's finger sliding along just beside the gap,
-// so the lock never opens and keeps measuring: the most the system does in a frame. The box's update ("shell"), which
-// now casts the hands' 36 outlines into the panel's shadow mesh every frame, is timed over the same frames and
-// reported.
+// What the hands in the box cost a frame once the engine has optimised them: the "hands" system (the depth mask and
+// both hands' shadow outlines from the lantern) at 4x CPU throttle, and what the hands' path allocates, box 3's finger
+// lock included (the box session measures it with the finger every frame and runs its hold, in the "game" system,
+// timed over the same frames and reported). Both hands in the beam, the right one's finger sliding along just beside
+// the gap, so the lock never opens and keeps measuring: the most the path does in a frame. The box's update
+// ("shell"), which casts the hands' 36 outlines into the panel's shadow mesh every frame, is timed and reported too.
 //
 // V8 is told to optimise after a few calls (as lantern-cost.spec.ts does), so a short test sees steady-state code.
 // The path makes no objects, arrays or closures per frame; optimised code still boxes floats at calls it did not
@@ -39,6 +39,7 @@ const FILES = [
   "/src/render/live-attribute.ts",
   "/src/app/hand-system.ts",
   "/src/app/finger-lock.ts",
+  "/src/app/session-fingers.ts",
   "/src/feel/finger-hold.ts",
   "/src/core/solve.ts",
   "/src/core/geom.ts",
@@ -59,6 +60,7 @@ const NEW_MODULES = [
   "src/render/hand-mask.ts",
   "src/app/hand-system.ts",
   "src/app/finger-lock.ts",
+  "src/app/session-fingers.ts",
   "src/render/fx/crystallise.ts",
 ];
 
@@ -95,7 +97,7 @@ test("the hands in the box cost well under 0.5 ms a frame at 4x CPU throttle and
   const series = async (names: string[]) => (await page.evaluate((s) => window.__ns!.perfFrames(s), names)).slice(-TIMED_FRAMES);
   // WINDOWS windows of TIMED_FRAMES frames one after the other, judged by the stall rule (helpers/lantern.ts, as the
   // lantern's cost is): host stalls left out and counted, the better window held to the budget.
-  const windows: { hands: number[]; shell: number[]; load: number | undefined }[] = [];
+  const windows: { hands: number[]; game: number[]; shell: number[]; load: number | undefined }[] = [];
   try {
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
     for (let w = 0; w < WINDOWS; w++) {
@@ -104,7 +106,12 @@ test("the hands in the box cost well under 0.5 ms a frame at 4x CPU throttle and
       for (let i = 0; (await app.perf()).frames < TIMED_FRAMES; i++) await slideOnce(i);
       const load1 = loadAverage();
       const loads = [load0, load1].filter((l): l is number => l !== undefined);
-      windows.push({ hands: await series(["hands"]), shell: await series(["shell"]), load: loads.length ? Math.max(...loads) : undefined });
+      windows.push({
+        hands: await series(["hands"]),
+        game: await series(["game"]),
+        shell: await series(["shell"]),
+        load: loads.length ? Math.max(...loads) : undefined,
+      });
     }
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
     await cdp.send("HeapProfiler.enable");
@@ -121,7 +128,13 @@ test("the hands in the box cost well under 0.5 ms a frame at 4x CPU throttle and
     expect((await fingerLocks(page))[0]!.state).toBe("idle");
 
     for (const w of windows) expect(w.hands).toHaveLength(TIMED_FRAMES);
-    const stats = windows.map((w) => ({ hands: frameStats(w.hands), shell: frameStats(w.shell), load: w.load, rule: withoutStalls(w.hands) }));
+    const stats = windows.map((w) => ({
+      hands: frameStats(w.hands),
+      game: frameStats(w.game),
+      shell: frameStats(w.shell),
+      load: w.load,
+      rule: withoutStalls(w.hands),
+    }));
     const judged = judgeWindows(windows.map((w) => w.hands));
     const allocs = ourAllocations(profile, frames, FILES);
     const mesh = ourAllocations(profile, frames, MESH_FILES);
@@ -133,7 +146,8 @@ test("the hands in the box cost well under 0.5 ms a frame at 4x CPU throttle and
         (w, i) =>
           `hands cost, window ${i + 1}: hands over ${TIMED_FRAMES} frames at 4x CPU throttle: ${fmt(w.hands)}; ` +
           `${w.rule.stalls} host stalls over ${STALL_MS} ms, mean ${w.rule.meanMs.toFixed(3)} ms without them; shell (the box's update, ` +
-          `casting the hands' shadows) ${fmt(w.shell)}; server load ${w.load?.toFixed(1) ?? "?"}`,
+          `casting the hands' shadows) ${fmt(w.shell)}; game (the box session, measuring the finger lock) ${fmt(w.game)}; ` +
+          `server load ${w.load?.toFixed(1) ?? "?"}`,
       ),
       `hands cost: judged on window ${judged.index + 1}: ${judged.meanMs.toFixed(3)} ms a frame without host stalls (${judged.stalls} of them)`,
       `hands cost: ${h.outlines.length} outlines, ${h.mask} mask capsules; allocated in the hands' per-frame files, about ` +

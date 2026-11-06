@@ -6,6 +6,7 @@ import type { Page } from "@playwright/test";
 import type { SlKey, SlSessionState } from "../../src/app/test-api";
 import type { BoxSpec, V3, Vec3 } from "../../src/core/types";
 import { SEATED } from "./helpers/boot";
+import { axisOf, fingerLocks, onRay, Pointer, worldOf } from "./helpers/finger";
 import { Hands } from "./helpers/hands";
 import { add, dist, sub, toWorld, unit } from "./helpers/lantern";
 import { setHeadset, storedInProgress } from "./helpers/page-scripts";
@@ -37,12 +38,28 @@ async function openWithLantern(app: XrApp, page: Page, lock: number, spot: V3): 
   await app.stepUntil((_ns, w, i) => w.__sl.session.state().open.includes(i), { arg: lock, maxMs: 2_000, batch: 1, label: `lock ${lock} open` });
 }
 
+/** A finger lay this deep in the beam (box units). */
+const FINGER_Z = 0.5;
+
 /**
- * A finger lock opened by a pointing index finger laid in its gap (the hand system casts the finger's shadow, the
- * session holds it for 0.6 s and forms the piece). The hand system comes with the hand shadows work.
+ * A finger lock opened by the right index finger laid in its gap (the hand system casts the finger's shadow, the
+ * session holds it 0.6 s, the piece forms, and the lock opens once it has): the lantern on its spot, the finger's last
+ * two bones along the missing piece on the rays from the spot. Then the hand leaves the box.
  */
-async function openWithFinger(_app: XrApp, _page: Page, lock: number): Promise<void> {
-  throw new Error(`finger lock ${lock}: the hand system is not on this branch yet`);
+async function openWithFinger(app: XrApp, page: Page, lock: number): Promise<void> {
+  const l = (await fingerLocks(page)).find((f) => f.lock === lock)!;
+  await page.evaluate((L) => window.__sl!.placeLantern(L), l.spot);
+  await app.step(3);
+  const { mid, angle } = axisOf(l.piece);
+  // The finger points to the player's left, so a right hand lies to the right of the gap.
+  const sign = Math.cos(angle) >= 0 ? -1 : 1;
+  const hand = new Pointer(app, "right");
+  const laid = await hand.lay(onRay(l.spot, mid, FINGER_Z), [sign * Math.cos(angle), sign * Math.sin(angle), 0]);
+  expect(laid.off).toBeLessThan(0.01);
+  await app.stepUntil((_ns, w, i) => w.__sl.session.state().open.includes(i), { arg: lock, maxMs: 3_000, batch: 1, label: `finger lock ${lock} open` });
+  const [inBox, out] = await worldOf(page, [[0, 0, FINGER_Z], [0, 0, 1.6]]);
+  await hand.shift([out![0] - inBox![0], out![1] - inBox![1], out![2] - inBox![2]]);
+  await app.step(3);
 }
 
 /** The plate's and the hint lantern's keys. */
@@ -131,18 +148,19 @@ test("test hooks solve boxes 1 to 3", async ({ page, boot }) => {
 
 test("reload resumes the box", async ({ page, boot }) => {
   let app = await boot();
+  // Box 3: the finger lock opened (its piece formed), the plain lock still closed, so the box is not done.
   const s = await play(app, page, { kind: "box", n: 3 });
-  const plain = s.locks.find((l) => !l.finger)!;
   const finger = s.locks.find((l) => l.finger)!;
-  await openWithLantern(app, page, plain.i, plain.spot);
   await page.evaluate((L) => window.__sl!.placeLantern(L), finger.spot);
   await openWithFinger(app, page, finger.i);
+  await page.evaluate(() => window.__sl!.session.hint());
   const P: V3 = [0.08, -0.33, 1.29];
   await page.evaluate((L) => window.__sl!.placeLantern(L), P);
   await app.step(10);
   const before = (await session(page))!;
-  expect(before.open).toEqual([plain.i, finger.i].sort());
+  expect(before.open).toEqual([finger.i]);
   expect(before.crystals).toHaveLength(1);
+  expect(before.hints).toBe(1);
   // Saved as the lifecycle saves it (forced, as on hide), then the page is loaded again.
   await page.evaluate(() => window.__sl!.session.save());
   await app.step(2);
@@ -163,6 +181,7 @@ test("reload resumes the box", async ({ page, boot }) => {
   expect(after.key).toBe(s.key);
   expect(after.open).toEqual(before.open);
   expect(after.crystals).toEqual(before.crystals);
+  expect(after.hintLevel).toEqual(before.hintLevel);
   expect(after.elapsedMs).toBeGreaterThanOrEqual(before.elapsedMs);
   const frame = (await page.evaluate(() => window.__sl!.frameState()))!;
   expect(dist(frame.lantern, P)).toBeLessThan(1e-9);

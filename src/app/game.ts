@@ -13,7 +13,7 @@ import { hands } from "../input/grab-system";
 import { pressGate } from "../input/poke";
 import type { BoxScene } from "../render/box-scene";
 import { BoxOpenFx } from "../render/fx/box-open";
-import { FlashBudget } from "../render/fx/flash-budget";
+import { crystallise } from "../render/fx/crystallise";
 import { LockOpenFx } from "../render/fx/lock-open";
 import { worldToBox } from "../render/placement";
 import { Reward, type RewardHands } from "../render/reward";
@@ -22,6 +22,8 @@ import { HINT_ASK, HintLantern } from "../ui/hint-lantern";
 import { NO_TIPS } from "../ui/key-view";
 import { Plate } from "../ui/plate";
 import { BoxSession } from "./box-session";
+import { FingerLockLoop } from "./finger-lock";
+import type { FingerSource } from "./session-fingers";
 import { emit } from "./bus";
 import type { HintLevel } from "./events";
 import { HintMarks } from "./hints";
@@ -52,8 +54,6 @@ export class GameView implements SessionView {
   readonly reward: Reward;
   readonly plate: Plate;
   readonly hintLantern: HintLantern;
-  /** One flash budget for the lock and box celebrations (never more than three flashes a second). */
-  readonly budget = new FlashBudget();
   private readonly tips: FrameTips;
   private readonly hands: RewardHands;
   private box: Box | null = null;
@@ -63,8 +63,10 @@ export class GameView implements SessionView {
   constructor(private readonly d: GameViewDeps) {
     const scene = d.scene, root = scene.root;
     this.marks = new HintMarks(scene);
-    this.lockFx = new LockOpenFx(scene, this.budget);
-    this.boxFx = new BoxOpenFx(root, this.budget);
+    // The box's one flash budget (the scene steps it): lock and box celebrations, the lantern's flares and the
+    // crystallises share the three-a-second cap.
+    this.lockFx = new LockOpenFx(scene, scene.flashes);
+    this.boxFx = new BoxOpenFx(root, scene.flashes);
     this.reward = new Reward(root);
     this.plate = new Plate(root);
     this.hintLantern = new HintLantern(root, d.canShowMe);
@@ -141,7 +143,6 @@ export class GameView implements SessionView {
 
   update(dtMs: number, stage: Stage): number {
     const dt = dtMs / 1000, reduced = this.d.settings.get().reducedMotion;
-    this.budget.step(dt);
     this.lockFx.update(dt, reduced);
     this.boxFx.update(dt, reduced);
     const tips = stage === "idle" || stage === "loading" ? NO_TIPS : this.tips.read();
@@ -287,14 +288,25 @@ export interface GameDeps {
   shell: { readonly box: BoxScene; readonly settings: SettingsStore; markDirty(now: number): void; useFlow(flow: GameFlow): void } & GameShell;
   lantern: Lantern;
   sound: Pick<Sound, "game">;
+  /** The hands in the box: the finger locks' finger source. */
+  hands: FingerSource;
 }
 
-/** The game: the box session and its view, registered as the "game" system. Call once, after the lantern. */
+/** The game: the box session and its view, registered as the "game" system. Call once, after the lantern and the hands. */
 export function attachGame(d: GameDeps): { game: Game; session: BoxSession; view: GameView } {
   const { world, shell } = d;
+  const scene = shell.box;
   let session: BoxSession | null = null;
-  const view = new GameView({ world, scene: shell.box, settings: shell.settings, lantern: d.lantern, canShowMe: () => session?.showMe != null });
+  const view = new GameView({ world, scene, settings: shell.settings, lantern: d.lantern, canShowMe: () => session?.showMe != null });
   session = new BoxSession({
+    // The finger locks (session-fingers.ts): the hands' finger shadow, a FingerLockLoop per finger lock, and the
+    // piece forming where the finger was (or put back at once for a resumed box).
+    fingers: d.hands,
+    makeFingerLoop: (onDone) => new FingerLockLoop(onDone),
+    crystals: {
+      crystallise: (lock, z) => void crystallise(scene, lock, z, { reducedMotion: shell.settings.get().reducedMotion }),
+      place: (lock, z) => scene.crystals.place(lock, z),
+    },
     scene: shell.box,
     lantern: d.lantern,
     boxes: createBoxClient(),
