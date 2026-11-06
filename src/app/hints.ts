@@ -126,6 +126,7 @@ export class HintMarks {
       const ghost = new Group();
       ghost.name = "Ghost Lantern";
       const glow = new Sprite(ghostGlow);
+      glow.name = "Ghost Lantern Glow";
       glow.scale.set(HINT_LOOK.ghost.glow, HINT_LOOK.ghost.glow, 1);
       const body = new Mesh(core, ghostCore);
       body.name = "Ghost Lantern Core";

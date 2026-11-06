@@ -11,17 +11,25 @@ import {
   Group,
   type Material,
   MeshBasicMaterial,
-  type Object3D,
+  MeshStandardMaterial,
+  NoBlending,
+  NormalBlending,
   OneFactor,
   OneMinusSrcAlphaFactor,
   SrcAlphaFactor,
   ZeroFactor,
 } from "@iwsdk/core";
+import { HintMarks } from "../../src/app/hints";
 import { BoxOpenFx } from "../../src/render/fx/box-open";
+import { Crystals } from "../../src/render/fx/crystallise";
 import { FlashBudget } from "../../src/render/fx/flash-budget";
 import { LockOpenFx } from "../../src/render/fx/lock-open";
+import { LanternView } from "../../src/render/lantern-view";
 import { LIGHT_BLEND } from "../../src/render/light-blend";
 import { Reward } from "../../src/render/reward";
+import { RingBeam } from "../../src/render/ring-beam";
+import { HintLantern } from "../../src/ui/hint-lantern";
+import { Plate } from "../../src/ui/plate";
 
 type Rgba = [number, number, number, number];
 
@@ -52,15 +60,6 @@ function draw(m: Material, dst: Rgba, c: [number, number, number], a: number): R
 /** What the headset shows: the page (premultiplied) over the room. */
 const over = (page: Rgba, room: number[]) => room.map((r, i) => page[i]! + (1 - page[3]) * r);
 
-/** The materials of the objects under `o` named `name` (every lock burst slot is one). */
-function named(o: Object3D, name: string): Material[] {
-  const out: Material[] = [];
-  o.traverse((x) => {
-    if (x.name === name) out.push((x as unknown as { material: Material }).material);
-  });
-  return out;
-}
-
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((n) => {
     const p = join(dir, n);
@@ -85,27 +84,39 @@ describe("light over the room", () => {
     [0.7, 0.6, 0.4, 1].forEach((v, i) => expect(box[i]).toBeCloseTo(v, 9));
   });
 
-  it("the celebrations' glows all add light: the lock's burst and sparkle, the box's burst and sweep, the reward's glow", () => {
-    const budget = new FlashBudget();
-    const lockRoot = new Group(), boxRoot = new Group(), rewardRoot = new Group();
-    new LockOpenFx({ root: lockRoot, scrapMesh: () => ({ setGlow: () => {} }) }, budget);
-    new BoxOpenFx(boxRoot, budget);
-    new Reward(rewardRoot, budget);
-    const bursts = named(lockRoot, "Lock Burst");
-    expect(bursts.length).toBeGreaterThanOrEqual(2);
-    const all = [
-      ...bursts,
-      ...named(lockRoot, "Lock Sparkle"),
-      ...named(boxRoot, "Box Burst"),
-      ...named(boxRoot, "Box Sweep"),
-      ...named(rewardRoot, "Reward Glow"),
-    ];
-    expect(all).toHaveLength(bursts.length + 4);
-    for (const m of all) {
-      expect(m.transparent).toBe(true);
-      expect(m.blending).toBe(CustomBlending);
-      expect([m.blendSrc, m.blendDst, m.blendSrcAlpha, m.blendDstAlpha]).toEqual([SrcAlphaFactor, OneFactor, ZeroFactor, OneFactor]);
-    }
+  it("everything blended in the box adds light (LIGHT_BLEND) or is a painted face (labelMaterial), nothing else", () => {
+    // The box's parts that blend: the celebrations, the plate and its keys, the hint lantern, the hint marks (beams
+    // and ghost lanterns), the lantern (halo and ripple), the crystals (glitter) and the ring beam.
+    const budget = new FlashBudget(), root = new Group();
+    new LockOpenFx({ root, scrapMesh: () => ({ setGlow: () => {} }) }, budget);
+    new BoxOpenFx(root, budget);
+    new Reward(root, budget);
+    new Plate(root);
+    new HintLantern(root);
+    new HintMarks({ root, scrapMesh: () => ({ setGlow: () => {} }), scraps: { setRingGlow: () => {} } });
+    const lantern = new LanternView({ lacquer: new MeshStandardMaterial(), gold: new MeshStandardMaterial() }, budget);
+    root.add(lantern.group, new Crystals(null, budget).group, new RingBeam().mesh);
+    const LIGHT = [CustomBlending, AddEquation, SrcAlphaFactor, OneFactor, ZeroFactor, OneFactor];
+    const LABEL = [CustomBlending, AddEquation, OneFactor, OneMinusSrcAlphaFactor, OneFactor, OneMinusSrcAlphaFactor];
+    const light = new Set<string>(), label = new Set<string>(), other: string[] = [];
+    root.traverse((o) => {
+      const m = (o as { material?: Material }).material;
+      if (!m || m.blending === NormalBlending || m.blending === NoBlending) return;
+      const f = [m.blending, m.blendEquation, m.blendSrc, m.blendDst, m.blendSrcAlpha ?? m.blendSrc, m.blendDstAlpha ?? m.blendDst];
+      const is = (want: number[]) => f.every((x, i) => x === want[i]);
+      if (is(LIGHT)) light.add(o.name);
+      else if (is(LABEL)) label.add(o.name);
+      else other.push(`${o.name}: ${f.join(", ")}`);
+    });
+    expect(other).toEqual([]);
+    const glows = ["Lock Burst", "Lock Sparkle", "Box Burst", "Box Sweep", "Reward Glow", "Lantern Glow", "Lantern Ripple"];
+    glows.push("Hint Lantern Glow", "Ghost Lantern Glow", "Hint Beam", "Ring Beam", "Crystal Glitter");
+    expect([...light].sort()).toEqual(glows.sort());
+    for (const n of ["Plate Face", "Reward Story"]) expect(label.has(n)).toBe(true);
+    // Every glow is in the transparent pass: drawn over what it lights.
+    root.traverse((o) => {
+      if (light.has(o.name)) expect((o as unknown as { material: Material }).material.transparent).toBe(true);
+    });
   });
 
   it("nothing in the app uses three's AdditiveBlending (the lantern's halo, the hints, the ring beam, the crystal's glitter included)", () => {
