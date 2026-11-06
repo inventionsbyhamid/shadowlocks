@@ -276,6 +276,10 @@ test("celebrations: a lock opening with its glints, the box opening and the ligh
     return { open: scene.getObjectByName("Box Lid Open").parent.visible as boolean, shut: scene.getObjectByName("Box Lid").visible as boolean };
   });
   expect(lid).toEqual({ open: false, shut: false });
+  // Half way up (2.1 s after the box opened) the reward's glow is at its peak; then it settles.
+  await playFor(700);
+  const rising = (await page.evaluate(() => window.__sl!.session.reward()))!;
+  await app.captureHeadset("look-celebrate-reward-bloom-headset", { x: rising.world[0], y: rising.world[1], z: rising.world[2] });
   await app.stepUntil((_ns, w) => w.__sl.session.state().stage === "reward", { maxMs: 4_000, dt: 100, label: "the reward up" });
   const r = (await page.evaluate(() => window.__sl!.session.reward()))!;
   await app.captureHeadset("look-celebrate-reward-headset", { x: r.world[0], y: r.world[1], z: r.world[2] });
