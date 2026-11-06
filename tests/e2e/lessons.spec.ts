@@ -233,6 +233,8 @@ test("the drawer over a lesson: the lesson waits, Continue goes back, a reset le
   const app = await boot({ lessons: true, expectScreen: "play" });
   await untilBox(app, "shadow-locks/lesson/l1");
   await app.stepUntil((_ns, w, t) => w.__sl.lessons.state().line === t, { arg: C.pickUp, maxMs: 4_000, label: "pick up the lantern" });
+  // Idle, the ghost hand shows how to take the lantern.
+  await app.stepUntil((_ns, w) => w.__sl.lessons.state().ghost > 0.5, { maxMs: 8_000, label: "the idle ghost" });
   // The drawer: Home over the lesson, "Your lesson" behind it, the ghost and the coach line put away.
   expect(await pullDrawer(app)).toBe(true);
   expect(await page.evaluate(() => window.__ns!.ui.behind())).toEqual({ kind: "lesson" });

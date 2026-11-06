@@ -168,8 +168,9 @@ export class LessonView {
     // The ghost lantern and hand.
     this.lamp.setPos(f.lamp.at);
     this.lamp.opacity = ours ? f.lamp.opacity : 0;
-    const h = f.hand;
-    if (h.opacity > 0) {
+    // The ghost hand only while a lesson or replay is on screen (a menu over the lesson puts it away).
+    const h = f.hand, ho = on.lesson !== null ? h.opacity : 0;
+    if (ho > 0) {
       const g = this.ghost;
       g.side = h.side;
       g.setPose(h.poseA, h.poseB, h.poseT);
@@ -178,9 +179,9 @@ export class LessonView {
       this.vP.set(h.palm[0], h.palm[1], h.palm[2]).transformDirection(m);
       g.place(h.anchor, this.vAt, this.vF, this.vP);
     }
-    this.ghost.opacity = h.opacity;
+    this.ghost.opacity = ho;
     let n = 0;
-    if (h.opacity >= LESSON_LOOK.castFrom) {
+    if (ho >= LESSON_LOOK.castFrom) {
       n = this.ghostShadow.update(this.ghostJoints, null, m as Matrix4, scene.lightPos(this.L), this.ghostOutlines, this.ghostFinger).n;
     }
     scene.setGhostShadows(this.ghostOutlines, n, this.ghostShadow.depth);
