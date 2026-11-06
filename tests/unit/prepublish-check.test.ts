@@ -31,6 +31,10 @@ const SAMPLES: Array<[string, string]> = [
   ["secret in an assignment", j("KEYSTORE_PASS", "WORD=p")],
   ["secret in an assignment", j("storePass", "word=hunter2")],
   ["secret in an assignment", j("export NPM_PA", "SS=x")],
+  // A token then a command, then a comment, then punctuation: none of them may hide it.
+  ["secret in an assignment", j("CLOUDFLARE_API_TOK", "EN=", "a1".repeat(20), " npx wrangler pages deploy dist")],
+  ["secret in an assignment", j("CLOUDFLARE_API_TOK", "EN=", "b2".repeat(20), "  # pages edit")],
+  ["secret in an assignment", j("KEYSTORE_PASS", "WORD=", "c3".repeat(7), "!x")],
   ["secret in a quoted literal", j("const apiK", "ey = \"x1\";")],
   ["secret in a quoted literal", j("  keyPass", "word: 'q';")],
   ["absolute /Users/ path", `built in ${USERS}`],
@@ -110,6 +114,7 @@ describe("prepublish-check.sh", () => {
         "TOK", "EN=$(sed -n 's/^CLOUDFLARE_API_TOK", "EN=//p' \"$F\")\n",
         "VERIFY='v=$(printf \"Authorization: Bearer %s\" \"$CLOUDFLARE_API_TOK", "EN\")'\n",
         "SECR", "ETS=${NS_ENV:-.secrets/x.env}\n",
+        "CLOUDFLARE_API_TOK", "EN=$CLOUDFLARE_API_TOK", "EN npx wrangler pages deploy dist\n",
       ),
       "src/key.ts": j("const apiK", "ey = process.env.KIE_API_KEY;\nconst t = { tok", "en: \"${name}\" };\n"),
       "package-lock.json": j("{\n  \"js-tok", "ens\": \"^4.0.0\",\n  \"b-tok", "ens\": \"4.0.0\"\n}\n"),
@@ -128,7 +133,10 @@ describe("prepublish-check.sh", () => {
 
   it("allows the pinned support address on the privacy page only, even when it is the commit author's own", () => {
     const env = { PREPUBLISH_SUPPORT_SHA256: sha(AUTHOR) };
-    expect(check(repo({ "public/privacy.html": link(AUTHOR) }), env).out).toMatch(/^clean$/m);
+    const pinned = check(repo({ "public/privacy.html": link(AUTHOR) }), env);
+    expect(pinned.out).toMatch(/^clean$/m);
+    // Overriding the pinned hash always says so.
+    expect(pinned.out).toMatch(/note: PREPUBLISH_SUPPORT_SHA256 replaces the pinned support address hash/);
 
     const d = repo({ "public/privacy.html": link(AUTHOR), "src/a.ts": `// by ${AUTHOR}\n` }, `add the page\n\nask ${AUTHOR}`);
     const r = check(d, env);

@@ -22,7 +22,11 @@ case ${1:-} in
 esac
 
 # sha256 of the support address the owner chose (2026-11-06); the address itself is on the privacy page.
-SUPPORT_SHA256=${PREPUBLISH_SUPPORT_SHA256:-f0bbeb803323ec2dc8b14f264172323dd2c061b95f0ac4c5b7395c24aeaed4a8}
+SUPPORT_SHA256=f0bbeb803323ec2dc8b14f264172323dd2c061b95f0ac4c5b7395c24aeaed4a8
+if [ -n "${PREPUBLISH_SUPPORT_SHA256:-}" ]; then
+  echo "prepublish-check: note: PREPUBLISH_SUPPORT_SHA256 replaces the pinned support address hash (tests only)" >&2
+  SUPPORT_SHA256=$PREPUBLISH_SUPPORT_SHA256
+fi
 SUPPORT_FILE=public/privacy.html
 
 FOUND=0
@@ -66,9 +70,11 @@ rule "JSON web token" 'eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}'
 rule "bearer token" '[Bb]earer[[:space:]]+[A-Za-z0-9_.=-]{30,}'
 rule "Meta access token" '(OC|[0-9]{8,20})[|][0-9]{8,20}[|][0-9a-f]{32}|(^|[^0-9])[0-9]{10,20}[|][0-9a-f]{32}'
 rule "Meta app secret" "([Aa][Pp][Pp]_?)?[Ss][Ee][Cc][Rr][Ee][Tt]${Q}?[[:space:]]*[:=][[:space:]]*${Q}?[0-9a-f]{32}"
-# NAME=value as a whole line (env and properties files, shell), any value length: KEYSTORE_PASSWORD=x, storePassword=x,
-# export API_TOKEN=x, a quoted value too. Upper-case env names also catch KEY and PASS (CLOUDFLARE_API_KEY, NPM_PASS).
-rule "secret in an assignment" "^[[:space:]]*(export[[:space:]]+)?([A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD|PASSWD|PASS)[A-Z0-9_]*|[A-Za-z0-9_.]*${SECRET_NAME}[A-Za-z0-9_]*)[[:space:]]*=[[:space:]]*${Q}?${TOKEN_CHARS}+${Q}?[[:space:]]*$"
+# NAME=value at the start of a line (env and properties files, shell): KEYSTORE_PASSWORD=x, storePassword=x,
+# export API_TOKEN=x, a quoted value too. A value of any length that ends the word (end of line, a space before a
+# command or a comment, a ;), or 12 or more token characters whatever follows them. Upper-case env names also catch KEY
+# and PASS (CLOUDFLARE_API_KEY, NPM_PASS). $ is no token character, so an expansion ($X, ${X}, $(...)) never matches.
+rule "secret in an assignment" "^[[:space:]]*(export[[:space:]]+)?([A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD|PASSWD|PASS)[A-Z0-9_]*|[A-Za-z0-9_.]*${SECRET_NAME}[A-Za-z0-9_]*)[[:space:]]*=[[:space:]]*${Q}?(${TOKEN_CHARS}{12,}|${TOKEN_CHARS}+${Q}?([[:space:]#;]|$))"
 # A secret-named key or variable given a quoted token-like value anywhere in a line, any value length (an apiKey or a
 # storePassword set to a quoted string in code or config).
 rule "secret in a quoted literal" "[A-Za-z0-9_]*${SECRET_NAME}[A-Za-z0-9_]*${Q}?[[:space:]]*[:=][[:space:]]*${QUOTED_VALUE}"
@@ -148,16 +154,17 @@ git check-ignore -q --no-index x.keystore || fail ".gitignore does not keep *.ke
 
 # 2. Secrets and local paths in HEAD's files (counted per file, never shown) and in the history, merges included: a
 # commit is flagged when it adds a matching line (removing one leaks nothing; the commit that added it is flagged).
-# Reviewed history findings that are not secrets, as "<commit> <rule>". Never add a real secret here: rewrite instead.
+# Reviewed history findings that are not secrets, as "<full 40-character commit hash> <rule>". Never add a real secret
+# here: rewrite the history instead.
 HISTORY_ALLOW=(
   # A made-up test value ("s3cr3tV4lue" plus x's) in the first version of this check's tests; they now build every
   # sample at run time.
-  "96445c5 secret in a quoted literal"
+  "96445c5ef8c77ecb7c78a75306fb55672fd5d152 secret in a quoted literal"
 )
-history_allowed() { # commit, rule name
+history_allowed() { # full commit hash, rule name
   local a
   for a in "${HISTORY_ALLOW[@]}"; do
-    if [[ $1 == "${a%% *}"* && "${a#* }" == "$2" ]]; then return 0; fi
+    if [[ $1 == "${a%% *}" && "${a#* }" == "$2" ]]; then return 0; fi
   done
   return 1
 }
@@ -184,7 +191,8 @@ for i in "${!NAMES[@]}"; do
   done <<<"$out"
   n=0
   SEEN=$'\n'
-  out=$(gitq log $REVS -m --no-renames --format=%h -G"${RES[$i]}" -- .)
+  # Full hashes (%H), so an exception matches exactly one commit; reported by their first 7 characters.
+  out=$(gitq log $REVS -m --no-renames --format=%H -G"${RES[$i]}" -- .)
   while IFS= read -r c; do
     [ -n "$c" ] || continue
     case $SEEN in *$'\n'"$c"$'\n'*) continue ;; esac
@@ -192,7 +200,7 @@ for i in "${!NAMES[@]}"; do
     adds "$c" "${RES[$i]}" || continue
     history_allowed "$c" "${NAMES[$i]}" && continue
     n=$((n + 1))
-    [ $n -le 5 ] && fail "${NAMES[$i]}: added in commit $c"
+    [ $n -le 5 ] && fail "${NAMES[$i]}: added in commit ${c:0:7}"
   done <<<"$out"
 done
 
