@@ -521,6 +521,22 @@ describe("LessonsDirector: replay", () => {
     expect(r.deps.onStep).not.toHaveBeenCalled();
   });
 
+  it("hands the box back when a replay is cut short by a lesson starting or a stop", () => {
+    const r = rig();
+    r.d.replay("finger");
+    r.run(2000);
+    r.d.start("l1");
+    expect(r.deps.onReplay).toHaveBeenLastCalledWith("finger", "l2", false);
+    expect(r.d.replaying).toBeNull();
+    expect(r.d.frame.box).toBeNull();
+    r.d.replay("rings");
+    r.run(1000);
+    r.d.stop();
+    expect(r.deps.onReplay).toHaveBeenLastCalledWith("rings", "l1", false);
+    expect(r.d.lesson).toBeNull();
+    expect(r.deps.onReplay).toHaveBeenCalledTimes(4);
+  });
+
   it("refuses a replay while a lesson's own example plays", () => {
     const r = rig();
     r.d.start("l1", 2);

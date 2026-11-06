@@ -586,9 +586,12 @@ function puppetLoop(side: number): HandKey[] {
     { t: 2400, at: o3(0.04 * side, 0, 0), pose: "open", op: 1 },
   ];
 }
-/** Where the puppet hand's wrist sits: in the beam, about a third of the way from the box mouth to the panel. */
-const PUPPET_AT: V3 = [0.08, -0.18, 0.82];
-const PUPPET_FINGERS: V3 = unit([0, 1, 0.1]);
+/**
+ * Where the puppet hand's wrist sits: low in the box mouth, in the beam, its fingers up and leaning a little toward
+ * the panel, so a whole hand (about 0.8 box units at the default size) stays inside the box.
+ */
+const PUPPET_AT: V3 = [0.1, -0.38, 0.92];
+const PUPPET_FINGERS: V3 = unit([0, 1, -0.15]);
 const PUPPET_PALM: V3 = [0, 0, -1];
 
 // --- The director ---------------------------------------------------------------------------------------------
@@ -642,12 +645,12 @@ export class LessonsDirector {
   start(id: LessonId, fromStep = 0): void {
     const steps = LESSON_STEPS[id];
     const from = Number.isInteger(fromStep) && fromStep >= 0 && fromStep < steps.length ? fromStep : 0;
+    this.endReplay();
     this.id = id;
     this.finished = false;
     this.plan = lessonPlan(id, this.deps.leftHanded());
     this.formMs = 0;
     this.script = null;
-    this.replayEx = null;
     this.lastT = Number.NaN;
     this.ghost = 0;
     this.ghostKind = null;
@@ -658,13 +661,20 @@ export class LessonsDirector {
 
   /** Leave the lesson (and any replay) without finishing it. */
   stop(): void {
-    const ex = this.replayEx;
+    this.endReplay();
     this.id = null;
     this.plan = null;
     this.script = null;
-    this.replayEx = null;
     this.resetFrame();
-    if (ex) this.deps.onReplay?.(ex, EXAMPLES[ex].lesson, false);
+  }
+
+  /** A replay cut short: the view puts back what it showed before. */
+  private endReplay(): void {
+    const ex = this.replayEx;
+    if (!ex) return;
+    this.replayEx = null;
+    this.script = null;
+    this.deps.onReplay?.(ex, EXAMPLES[ex].lesson, false);
   }
 
   /**
