@@ -65,10 +65,18 @@ export class LanternView {
   private flareT = 1e9;
   private rippleT = 1e9;
   private sizeM = 0.24;
-  private readonly budget = new FlashBudget();
+  private readonly budget: FlashBudget;
+  /** The budget is this view's own (it steps it), not the box's shared one. */
+  private readonly ownBudget: boolean;
 
-  /** Built from the box's own lacquer and gold materials (one shader program each, shared with the frame and trim). */
-  constructor(mats: { lacquer: Material; gold: Material }) {
+  /**
+   * Built from the box's own lacquer and gold materials (one shader program each, shared with the frame and trim).
+   * `budget`: the box's one flash budget (its owner steps it), so flares and crystallises share the three-a-second
+   * cap; without one, a budget of its own.
+   */
+  constructor(mats: { lacquer: Material; gold: Material }, budget?: FlashBudget) {
+    this.budget = budget ?? new FlashBudget();
+    this.ownBudget = !budget;
     this.group.name = "Lantern";
     const { lacquer, gold } = mats;
     // Lacquer foot.
@@ -141,7 +149,7 @@ export class LanternView {
 
   /** Advance flare and ripple by `dt` seconds. */
   update(dt: number): void {
-    this.budget.step(dt);
+    if (this.ownBudget) this.budget.step(dt);
     const busy = this.flareT < LANTERN_GLOW.flareS || this.rippleT < LANTERN_GLOW.rippleS;
     if (!busy) return;
     this.flareT += dt;

@@ -76,6 +76,10 @@ export interface CrystalPiece {
   verts: V3[];
   /** Done forming (700 ms after it started). */
   formed: boolean;
+  /** Frame time since it started (ms; CRYSTAL_MS once formed). */
+  ms: number;
+  /** The brass piece is drawn (from CRYSTAL_FILL_MS on). */
+  shown: boolean;
 }
 
 interface State {
@@ -131,9 +135,18 @@ export class Crystals {
   /** Goes up whenever a piece's shadow may have changed (a piece made, growing, formed or gone). */
   version = 0;
   private readonly states: State[] = [];
-  private readonly budget = new FlashBudget();
+  private readonly budget: FlashBudget;
+  /** The budget is this object's own (it steps it), not the box's shared one. */
+  private readonly ownBudget: boolean;
 
-  constructor(env: Texture | null) {
+  /**
+   * `budget`: the one flash budget everything in the box brightens through (the box scene's, which steps it each
+   * frame), so the three-a-second cap holds across the lantern's flares and crystallises; without one, a budget of
+   * its own, stepped by update.
+   */
+  constructor(env: Texture | null, budget?: FlashBudget) {
+    this.budget = budget ?? new FlashBudget();
+    this.ownBudget = !budget;
     this.group.name = "Crystals";
     // The fill's triangles: a fan from corner 0 (pieces are convex), the same for any corner count.
     const fan = new Uint16Array((MAX_CORNERS - 2) * 3);
@@ -245,7 +258,7 @@ export class Crystals {
     if (!st?.lock) return null;
     const verts: V3[] = [];
     for (let k = 0; k < st.corners; k++) verts.push([st.front[k * 3]!, st.front[k * 3 + 1]!, st.front[k * 3 + 2]!]);
-    return { z: st.z, verts, formed: st.formed };
+    return { z: st.z, verts, formed: st.formed, ms: st.formed ? CRYSTAL_MS : st.t, shown: this.slots[i]!.piece.visible };
   }
 
   /**
@@ -275,7 +288,7 @@ export class Crystals {
 
   /** Per frame (seconds). */
   update(dt: number): void {
-    this.budget.step(dt);
+    if (this.ownBudget) this.budget.step(dt);
     for (let s = 0; s < MAX_LOCKS; s++) {
       const st = this.states[s]!;
       if (!st.running) continue;

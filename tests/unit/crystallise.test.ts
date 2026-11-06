@@ -4,7 +4,7 @@ import { generateBox } from "../../src/core/generator";
 import type { Box, Lock, V2, V3 } from "../../src/core/types";
 import type { BoxScene } from "../../src/render/box-scene";
 import { CRYSTAL_FILL_MS, CRYSTAL_MS, Crystals, crystallise } from "../../src/render/fx/crystallise";
-import { MIN_GAP_S } from "../../src/render/fx/flash-budget";
+import { FlashBudget, MIN_GAP_S } from "../../src/render/fx/flash-budget";
 import { penumbra } from "../../src/render/shadow-mesh";
 
 const DT_S = 1 / 72;
@@ -138,6 +138,37 @@ describe("crystallise", () => {
     }
     expect(d.flashes).toBe(1);
     expect(top1).toBeLessThan(0.6 * top0);
+  });
+
+  it("shares the box's one flash budget: a lantern flare just before it, and it fills at half strength", () => {
+    const shared = new FlashBudget();
+    const c = new Crystals(null, shared);
+    c.setBox(box3);
+    const lock = fingerLock();
+    // The lantern flares (it takes the budget), then the finger lock completes 0.2 s later.
+    expect(shared.take()).toBe(true);
+    shared.step(0.2);
+    void c.form(lock, 0.5);
+    let top = 0;
+    for (let t = 0; t < CRYSTAL_FILL_MS; t += DT_S * 1000) {
+      shared.step(DT_S); // the box scene steps the shared budget, once a frame
+      c.update(DT_S);
+      top = Math.max(top, (c.slots[lock.i]!.fill.material as MeshBasicMaterial).opacity);
+    }
+    expect(top).toBeLessThan(0.6);
+    expect(shared.started).toBe(1);
+  });
+
+  it("reports how far in it is and whether the piece shows", () => {
+    const { c, lock, frame } = setup();
+    void c.form(lock, 0.5);
+    for (let i = 0; i < 18; i++) frame();
+    expect(c.piece(lock.i)).toMatchObject({ formed: false, shown: false });
+    expect(c.piece(lock.i)!.ms).toBeCloseTo(18 * DT_S * 1000, 6);
+    for (let i = 0; i < 4; i++) frame();
+    expect(c.piece(lock.i)).toMatchObject({ formed: false, shown: true });
+    for (let i = 0; i < 40; i++) frame();
+    expect(c.piece(lock.i)).toMatchObject({ formed: true, shown: true, ms: CRYSTAL_MS });
   });
 
   it("reduced motion: no glitter and no growth, still the fill and the piece", () => {
