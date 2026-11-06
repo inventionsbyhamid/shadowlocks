@@ -63,11 +63,11 @@ export class GameView implements SessionView {
   constructor(private readonly d: GameViewDeps) {
     const scene = d.scene, root = scene.root;
     this.marks = new HintMarks(scene);
-    // The box's one flash budget (the scene steps it): lock and box celebrations, the lantern's flares and the
-    // crystallises share the three-a-second cap.
+    // The box's one flash budget (the scene steps it): lock and box celebrations (sunbursts, glints), the reward's
+    // bloom, the lantern's flares and the crystallises share the three-a-second cap.
     this.lockFx = new LockOpenFx(scene, scene.flashes);
     this.boxFx = new BoxOpenFx(root, scene.flashes);
-    this.reward = new Reward(root);
+    this.reward = new Reward(root, scene.flashes);
     this.plate = new Plate(root);
     this.hintLantern = new HintLantern(root, d.canShowMe);
     this.tips = frameTips(d.world);

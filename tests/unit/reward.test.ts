@@ -1,9 +1,10 @@
 // The reward's rise, pinch and drop, and a key on the box pressed by a fingertip, without a renderer.
 import { describe, expect, it } from "vitest";
-import { Group, Vector3 } from "@iwsdk/core";
+import { Group, type SpriteMaterial, Vector3 } from "@iwsdk/core";
 import { generateBox } from "../../src/core/generator";
 import type { V3 } from "../../src/core/types";
 import { KEY_EVENT } from "../../src/render/finger-key";
+import { FlashBudget } from "../../src/render/fx/flash-budget";
 import { REWARD, Reward, type RewardHands } from "../../src/render/reward";
 import { PLATE, plateLayout } from "../../src/ui/plate";
 import { PokeKey } from "../../src/ui/poke-key";
@@ -53,6 +54,34 @@ describe("reward", () => {
     const p = r.position([0, 0, 0]);
     expect(p[0]).toBeCloseTo(-0.22, 6);
     expect(p[1]).toBeCloseTo(-0.55 + REWARD.rise, 6);
+  });
+
+  it("a gold glow blooms behind it as it rises, on the box's flash, and settles to a soft glow; reduced motion: in place", () => {
+    for (const reduced of [false, true]) {
+      const budget = new FlashBudget();
+      const r = new Reward(new Group(), budget);
+      r.setBox(generateBox({ kind: "box", n: 3 }));
+      r.rise([0.22, -0.55, 1.27]);
+      const { hands } = hand();
+      const seen: { o: number; s: number }[] = [];
+      for (let t = 0; t < REWARD.riseAtS + REWARD.riseS + 0.5; t += DT) {
+        budget.step(DT);
+        r.update(DT, hands, true, CM, reduced);
+        const m = r.glow.material as SpriteMaterial;
+        seen.push({ o: r.glow.visible && r.group.visible ? m.opacity : 0, s: r.glow.scale.x });
+      }
+      // Nothing before it rises; one flash when it does; a peak, then a softer glow that stays.
+      expect(seen.slice(0, Math.floor((REWARD.riseAtS - 0.05) / DT)).every((x) => x.o === 0)).toBe(true);
+      expect(budget.started).toBe(1);
+      const peak = Math.max(...seen.map((x) => x.o));
+      expect(peak).toBeCloseTo(REWARD.glow.peak, 2);
+      expect(seen.at(-1)!.o).toBeCloseTo(REWARD.glow.peak * REWARD.glow.rest, 2);
+      // Rising, the glow never jumps.
+      for (let i = 1; i < seen.length; i++) expect(Math.abs(seen[i]!.o - seen[i - 1]!.o)).toBeLessThan(0.08);
+      const sizes = seen.filter((x) => x.o > 0).map((x) => x.s);
+      if (reduced) expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThan(1e-9);
+      else expect(Math.max(...sizes)).toBeGreaterThan(Math.min(...sizes) * 1.3);
+    }
   });
 
   it("pinched and let go nearer the player: taken; let go elsewhere: it floats back", () => {

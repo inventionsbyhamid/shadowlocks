@@ -1,13 +1,30 @@
 // The box's reward: a small brass plaque carrying the box's lock shapes in relief, rising out of the opened drawer
 // with its story line on a card above it ("Off the desk of the Clockmaker. Inside: a night train ticket to Lisbon.").
 // Pinch it, carry it toward you and let go: it is taken (shrinks away into the collection). Let go anywhere else and
-// it floats back. A hand holding the lantern cannot take it. Lives in the box root in box units: two draw calls while
-// shown. The plaque and card are made once per box; per frame nothing is allocated.
-import { ExtrudeGeometry, Group, type Material, Mesh, MeshBasicMaterial, type Object3D, PlaneGeometry, Shape, Vector3 } from "@iwsdk/core";
+// it floats back. A hand holding the lantern cannot take it. As it rises a gold glow blooms behind it (one
+// brightening on the box's flash budget) and settles to a soft glow while it floats; with reduced motion it
+// brightens in place. Lives in the box root in box units: three draw calls while shown. The plaque and card are made
+// once per box; per frame nothing is allocated.
+import {
+  AdditiveBlending,
+  ExtrudeGeometry,
+  Group,
+  type Material,
+  Mesh,
+  MeshBasicMaterial,
+  type Object3D,
+  PlaneGeometry,
+  Shape,
+  Sprite,
+  SpriteMaterial,
+  Vector3,
+} from "@iwsdk/core";
 import type { Box, V2, V3 } from "../core/types";
 import { COPY, fill } from "../ui/copy";
-import { clamp01, outBack, outCubic } from "./fx/ease";
-import { LABEL_FONT, LabelCanvas, roundRect } from "./label";
+import { clamp01, outBack, outCubic, smoothstep } from "./fx/ease";
+import type { FlashBudget } from "./fx/flash-budget";
+import { LABEL_FONT, LabelCanvas, labelMaterial, roundRect } from "./label";
+import { radialTexture } from "./lantern-view";
 import { mergeParts } from "./merge";
 import { COLORS } from "./theme";
 
@@ -29,6 +46,11 @@ export const REWARD = {
   plaque: { w: 0.34, h: 0.14, d: 0.012, shape: 0.1, gap: 0.11, relief: 0.014 },
   /** The story card above it (box units), and its canvas. */
   card: { w: 0.62, h: 0.12, above: 0.14, px: [1024, 198] as const },
+  /**
+   * The glow behind the plaque (box units): its size and depth behind it, its peak opacity as it rises, the share
+   * of that it settles to while it floats, and the size it grows from (none with reduced motion).
+   */
+  glow: { size: 0.62, z: -0.03, peak: 0.85, rest: 0.4, growFrom: 0.55, refused: 0.5 },
 } as const;
 
 /** The hands as the reward needs them: pinch points in box units this frame. */
@@ -93,20 +115,41 @@ export class Reward {
   private readonly grip = new Vector3();
   private readonly hand: V3 = [0, 0, 0];
   private holder = -1;
+  /** The glow behind the plaque (its opacity: the bloom as it rises, then a soft glow). */
+  readonly glow: Sprite;
+  /** The glow's strength: 1, or half when the flash budget refused its bloom; NaN until it rises. */
+  private glowStrength = Number.NaN;
 
-  constructor(root: Object3D) {
+  /** `budget`: the box's one flash budget (the box scene steps it): the rise's bloom is a brightening. */
+  constructor(
+    root: Object3D,
+    private readonly budget?: FlashBudget,
+  ) {
     this.group.name = "Reward";
     const trim = root.getObjectByName("Box Trim") as Mesh | undefined;
     const brass = (trim?.material as Material | undefined) ?? new MeshBasicMaterial({ color: COLORS.metal });
     this.trinket = new Mesh(undefined, brass);
     this.trinket.name = "Reward Trinket";
-    this.card = new Mesh(
-      new PlaneGeometry(REWARD.card.w, REWARD.card.h),
-      new MeshBasicMaterial({ map: this.label.texture, transparent: true, toneMapped: false, depthWrite: false }),
-    );
+    this.card = new Mesh(new PlaneGeometry(REWARD.card.w, REWARD.card.h), labelMaterial(this.label.texture, { depthWrite: false }));
     this.card.name = "Reward Story";
     this.card.position.set(0, REWARD.card.above, 0);
-    this.group.add(this.trinket, this.card);
+    // A gold glow behind the plaque, added as light.
+    this.glow = new Sprite(
+      new SpriteMaterial({
+        map: radialTexture(64, false),
+        color: COLORS.gold,
+        blending: AdditiveBlending,
+        transparent: true,
+        depthWrite: false,
+        toneMapped: false,
+        opacity: 0,
+      }),
+    );
+    this.glow.name = "Reward Glow";
+    this.glow.position.set(0, 0, REWARD.glow.z);
+    this.glow.scale.set(REWARD.glow.size, REWARD.glow.size, 1);
+    this.glow.visible = false;
+    this.group.add(this.glow, this.trinket, this.card);
     this.group.visible = false;
     root.add(this.group);
   }
@@ -150,6 +193,8 @@ export class Reward {
     this.group.position.copy(this.from);
     this.group.scale.setScalar(0.4);
     this.group.visible = false;
+    this.glow.visible = false;
+    this.glowStrength = Number.NaN;
     this.phase = "rising";
     this.t = 0;
     this.wait = REWARD.riseAtS;
@@ -166,6 +211,7 @@ export class Reward {
   hide(): void {
     this.phase = "hidden";
     this.group.visible = false;
+    this.glow.visible = false;
     this.holder = -1;
   }
 
@@ -206,6 +252,7 @@ export class Reward {
         this.group.visible = true;
         this.group.position.lerpVectors(this.from, this.rest, outCubic(k));
         this.group.scale.setScalar(reduced ? 1 : 0.4 + 0.6 * outBack(k, 1.2));
+        this.bloom(k, reduced);
         if (k >= 1) {
           this.group.scale.setScalar(1);
           this.phase = "up";
@@ -231,6 +278,21 @@ export class Reward {
     }
     if (!live) return false;
     return this.phase === "held" ? this.carry(hands, cmPerUnit) : this.grabbed(hands, cmPerUnit);
+  }
+
+  /**
+   * The glow as it rises (`k` 0..1): one brightening on the box's flash budget (half when refused), up smoothly to
+   * its peak half way, then settling to a soft glow that stays while it floats; it grows as it blooms, except with
+   * reduced motion, where it brightens in place.
+   */
+  private bloom(k: number, reduced: boolean): void {
+    const G = REWARD.glow;
+    if (this.glowStrength !== this.glowStrength) this.glowStrength = !this.budget || this.budget.take() ? 1 : G.refused;
+    const env = k < 0.5 ? smoothstep(0, 0.5, k) : 1 - (1 - G.rest) * smoothstep(0.5, 1, k);
+    (this.glow.material as SpriteMaterial).opacity = G.peak * this.glowStrength * env;
+    const s = G.size * (reduced ? 1 : G.growFrom + (1 - G.growFrom) * outCubic(k));
+    this.glow.scale.set(s, s, 1);
+    this.glow.visible = true;
   }
 
   /** A pinch starting on it takes hold. */
