@@ -78,6 +78,27 @@ Helpers:
 lock while the browser runs, so lanes take turns. Needs the `shadowlocks-e2e` image
 (`scripts/e2e-image/build.sh`).
 
+Functional runs of named specs share that lock: up to two go at once, from any lanes. Exclusive runs
+go alone:
+- the full suite (no spec named);
+- any argument mentioning `cost`, `perf-budget`, `bot`, `store`, `shadows`, `lantern` or
+  `tests/video`;
+- a spec filter that is not a plain path or name (only letters, digits and `. _ / -`), or that also
+  matches such a spec or one carrying the line `// e2e: exclusive` (`hand` runs
+  `hand-cost.spec.ts` too);
+- `NS_E2E_EXCLUSIVE` set to anything but empty or `0`.
+
+Every spec that gates on wall-clock time (real milliseconds, CPU throttling) must carry
+`// e2e: exclusive`.
+
+An exclusive run waits for every other run to end. It first waits on this Mac for up to 30 minutes
+until no browser run goes; during that pre-wait functional runs still start. Then it queues for the
+lock on the server, even if runs are still going, and from that moment no new run starts ahead of
+it. Only the lock wait itself (`NS_LOCK_WAIT`) ends it with exit 75. A functional run that still
+finds two browser runs going after its 30-minute pre-wait gives up (exit 75).
+`scripts/e2e.sh --print-mode <args>` says which kind a run would be; the rule is in the script's
+header.
+
 The run lives only as long as the Mac that started it. Ctrl-C, a dropped connection or a Mac that
 sleeps for more than 60 s stops it on the server and frees the lock, by design. While a run goes the
 runner keeps the Mac from idle sleep (`caffeinate`), but closing the lid still sleeps it, so keep

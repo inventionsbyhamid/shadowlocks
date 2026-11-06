@@ -1,3 +1,4 @@
+// e2e: exclusive (times real milliseconds: scripts/e2e.sh runs this spec alone on the server)
 // What the hands in the box cost a frame once the engine has optimised them: the "hands" system (the depth mask and
 // both hands' shadow outlines from the lantern) at 4x CPU throttle, and what the hands' path allocates, box 3's finger
 // lock included (the box session measures it with the finger every frame and runs its hold, in the "game" system,

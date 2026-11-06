@@ -1,3 +1,4 @@
+// e2e: exclusive (its last test times real milliseconds: scripts/e2e.sh runs this spec alone on the server)
 // Holding the lantern: pinch it, carry it, let go, ride a ring line onto a spot, sweep past one, lose the hand, and
 // hold it by a controller's trigger. IWER's emulated hands and controllers on the virtual clock; the game is read
 // through window.__sl (the lantern, the ring lines, the shadows it casts, the feel events). What holding it costs
