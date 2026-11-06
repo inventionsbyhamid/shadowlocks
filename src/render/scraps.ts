@@ -31,11 +31,20 @@ import type { Box, Element as BoxElement, Ring, V2, V3 } from "../core/types";
 import { triangulate } from "./shadow-mesh";
 import { COLORS, MATERIALS } from "./theme";
 
-/** Slot 0 holds decoys and rings (always shown, never glow); lock l's piece p is 1 + l * 16 + p. */
+export const MAX_RINGS = 8;
+/**
+ * Slot 0 holds decoys (always shown, never glow); lock l's piece p is 1 + l * 16 + p; the box's ring r (its pin and
+ * thread) is RING_SLOT_BASE + r, so a lesson can swing each ring with its own offset.
+ */
 export const SLOTS_PER_LOCK = 16;
-export const MAX_SLOTS = 1 + 3 * SLOTS_PER_LOCK;
+export const RING_SLOT_BASE = 1 + 3 * SLOTS_PER_LOCK;
+export const MAX_SLOTS = RING_SLOT_BASE + MAX_RINGS;
 export function slotOf(lock: number, piece: number): number {
   return 1 + lock * SLOTS_PER_LOCK + piece;
+}
+/** The slot of the box's r-th ring (in element order). */
+export function ringSlot(r: number): number {
+  return RING_SLOT_BASE + r;
 }
 
 /** Scrap thickness in box units (2 mm at 24 cm), along the rays from the lantern spot. */
@@ -52,7 +61,6 @@ const PIN_VERTS = 24;
 /** Buffer sizes: 3 locks of up to 16 pieces of up to 16 corners, 20 decoys, 8 rings, a pin each. */
 export const MAX_SCRAP_VERTS = 3 * 16 * (12 * 16 - 12 + PIN_VERTS) + 20 * (12 * 3 - 12 + PIN_VERTS) + 8 * PIN_VERTS;
 export const MAX_THREAD_VERTS = (3 * 16 + 20 + 8) * 2;
-export const MAX_RINGS = 8;
 /** Ring torus resolution: around the ring, and around its wire. */
 export const RING_SEGMENTS = 24;
 export const RING_TUBE_SEGMENTS = 8;
@@ -158,8 +166,9 @@ class Writer {
   }
 }
 
-function slotFor(e: BoxElement): number {
-  return e.kind === "piece" ? slotOf(e.lock, e.piece) : 0;
+/** An element's slot; `ring` is its index among the box's rings (for a ring). */
+function slotFor(e: BoxElement, ring: number): number {
+  return e.kind === "piece" ? slotOf(e.lock, e.piece) : e.kind === "ring" ? ringSlot(ring) : 0;
 }
 
 /** Where an element's thread is tied: its highest corner, or the top of a ring. */
@@ -183,8 +192,10 @@ function ringTop(r: Ring): V3 {
  */
 export function writeScraps(box: Box, out: ScrapBuffers): number {
   const w = new Writer(out);
+  let rings = 0;
   for (const e of box.elements) {
-    const slot = slotFor(e);
+    const slot = slotFor(e, rings);
+    if (e.kind === "ring") rings++;
     if (e.kind !== "ring") {
       const L = e.kind === "piece" ? box.locks[e.lock]!.L : null;
       const front = frontFace(e.verts, L, SCRAP_GAP);
@@ -219,9 +230,10 @@ export function writeScraps(box: Box, out: ScrapBuffers): number {
 
 /** One thread per element, from where it is tied up to the lid. Returns the vertex count. */
 export function writeThreads(box: Box, out: { position: Float32Array; slot: Float32Array }): number {
-  let n = 0;
+  let n = 0, rings = 0;
   for (const e of box.elements) {
-    const a = threadAnchor(e), slot = slotFor(e);
+    const a = threadAnchor(e), slot = slotFor(e, rings);
+    if (e.kind === "ring") rings++;
     for (const y of [a[1], THREAD_TOP_Y]) {
       out.position[n * 3] = a[0];
       out.position[n * 3 + 1] = y;
@@ -247,6 +259,7 @@ export interface ScrapHandle {
 const SLOT_VERTEX = /* glsl */ `
 attribute float aSlot;
 uniform vec2 uSlots[${MAX_SLOTS}];
+uniform vec3 uOffsets[${MAX_SLOTS}];
 varying float vGlow;
 varying float vShow;
 `;
@@ -255,6 +268,7 @@ const SLOT_BEGIN = /* glsl */ `
 vec2 slotState = uSlots[int(aSlot + 0.5)];
 vGlow = slotState.x;
 vShow = slotState.y;
+transformed += uOffsets[int(aSlot + 0.5)];
 if (slotState.y < 0.5) transformed = vec3(0.0);
 `;
 const SLOT_FRAGMENT = /* glsl */ `
@@ -268,9 +282,10 @@ varying float vShow;
  * draws), and glow adds light. Lines are also discarded when hidden, since a collapsed line may still draw a dot; the
  * scrap mesh never discards, which would cost the early depth test on the headset's GPU.
  */
-function withSlots(slots: Float32Array, glow: Color, lit: boolean, discardHidden: boolean) {
+function withSlots(slots: Float32Array, offsets: Float32Array, glow: Color, lit: boolean, discardHidden: boolean) {
   return (shader: WebGLProgramParametersWithUniforms) => {
     shader.uniforms.uSlots = { value: slots };
+    shader.uniforms.uOffsets = { value: offsets };
     shader.uniforms.uGlowColor = { value: glow };
     shader.vertexShader = SLOT_VERTEX + shader.vertexShader.replace("#include <begin_vertex>", SLOT_BEGIN);
     let frag = SLOT_FRAGMENT + shader.fragmentShader;
@@ -338,6 +353,8 @@ export class Scraps {
   readonly rings: InstancedMesh;
   /** Per slot: glow (0..1), then visible (0 or 1). */
   readonly slots = new Float32Array(MAX_SLOTS * 2);
+  /** Per slot: an offset (box units) its scrap, pin and thread are drawn moved by (a lesson's scraps swinging). */
+  readonly offsets = new Float32Array(MAX_SLOTS * 3);
   private readonly buffers: ScrapBuffers;
   private readonly threadBuffers: { position: Float32Array; slot: Float32Array };
   private readonly radii: InstancedBufferAttribute;
@@ -364,7 +381,7 @@ export class Scraps {
     g.setAttribute("aSlot", new BufferAttribute(this.buffers.slot, 1).setUsage(DynamicDrawUsage));
     g.setDrawRange(0, 0);
     const gold = new MeshStandardMaterial({ color: COLORS.metal, ...MATERIALS.gold, envMap: env });
-    gold.onBeforeCompile = withSlots(this.slots, glow, true, false);
+    gold.onBeforeCompile = withSlots(this.slots, this.offsets, glow, true, false);
     gold.customProgramCacheKey = () => "sl-scraps";
     this.mesh = new Mesh(g, gold);
     this.mesh.name = "Scraps";
@@ -375,7 +392,7 @@ export class Scraps {
     tg.setAttribute("aSlot", new BufferAttribute(this.threadBuffers.slot, 1).setUsage(DynamicDrawUsage));
     tg.setDrawRange(0, 0);
     const thread = new LineBasicMaterial({ color: COLORS.thread, transparent: true, opacity: MATERIALS.threadOpacity, depthWrite: false });
-    thread.onBeforeCompile = withSlots(this.slots, glow, false, true);
+    thread.onBeforeCompile = withSlots(this.slots, this.offsets, glow, false, true);
     thread.customProgramCacheKey = () => "sl-threads";
     this.threads = new LineSegments(tg, thread);
     this.threads.name = "Threads";
@@ -417,6 +434,7 @@ export class Scraps {
   /** Draw this box's scraps (a finger lock's missing piece starts hidden), or none. */
   setBox(box: Box | null): void {
     this.slots.fill(0);
+    this.offsets.fill(0);
     for (let s = 0; s < MAX_SLOTS; s++) this.slots[s * 2 + 1] = 1;
     (this.ringGlow.array as Float32Array).fill(0);
     this.ringGlow.needsUpdate = true;
@@ -463,6 +481,30 @@ export class Scraps {
   /** A lock piece's glow and visibility (the same handle every call). */
   handle(lock: number, piece: number): ScrapHandle {
     return this.handles[slotOf(lock, piece)]!;
+  }
+
+  /** Draw a lock piece's scrap, pin and thread moved by (x, y, z) box units from where the box hangs it. */
+  offsetPiece(lock: number, piece: number, x: number, y: number, z: number): void {
+    this.setOffset(slotOf(lock, piece), x, y, z);
+  }
+
+  /**
+   * Draw ring `r` (the box's r-th, in element order) at centre `c` facing `nrm`, its pin and thread moved by `off`
+   * from where the box hangs them. Allocation-free.
+   */
+  moveRing(r: number, c: Readonly<V3>, nrm: Readonly<V3>, off: Readonly<V3>): void {
+    if (r >= this.rings.count) return;
+    this.tmpQ.setFromUnitVectors(Z_AXIS, this.tmpN.set(nrm[0], nrm[1], nrm[2]).normalize());
+    this.rings.setMatrixAt(r, this.tmpM.compose(this.tmpV.set(c[0], c[1], c[2]), this.tmpQ, this.tmpS));
+    this.rings.instanceMatrix.needsUpdate = true;
+    this.setOffset(ringSlot(r), off[0], off[1], off[2]);
+  }
+
+  private setOffset(slot: number, x: number, y: number, z: number): void {
+    const o = slot * 3, a = this.offsets;
+    a[o] = x;
+    a[o + 1] = y;
+    a[o + 2] = z;
   }
 
   /** The glow (0..1) of lock `lock`'s sight rings (a hint shows where its line is). */
