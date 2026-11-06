@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COPY } from "../../src/ui/copy";
+import { COPY, fill } from "../../src/ui/copy";
 import { expectCleanCopy } from "./helpers/ui";
 
 describe("copy", () => {
@@ -18,6 +18,15 @@ describe("copy", () => {
       expect(s).not.toMatch(/\.$/);
       expect(s.length).toBeLessThanOrEqual(16);
     }
+    // The box in play: short labels; the story line and "one piece short" are sentences.
+    for (const s of [COPY.game.boxNo, COPY.game.daily, COPY.game.next, COPY.game.hint, COPY.game.showMe]) {
+      expect(s).not.toMatch(/\.$/);
+      expect(s.length).toBeLessThanOrEqual(12);
+    }
+    for (const s of [COPY.game.storyOwner, COPY.game.storyLoot, COPY.game.short]) expect(s).toMatch(/^[A-Z].*\.$/);
+    expect(fill(COPY.game.boxNo, { n: 12 })).toBe("Box No. 12");
+    expect(fill(COPY.game.storyOwner, { owner: "the Clockmaker" })).toBe("Off the desk of the Clockmaker.");
+    expect(fill("{a} {b}", { a: 1 })).toBe("1 {b}");
     // The film's end card: a tagline sentence, short fact chips.
     expect(COPY.film.tagline).toMatch(/^[A-Z].*\.$/);
     for (const s of COPY.film.facts) {

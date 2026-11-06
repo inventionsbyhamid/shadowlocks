@@ -88,6 +88,17 @@ export const COPY = {
     streak: "Streak",
     hint: "Hint",
   },
+  /** The box in play: the plate on the box, the hint lantern's choices, the reward's story line ({names} filled in). */
+  game: {
+    boxNo: "Box No. {n}",
+    daily: "Daily Box",
+    next: "Next box",
+    hint: "Hint",
+    showMe: "Show me",
+    storyOwner: "Off the desk of {owner}.",
+    storyLoot: "Inside: {loot}.",
+    short: "One piece short.",
+  },
   /** The demo video's end card (tests/video/edits.ts); the hosted link joins it once there is one. */
   film: {
     title: "Shadow Locks",

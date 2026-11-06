@@ -1,7 +1,8 @@
 // Entry point: create the IWSDK world, open the profile, wire the shell, show the Enter button.
 // Boot order: a waiting update takes over first; test hooks (test builds) start logging before
 // anything can emit; the world; asset URL rewrites; field flags; profile and settings; the shell
-// and its systems; sound; then Enter (or straight into XR in the installed Quest app); offline last.
+// and its systems; sound; the game (and a box at once with ?box=N); then Enter (or straight into XR
+// in the installed Quest app); offline last.
 import { AssetManager, World } from "@iwsdk/core";
 import projectOptions from "virtual:iwsdk-project";
 import { PAYWALL_ON } from "../core/entitlement";
@@ -16,7 +17,8 @@ import { Access, billingFor } from "./access";
 import { emit, on } from "./bus";
 import { attachDrawer } from "./drawer-system";
 import { detectEdition, installedApp, paywallFor, testOverrides } from "./edition";
-import { disableMultiview, readFieldFlags, showPerfPanel } from "./field-flags";
+import { disableMultiview, readFieldFlags, showPerfPanel, startBox } from "./field-flags";
+import { attachGame } from "./game";
 import { recordHands, recordSeconds } from "./hand-recorder";
 import { attachHands } from "./hand-system";
 import { localInputProfileUrl } from "./input-profiles";
@@ -88,12 +90,12 @@ async function main(): Promise<void> {
   attachInput(world);
   // The lantern (priority -3, right after the hands): held, carried, let go, settled on a spot.
   const lantern = attachLantern(world, shell.box);
-  // The hands in the box (priority -2.9): the real hand in front of the box, the hands' shadows, the finger locks.
+  // The hands in the box (priority -2.9): the real hand in front of the box, the hands' shadows, the finger's shadow
+  // for the finger locks (the game measures them).
   const hands = attachHands(world, {
     scene: shell.box,
     lantern,
     passthrough: () => shell.sessionMode === "immersive-ar",
-    reducedMotion: () => settings.get().reducedMotion,
   });
   // The rays' cursor in the game's look (rays press keys too).
   styleRayCursors(world);
@@ -101,6 +103,9 @@ async function main(): Promise<void> {
   const sound = new Sound({ world, settings, lifecycle: shell.lifecycle, menuButtons: (screen) => shell.panels.buttons(screen), box: shell.box });
   useSound(sound);
   registerAppSystem(world, SoundSystem, { name: "sound" });
+  // The game (priority -2.8, after the hands): the box session (its finger locks fed by the hands), its
+  // celebrations, the plate and the hint lantern.
+  const play = attachGame({ world, shell, lantern, sound, hands });
   // The menu drawer in the box's plinth (priority -2.7, after the lantern: the hand holding it never pulls).
   const drawer = attachDrawer(world, {
     root: shell.box.root,
@@ -113,8 +118,10 @@ async function main(): Promise<void> {
       shell.box.lantern.group.visible = !away;
     },
   });
-  hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, drawer, access, fakeBilling: bill.fake });
+  hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play, drawer, access, fakeBilling: bill.fake });
   shell.start();
+  const box = startBox(location.search);
+  if (box) play.game.playBox(box);
   sound.loadMusicLater();
   video?.installVideoMode(world);
 

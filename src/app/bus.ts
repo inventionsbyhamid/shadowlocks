@@ -1,4 +1,5 @@
 import type { InputEvent } from "../input/events";
+import type { GameEvent } from "./events";
 import type { Screen } from "./screens";
 
 /**
@@ -17,8 +18,8 @@ export type UiEvent =
   | { type: "slider"; id: string; k: number }
   | { type: "drawer"; hand: "left" | "right" };
 
-/** Everything visuals, sound and captions react to: hands and the shell (the box session adds its game events). */
-export type FeedbackEvent = InputEvent | UiEvent;
+/** Everything visuals, sound and captions react to: hands, the shell and the box session's game events (events.ts). */
+export type FeedbackEvent = InputEvent | UiEvent | GameEvent;
 export type FeedbackType = FeedbackEvent["type"];
 export type EventOf<T extends FeedbackType> = Extract<FeedbackEvent, { type: T }>;
 

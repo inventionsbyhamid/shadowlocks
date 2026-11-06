@@ -172,6 +172,15 @@ describe("profile", () => {
     expect(m.current).toEqual(snap());
   });
 
+  it("keeps the generator version a box was saved under, and drops a broken one", () => {
+    const m = migrate({ version: 1, current: { ...snap(), gen: 3 }, daily: { current: { ...snap("shadow-locks/daily/2026-11-06"), gen: 2 } } }, NOW, BUILD);
+    expect(m.current).toEqual({ ...snap(), gen: 3 });
+    expect(m.daily.current?.gen).toBe(2);
+    expect(isSnapshot({ ...snap(), gen: 1.5 })).toBe(false);
+    expect(isSnapshot({ ...snap(), gen: "3" })).toBe(false);
+    expect("gen" in migrate({ version: 1, current: snap() }, NOW, BUILD).current!).toBe(false);
+  });
+
   it("snapshot round trip through the store", async () => {
     vi.stubGlobal("indexedDB", new IDBFactory());
     const s = await openStore();

@@ -34,7 +34,7 @@ test("boots into XR with the box in the lap and the home panel", async ({ page, 
 
   const perf = await app.perf();
   expect(perf.frames).toBeGreaterThan(0);
-  expect(Object.keys(perf.systems).sort()).toEqual(["drawer", "hand-pinch", "hands", "lantern", "menus", "shell", "sound"]);
+  expect(Object.keys(perf.systems).sort()).toEqual(["drawer", "game", "hand-pinch", "hands", "lantern", "menus", "shell", "sound"]);
   // Offline: nothing but the local server was asked for anything, and the Quest 3 controller
   // models came from our own origin.
   expect(app.foreignHosts()).toEqual([]);

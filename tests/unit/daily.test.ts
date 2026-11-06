@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dailyUnlocked, dayKey, recordDailySolve } from "../../src/core/daily";
+import { dailyUnlocked, dayKey, recordDailySolve, todayKey } from "../../src/core/daily";
 import { newProfile, type Profile } from "../../src/core/profile";
 
 const NOW = Date.UTC(2026, 10, 6, 12, 0, 0);
@@ -28,6 +28,14 @@ describe("dayKey", () => {
 
   it("pads month and day", () => {
     expect(dayKey(Date.UTC(2027, 0, 5, 9, 0), 0)).toBe("2027-01-05");
+  });
+
+  it("todayKey is dayKey with the device's own offset at that moment", () => {
+    for (const t of [Date.UTC(2026, 10, 6, 0, 30), Date.UTC(2026, 2, 29, 1, 30), Date.UTC(2026, 9, 25, 23, 59)]) {
+      expect(todayKey(t)).toBe(dayKey(t, new Date(t).getTimezoneOffset()));
+      const d = new Date(t);
+      expect(todayKey(t)).toBe(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+    }
   });
 
   it("matches the device's own calendar when given the device's offset", () => {

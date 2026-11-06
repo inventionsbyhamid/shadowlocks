@@ -305,6 +305,8 @@ export class GameSounds {
   private readonly one: CueEvent[] = [{ type: "none" }];
   private spec: BoxSpec | null = null;
   private holding: Hand | null = null;
+  /** The next release is a new box taking the lantern from the hand: silent (muteRelease). */
+  private quietRelease = false;
 
   constructor(private readonly d: GameSoundsDeps) {
     const places = d.places;
@@ -315,6 +317,11 @@ export class GameSounds {
 
   /** Any event (the bus's, or the box session's): its cues, timed. */
   handle(e: CueEvent): void {
+    if (this.quietRelease && (e.type === "release" || e.type === "grab")) {
+      // The lantern let go for a new box makes no sound: that moment is the box's (a grab first means it never came).
+      this.quietRelease = false;
+      if (e.type === "release") return;
+    }
     this.one[0] = e;
     this.scheduler.push(this.mapper.map(this.one));
   }
@@ -357,6 +364,14 @@ export class GameSounds {
   /** The lantern was let go. */
   release(): void {
     this.holding = null;
+  }
+
+  /**
+   * A new box is coming while a hand holds the lantern: the lantern lets go of it for the box (a real release on
+   * the bus), and that release makes no sound. Call it after boxStart.
+   */
+  muteRelease(): void {
+    this.quietRelease = true;
   }
 
   /** The held lantern settled onto a spot: the settle snap. */
@@ -431,6 +446,7 @@ export class GameSounds {
 
   /** Play ended (back to the menus): sounds and pulses still to come are dropped, hums fade. */
   reset(): void {
+    this.quietRelease = false;
     this.scheduler.clear();
     this.d.haptics?.clear();
     this.hums.reset();

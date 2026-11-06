@@ -17,6 +17,7 @@ import { CaptionQueue, captionFor } from "../ui/captions";
 import { startAudio } from "./audio-unlock";
 import { FrameClock } from "./frame-clock";
 import { type FeedbackEvent, on, onAny } from "./bus";
+import { GAME_EVENT_TYPES } from "./events";
 import { type HapticSession, Haptics } from "./haptics";
 import type { Lifecycle } from "./lifecycle";
 import type { PanelButton } from "./panels";
@@ -191,7 +192,7 @@ export class Sound {
    * again here.
    */
   private send(e: FeedbackEvent): void {
-    if (GAME_CUE_TYPES.has(e.type)) return;
+    if (GAME_CUE_TYPES.has(e.type) || GAME_EVENT_TYPES.has(e.type)) return;
     this.game.handle(e);
   }
 
