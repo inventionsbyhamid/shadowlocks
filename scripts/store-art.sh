@@ -27,6 +27,8 @@ done
 [ -d "$SRC" ] || { echo "no art came back (exit $rc)" >&2; exit "$((rc == 0 ? 3 : rc))"; }
 
 mkdir -p "$DEST"
+# The folder mirrors the last run: its top-level art goes first (inline/ and other folders stay).
+rm -f "$DEST"/*.png "$DEST"/store-art.json
 n=0
 for f in "$SRC"/*.png "$SRC"/store-art.json; do
   [ -f "$f" ] || continue

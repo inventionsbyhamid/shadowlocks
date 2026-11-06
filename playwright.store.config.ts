@@ -10,6 +10,8 @@ const URL = `https://localhost:${PORT}/`;
 export default defineConfig({
   testDir: "tests/video",
   testMatch: "store.spec.ts",
+  // Each run starts from an empty test-results/store/ (no art cut from an older render).
+  globalSetup: "./tests/video/store-setup.ts",
   outputDir: "test-results/store-runs",
   timeout: 60 * 60_000,
   expect: { timeout: 30_000 },

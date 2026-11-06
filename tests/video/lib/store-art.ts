@@ -298,7 +298,10 @@ export function artHtml(
       body += `<svg class="shape" viewBox="0 0 100 100" style="left:${sh.x * w}px;top:${sh.y * h}px;width:${sh.size * w}px;height:${sh.size * h}px">
 <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${PALETTE.goldHot}"/><stop offset="0.45" stop-color="${PALETTE.gold}"/><stop offset="1" stop-color="${PALETTE.goldDeep}"/></linearGradient></defs>
 <g fill="url(#g)" stroke="${PALETTE.goldHot}" stroke-width="0.8" stroke-linejoin="round">${polys}</g></svg>`;
-      if (o.plate) body += `<img class="plate" src="${o.plate}" style="left:${ln.x * w}px;top:${ln.y * h}px;width:${ln.size * w}px;height:${ln.size * h}px">`;
+      // The lantern plate fades out toward its edges, so nothing behind the lantern (a post of the box, the floor) shows.
+      if (o.plate) {
+        body += `<img class="plate lantern" src="${o.plate}" style="left:${ln.x * w}px;top:${ln.y * h}px;width:${ln.size * w}px;height:${ln.size * h}px">`;
+      }
     } else if (o.plate) {
       body += `<img class="plate" src="${o.plate}" style="left:0;top:0;width:${w}px;height:${h}px">`;
     }
@@ -311,6 +314,8 @@ html, body { margin: 0; width: ${w}px; height: ${h}px; overflow: hidden; backgro
   radial-gradient(ellipse ${(0.55 * Math.max(w, h)).toFixed(0)}px ${(0.5 * Math.max(w, h)).toFixed(0)}px at ${(glow[0] * 100).toFixed(1)}% ${(glow[1] * 100).toFixed(1)}%,
     #4a3418 0%, #2b2017 26%, ${PALETTE.frame} 55%, ${PALETTE.lining} 100%); }
 .plate, .shape { position: absolute; }
+.plate.lantern { -webkit-mask-image: radial-gradient(ellipse 34% 46% at 50% 50%, #000 62%, transparent 100%);
+  mask-image: radial-gradient(ellipse 34% 46% at 50% 50%, #000 62%, transparent 100%); }
 .shape { filter: drop-shadow(0 0 ${(0.03 * h).toFixed(1)}px rgba(255, 211, 106, 0.45)); }
 .vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.42) 100%); }
 ${titleCss}
