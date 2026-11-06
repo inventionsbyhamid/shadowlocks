@@ -1,24 +1,28 @@
 #!/usr/bin/env bash
 # Build the game for production on the build server and publish it to Cloudflare Pages: one build,
 # to one Pages project or to both of ours (v1 serves the same build on both hosts).
-# Usage: scripts/deploy-pages.sh (--both | --project <name>...) [--branch <name>] [--create] [--dry-run] [--allow-dirty]
+# Usage: scripts/deploy-pages.sh (--both | --preview | --project <name>...) [--branch <name>] [--dry-run] [--allow-dirty]
 #        scripts/deploy-pages.sh --verify <host>
 #   --both            publish to shadowlocks (the public host, the store app) and shadowlocks-judge (the
 #                     judge host, the Competition app)
+#   --preview         a test link only: shadowlocks, branch preview, at preview.shadowlocks.pages.dev; the
+#                     public and judge hosts stay as they are
 #   --project <name>  a Pages project (lowercase letters, digits, hyphens); give it again for more
 #   --branch <name>   Pages branch; the production branch (default main) is the live site,
 #                     any other name makes a preview at <branch>.<project>.pages.dev
-#   --create          create each project first (once), with main as its production branch
+#   --create          create each project first (only for a new project; ours exist)
 #   --dry-run         build and check only, and list what would be published; needs no token
 #   --allow-dirty     publish a working tree with uncommitted changes (off by default)
 #   --judge-after-deadline  publish to shadowlocks-judge after the competition deadline (refused otherwise)
 #   --verify <host>   only check a live site, e.g. shadowlocks.pages.dev or a custom domain
-# After publishing to main, each <project>.pages.dev is checked, its asset links byte for byte against
-# the build's (the Quest apps open only when those match their package and key).
-# A real publish reads CLOUDFLARE_API_TOKEN (a token with "Cloudflare Pages: Edit") and
+# After publishing, each host it went to (<project>.pages.dev, or <branch>.<project>.pages.dev for a
+# preview) is checked, its asset links byte for byte against the build's (the Quest apps open only
+# when those match their package and key).
+# A real publish reads CLOUDFLARE_API_TOKEN (a token with "Cloudflare Pages: Edit" only) and
 # CLOUDFLARE_ACCOUNT_ID from .secrets/cloudflare.env next to the repo (NS_CLOUDFLARE_ENV overrides).
-# The token reaches the server only on stdin: never on a command line, never in a server-side
-# environment outside the throwaway deploy container. Wrangler runs there, in shadowlocks-deploy-*.
+# The token is read only in the subshell that sends it, and reaches the server only on stdin: never
+# in this script's variables, on a command line, or in a server-side environment outside the
+# throwaway deploy container. Wrangler runs there, in shadowlocks-deploy-*. Free Pages features only.
 # The build runs in lane NS_DEPLOY_LANE (default deploy).
 set -euo pipefail
 
@@ -36,14 +40,15 @@ DEADLINE_EPOCH=1795032000
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 
 usage() {
-  sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
-PROJECTS=() BRANCH=main CREATE=0 DRY=0 DIRTY=0 VERIFY= LATE_JUDGE=0
+PROJECTS=() BRANCH=main CREATE=0 DRY=0 DIRTY=0 VERIFY= LATE_JUDGE=0 PREVIEW=0
 while [ $# -gt 0 ]; do
   case $1 in
     --both) PROJECTS+=("$PUBLIC_PROJECT" "$JUDGE_PROJECT"); shift ;;
+    --preview) PREVIEW=1; shift ;;
     --project) [ $# -ge 2 ] || usage; PROJECTS+=("$2"); shift 2 ;;
     --branch) [ $# -ge 2 ] || usage; BRANCH=$2; shift 2 ;;
     --create) CREATE=1; shift ;;
@@ -88,6 +93,13 @@ if [ -n "$VERIFY" ]; then
   exit
 fi
 
+if [ "$PREVIEW" -eq 1 ]; then
+  # Only the public project, only a preview branch: the live hosts are never touched.
+  [ ${#PROJECTS[@]} -eq 0 ] && [ "$BRANCH" = main ] && [ "$CREATE" -eq 0 ] \
+    || { echo "--preview takes no --both, --project, --branch or --create" >&2; exit 2; }
+  PROJECTS=("$PUBLIC_PROJECT")
+  BRANCH=preview
+fi
 [ ${#PROJECTS[@]} -gt 0 ] || usage
 for p in "${PROJECTS[@]}"; do
   [[ $p =~ ^[a-z0-9][a-z0-9-]{0,57}$ ]] || { echo "bad project name: $p" >&2; exit 2; }
@@ -157,9 +169,9 @@ fi
 
 SECRETS=${NS_CLOUDFLARE_ENV:-$(dirname "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)")/../.secrets/cloudflare.env}
 [ -f "$SECRETS" ] || { echo "missing $SECRETS (CLOUDFLARE_API_TOKEN=..., CLOUDFLARE_ACCOUNT_ID=...)" >&2; exit 2; }
-TOKEN=$(sed -n 's/^CLOUDFLARE_API_TOKEN=//p' "$SECRETS" | tail -1)
+# The token is only checked for here; it is read in the subshell that sends it (below).
+grep -q '^CLOUDFLARE_API_TOKEN=.' "$SECRETS" || { echo "no CLOUDFLARE_API_TOKEN in $SECRETS" >&2; exit 2; }
 ACCOUNT=$(sed -n 's/^CLOUDFLARE_ACCOUNT_ID=//p' "$SECRETS" | tail -1)
-[ -n "$TOKEN" ] || { echo "no CLOUDFLARE_API_TOKEN in $SECRETS" >&2; exit 2; }
 [[ $ACCOUNT =~ ^[0-9a-f]{32}$ ]] || { echo "no CLOUDFLARE_ACCOUNT_ID (32 hex) in $SECRETS" >&2; exit 2; }
 
 gate=$(ssh "$HOST" "awk '{print \$1}' /proc/loadavg && df -BG --output=avail / | tail -1 | tr -dc 0-9") \
@@ -189,16 +201,17 @@ NAME="shadowlocks-deploy-$(date -u +%m%d%H%M%S)-$RANDOM"
 TAR=(tar)
 if tar --version 2>/dev/null | grep -q bsdtar; then TAR=(env COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs); fi
 echo "publishing to Pages project(s) $LIST, branch '$BRANCH'"
-{ printf '%s\n' "$TOKEN"; "${TAR[@]}" -C "$DIST" -cf - .; } | ssh "$HOST" "docker run --rm -i --name $NAME --cpus 2 --memory 2g \
+{ sed -n 's/^CLOUDFLARE_API_TOKEN=//p' "$SECRETS" | tail -1; "${TAR[@]}" -C "$DIST" -cf - .; } | ssh "$HOST" "docker run --rm -i --name $NAME --cpus 2 --memory 2g \
   --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 \
   -v $NPM_VOLUME:/npm-cache -e npm_config_cache=/npm-cache $IMAGE bash -c $(printf '%q' "$INNER")"
-unset TOKEN
 
-if [ "$BRANCH" = main ]; then
-  bad=0
-  for p in "${PROJECTS[@]}"; do
-    echo "checking https://$p.pages.dev"
-    verify "$p.pages.dev" "$DIST/.well-known/assetlinks.json" || bad=1
-  done
-  exit $bad
-fi
+# Each host this deploy went to: the live one for main, <branch>.<project>.pages.dev for a preview
+# (Pages may take a few seconds to serve a new preview alias).
+[ "$BRANCH" = main ] || sleep 10
+bad=0
+for p in "${PROJECTS[@]}"; do
+  if [ "$BRANCH" = main ]; then host=$p.pages.dev; else host=$(printf '%s' "$BRANCH" | tr '[:upper:]_' '[:lower:]-').$p.pages.dev; fi
+  echo "checking https://$host"
+  verify "$host" "$DIST/.well-known/assetlinks.json" || bad=1
+done
+exit $bad
