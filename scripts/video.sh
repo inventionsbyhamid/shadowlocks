@@ -27,10 +27,12 @@
 #   --stop          stop the detached render (frames on disk stay and the next run resumes), cancel a
 #                   queued one, or clean up after a lost watchdog
 # Attached runs (no --detach) need this Mac awake and connected, as any remote.sh run. Both kinds wait
-# until no other shadowlocks-e2e browser container runs, then hold the server-wide "e2e" lock that
-# scripts/e2e.sh takes: one heavy browser at a time on the shared server. A long render therefore
-# holds e2e runs of every lane back (they give up after NS_LOCK_WAIT s, default an hour, exit 75):
-# render long cuts detached at quiet times, shot by shot.
+# (up to an hour) until no other shadowlocks-e2e browser container runs, then hold the server-wide
+# "e2e" lock exclusively, as an exclusive scripts/e2e.sh run does: no other browser run goes meanwhile.
+# Browser runs still going after that hour: the render queues for the lock anyway, and once its
+# request waits there no new e2e run starts ahead of it. A long render therefore holds e2e runs of
+# every lane back (they give up after NS_LOCK_WAIT s, default an hour, exit 75): render long cuts
+# detached at quiet times, shot by shot.
 # Output, pulled back to test-results/video/<width>x<height>-<fps>/: <shot>.mp4, <shot>-contact.png,
 # <shot>-still-1..3.png, <shot>.json (events, cues, timings, loudness), <edit>.mp4/.json/-contact.png.
 # Frames, lossless mezzanines, stems and work files stay on the server in the lane's
@@ -67,7 +69,7 @@ while [ $# -gt 0 ]; do
     --status) MODE=status; shift ;;
     --pull) MODE=pull; shift ;;
     --stop) MODE=stop; shift ;;
-    -h|--help) sed -n '2,37p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,39p' "$0"; exit 0 ;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -108,7 +110,9 @@ IMAGE_ID=$(ssh "$HOST" "docker image inspect shadowlocks-e2e --format '{{.Id}}'"
 [[ $IMAGE_ID =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "unexpected image id: $IMAGE_ID" >&2; exit 3; }
 ENVS+=("QUALITY=$QUALITY" "EXPECT_GB=$EXPECT" "MIN_FREE_GB=$NS_MIN_FREE_GB" "NS_IMAGE_ID=$IMAGE_ID")
 
-# As scripts/e2e.sh: wait (up to an hour) while the server is busy or another browser container runs.
+# As an exclusive scripts/e2e.sh run: wait (up to an hour) while the server is busy or another browser
+# container runs, then queue for the e2e lock even if browser runs still go (the lock wait itself
+# gives up with exit 75; a load still over the limit is refused, exit 3).
 for _ in $(seq 1 120); do
   read -r load busy < <(ssh "$HOST" "echo \$(awk '{print \$1}' /proc/loadavg) \$(docker ps -q --filter ancestor=shadowlocks-e2e | wc -l)") \
     || { echo "cannot reach $HOST (is the VPN on?)" >&2; exit 3; }
@@ -117,8 +121,7 @@ for _ in $(seq 1 120); do
   sleep 30
 done
 if [ "$busy" -gt 0 ]; then
-  echo "refused: another browser run was still going after an hour of waiting (exit 75)" >&2
-  exit 75
+  echo "video: $busy browser runs still going after an hour; queueing for the 'e2e' lock (once it waits there, no new run starts ahead of it)" >&2
 fi
 
 # A render holds the shared e2e lock for as long as it runs: 3 h at most by default (a long final

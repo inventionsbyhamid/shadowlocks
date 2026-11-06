@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # Run a command inside a container on the build server.
-# Usage: scripts/remote.sh <lane> [--image <img>] [--shm <size>] [--env K=V]... [--lock <name>] [--pull <output>]...
-#                         [--expect-gb <n>] -- <command...>
+# Usage: scripts/remote.sh <lane> [--image <img>] [--shm <size>] [--env K=V]... [--lock <name> | --lock-shared <name>]
+#                         [--pull <output>]... [--expect-gb <n>] -- <command...>
 #   --image <img>  container image; shadowlocks-* images are local only and never pulled from a registry
 #   --shm <size>   shared memory for the container (browsers need it: --shm 2g)
 #   --env K=V      pass an environment variable to the command. Values are visible on the server
 #                  (process list, docker inspect): never pass secrets this way.
 #   --lock <name>  wait (up to NS_LOCK_WAIT s, default 3600; exit 75 when it gives up) for a server-wide
 #                  lock and hold it until the container is gone (one run at a time)
+#   --lock-shared <name>  the same lock (same file, locks/<name>.lock), held shared: up to two
+#                  --lock-shared runs at once (each also holds one of two slots, <name>.slot1/2.lock),
+#                  never together with a --lock run of that name, older scripts' included. A --lock run
+#                  that is waiting goes first: no new --lock-shared run starts until it has run. Same
+#                  wait limit and exit 75.
 #   --pull <output> copy this output back afterwards, mirrored (local files gone on the server are
 #                  removed): test-results, playwright-report, package-lock.json, dist or audio-out.
 #                  It is copied on the server while nothing of the lane runs; links, devices and other
@@ -32,9 +37,11 @@ MAX_LOAD=${NS_MAX_LOAD:-25}
 MIN_FREE_GB=${NS_MIN_FREE_GB:-100}
 RUN_USER=1000:1000
 NPM_VOLUME=shadowlocks-npm-user
+# How many --lock-shared runs of one lock may go at once.
+SHARED_SLOTS=2
 
 usage() {
-  echo "usage: $0 <lane> [--image <img>] [--shm <size>] [--env K=V]... [--lock <name>] [--pull <output>]... [--expect-gb <n>] -- <command...>" >&2
+  echo "usage: $0 <lane> [--image <img>] [--shm <size>] [--env K=V]... [--lock <name> | --lock-shared <name>] [--pull <output>]... [--expect-gb <n>] -- <command...>" >&2
   exit 2
 }
 
@@ -45,7 +52,7 @@ shift
 
 IMAGE=node:22-bookworm
 SHM=
-LOCK=
+LOCK_SPEC=
 EXPECT_GB=0
 ENVS=()
 PULLS=()
@@ -56,12 +63,15 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || usage
       [[ $2 =~ ^[0-9]+[kmgKMG]?$ ]] || { echo "bad --shm size: $2" >&2; exit 2; }
       SHM=$2; shift 2 ;;
-    --lock)
+    --lock|--lock-shared)
       [ $# -ge 2 ] || usage
-      # lane-* files are the lane locks (remote-run.sh): a shared lock must never be one of them.
+      # lane-* files are the lane locks (remote-run.sh): a shared lock must never be one of them. No
+      # dots, so a name never reaches a slot file (<name>.slot1.lock).
       [[ $2 =~ ^[A-Za-z0-9_-]+$ && $2 != lane-* ]] \
-        || { echo "bad --lock name: $2 (letters, digits, _ and -; not starting with lane-)" >&2; exit 2; }
-      LOCK=$2; shift 2 ;;
+        || { echo "bad $1 name: $2 (letters, digits, _ and -; not starting with lane-)" >&2; exit 2; }
+      # remote-run.sh reads <name> as exclusive, <name>:<slots> as shared. The last one given wins.
+      if [ "$1" = --lock ]; then LOCK_SPEC=$2; else LOCK_SPEC=$2:$SHARED_SLOTS; fi
+      shift 2 ;;
     --expect-gb)
       [ $# -ge 2 ] || usage
       [[ $2 =~ ^[0-9]{1,5}$ ]] || { echo "bad --expect-gb: $2 (whole GB, up to 5 digits)" >&2; exit 2; }
@@ -149,7 +159,7 @@ STOP_Q="bash -c $(printf '%q' "$STOP_SH") remote-stop $NAME $LANE"
 # setsid's own stderr is dropped (its "child did not exit normally" after a stop is noise); the run
 # gets the real one back on fd 4.
 REMOTE_CMD="mkdir -p $LOCKS $PULL_DIR && exec setsid -w bash -c $(printf '%q' "$(cat "$ROOT/scripts/remote-run.sh")") \
-remote-run $NAME $LANE $(printf '%q ' "$LOCK" "$LOCK_WAIT" "$MAX_RUN" "$NEED_GB" "${PULLS[*]-}" "$RUN_USER" "$STOP_SH")$RUN_Q 4>&2 2>/dev/null"
+remote-run $NAME $LANE $(printf '%q ' "$LOCK_SPEC" "$LOCK_WAIT" "$MAX_RUN" "$NEED_GB" "${PULLS[*]-}" "$RUN_USER" "$STOP_SH")$RUN_Q 4>&2 2>/dev/null"
 
 # rsync's --rsync-path: run this script text with bash on the server, rsync's own arguments appended.
 # The text goes as base64. openrsync (macOS) splits the option into words and removes one level of
