@@ -47,13 +47,11 @@ export const FINGER_HOLD_MS = 600;
 export const FINGER_GRACE_MS = 100;
 
 /**
- * A lock opens once the lantern has met its rule this long, so a lantern at rest (released, settled, or held still)
- * opens it and a sweep through the spot does not. Across the view the rule holds only a few millimetres around the
- * spot, but along the lock's ray (panel through spot) it holds for 3 to 16 cm, so a fast sweep near that line can meet
- * it for up to about half a second (the jitter bot's sweeps at 15-30 cm/s: 528 ms at worst). The same 0.6 s as a
- * finger lock's hold.
+ * A lock opens once the lantern has met its rule this long: a lantern at rest (released, settled, or held still)
+ * passes at once, while a sweep through the spot meets it for a frame or two and opens nothing (at 15 cm/s the
+ * lantern crosses the few millimetres where the rule holds in well under this).
  */
-export const OPEN_DWELL_MS = 600;
+export const OPEN_DWELL_MS = 100;
 
 /** Head gaze on a new lock this long moves the focus to it. */
 export const GAZE_DWELL_MS = 400;
