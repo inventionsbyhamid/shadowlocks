@@ -4,7 +4,6 @@
 // flare marks a grab and a ripple a settle. Four draw calls (five while a ripple runs); no allocation
 // per frame.
 import {
-  AdditiveBlending,
   BufferGeometry,
   Color,
   ConeGeometry,
@@ -26,6 +25,7 @@ import {
 import type { V3 } from "../core/types";
 import { clamp01, outCubic } from "./fx/ease";
 import { FlashBudget } from "./fx/flash-budget";
+import { LIGHT_BLEND } from "./light-blend";
 import { mergeParts } from "./merge";
 import { COLORS, LANTERN_GLOW, LIGHTS } from "./theme";
 
@@ -95,10 +95,10 @@ export class LanternView {
     this.core = new MeshBasicMaterial({ color: this.coreColor.clone(), toneMapped: false });
     const core = new Mesh(new CylinderGeometry(0.039, 0.039, 0.112, 8), this.core);
     this.glow = new Sprite(
-      new SpriteMaterial({ map: radialTexture(64, false), color: COLORS.lamp, blending: AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }),
+      new SpriteMaterial({ map: radialTexture(64, false), color: COLORS.lamp, ...LIGHT_BLEND, depthWrite: false, transparent: true, toneMapped: false }),
     );
     this.rippleSprite = new Sprite(
-      new SpriteMaterial({ map: radialTexture(64, true), color: COLORS.gold, blending: AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }),
+      new SpriteMaterial({ map: radialTexture(64, true), color: COLORS.gold, ...LIGHT_BLEND, depthWrite: false, transparent: true, toneMapped: false }),
     );
     this.rippleSprite.visible = false;
     this.light = new PointLight(COLORS.lamp, LIGHTS.lantern.intensity, LIGHTS.lantern.range, LIGHTS.lantern.decay);

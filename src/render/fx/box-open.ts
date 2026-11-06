@@ -9,7 +9,6 @@
 // behind the plate as a dark pane.
 // Per frame it allocates nothing.
 import {
-  AdditiveBlending,
   BoxGeometry,
   DoubleSide,
   Group,
@@ -21,6 +20,7 @@ import {
   RingGeometry,
 } from "@iwsdk/core";
 import type { V3 } from "../../core/types";
+import { LIGHT_BLEND } from "../light-blend";
 import { COLORS } from "../theme";
 import { clamp01, inOutCubic, outCubic, smoothstep } from "./ease";
 import type { FlashBudget } from "./flash-budget";
@@ -85,11 +85,11 @@ export class BoxOpenFx {
       vertexColors: true,
       transparent: true,
       opacity: 0,
-      blending: AdditiveBlending,
+      ...LIGHT_BLEND,
       depthWrite: false,
       toneMapped: false,
     });
-    this.burst = new Mesh(sunburstGeometry(BOX_OPEN_FX.burstRays, 0.3, 0.1), this.burstMat);
+    this.burst =new Mesh(sunburstGeometry(BOX_OPEN_FX.burstRays, 0.3, 0.1), this.burstMat);
     this.burst.name = "Box Burst";
     this.burst.position.set(0, 0, 0.005);
     this.burst.renderOrder = 3;
@@ -97,7 +97,7 @@ export class BoxOpenFx {
       color: COLORS.goldHot,
       transparent: true,
       opacity: 0,
-      blending: AdditiveBlending,
+      ...LIGHT_BLEND,
       depthWrite: false,
       side: DoubleSide,
       toneMapped: false,

@@ -6,8 +6,9 @@
 // budget in turn after the opening's flash, and star glitter rising from the shape (none with reduced motion). Lives
 // in the box root in box units; one draw call per lock while its burst shows and one for every lock's sparkle while
 // it runs, none after. Per frame it allocates nothing.
-import { AdditiveBlending, BufferAttribute, BufferGeometry, Group, Mesh, MeshBasicMaterial, type Object3D } from "@iwsdk/core";
+import { BufferAttribute, BufferGeometry, Group, Mesh, MeshBasicMaterial, type Object3D } from "@iwsdk/core";
 import type { Box } from "../../core/types";
+import { LIGHT_BLEND } from "../light-blend";
 import { COLORS } from "../theme";
 import { clamp01, outCubic } from "./ease";
 import type { FlashBudget } from "./flash-budget";
@@ -98,7 +99,7 @@ export class LockOpenFx {
         vertexColors: true,
         transparent: true,
         opacity: 0,
-        blending: AdditiveBlending,
+        ...LIGHT_BLEND,
         depthWrite: false,
         toneMapped: false,
       });

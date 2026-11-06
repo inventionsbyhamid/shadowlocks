@@ -12,7 +12,6 @@
 // crystallise writes the piece's geometry once; a frame only moves opacities, the piece's glow and scale, and the
 // glitter: no allocation per frame.
 import {
-  AdditiveBlending,
   BufferAttribute,
   BufferGeometry,
   Color,
@@ -33,6 +32,7 @@ import {
 } from "@iwsdk/core";
 import type { Box, Lock, V2, V3 } from "../../core/types";
 import type { BoxScene } from "../box-scene";
+import { LIGHT_BLEND } from "../light-blend";
 import { SCRAP_THICKNESS } from "../scraps";
 import { penumbra } from "../shadow-mesh";
 import { COLORS, FOIL, MATERIALS } from "../theme";
@@ -223,7 +223,7 @@ export class Crystals {
           transparent: true,
           opacity: 0,
           depthWrite: false,
-          blending: AdditiveBlending,
+          ...LIGHT_BLEND,
           toneMapped: false,
         }),
       );

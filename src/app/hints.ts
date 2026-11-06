@@ -4,7 +4,6 @@
 // 4 a pale-blue ghost lantern on the spot. Each level keeps the ones below it. The marks stay until the lock opens or
 // the box changes. HintMarks also draws the small gold focus mark above the lock the head's gaze rests on.
 import {
-  AdditiveBlending,
   CylinderGeometry,
   Group,
   Mesh,
@@ -20,6 +19,7 @@ import {
 } from "@iwsdk/core";
 import type { Box, Lock, V3 } from "../core/types";
 import { radialTexture } from "../render/lantern-view";
+import { LIGHT_BLEND } from "../render/light-blend";
 import { BEAM, RingBeam } from "../render/ring-beam";
 import { COLORS } from "../render/theme";
 import { type HintLevel, MAX_LOCKS } from "./events";
@@ -107,7 +107,7 @@ export class HintMarks {
     const ghostGlow = new SpriteMaterial({
       map: radialTexture(64, false),
       color: COLORS.ghost,
-      blending: AdditiveBlending,
+      ...LIGHT_BLEND,
       depthWrite: false,
       transparent: true,
       toneMapped: false,

@@ -6,7 +6,6 @@
 // brightens in place. Lives in the box root in box units: three draw calls while shown. The plaque and card are made
 // once per box; per frame nothing is allocated.
 import {
-  AdditiveBlending,
   ExtrudeGeometry,
   Group,
   type Material,
@@ -25,6 +24,7 @@ import { clamp01, outBack, outCubic, smoothstep } from "./fx/ease";
 import type { FlashBudget } from "./fx/flash-budget";
 import { LABEL_FONT, LabelCanvas, labelMaterial, roundRect } from "./label";
 import { radialTexture } from "./lantern-view";
+import { LIGHT_BLEND } from "./light-blend";
 import { mergeParts } from "./merge";
 import { COLORS } from "./theme";
 
@@ -138,7 +138,7 @@ export class Reward {
       new SpriteMaterial({
         map: radialTexture(64, false),
         color: COLORS.gold,
-        blending: AdditiveBlending,
+        ...LIGHT_BLEND,
         transparent: true,
         depthWrite: false,
         toneMapped: false,

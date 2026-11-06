@@ -3,11 +3,12 @@
 // with reduced motion; never a dialog). Poking it shows its choices beside it: "Hint", and "Show me" once the lessons
 // can replay an example; poking it again, choosing, or waiting puts them away. Sizes in metres whatever the box size.
 // Per frame: the keys feel the fingertips and the glow eases; nothing is allocated or repainted.
-import { AdditiveBlending, Group, type Object3D, Sprite, SpriteMaterial, Vector3 } from "@iwsdk/core";
+import { Group, type Object3D, Sprite, SpriteMaterial, Vector3 } from "@iwsdk/core";
 import type { Vec3 } from "../core/types";
 import { KEY_EVENT } from "../render/finger-key";
 import { brassFace, roundRect } from "../render/label";
 import { radialTexture } from "../render/lantern-view";
+import { LIGHT_BLEND } from "../render/light-blend";
 import { COLORS } from "../render/theme";
 import { COPY } from "./copy";
 import type { Tips } from "./key-view";
@@ -78,7 +79,7 @@ export class HintLantern {
     this.glowMat = new SpriteMaterial({
       map: radialTexture(64, false),
       color: COLORS.lamp,
-      blending: AdditiveBlending,
+      ...LIGHT_BLEND,
       depthWrite: false,
       transparent: true,
       opacity: 0,

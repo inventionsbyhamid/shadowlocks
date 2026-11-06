@@ -14,7 +14,6 @@
 // with its own size and brightness (added as light), drawn as a four-point star in the fragment shader. Nothing is
 // drawn while no sparkle runs. A new box lays out each lock's tips and sparks once; a frame writes only the buffers.
 import {
-  AdditiveBlending,
   BufferAttribute,
   BufferGeometry,
   Color,
@@ -26,6 +25,7 @@ import {
 import { inPoly, rng32 } from "../../core/geom";
 import { lockSamples } from "../../core/solve";
 import type { Box, V2 } from "../../core/types";
+import { LIGHT_BLEND } from "../light-blend";
 import { outlineEdges } from "../outline";
 import { COLORS } from "../theme";
 import { clamp01, outCubic, smoothstep } from "./ease";
@@ -175,7 +175,7 @@ export class Sparkle {
       vertexColors: true,
       transparent: true,
       depthWrite: false,
-      blending: AdditiveBlending,
+      ...LIGHT_BLEND,
       toneMapped: false,
     });
     mat.onBeforeCompile = starShader;
