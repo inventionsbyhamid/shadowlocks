@@ -78,6 +78,13 @@ Helpers:
 lock while the browser runs, so lanes take turns. Needs the `shadowlocks-e2e` image
 (`scripts/e2e-image/build.sh`).
 
+Functional runs of named specs share that lock: up to two go at once, from any lanes. Exclusive runs
+go alone: the full suite (no spec named), any argument mentioning `cost`, `perf-budget`, `bot`,
+`store` or `tests/video` (a spec filter that also matches such a spec counts: `lantern` runs
+`lantern-cost.spec.ts` too), or `NS_E2E_EXCLUSIVE=1`. An exclusive run waits for every other run to
+end, and no new run starts while one waits. `scripts/e2e.sh --print-mode <args>` says which kind a
+run would be; the rule is in the script's header.
+
 The run lives only as long as the Mac that started it. Ctrl-C, a dropped connection or a Mac that
 sleeps for more than 60 s stops it on the server and frees the lock, by design. While a run goes the
 runner keeps the Mac from idle sleep (`caffeinate`), but closing the lid still sleeps it, so keep
