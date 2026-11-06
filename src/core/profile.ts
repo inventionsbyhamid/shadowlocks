@@ -25,6 +25,12 @@ export interface Settings {
 export interface BoxSnapshot {
   /** Which box (numbered or daily); the generator rebuilds it from this. */
   key: string;
+  /**
+   * The generator version (GENERATOR_VERSION) the box was played under. A box saved under another one (or
+   * none) is regenerated from its key and started afresh: its lantern, open locks and pieces belong to a box
+   * that may have changed.
+   */
+  gen?: number;
   /** Lantern position in box units. */
   lantern: V3;
   /** Indexes of the open locks. */
@@ -145,6 +151,7 @@ export function isSnapshot(v: unknown): v is BoxSnapshot {
     isRec(v) &&
     typeof v.key === "string" &&
     v.key.length > 0 &&
+    (v.gen === undefined || isNat(v.gen)) &&
     Array.isArray(v.lantern) &&
     v.lantern.length === 3 &&
     v.lantern.every(isNum) &&
@@ -166,6 +173,7 @@ function snapshotFrom(v: unknown): BoxSnapshot | null {
   for (const [k, n] of Object.entries(v.hintLevel)) hintLevel[Number(k)] = n;
   return {
     key: v.key,
+    ...(v.gen === undefined ? {} : { gen: v.gen }),
     lantern: [v.lantern[0], v.lantern[1], v.lantern[2]],
     open: [...v.open],
     crystal: v.crystal.map((c) => ({ lock: c.lock, z: c.z })),

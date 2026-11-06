@@ -143,6 +143,56 @@ export function shadowPolys(elements: Element[], L: V3, out: V2[][], opts?: Shad
 }
 
 /**
+ * shadowPolys for a box measured every frame: the same polygons and numbers, written at a store site of its own into
+ * arrays made as double arrays (the corners read from a Float64Array). On V8 a double array stays one, and a store
+ * into it never allocates, as long as no array with generic elements meets the same code; through projInto's store,
+ * which every caster shares, one such array is enough to have V8 generalise the rest, and then each coordinate stored
+ * boxes a double (about 3.4 KB a call for a three-lock box). Boxes from the worker are rebuilt with plain arrays for
+ * the same reason (box-client.ts). Made once per box.
+ */
+export class ShadowCaster {
+  /** The polygons as shadowPolys lays them out (element order, its options), written by `cast`. */
+  readonly polys: V2[][];
+  /** Every corner's box position, flat (x, y, z). */
+  private readonly src: Float64Array;
+
+  constructor(elements: Element[], opts?: ShadowOpts) {
+    const shapes: V3[][] = [];
+    for (const e of elements) {
+      if (opts?.skipMissing && e.kind === "piece" && e.missing) continue;
+      shapes.push(e.kind === "ring" ? ringPoly(e) : e.verts);
+    }
+    this.src = new Float64Array(shapes.reduce((s, p) => s + p.length, 0) * 3);
+    let k = 0;
+    for (const pts of shapes) {
+      for (const p of pts) {
+        this.src[k++] = p[0];
+        this.src[k++] = p[1];
+        this.src[k++] = p[2];
+      }
+    }
+    // NaN corners until the first cast: double arrays from the start.
+    this.polys = shapes.map((pts) => pts.map((): V2 => [Number.NaN, Number.NaN]));
+  }
+
+  /** Cast every polygon with the lantern at L (same precondition and numbers as shadowPolys); returns how many. */
+  cast(L: V3): number {
+    const s = this.src, polys = this.polys, lx = L[0], ly = L[1], lz = L[2];
+    let i = 0;
+    for (let k = 0; k < polys.length; k++) {
+      const poly = polys[k]!;
+      for (let j = 0; j < poly.length; j++, i += 3) {
+        const p = poly[j]!;
+        const f = lz / (lz - s[i + 2]!);
+        p[0] = lx + (s[i]! - lx) * f;
+        p[1] = ly + (s[i + 1]! - ly) * f;
+      }
+    }
+    return polys.length;
+  }
+}
+
+/**
  * Scratch for measure: the indices and bboxes (4 numbers each) of the polygons that reach the lock. Grown, never
  * shrunk, so a frame allocates only when a box casts more shadows than any before.
  */
