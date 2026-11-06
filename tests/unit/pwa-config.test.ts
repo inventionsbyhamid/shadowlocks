@@ -38,15 +38,17 @@ describe("web app manifest", () => {
     expect(m.id).toBe("./");
   });
 
-  it("takes its colours from the walnut theme colour, the same as the page and the Quest app", () => {
+  it("takes its colours from the walnut theme colour, the same as the page and both Quest apps", () => {
     expect(THEME_COLOR).toBe("#1a1410");
     expect(m.theme_color).toBe(THEME_COLOR);
     expect(m.background_color).toBe(THEME_COLOR);
     const html = fs.readFileSync("index.html", "utf8");
     expect(html).toContain(`<meta name="theme-color" content="${THEME_COLOR}" />`);
-    const twa = JSON.parse(fs.readFileSync("twa/twa-manifest.json", "utf8")) as Record<string, unknown>;
-    for (const k of ["themeColor", "themeColorDark", "navigationColor", "navigationColorDark", "backgroundColor"]) {
-      expect(String(twa[k]).toLowerCase(), k).toBe(THEME_COLOR);
+    for (const app of ["store", "competition"]) {
+      const twa = JSON.parse(fs.readFileSync(`twa/${app}/twa-manifest.json`, "utf8")) as Record<string, unknown>;
+      for (const k of ["themeColor", "themeColorDark", "navigationColor", "navigationColorDark", "backgroundColor"]) {
+        expect(String(twa[k]).toLowerCase(), `${app} ${k}`).toBe(THEME_COLOR);
+      }
     }
   });
 

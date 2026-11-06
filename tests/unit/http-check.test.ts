@@ -1,6 +1,9 @@
 // The hosting checks behind `scripts/deploy-pages.sh --verify`, fed response heads like the ones
 // Cloudflare Pages sends (curl -D -: CRLF line ends, lower-case HTTP/2 header names).
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'";
@@ -64,5 +67,44 @@ describe("head_ok (deploy-pages.sh --verify)", () => {
   it("matches header names in any case", () => {
     const upper = head("HTTP/1.1 200 OK", { "Content-Type": "text/html", "Content-Security-Policy-Report-Only": CSP });
     expect(headOk(upper, "/", "200", "text/html", "content-security-policy-report-only: default-src 'self'").ok).toBe(true);
+  });
+});
+
+/** Runs body_ok from scripts/http-check.sh against a file holding `want`. */
+function bodyOk(body: string, want: string): { ok: boolean; out: string } {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "body-ok-"));
+  try {
+    const file = path.join(dir, "assetlinks.json");
+    fs.writeFileSync(file, want);
+    const r = spawnSync("bash", ["-c", 'source scripts/http-check.sh && body_ok "$@"', "body_ok", body, "/.well-known/assetlinks.json", file], {
+      encoding: "utf8",
+    });
+    return { ok: r.status === 0, out: `${r.stdout}${r.stderr}`.trim() };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+describe("body_ok (the live asset links after a deploy)", () => {
+  const links = fs.readFileSync("public/.well-known/assetlinks.json", "utf8");
+
+  it("passes the file this build carries, whatever the line ends, and notes placeholders", () => {
+    const r = bodyOk(links.trimEnd(), links);
+    expect(r.ok).toBe(true);
+    expect(r.out).toMatch(/^ok {3}\/\.well-known\/assetlinks\.json: same as assetlinks\.json/);
+    expect(bodyOk(links.replace(/\n/g, "\r\n"), links).ok).toBe(true);
+    const filled = links.replace(/REPLACE_WITH_SIGNING_KEY_SHA256/g, "AB:CD");
+    expect(bodyOk(filled, filled).out).not.toMatch(/placeholders/);
+    if (links.includes("REPLACE_WITH")) expect(r.out).toMatch(/still has placeholders/);
+  });
+
+  it("fails an old file, one package short, or an empty answer", () => {
+    const old = links.replace(/REPLACE_WITH_SIGNING_KEY_SHA256|[0-9A-F]{2}(?::[0-9A-F]{2}){31}/g, "11:22");
+    expect(bodyOk(old, links).ok).toBe(false);
+    const one = JSON.stringify([JSON.parse(links)[0]], null, 2);
+    const r = bodyOk(one, links);
+    expect(r.ok).toBe(false);
+    expect(r.out).toMatch(/^FAIL \/\.well-known\/assetlinks\.json: the live file is not/);
+    expect(bodyOk("", links).ok).toBe(false);
   });
 });
