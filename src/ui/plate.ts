@@ -17,8 +17,11 @@ export const PLATE = {
   at: [0, 0.535, 0.03] as const,
   /** It leans back this much more than the box (radians), to face a seated player's eyes. */
   lean: (-12 * Math.PI) / 180,
-  /** Its size (m): room for the name beside three lights at full size, legible at 55 cm. */
-  w: 0.17,
+  /**
+   * Its size (m): room for the name beside three lights, legible at 55 cm, in every language (the longest, "Boîte du
+   * jour" and "Caixa nº 888", at the floor), and still narrower than the smallest box (18 cm).
+   */
+  w: 0.176,
   h: 0.034,
   /** The Next key (m): above the plate, wide enough for its label at full size. */
   key: { w: 0.1, h: 0.044, above: 0.012 },
@@ -37,9 +40,9 @@ const NAME_FLOOR = 0.36;
  * name starts and how wide it may run, so it always stops short of the first light.
  */
 export function plateLayout(w: number, h: number, n: number): { nameX: number; nameMax: number; lightX: number[]; lightR: number } {
-  const lightR = h * 0.2, pitch = h * 0.72, right = w - h * 0.45, nameX = h * 0.4;
+  const lightR = h * 0.18, pitch = h * 0.62, right = w - h * 0.4, nameX = h * 0.32;
   const lightX = Array.from({ length: n }, (_, i) => right - (n - 1 - i) * pitch);
-  const end = n > 0 ? lightX[0]! - lightR - h * 0.25 : w - nameX;
+  const end = n > 0 ? lightX[0]! - lightR - h * 0.2 : w - nameX;
   return { nameX, nameMax: end - nameX, lightX, lightR };
 }
 

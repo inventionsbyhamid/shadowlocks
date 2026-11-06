@@ -136,7 +136,7 @@ export const DE: Copy = {
     daily: "Tagesbox",
     next: "Nächste",
     hint: "Hinweis",
-    showMe: "Zeig's mir",
+    showMe: "Zeigen",
     storyOwner: "Vom Schreibtisch {owner}.",
     storyLoot: "Inhalt: {loot}.",
     short: "Ein Teil fehlt.",

@@ -5,13 +5,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Group } from "@iwsdk/core";
 import { followLanguage } from "../../src/app/language";
 import { generateBox } from "../../src/core/generator";
-import { defaultSettings } from "../../src/core/profile";
+import { BOX_SIZE_CM, defaultSettings } from "../../src/core/profile";
 import { type LanguageSetting, lang, setLang, tableFor } from "../../src/i18n";
 import { breakUnits, fitLabel, labelFont, wrapLabel } from "../../src/render/label";
 import { Reward } from "../../src/render/reward";
 import { captionFor } from "../../src/ui/captions";
 import { HintLantern } from "../../src/ui/hint-lantern";
-import { Plate, wrapTwo } from "../../src/ui/plate";
+import { PLATE, Plate, wrapTwo } from "../../src/ui/plate";
 
 afterEach(() => setLang("en"));
 
@@ -124,7 +124,11 @@ describe("the box's labels follow the language", () => {
     const h = new HintLantern(new Group());
     setLang("es");
     h.relabel();
-    expect([h.hint.labelText, h.showMe.labelText]).toEqual(["Pista", "Muéstrame"]);
+    expect([h.hint.labelText, h.showMe.labelText]).toEqual(["Pista", "Mostrar"]);
+  });
+
+  it("the plate, widened for the longest names, is still narrower than the smallest box", () => {
+    expect(PLATE.w).toBeLessThan(BOX_SIZE_CM.min / 100);
   });
 
   it("the story card tells a saved reward's English words in the language now shown", () => {

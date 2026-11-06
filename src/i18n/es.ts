@@ -138,7 +138,7 @@ export const ES: Copy = {
     daily: "Caja del día",
     next: "Siguiente",
     hint: "Pista",
-    showMe: "Muéstrame",
+    showMe: "Mostrar",
     storyOwner: "Del escritorio {owner}.",
     storyLoot: "Contenido: {loot}.",
     short: "Falta una pieza.",

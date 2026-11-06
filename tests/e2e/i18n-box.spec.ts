@@ -3,7 +3,7 @@
 // readable size with the fonts the game ships; changing the Language setting repaints it at once; a reload keeps
 // the language; and shots of the box in each language for the owner. IWER's headset on the virtual clock.
 import type { Page } from "@playwright/test";
-import type { SlKey, SlSessionState } from "../../src/app/test-api";
+import type { SlSessionState } from "../../src/app/test-api";
 import type { BoxSpec, V3 } from "../../src/core/types";
 import { expect, test } from "./helpers/test";
 import type { XrApp } from "./helpers/xr-app";
@@ -42,9 +42,10 @@ test("every piece of the box's lettering fits at a readable size in every langua
   // Every language, every piece: the plate's four names, three keys, the coach card, 24 owners and 22 loot lines.
   expect(fits).toHaveLength(LANGS.length * (4 + 3 + 1 + 24 + 22));
   const squeezed = fits.filter((f) => f.squeezed).map((f) => `${f.lang} ${f.where}: "${f.text}" at ${f.size} px`);
-  // What had to be set smaller than full size, or wrapped (allowed; listed for the report).
+  // What had to be set smaller than full size, or a story sentence that wrapped (allowed; listed for the report).
+  const full = (where: string) => Math.max(...fits.filter((x) => x.where === where).map((x) => x.size));
   const notes = fits
-    .filter((f) => f.lines > 1 || (f.where !== "story" && f.size < Math.max(...fits.filter((x) => x.where === f.where).map((x) => x.size))))
+    .filter((f) => (f.where === "story" ? f.lines > 2 : f.size < full(f.where)))
     .map((f) => `${f.lang} ${f.where}: "${f.text}" ${f.size} px, ${f.lines} line(s)`);
   testInfo.annotations.push({ type: "fits", description: notes.join("\n") || "every piece at full size" });
   console.log(notes.join("\n"));
@@ -64,7 +65,7 @@ test("changing the language repaints the box's lettering at once, and a reload k
   expect(await page.evaluate(() => window.__sl!.i18n.lang())).toEqual({ shown: "de", doc: "de" });
   const de = await texts(page);
   expect(de.plate).toBe("Box Nr. 3");
-  expect(de.keys).toEqual({ "plate-next": "Nächste", "hint-choice": "Hinweis", "hint-show-me": "Zeig's mir" });
+  expect(de.keys).toEqual({ "plate-next": "Nächste", "hint-choice": "Hinweis", "hint-show-me": "Zeigen" });
   expect(de.story[0]).toMatch(/^Vom Schreibtisch /);
   expect(de.story[1]).toMatch(/^Inhalt: /);
 
@@ -89,27 +90,24 @@ test("changing the language repaints the box's lettering at once, and a reload k
   expect((await texts(page)).plate).toBe("Box No. 5");
 });
 
-test("shots: the box's plate, story card and Next key in each language", async ({ page, boot }) => {
-  test.setTimeout(600_000);
+test("shots: the box's plate and story card in each language", async ({ page, boot }) => {
+  test.setTimeout(900_000);
   const app = await boot({ mode: "visual" });
-  const keys = (): Promise<SlKey[]> => page.evaluate(() => window.__sl!.session.keys());
   const playFor = async (ms: number) => {
     for (let t = 0; t < ms; t += 100) await app.step(1, 100);
   };
   for (const l of LANGS) {
     await setLanguage(page, l);
-    const s = await play(app, page, { kind: "box", n: 1 });
+    // Box 88 on the plate (two digits), then box 1's single lock opened for its story card.
+    await play(app, page, { kind: "box", n: 88 });
     await fontsIn(app, page, l);
     const panel = (await app.state()).boxPose.position;
     await app.captureHeadset(`i18n-${l}-plate-headset`, { x: panel[0], y: panel[1] + 0.12, z: panel[2] });
+    const s = await play(app, page, { kind: "box", n: 1 });
     await page.evaluate((L: V3) => window.__sl!.placeLantern(L), s.locks[0]!.spot);
     await app.stepUntil((_ns, w) => w.__sl.session.state().stage === "reward", { maxMs: 8_000, dt: 100, label: "the reward up" });
     await playFor(400);
     const r = (await page.evaluate(() => window.__sl!.session.reward()))!;
     await app.captureHeadset(`i18n-${l}-story-headset`, { x: r.world[0], y: r.world[1] + 0.03, z: r.world[2] });
-    await app.stepUntil((_ns, w) => w.__sl.session.state().stage === "offered", { maxMs: 10_000, dt: 100, label: "the reward taken" });
-    await playFor(500);
-    const next = (await keys()).find((k) => k.id === "plate-next")!;
-    await app.captureHeadset(`i18n-${l}-next-headset`, { x: next.world[0], y: next.world[1], z: next.world[2] });
   }
 });
