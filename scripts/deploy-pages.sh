@@ -15,11 +15,14 @@
 #   --allow-dirty     publish a working tree with uncommitted changes (off by default)
 #   --judge-after-deadline  publish to shadowlocks-judge after the competition deadline (refused otherwise)
 #   --verify <host>   only check a live site, e.g. shadowlocks.pages.dev or a custom domain
-# After publishing, each host it went to (<project>.pages.dev, or <branch>.<project>.pages.dev for a
+#   --check-token     only check that the token in .secrets/cloudflare.env is active for the account
+# Every publish starts with that check, then publishes; after publishing, each host it went to (<project>.pages.dev, or <branch>.<project>.pages.dev for a
 # preview) is checked, its asset links byte for byte against the build's (the Quest apps open only
 # when those match their package and key).
 # A real publish reads CLOUDFLARE_API_TOKEN (a token with "Cloudflare Pages: Edit" only) and
 # CLOUDFLARE_ACCOUNT_ID from .secrets/cloudflare.env next to the repo (NS_CLOUDFLARE_ENV overrides).
+# The token may be account-owned: wrangler then needs CLOUDFLARE_ACCOUNT_ID (always set here) and
+# `wrangler whoami` can fail, so the check uses /accounts/<id>/tokens/verify instead.
 # The token is read only in the subshell that sends it, and reaches the server only on stdin: never
 # in this script's variables, on a command line, or in a server-side environment outside the
 # throwaway deploy container. Wrangler runs there, in shadowlocks-deploy-*. Free Pages features only.
@@ -40,14 +43,15 @@ DEADLINE_EPOCH=1795032000
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 
 usage() {
-  sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
-PROJECTS=() BRANCH=main CREATE=0 DRY=0 DIRTY=0 VERIFY= LATE_JUDGE=0 PREVIEW=0
+PROJECTS=() BRANCH=main CREATE=0 DRY=0 DIRTY=0 VERIFY= LATE_JUDGE=0 PREVIEW=0 CHECK_TOKEN=0
 while [ $# -gt 0 ]; do
   case $1 in
     --both) PROJECTS+=("$PUBLIC_PROJECT" "$JUDGE_PROJECT"); shift ;;
+    --check-token) CHECK_TOKEN=1; shift ;;
     --preview) PREVIEW=1; shift ;;
     --project) [ $# -ge 2 ] || usage; PROJECTS+=("$2"); shift 2 ;;
     --branch) [ $# -ge 2 ] || usage; BRANCH=$2; shift 2 ;;
@@ -90,6 +94,33 @@ if [ -n "$VERIFY" ]; then
   [[ $VERIFY =~ ^[A-Za-z0-9.-]+$ ]] || { echo "bad host: $VERIFY" >&2; exit 2; }
   # What the site should serve: the asset links committed here (redeploy after a fill).
   verify "$VERIFY" "$ROOT/public/.well-known/assetlinks.json"
+  exit
+fi
+
+# The secrets file and the account id; the token itself is only checked for here and read in the
+# subshell that sends it.
+load_account() {
+  SECRETS=${NS_CLOUDFLARE_ENV:-$(dirname "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)")/../.secrets/cloudflare.env}
+  [ -f "$SECRETS" ] || { echo "missing $SECRETS (CLOUDFLARE_API_TOKEN=..., CLOUDFLARE_ACCOUNT_ID=...)" >&2; exit 2; }
+  grep -q '^CLOUDFLARE_API_TOKEN=.' "$SECRETS" || { echo "no CLOUDFLARE_API_TOKEN in $SECRETS" >&2; exit 2; }
+  ACCOUNT=$(sed -n 's/^CLOUDFLARE_ACCOUNT_ID=//p' "$SECRETS" | tail -1)
+  [[ $ACCOUNT =~ ^[0-9a-f]{32}$ ]] || { echo "no CLOUDFLARE_ACCOUNT_ID (32 hex) in $SECRETS" >&2; exit 2; }
+}
+send_token() { sed -n 's/^CLOUDFLARE_API_TOKEN=//p' "$SECRETS" | tail -1; }
+# Container code: is the token (CLOUDFLARE_API_TOKEN, read from stdin) active for CLOUDFLARE_ACCOUNT_ID?
+# The header goes to curl on its stdin, so the token is never in a process's arguments.
+TOKEN_CHECK='v=$(printf "Authorization: Bearer %s\n" "$CLOUDFLARE_API_TOKEN" | curl -s --max-time 20 -H @- "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify" || true)
+if printf "%s" "$v" | grep -Eq "\"status\" *: *\"active\""; then echo "deploy: the Cloudflare token is active for the account"
+else echo "deploy: the Cloudflare token did not verify for this account (accounts/<id>/tokens/verify)" >&2; exit 3; fi'
+
+if [ "$CHECK_TOKEN" -eq 1 ]; then
+  load_account
+  CHECK_INNER="set -euo pipefail
+IFS= read -r CLOUDFLARE_API_TOKEN
+CLOUDFLARE_ACCOUNT_ID=$ACCOUNT
+$TOKEN_CHECK"
+  send_token | ssh "$HOST" "docker run --rm -i --name shadowlocks-deploy-check-$(date -u +%m%d%H%M%S)-$RANDOM --cpus 1 --memory 512m \
+    --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges --pids-limit 64 $IMAGE bash -c $(printf '%q' "$CHECK_INNER")"
   exit
 fi
 
@@ -167,12 +198,7 @@ if [ "$DRY" -eq 1 ]; then
   exit 0
 fi
 
-SECRETS=${NS_CLOUDFLARE_ENV:-$(dirname "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)")/../.secrets/cloudflare.env}
-[ -f "$SECRETS" ] || { echo "missing $SECRETS (CLOUDFLARE_API_TOKEN=..., CLOUDFLARE_ACCOUNT_ID=...)" >&2; exit 2; }
-# The token is only checked for here; it is read in the subshell that sends it (below).
-grep -q '^CLOUDFLARE_API_TOKEN=.' "$SECRETS" || { echo "no CLOUDFLARE_API_TOKEN in $SECRETS" >&2; exit 2; }
-ACCOUNT=$(sed -n 's/^CLOUDFLARE_ACCOUNT_ID=//p' "$SECRETS" | tail -1)
-[[ $ACCOUNT =~ ^[0-9a-f]{32}$ ]] || { echo "no CLOUDFLARE_ACCOUNT_ID (32 hex) in $SECRETS" >&2; exit 2; }
+load_account
 
 gate=$(ssh "$HOST" "awk '{print \$1}' /proc/loadavg && df -BG --output=avail / | tail -1 | tr -dc 0-9") \
   || { echo "cannot reach $HOST (is the VPN on?)" >&2; exit 3; }
@@ -181,11 +207,13 @@ FREE=$(printf '%s\n' "$gate" | sed -n 2p)
 if awk -v l="$LOAD" -v m="$MAX_LOAD" 'BEGIN{exit !(l>m)}'; then echo "refused: $HOST load $LOAD > $MAX_LOAD" >&2; exit 3; fi
 if [ "${FREE:-0}" -lt "$MIN_FREE_GB" ]; then echo "refused: $HOST free disk ${FREE:-0} GB < $MIN_FREE_GB GB" >&2; exit 3; fi
 
-# In the container: the first stdin line is the token, the rest is dist/ as a tar stream. Every
-# project gets the same files, one after the other; the first failure stops the rest.
+# In the container: the first stdin line is the token, the rest is dist/ as a tar stream. The token
+# is checked first; then every project gets the same files, one after the other; the first failure
+# stops the rest.
 INNER="set -euo pipefail
 IFS= read -r CLOUDFLARE_API_TOKEN
 export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID=$ACCOUNT WRANGLER_SEND_METRICS=false CI=1
+$TOKEN_CHECK
 mkdir -p /tmp/site && tar -C /tmp/site --no-same-owner -xf -
 find /tmp/site -name '._*' -delete
 [ \$(find /tmp/site -type f | wc -l) -eq $FILES ] || { echo 'deploy: dist did not arrive whole' >&2; exit 3; }
@@ -201,7 +229,7 @@ NAME="shadowlocks-deploy-$(date -u +%m%d%H%M%S)-$RANDOM"
 TAR=(tar)
 if tar --version 2>/dev/null | grep -q bsdtar; then TAR=(env COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs); fi
 echo "publishing to Pages project(s) $LIST, branch '$BRANCH'"
-{ sed -n 's/^CLOUDFLARE_API_TOKEN=//p' "$SECRETS" | tail -1; "${TAR[@]}" -C "$DIST" -cf - .; } | ssh "$HOST" "docker run --rm -i --name $NAME --cpus 2 --memory 2g \
+{ send_token; "${TAR[@]}" -C "$DIST" -cf - .; } | ssh "$HOST" "docker run --rm -i --name $NAME --cpus 2 --memory 2g \
   --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 \
   -v $NPM_VOLUME:/npm-cache -e npm_config_cache=/npm-cache $IMAGE bash -c $(printf '%q' "$INNER")"
 
