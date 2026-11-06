@@ -219,6 +219,8 @@ export interface GameShell {
   readonly lifecycle: Lifecycle;
   readonly profiles: ProfileStore;
   continueSaved(): boolean;
+  /** A box (or lesson) is about to start: the box opened before it is done with (the room's light comes down). */
+  boxBegins(): void;
 }
 
 /** How boxes start, and the flow the shell hands saved boxes to. */
@@ -231,6 +233,9 @@ export class Game implements GameFlow {
   /** Play `spec` now (from `snap` when it is that box's save): the play screen, the lifecycle saving it. */
   play(spec: BoxSpec, snap: BoxSnapshot | null = null, practice = false): void {
     if (this.shell.lifecycle.session !== this.session) this.shell.lifecycle.attach(this.session, performance.now());
+    // Before the play screen: the session's box-start comes only once the box is built, and the last box's opened
+    // light must not come back up meanwhile.
+    this.shell.boxBegins();
     go("play");
     this.run(spec, snap, practice);
   }
@@ -260,6 +265,8 @@ export class Game implements GameFlow {
   resume(snapshot: BoxSnapshot): LifecycleSession {
     const spec = specOfKey(snapshot.key);
     if (!spec) throw new Error(`a saved box with no box to play: "${snapshot.key}"`);
+    // The shell moves to the play screen once this returns (as play() does, the last box's light first).
+    this.shell.boxBegins();
     this.run(spec, snapshot);
     return this.session;
   }

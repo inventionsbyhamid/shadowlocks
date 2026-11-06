@@ -62,8 +62,8 @@ export function roomLightFor(screen: string, boxOpen = false): RoomLight {
 
 /**
  * The room's light as the game moves on: the screen (a menu or play) and whether the box in play has opened (the
- * `box-open` event; the next `box-start` closes it). Sets the theatre's light and says when it changed (the theatre's
- * sounds), from and to.
+ * `box-open` event; a new box closes it, before its play screen: Shell.boxBegins, and its `box-start` again). Sets
+ * the theatre's light and says when it changed (the theatre's sounds), from and to.
  */
 export class RoomLights {
   private screenNow = "boot";
