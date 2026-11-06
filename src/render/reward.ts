@@ -6,13 +6,16 @@
 // brightens in place. Lives in the box root in box units: three draw calls while shown. The plaque and card are made
 // once per box; per frame nothing is allocated.
 import {
+  DataTexture,
   ExtrudeGeometry,
   Group,
+  LinearFilter,
   type Material,
   Mesh,
   MeshBasicMaterial,
   type Object3D,
   PlaneGeometry,
+  RGBAFormat,
   Shape,
   Sprite,
   SpriteMaterial,
@@ -23,7 +26,6 @@ import { COPY, fill } from "../ui/copy";
 import { clamp01, outBack, outCubic, smoothstep } from "./fx/ease";
 import type { FlashBudget } from "./fx/flash-budget";
 import { LABEL_FONT, LabelCanvas, labelMaterial, roundRect } from "./label";
-import { radialTexture } from "./lantern-view";
 import { LIGHT_BLEND } from "./light-blend";
 import { mergeParts } from "./merge";
 import { COLORS } from "./theme";
@@ -48,10 +50,31 @@ export const REWARD = {
   card: { w: 0.62, h: 0.12, above: 0.14, px: [1024, 198] as const },
   /**
    * The glow behind the plaque (box units): its size and depth behind it, its peak opacity as it rises, the share
-   * of that it settles to while it floats, and the size it grows from (none with reduced motion).
+   * of that it settles to while it floats, and the size it grows from (none with reduced motion). About three
+   * plaques wide, so the plaque covers only its middle and the gold shows round it.
    */
-  glow: { size: 0.62, z: -0.03, peak: 0.85, rest: 0.4, growFrom: 0.55, refused: 0.5 },
+  glow: { size: 1.05, z: -0.03, peak: 0.85, rest: 0.4, growFrom: 0.55, refused: 0.5 },
 } as const;
+
+/**
+ * The glow's texture: white, its alpha falling as (1 - r)² from the centre (r 0) to the edge (r 1). Broad, unlike the
+ * lantern's halo with its bright core, since the plaque hides the middle.
+ */
+function glowTexture(size: number): DataTexture {
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const r = Math.hypot((x + 0.5) / size - 0.5, (y + 0.5) / size - 0.5) * 2, i = (y * size + x) * 4;
+      data[i] = data[i + 1] = data[i + 2] = 255;
+      data[i + 3] = r >= 1 ? 0 : Math.round((1 - r) * (1 - r) * 255);
+    }
+  }
+  const t = new DataTexture(data, size, size, RGBAFormat);
+  t.magFilter = LinearFilter;
+  t.minFilter = LinearFilter;
+  t.needsUpdate = true;
+  return t;
+}
 
 /** The hands as the reward needs them: pinch points in box units this frame. */
 export interface RewardHands {
@@ -136,7 +159,7 @@ export class Reward {
     // A gold glow behind the plaque, added as light.
     this.glow = new Sprite(
       new SpriteMaterial({
-        map: radialTexture(64, false),
+        map: glowTexture(64),
         color: COLORS.gold,
         ...LIGHT_BLEND,
         transparent: true,

@@ -85,6 +85,32 @@ describe("reward", () => {
     }
   });
 
+  it("the glow shows round the plaque, not only behind it: bright at its sides at the peak, soft there at rest", () => {
+    const budget = new FlashBudget();
+    const r = new Reward(new Group(), budget);
+    r.setBox(generateBox({ kind: "box", n: 3 }));
+    r.rise([0.22, -0.55, 1.27]);
+    const { hands } = hand();
+    const m = r.glow.material as SpriteMaterial;
+    const img = m.map!.image as { data: Uint8Array; width: number };
+    // The glow's own alpha at the plaque's side edge (radius 0..1 across the sprite), read from its texture.
+    const atSide = () => {
+      const n = img.width, x = Math.floor(n / 2 + ((REWARD.plaque.w / 2) / (r.glow.scale.x / 2)) * (n / 2));
+      return x >= n ? 0 : img.data[(Math.floor(n / 2) * n + x) * 4 + 3]! / 255;
+    };
+    let peak = 0;
+    for (let t = 0; t < REWARD.riseAtS + REWARD.riseS + 0.5; t += DT) {
+      budget.step(DT);
+      r.update(DT, hands, true, CM, false);
+      if (r.glow.visible) peak = Math.max(peak, m.opacity * atSide());
+    }
+    // Gold added at the plaque's sides: a clear bloom, then a soft glow while it floats.
+    expect(peak).toBeGreaterThanOrEqual(0.3);
+    expect(m.opacity * atSide()).toBeGreaterThanOrEqual(0.12);
+    // About the box's width: it lights the reward, not the room.
+    expect(REWARD.glow.size).toBeLessThanOrEqual(1.1);
+  });
+
   it("pinched and let go nearer the player: taken; let go elsewhere: it floats back", () => {
     const { r, h, run, taken } = risen();
     run(REWARD.riseAtS + REWARD.riseS + 0.1);
