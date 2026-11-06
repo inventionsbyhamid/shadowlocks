@@ -43,6 +43,7 @@ const GLOSSARY: Record<string, Term> = {
 /** [term, language, key]: why the line does without the term. */
 const EXCEPT: [string, Others | "*", string, string][] = [
   ["box", "*", "game.next", "the key over the plate says 'Next' (Siguiente, Suivante, Nächste, Próxima): the box is implied"],
+  ["box", "*", "settings.boxSize", "the slider reads 'Size 24 cm' (Tamaño, Taille, Größe, Tamanho): 'box' does not fit beside its value"],
   ["dailyBox", "fr", "menus.collection.daily", "'Boîte du 2 nov.': the date says which day"],
   ["dailyBox", "ja", "menus.collection.daily", "'11月2日の箱': the date says which day"],
   ["hand", "ja", "settings.hand", "左利き (left-handed) is how Japanese names the setting"],

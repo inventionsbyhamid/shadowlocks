@@ -20,7 +20,7 @@ export const ES: Copy = {
     muted: "Silencio",
     music: "Música",
     effects: "Efectos",
-    boxSize: "Tamaño de caja",
+    boxSize: "Tamaño",
     captions: "Subtítulos",
     captionsSub: "Sonidos en texto",
     motion: "Menos movimiento",
@@ -105,7 +105,7 @@ export const ES: Copy = {
       note: "Los cambios se aplican al instante",
       recenter: "Centrar",
       reset: "Borrar",
-      resetSub: "Todo el progreso",
+      resetSub: "Tu progreso",
       done: "Listo",
     },
     reset: {

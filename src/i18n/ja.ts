@@ -20,7 +20,7 @@ export const JA: Copy = {
     muted: "ミュート",
     music: "音楽",
     effects: "効果音",
-    boxSize: "箱のサイズ",
+    boxSize: "箱サイズ",
     captions: "字幕",
     captionsSub: "音を文字で",
     motion: "動きを減らす",
@@ -53,7 +53,7 @@ export const JA: Copy = {
     lessons: {
       move: "光を動かす",
       nearFar: "近くと遠く",
-      rings: "リングをそろえる",
+      rings: "リング合わせ",
       finger: "手を貸して",
       decoys: "おとり",
       ringless: "リングなし",
@@ -105,7 +105,7 @@ export const JA: Copy = {
       note: "変更はすぐに反映されます",
       recenter: "正面に戻す",
       reset: "リセット",
-      resetSub: "すべての進行状況",
+      resetSub: "進行状況",
       done: "完了",
     },
     reset: {
@@ -155,7 +155,7 @@ export const JA: Copy = {
     drawer: "引き出しを引けば、レッスンをまた見られるよ。",
     puppets: "光の中に手を入れてみよう。",
     titles: { l1: "光をつかまえて", l2: "手を貸して" },
-    examples: { move: "光を動かす", "near-far": "近くと遠く", rings: "リングをそろえる", finger: "手を貸して" },
+    examples: { move: "光を動かす", "near-far": "近くと遠く", rings: "リング合わせ", finger: "手を貸して" },
     tips: {
       decoys: "錠にはそれぞれ決まった場所がある。どの錠にも合わないかけらもあるよ。",
       ringless: "ここにはリングがない。影をよく見よう。",

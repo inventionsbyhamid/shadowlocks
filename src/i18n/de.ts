@@ -18,7 +18,7 @@ export const DE: Copy = {
     muted: "Aus",
     music: "Musik",
     effects: "Effekte",
-    boxSize: "Boxgröße",
+    boxSize: "Größe",
     captions: "Untertitel",
     captionsSub: "Töne als Text",
     motion: "Weniger Bewegung",
@@ -26,7 +26,7 @@ export const DE: Copy = {
     dimming: "Raum abdunkeln",
     dimmingSub: "Beim Spielen",
     warmth: "Wärme",
-    warmthSub: "Glühen, Summen",
+    warmthSub: "Glut, Summen",
     hand: "Linke Hand",
     handSub: "Gespiegelt",
     language: "Sprache",
@@ -55,7 +55,7 @@ export const DE: Copy = {
       finger: "Hand anlegen",
       decoys: "Attrappen",
       ringless: "Ohne Ringe",
-      hidden: "Versteckter Umriss",
+      hidden: "Verdeckter Umriss",
       drawer: "Die Schublade",
     },
     collection: {
@@ -103,7 +103,7 @@ export const DE: Copy = {
       note: "Änderungen gelten sofort",
       recenter: "Zentrieren",
       reset: "Löschen",
-      resetSub: "Gesamter Fortschritt",
+      resetSub: "Fortschritt",
       done: "Fertig",
     },
     reset: {
@@ -157,7 +157,7 @@ export const DE: Copy = {
     tips: {
       decoys: "Jedes Schloss hat seine eigene Stelle. Manche Plättchen gehören zu keinem.",
       ringless: "Hier gibt es keine Ringe. Lies die Schatten.",
-      hidden: "Dieser Umriss ist versteckt. Welche Form ergeben die Schatten?",
+      hidden: "Dieser Umriss ist verdeckt. Welche Form ergeben die Schatten?",
     },
   },
   story: {
