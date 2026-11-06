@@ -17,17 +17,22 @@
 #                no spec here at all (Playwright reads filters as patterns: "hand" runs
 #                hand-cost.spec.ts too), or
 #              - NS_E2E_EXCLUSIVE is set to anything but empty or 0.
-#   functional anything else: up to two functional runs (of any lanes) go at once.
+#   functional anything else: up to four functional runs (of any lanes) go at once.
 # An exclusive run waits until every other run has ended. Once its lock request waits on the server
 # (after the pre-wait below), no new run starts ahead of it; during its pre-wait on this Mac,
-# functional runs still start. scripts/e2e.sh --print-mode <args> says which kind a run would be.
+# functional runs still start. scripts/e2e.sh --print-mode <args> says which kind a run would be,
+# --print-limits <args> also the load and browser runs it starts under.
 #
-# First waits up to NS_E2E_PREWAIT seconds (default 1800) while the server is busy (load > 25) or too
-# many browser containers run (an exclusive run wants none, a functional one fewer than two). Then:
-#   - a functional run still facing two gives up (exit 75);
+# First waits up to NS_E2E_PREWAIT seconds (default 1800) while the server is busy or too many browser
+# containers run. The gates (Ruling 111) are the named defaults below:
+#   - a functional run starts at load FUNCTIONAL_MAX_LOAD (34: the 40 cores less one run's 6) or
+#     less, with fewer than FUNCTIONAL_SLOTS (4) browser runs going;
+#   - an exclusive run starts at load EXCLUSIVE_MAX_LOAD (25) or less, with none going.
+# NS_MAX_LOAD, when set, is the load limit for both, here and in remote.sh's own gate. Then:
+#   - a functional run still facing FUNCTIONAL_SLOTS runs gives up (exit 75);
 #   - an exclusive run queues for the lock anyway, and starts as soon as the runs holding it end.
 # It then holds the "e2e" lock while the browser container runs: exclusively (remote.sh --lock e2e) or
-# shared in one of two slots (remote.sh --lock-shared e2e). Waiting for the lock gives up after
+# shared in one of four slots (remote.sh --lock-shared e2e). Waiting for the lock gives up after
 # NS_LOCK_WAIT seconds (default 3600) with exit 75. Older copies of this script hold the same lock
 # exclusively, so they never overlap with any run of this one.
 # A run that writes a lot (a video render) sets NS_EXPECT_GB=<n>: it then needs 100 + n GB free.
@@ -37,7 +42,10 @@ set -euo pipefail
 
 HOST=ioflood
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
-MAX_LOAD=${NS_MAX_LOAD:-25}
+# The gates (Ruling 111; the header). FUNCTIONAL_SLOTS must equal remote.sh's SHARED_SLOTS.
+FUNCTIONAL_SLOTS=4
+FUNCTIONAL_MAX_LOAD=34
+EXCLUSIVE_MAX_LOAD=25
 
 # Prints "exclusive" or "functional" for these Playwright arguments: the rule in the header. Spec
 # filters are matched as Playwright does (a pattern, ignoring case, any :line dropped, against the
@@ -74,23 +82,31 @@ e2e_mode() (
   if [ "$filters" -gt 0 ]; then echo functional; else echo exclusive; fi
 )
 
-if [ "${1:-}" = --print-mode ]; then
-  shift
-  e2e_mode "$@"
-  exit 0
-fi
+# Prints "<load limit> <browser runs that may be going>" for a run of this mode (the header).
+e2e_limits() {
+  if [ "$1" = exclusive ]; then
+    echo "${NS_MAX_LOAD:-$EXCLUSIVE_MAX_LOAD} 0"
+  else
+    echo "${NS_MAX_LOAD:-$FUNCTIONAL_MAX_LOAD} $((FUNCTIONAL_SLOTS - 1))"
+  fi
+}
+
+case ${1:-} in
+  --print-mode) shift; e2e_mode "$@"; exit 0 ;;
+  --print-limits) shift; m=$(e2e_mode "$@"); echo "$m $(e2e_limits "$m")"; exit 0 ;;
+esac
 
 LANE=${NS_LANE:-$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null | sed -n 's#^lane/##p')}
 LANE=${LANE:-main}
 PREWAIT=${NS_E2E_PREWAIT:-1800}
 [[ $PREWAIT =~ ^(0|[1-9][0-9]{0,5})$ ]] || { echo "bad NS_E2E_PREWAIT: $PREWAIT (whole seconds, no leading zero)" >&2; exit 2; }
 MODE=$(e2e_mode "$@")
-if [ "$MODE" = exclusive ]; then
-  MAX_BUSY=0 LOCK_OPT=--lock
-else
-  MAX_BUSY=1 LOCK_OPT=--lock-shared
-fi
-echo "e2e: $MODE run (scripts/e2e.sh header)" >&2
+LIMITS=$(e2e_limits "$MODE")
+MAX_LOAD=${LIMITS% *} MAX_BUSY=${LIMITS#* }
+if [ "$MODE" = exclusive ]; then LOCK_OPT=--lock; else LOCK_OPT=--lock-shared; fi
+# remote.sh's own load gate uses the same limit.
+export NS_MAX_LOAD=$MAX_LOAD
+echo "e2e: $MODE run, starts at load $MAX_LOAD or less (scripts/e2e.sh header)" >&2
 
 ssh "$HOST" "docker image inspect shadowlocks-e2e >/dev/null 2>&1" || {
   echo "image shadowlocks-e2e is missing on $HOST: build it with scripts/e2e-image/build.sh" >&2
