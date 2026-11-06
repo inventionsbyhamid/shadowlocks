@@ -15,6 +15,7 @@ import { emit, on } from "./bus";
 import { disableMultiview, readFieldFlags, showPerfPanel } from "./field-flags";
 import { recordHands, recordSeconds } from "./hand-recorder";
 import { localInputProfileUrl } from "./input-profiles";
+import { attachLantern } from "./lantern-system";
 import { ProfileStore } from "./profile-store";
 import { SettingsStore } from "./settings";
 import { Shell } from "./shell";
@@ -67,13 +68,15 @@ async function main(): Promise<void> {
   registerAppSystem(world, MenuSystem, { name: "menus" });
   // Hands (priority -3.2): pinch state for the lantern grab, rays off for a busy hand.
   attachInput(world);
+  // The lantern (priority -3, right after the hands): held, carried, let go, settled on a spot.
+  const lantern = attachLantern(world, shell.box);
   // The rays' cursor in the game's look (rays press keys too).
   styleRayCursors(world);
   // Sound hears every bus event after everyone else; the box tells it where the locks are.
   const sound = new Sound({ world, settings, lifecycle: shell.lifecycle, menuButtons: (screen) => shell.panels.buttons(screen), box: shell.box });
   useSound(sound);
   registerAppSystem(world, SoundSystem, { name: "sound" });
-  hooks?.installTestHooks(world, shell, system, { sound });
+  hooks?.installTestHooks(world, shell, system, { sound, lantern });
   shell.start();
   sound.loadMusicLater();
   video?.installVideoMode(world);

@@ -30,12 +30,15 @@ export class PinchDetector {
 
   /**
    * One frame. `tracked`: the hand has a pose. `distanceM`: thumb tip to index tip, NaN when the
-   * runtime gives no joints. `select`: the runtime's own pinch for this hand.
+   * runtime gives no joints. `select`: the runtime's own pinch for this hand. `hold`: the pinch
+   * holds something that must ride out any tracking loss (the lantern): while it is set the pinch
+   * never times out of tracking; the hand coming back decides (open ends it at once, still closed
+   * resumes it).
    */
-  update(now: number, tracked: boolean, distanceM: number, select: boolean): PinchEdge {
+  update(now: number, tracked: boolean, distanceM: number, select: boolean, hold = false): PinchEdge {
     if (!tracked) {
       if (this.lostAt < 0) this.lostAt = now;
-      if (this.active && now - this.lostAt > TRACKING_GRACE_MS) {
+      if (this.active && !hold && now - this.lostAt > TRACKING_GRACE_MS) {
         this.active = false;
         this.blocked = true;
         this.openFrames = 0;

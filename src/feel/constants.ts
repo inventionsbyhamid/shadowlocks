@@ -61,3 +61,10 @@ export const TICK_REARM_CM = 0.5;
 
 /** Longest frame step the lantern integrates; a longer hitch counts as this long (no jumps in the timers). */
 export const MAX_STEP_MS = 100;
+
+/**
+ * The lantern never goes deeper than the box's open front (box z): the shadows are cast from it onto the panel, which
+ * needs it in front of every scrap and ring (they hang at z <= 0.75), or they flip and run off to infinity. The game
+ * gives it as LanternCtx.minZ and clamps placed lanterns to it.
+ */
+export const LANTERN_MIN_Z = 1;

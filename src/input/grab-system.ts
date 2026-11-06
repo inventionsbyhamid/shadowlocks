@@ -1,16 +1,20 @@
 // Hand input on IWSDK: per hand, what it is (hand, controller or none), whether it is tracked, its
 // pinch (thumb and index tips, with hysteresis and a tracking grace) and where it pinches. IWSDK's
 // grab is not used: its grab sphere sits on the palm and often takes the wrong thing, so hands pinch
-// through our own detector and a controller's trigger or squeeze counts as the same pinch.
+// through our own detector and a controller's trigger or squeeze counts as the same pinch. Every
+// hand joint is read once a frame into `handJoints` (the lantern grab and hand shadows read it too).
 //
 // Pointers, re-applied every frame (cheap when unchanged; survives IWSDK resetting a side): IWSDK's
-// grab pointer is always off, and a hand the app says is busy (reaching for or holding the lantern)
-// has its ray off, so its pinch cannot also click a button the ray points at.
+// grab pointer is always off, and a hand or controller the app says is busy (reaching for or holding
+// the lantern) has its ray off, so its pinch or trigger cannot also click a button the ray points at
+// (reaching starts at 12 cm, so the ray is off before the press that grabs). A hand the app says
+// is holding something keeps its pinch through any tracking loss (the hand coming back decides).
 //
 // Frame order: InputSystem (-4) moves the pointers, HandPinchSystem (-3.2) reads the hands, then the
 // app's input systems read `hands`. Allocation free per frame.
 import { createSystem, Matrix4, Quaternion, Vector3, type World } from "@iwsdk/core";
 import { registerAppSystem } from "../app/systems";
+import { HandJoints } from "./hand-joints";
 import { type PinchEdge, PinchDetector } from "./pinch";
 
 export const SIDES = ["left", "right"] as const;
@@ -44,21 +48,18 @@ const newPinch = (): HandPinch => ({
 /** Both hands, left then right, refreshed every frame by HandPinchSystem. */
 export const hands: readonly [HandPinch, HandPinch] = [newPinch(), newPinch()];
 
-/** Is this hand busy (reaching for or holding something)? Its ray is off while it is. */
+/** Every joint of both hands (world space), refreshed every frame by HandPinchSystem. */
+export const handJoints = new HandJoints();
+
+/** Is this hand or controller busy (reaching for or holding something)? Its ray is off while it is. */
 export type BusyHand = (side: 0 | 1) => boolean;
 
 let busy: BusyHand = () => false;
-
-type FillPoses = (spaces: XRSpace[], base: XRSpace, transforms: Float32Array) => boolean;
+let holding: BusyHand = () => false;
 
 /** Per hand: what it is, whether it is tracked, its pinch (joints in, hysteresis) and pinch point. */
 export class HandPinchSystem extends createSystem({}) {
   private readonly detectors: [PinchDetector, PinchDetector] = [new PinchDetector(), new PinchDetector()];
-  private readonly sources: [XRInputSource | null, XRInputSource | null] = [null, null];
-  private readonly spaces: [XRSpace[], XRSpace[]] = [[], []];
-  private readonly poses = new Float32Array(64);
-  private readonly thumb = new Vector3();
-  private readonly index = new Vector3();
   private readonly wrist = new Matrix4();
   private readonly wristPos = new Vector3();
   private readonly wristScale = new Vector3();
@@ -67,18 +68,20 @@ export class HandPinchSystem extends createSystem({}) {
     const now = performance.now();
     const frame = this.xrFrame;
     const ref = this.renderer.xr.getReferenceSpace();
+    if (frame && ref) handJoints.update(frame, ref, this.player.matrixWorld);
+    else handJoints.clear();
     for (let i = 0; i < 2; i++) {
       const side = i as 0 | 1;
       const out = hands[side];
       const src = frame && ref ? this.input.xr.getPrimaryInputSource(SIDES[side]) : undefined;
-      if (src?.hand && frame && ref) this.hand(side, src, frame, ref, now, out);
+      if (src?.hand) this.hand(side, now, out);
       else if (src) this.controller(side, out);
       else {
-        // No hand at all (tracking lost, or no session): the detector rides out short dropouts.
+        // No hand at all (tracking lost, or no session): the detector rides out short dropouts,
+        // and any dropout while the hand holds something.
         out.kind = "none";
-        this.sources[side] = null;
         out.tracked = false;
-        out.edge = this.detectors[side].update(now, false, Number.NaN, false);
+        out.edge = this.detectors[side].update(now, false, Number.NaN, false, holding(side));
         out.pinching = this.detectors[side].active;
       }
     }
@@ -88,46 +91,27 @@ export class HandPinchSystem extends createSystem({}) {
       if (kind === "none") continue;
       const mp = this.input.xr.multiPointers[SIDES[side]];
       mp.toggleSubPointer("grab", false);
-      mp.toggleSubPointer("ray", kind !== "hand" || !busy(side));
+      // Hands and controllers alike: a busy one (reaching for or holding the lantern) has no ray, so
+      // the press that grabs, and every press while it holds, cannot also select what the ray is on.
+      mp.toggleSubPointer("ray", !busy(side));
     }
   }
 
-  private hand(i: 0 | 1, src: XRInputSource, frame: XRFrame, ref: XRReferenceSpace, now: number, out: HandPinch): void {
+  private hand(i: 0 | 1, now: number, out: HandPinch): void {
     out.kind = "hand";
-    if (this.sources[i] !== src) {
-      this.sources[i] = src;
-      const hand = src.hand as XRHand;
-      const thumb = hand.get("thumb-tip");
-      const index = hand.get("index-finger-tip");
-      const wrist = hand.get("wrist");
-      const knuckle = hand.get("index-finger-phalanx-proximal");
-      this.spaces[i] = thumb && index && wrist && knuckle ? [thumb, index, wrist, knuckle] : [];
-    }
-    const spaces = this.spaces[i];
-    const fill = (frame as XRFrame & { fillPoses?: FillPoses }).fillPoses;
-    // Tracked only with poses for the fingertips and the wrist: a headset can keep listing a hand
-    // it no longer sees.
-    let tracked = false;
-    if (spaces.length === 4 && fill) {
-      try {
-        tracked = fill.call(frame, spaces, ref, this.poses);
-      } catch {
-        tracked = false;
-      }
-    }
+    const side = SIDES[i];
+    // Tracked only with a pose for every joint: a headset can keep listing a hand it no longer sees.
+    const tracked = handJoints.tracked(side);
     let distance = Number.NaN;
     if (tracked) {
-      const p = this.poses;
-      this.thumb.set(p[12]!, p[13]!, p[14]!);
-      this.index.set(p[28]!, p[29]!, p[30]!);
-      distance = this.thumb.distanceTo(this.index);
-      out.point.copy(this.thumb).add(this.index).multiplyScalar(0.5).applyMatrix4(this.player.matrixWorld);
-      out.anchor.set(p[60]!, p[61]!, p[62]!).applyMatrix4(this.player.matrixWorld);
-      this.wrist.fromArray(p, 32).premultiply(this.player.matrixWorld);
+      distance = handJoints.pinchDistance(side);
+      handJoints.pinchPoint(side, out.point);
+      handJoints.joint(side, "index-finger-phalanx-proximal", out.anchor);
+      handJoints.pose(side, "wrist", this.wrist);
       this.wrist.decompose(this.wristPos, out.rot, this.wristScale);
     }
-    const select = this.input.xr.getSelectState(SIDES[i]).active;
-    out.edge = this.detectors[i].update(now, tracked, distance, select);
+    const select = this.input.xr.getSelectState(side).active;
+    out.edge = this.detectors[i].update(now, tracked, distance, select, holding(i));
     out.tracked = tracked;
     out.pinching = this.detectors[i].active;
   }
@@ -136,7 +120,6 @@ export class HandPinchSystem extends createSystem({}) {
   private controller(i: 0 | 1, out: HandPinch): void {
     const side = SIDES[i];
     out.kind = "controller";
-    this.sources[i] = null;
     this.detectors[i].reset();
     const sel = this.input.xr.getSelectState(side);
     const squeeze = !!this.input.xr.gamepads[side]?.getButtonPressed("xr-standard-squeeze");
@@ -164,4 +147,12 @@ export function attachInput(world: World, o: { busy?: BusyHand } = {}): readonly
 /** Change which hands count as busy (their rays go off from the next frame). */
 export function setBusyHands(fn: BusyHand): void {
   busy = fn;
+}
+
+/**
+ * Say which hands hold something that must ride out tracking loss (the lantern): their pinch never
+ * times out while the hand is out of tracking; coming back open ends it, still closed resumes it.
+ */
+export function setHoldingHands(fn: BusyHand): void {
+  holding = fn;
 }

@@ -7,7 +7,7 @@ import {
   type RingLine,
   type Spot,
 } from "../../src/feel/lantern-controller";
-import type { V3 } from "../../src/feel/types";
+import type { V3 } from "../../src/core/types";
 
 /** Centimetres per box unit (a 24 cm box). */
 const CM = 24;
@@ -448,5 +448,55 @@ describe("LanternController", () => {
       sweep.moveTo(add(spot.L, [u(-8), u(-0.5), 0]), cmps);
     }
     expect(sweep.modes.has("settled")).toBe(false);
+  });
+
+  it("minZ keeps the held lantern in front of the box, riding a line too, and lets go there", () => {
+    const ctx: LanternCtx = { ...ctxOf(), minZ: 1 };
+    const r = new Rig([0.1, -0.2, 1.3], ctx);
+    let lowest = Infinity;
+    r.watch = () => {
+      lowest = Math.min(lowest, r.c.pos[2]);
+    };
+    r.grab();
+    // A fast push deep into the box (to z 0.4): the lantern stops at the front and slides along it.
+    r.moveTo([0.2, -0.25, 0.4], 40);
+    r.hold(400);
+    expect(lowest).toBeGreaterThanOrEqual(1);
+    expect(r.c.pos[2]).toBeCloseTo(1, 3);
+    expect(r.c.pos[0]).toBeCloseTo(0.2, 3);
+    expect(r.c.pos[1]).toBeCloseTo(-0.25, 3);
+    // Back out, it follows the hand again; let go inside the box, it stays at the front.
+    r.moveTo([0.2, -0.25, 1.2], 10);
+    r.hold(400);
+    expect(r.c.pos[2]).toBeCloseTo(1.2, 3);
+    r.moveTo([0.15, -0.2, 0.7], 30);
+    r.hold(400);
+    r.release();
+    expect(r.c.held).toBe(false);
+    expect(r.c.pos[2]).toBeGreaterThanOrEqual(1);
+    expect(r.c.pos[2]).toBeCloseTo(1, 3);
+    expect(lowest).toBeGreaterThanOrEqual(1);
+
+    // On a ring line that runs into the box: riding it inward stops at the front as well.
+    const { line, along, start } = ringLine();
+    const onLine = new Rig(add(line.mark, along, 1.3 / along[2]), { ...ctxOf([], [line]), minZ: 1 });
+    let low = Infinity;
+    onLine.watch = () => {
+      low = Math.min(low, onLine.c.pos[2]);
+    };
+    onLine.grab();
+    onLine.hold(500);
+    expect(onLine.c.mode).toBe("line");
+    onLine.moveTo(start, 3);
+    onLine.hold(400);
+    expect(low).toBeGreaterThanOrEqual(1);
+    expect(onLine.c.pos[2]).toBeCloseTo(1, 3);
+    // Without minZ the same ride goes into the box.
+    const free = new Rig(add(line.mark, along, 1.3 / along[2]), ctxOf([], [line]));
+    free.grab();
+    free.hold(500);
+    free.moveTo(start, 3);
+    free.hold(400);
+    expect(free.c.pos[2]).toBeLessThan(0.7);
   });
 });

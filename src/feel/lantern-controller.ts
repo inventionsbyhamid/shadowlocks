@@ -15,7 +15,7 @@ import {
   SPRING_OMEGA,
   TICK_REARM_CM,
 } from "./constants";
-import type { V3 } from "./types";
+import type { V3 } from "../core/types";
 
 /** One frame of the holding hand, in box units. */
 export interface LanternInput {
@@ -44,6 +44,11 @@ export interface LanternCtx {
   spots: Spot[];
   lines: RingLine[];
   cmPerUnit: number;
+  /**
+   * When given, the held lantern never goes below this z (box units): the hand's target, the line-carried target and
+   * the lantern itself are held at it (the game passes LANTERN_MIN_Z, the box's open front). `place` does not clamp.
+   */
+  minZ?: number;
 }
 
 /**
@@ -334,7 +339,9 @@ export class LanternController {
     }
     const cm = ctx.cmPerUnit;
     const dtS = dtMs / 1000;
+    const minZ = ctx.minZ ?? -Infinity;
     for (let i = 0; i < 3; i++) this.raw[i] = p[i]! + this.grip[i]!;
+    if (this.raw[2] < minZ) this.raw[2] = minZ;
 
     // The smoothed hand, and the speed gate on its velocity.
     spring(this.hand, this.handVel, this.raw, dtS);
@@ -388,7 +395,13 @@ export class LanternController {
       zero(this.vel);
     } else {
       this.onLine(this.raw, this.target);
+      if (this.target[2] < minZ) this.target[2] = minZ;
       spring(this.pos, this.vel, this.target, dtS);
+      // A spring still moving inward can pass a target held at minZ: hold the lantern there too.
+      if (this.pos[2] < minZ) {
+        this.pos[2] = minZ;
+        if (this.vel[2] < 0) this.vel[2] = 0;
+      }
     }
     this.record(tMs);
   }

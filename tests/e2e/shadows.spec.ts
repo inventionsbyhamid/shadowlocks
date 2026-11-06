@@ -246,7 +246,7 @@ test("box 1: from its spot the shadows fill the outline as one shape and the rin
   // As the player sees it, scraps and all.
   for (const [name, L] of [["start", box.start], ["spot", lock.L]] as const) {
     await place(app, L);
-    expect(await page.evaluate(() => window.__sl!.lantern())).toEqual(L);
+    expect((await page.evaluate(() => window.__sl!.lantern())).pos).toEqual(L);
     await app.capture(`shadows-box1-${name}`);
     await app.captureHeadset(`shadows-box1-${name}-headset`, { x: panel[0], y: panel[1], z: panel[2] });
   }

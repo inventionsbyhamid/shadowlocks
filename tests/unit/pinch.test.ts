@@ -102,6 +102,27 @@ describe("PinchDetector across tracking loss", () => {
     expect(p.update(400 + 3 * F, true, mm(10), false)).toBe("start");
   });
 
+  it("a held pinch never times out of tracking: back closed resumes it, back open ends it at once", () => {
+    const p = new PinchDetector();
+    p.update(0, true, mm(10), true, true);
+    for (let t = F; t < 2000; t += F) expect(p.update(t, false, Number.NaN, false, true)).toBeNull();
+    expect(p.active).toBe(true);
+    expect(p.update(2000, true, mm(12), true, true)).toBe("resume");
+    expect(p.active).toBe(true);
+    for (let t = 2000 + F; t < 3000; t += F) p.update(t, false, Number.NaN, false, true);
+    expect(p.active).toBe(true);
+    expect(p.update(3000, true, mm(45), false, true)).toBe("end");
+    expect(p.active).toBe(false);
+  });
+
+  it("a pinch that stops holding while out of tracking times out as usual", () => {
+    const p = new PinchDetector();
+    p.update(0, true, mm(10), true, true);
+    expect(p.update(F, false, Number.NaN, false, true)).toBeNull();
+    expect(p.update(F + 400, false, Number.NaN, false, true)).toBeNull();
+    expect(p.update(F + 401, false, Number.NaN, false, false)).toBe("cancel");
+  });
+
   it("a hand lost while open is just a hand again when it returns", () => {
     const p = new PinchDetector();
     p.update(0, true, mm(50), false);
