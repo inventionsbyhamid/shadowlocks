@@ -5,10 +5,10 @@
 // and runs slower (lantern.spec.ts measures and reports that case). These flags have V8 optimise after a few calls, so
 // a short test sees the steady-state code.
 //
-// Time: the two systems' summed update time per frame, in two windows of 200 frames one after the other, each window's
-// single worst frame left out (one host stall): the better window's mean must stay within MEAN_BUDGET_MS on every run,
-// whatever the server's load (a busy shared server can spoil one window; the code is the same in both). Both windows'
-// means and p95s are reported; p95 is not held to a limit.
+// Time: the two systems' summed update time per frame, in two windows of 200 frames one after the other, judged by the
+// stall rule (helpers/lantern.ts, shared with hand-cost.spec.ts): frames over STALL_MS are host stalls, left out and
+// counted; the better window must have at most MAX_STALLS of them and its mean stay within MEAN_BUDGET_MS on every
+// run, whatever the server's load. Both windows' means and p95s are reported; p95 is not held to a limit.
 //
 // Allocation: the path makes no objects, arrays or closures per frame: everything it writes is preallocated.
 // Optimised code still boxes a float it passes to, or gets back from, a call it did not inline (12 bytes each;
@@ -19,7 +19,7 @@
 // FUNCTION_BUDGET catches even a few vectors made per frame there (four Vector3s in an array put LanternGrab.update
 // at 73 bytes a frame).
 import { CHROME_ARGS } from "./helpers/chromium";
-import { MEAN_BUDGET_MS, measureCost, TIMED_FRAMES, WINDOWS } from "./helpers/lantern";
+import { expectWithinBudget, MEAN_BUDGET_MS, measureCost, TIMED_FRAMES, WINDOWS } from "./helpers/lantern";
 import { expect, test } from "./helpers/test";
 
 /** Bytes a frame allocated in all our per-frame files, at most (optimised; boxed floats only). */
@@ -36,10 +36,7 @@ test("holding the lantern costs at most 0.5 ms a frame on average at 4x CPU thro
   const c = await measureCost(boot, page, testInfo, "optimised");
   expect(c.frames).toBe(TIMED_FRAMES);
   expect(c.windows).toHaveLength(WINDOWS);
-  expect(
-    c.best.path.trimmedMs,
-    `hand-pinch + lantern, mean ms a frame over ${TIMED_FRAMES} frames without the worst one, the better of ${WINDOWS} windows`,
-  ).toBeLessThanOrEqual(MEAN_BUDGET_MS);
+  expectWithinBudget(c.judged, MEAN_BUDGET_MS, "hand-pinch + lantern");
   expect(c.allocs.bytesPerFrame).toBeLessThan(ALLOC_BUDGET);
   const over = [...c.allocs.byFunction]
     .filter(([k, b]) => NEW_MODULES.some((m) => k.startsWith(m)) && b > FUNCTION_BUDGET)

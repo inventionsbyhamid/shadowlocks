@@ -13,25 +13,21 @@ import { CHROME_ARGS } from "./helpers/chromium";
 import { atFingerLock, fingerLocks, hands, Pointer, worldOf } from "./helpers/finger";
 import {
   add,
+  expectWithinBudget,
   frameStats,
   type HeapProfile,
+  judgeWindows,
   loadAverage,
   MEAN_BUDGET_MS,
   ourAllocations,
   play,
+  STALL_MS,
   TIMED_FRAMES,
   WINDOWS,
+  withoutStalls,
 } from "./helpers/lantern";
 import { expect, test } from "./helpers/test";
 
-/**
- * A frame of the hands system this long (ms, at 4x) is a host stall, not our code: about seven times the whole 3 ms
- * budget of all our systems. This server stalls 40-60 ms now and then (one or two in 200 frames of late, often both in
- * one window), so stalls are left out of the mean and counted; a window with more than MAX_STALLS of them is no
- * measure at all, and a regression that slow would show in every frame anyway.
- */
-const STALL_MS = 20;
-const MAX_STALLS = 5;
 /** Bytes a frame allocated in the hands' per-frame files, at most (optimised; boxed floats only). */
 const ALLOC_BUDGET = 150;
 /** Bytes a frame any one function of the new modules may allocate. */
@@ -46,17 +42,23 @@ const FILES = [
   "/src/feel/finger-hold.ts",
   "/src/core/solve.ts",
   "/src/core/geom.ts",
-  // The box's update, which casts the hands' outlines into the shadow mesh every frame.
-  "/src/render/box-scene.ts",
-  "/src/render/shadow-mesh.ts",
   "/src/render/fx/crystallise.ts",
 ];
+/**
+ * The box's shadow update (box-scene.ts's syncShadows, and the shadow mesh's cast, which runs inside it and may be
+ * inlined into it), which now casts every frame while hands are in the beam. It makes no object or array a frame,
+ * but boxes floats where they cross a call: each caster's depth and penumbra, each polygon's skirt width, a ring
+ * edge's working values, the lantern's position to the panel. Measured about 2.2 KB a frame with box 3's casters and
+ * 36 hand outlines (1.8 KB in shadow-mesh.ts, 0.4 KB in syncShadows); boxed floats are accepted (Ruling 58). Held
+ * under MESH_BUDGET, which an array or object per shadow a frame (some 60 shadows) would break.
+ */
+const MESH_FILES = ["/src/render/box-scene.ts", "/src/render/shadow-mesh.ts"];
+const MESH_BUDGET = 3500;
 const NEW_MODULES = [
   "src/render/hand-shadow.ts",
   "src/render/hand-mask.ts",
   "src/app/hand-system.ts",
   "src/app/finger-lock.ts",
-  "src/render/box-scene.ts",
   "src/render/fx/crystallise.ts",
 ];
 
@@ -91,8 +93,8 @@ test("the hands in the box cost well under 0.5 ms a frame at 4x CPU throttle and
 
   const cdp = await page.context().newCDPSession(page);
   const series = async (names: string[]) => (await page.evaluate((s) => window.__ns!.perfFrames(s), names)).slice(-TIMED_FRAMES);
-  // WINDOWS windows of TIMED_FRAMES frames one after the other, judged on the better (as the lantern's cost is: a busy
-  // shared server can spoil one window with host stalls; the code is the same in both).
+  // WINDOWS windows of TIMED_FRAMES frames one after the other, judged by the stall rule (helpers/lantern.ts, as the
+  // lantern's cost is): host stalls left out and counted, the better window held to the budget.
   const windows: { hands: number[]; shell: number[]; load: number | undefined }[] = [];
   try {
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
@@ -118,19 +120,11 @@ test("the hands in the box cost well under 0.5 ms a frame at 4x CPU throttle and
     // It measured every frame and never opened.
     expect((await fingerLocks(page))[0]!.state).toBe("idle");
 
-    const stats = windows.map((w) => {
-      expect(w.hands).toHaveLength(TIMED_FRAMES);
-      const kept = w.hands.filter((ms) => ms < STALL_MS);
-      return {
-        hands: frameStats(w.hands),
-        shell: frameStats(w.shell),
-        load: w.load,
-        stalls: w.hands.length - kept.length,
-        keptMs: kept.reduce((a, b) => a + b, 0) / Math.max(1, kept.length),
-      };
-    });
-    const best = stats.reduce((a, b) => (b.keptMs < a.keptMs ? b : a));
+    for (const w of windows) expect(w.hands).toHaveLength(TIMED_FRAMES);
+    const stats = windows.map((w) => ({ hands: frameStats(w.hands), shell: frameStats(w.shell), load: w.load, rule: withoutStalls(w.hands) }));
+    const judged = judgeWindows(windows.map((w) => w.hands));
     const allocs = ourAllocations(profile, frames, FILES);
+    const mesh = ourAllocations(profile, frames, MESH_FILES);
     const fmt = (x: (typeof stats)[number]["hands"]) =>
       `mean ${x.meanMs.toFixed(3)} (${x.trimmedMs.toFixed(3)} without the worst frame), median ${x.medianMs.toFixed(3)}, ` +
       `p95 ${x.p95Ms.toFixed(2)}, max ${x.maxMs.toFixed(2)} ms`;
@@ -138,22 +132,23 @@ test("the hands in the box cost well under 0.5 ms a frame at 4x CPU throttle and
       ...stats.map(
         (w, i) =>
           `hands cost, window ${i + 1}: hands over ${TIMED_FRAMES} frames at 4x CPU throttle: ${fmt(w.hands)}; ` +
-          `${w.stalls} host stalls over ${STALL_MS} ms, mean ${w.keptMs.toFixed(3)} ms without them; shell (the box's update, ` +
+          `${w.rule.stalls} host stalls over ${STALL_MS} ms, mean ${w.rule.meanMs.toFixed(3)} ms without them; shell (the box's update, ` +
           `casting the hands' shadows) ${fmt(w.shell)}; server load ${w.load?.toFixed(1) ?? "?"}`,
       ),
+      `hands cost: judged on window ${judged.index + 1}: ${judged.meanMs.toFixed(3)} ms a frame without host stalls (${judged.stalls} of them)`,
       `hands cost: ${h.outlines.length} outlines, ${h.mask} mask capsules; allocated in the hands' per-frame files, about ` +
         `${allocs.bytesPerFrame.toFixed(0)} bytes a frame over ${frames} frames` +
         (allocs.byFunction.size ? `: ${[...allocs.byFunction].map(([k, v]) => `${k} ${v.toFixed(0)}`).join("; ")}` : ""),
+      `hands cost: the box's shadow update boxed about ${mesh.bytesPerFrame.toFixed(0)} bytes a frame` +
+        (mesh.byFunction.size ? `: ${[...mesh.byFunction].map(([k, v]) => `${k} ${v.toFixed(0)}`).join("; ")}` : ""),
     ];
     for (const d of lines) {
       testInfo.annotations.push({ type: "perf", description: d });
       console.log(d);
     }
-    expect(best.stalls, `host stalls in the better window`).toBeLessThanOrEqual(MAX_STALLS);
-    expect(best.keptMs, `hands, mean ms a frame over ${TIMED_FRAMES} frames without host stalls, better window`).toBeLessThanOrEqual(
-      MEAN_BUDGET_MS,
-    );
+    expectWithinBudget(judged, MEAN_BUDGET_MS, "hands");
     expect(allocs.bytesPerFrame).toBeLessThan(ALLOC_BUDGET);
+    expect(mesh.bytesPerFrame).toBeLessThan(MESH_BUDGET);
     const over = [...allocs.byFunction]
       .filter(([k, v]) => NEW_MODULES.some((m) => k.startsWith(m)) && v > FUNCTION_BUDGET)
       .map(([k, v]) => `${k} ${v.toFixed(0)} bytes a frame`);
