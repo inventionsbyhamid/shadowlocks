@@ -7,7 +7,7 @@ import { storyLayout } from "../render/reward";
 import { COPY, fill } from "./copy";
 import { HINT_LANTERN } from "./hint-lantern";
 import { keyLabelFit } from "./poke-key";
-import { coachLayout, PLATE, plateNameFit } from "./plate";
+import { coachLayout, PLATE, plateCueFit, plateNameFit } from "./plate";
 
 /** One piece of lettering in one language: where it is drawn, its size (px) and whether it had to be squeezed. */
 export interface BoxTextFit {
@@ -31,6 +31,7 @@ export function boxTextFits(g: Measure): BoxTextFit[] {
       out.push({ lang: l, where, text, size: f.size, lines: f.lines?.length ?? 1, squeezed: f.squeezed });
     // The plate with three latch lights (the least room), box numbers up to three digits, and the Daily Box.
     for (const name of [fill(G.boxNo, { n: 1 }), fill(G.boxNo, { n: 88 }), fill(G.boxNo, { n: 888 }), G.daily]) add("plate", name, plateNameFit(g, name, 3, l));
+    add("plate cue", G.practice, plateCueFit(g, G.practice, 3, l));
     add("plate-next", G.next, keyLabelFit(g, G.next, PLATE.key.w, PLATE.key.h, l));
     add("coach", G.controllerFinger, coachLayout(g, G.controllerFinger, l));
     for (const [id, s] of [

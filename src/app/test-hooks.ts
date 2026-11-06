@@ -367,7 +367,12 @@ export function installTestHooks(
           gaps: [gap("left"), gap("right")] as [number, number],
         };
       },
-      access: () => ({ edition: app.access.edition, paywall: app.access.paywall, ent: { ...app.access.ent }, canBuy: app.access.canBuy }),
+      access: () => ({
+        edition: app.access.edition,
+        paywall: app.access.paywall,
+        ent: app.access.ent ? { ...app.access.ent } : { kind: "pending" },
+        canBuy: app.access.canBuy,
+      }),
       billing: (patch) => {
         if (!app.fakeBilling) return false;
         Object.assign(app.fakeBilling, patch);

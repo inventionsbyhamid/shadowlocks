@@ -46,16 +46,29 @@ export function plateLayout(w: number, h: number, n: number): { nameX: number; n
   return { nameX, nameMax: end - nameX, lightX, lightR };
 }
 
-/** The plate's name for a box in the language now shown: "Box No. 3", "Daily Box". */
-export function plateName(spec: BoxSpec): string {
+/**
+ * What the plate says for a box in the language now shown: its name ("Box No. 3", "Daily Box"), and a small cue under
+ * it ("Practice" for a `?box` practice box).
+ */
+export function plateText(spec: BoxSpec, practice: boolean): { name: string; cue: string } {
   const g = copy().game;
-  return spec.kind === "box" ? fill(g.boxNo, { n: spec.n }) : spec.kind === "daily" ? g.daily : "";
+  const name = spec.kind === "box" ? fill(g.boxNo, { n: spec.n }) : spec.kind === "daily" ? g.daily : "";
+  return { name, cue: practice ? g.practice : "" };
 }
 
 /** How `name` sits on the plate beside `n` latch lights (canvas px) in language `l`: the fit it is painted with. */
 export function plateNameFit(g: Parameters<typeof fitLabel>[0], name: string, n: number, l?: Lang): LabelFit {
   const w = Math.round(PLATE.w * PX), h = Math.round(PLATE.h * PX);
   return fitLabel(g, name, "bold", h * NAME_SIZE, h * NAME_FLOOR, plateLayout(w, h, n).nameMax, l);
+}
+
+/** The cue's lettering under the name: this share of the plate's height (about 7.5 mm), at one size. */
+const CUE_SIZE = 0.22;
+
+/** How the cue sits under the name beside `n` latch lights (canvas px) in language `l`. */
+export function plateCueFit(g: Parameters<typeof fitLabel>[0], cue: string, n: number, l?: Lang): LabelFit {
+  const w = Math.round(PLATE.w * PX), h = Math.round(PLATE.h * PX);
+  return fitLabel(g, cue, "italic", h * CUE_SIZE, h * CUE_SIZE, plateLayout(w, h, n).nameMax, l);
 }
 
 /**
@@ -103,6 +116,9 @@ export class Plate {
   private readonly label = new LabelCanvas(Math.round(PLATE.w * PX), Math.round(PLATE.h * PX));
   private name = "";
   private spec: BoxSpec | null = null;
+  private practice = false;
+  /** A small line under the name ("Practice" for a `?box` box), or "". */
+  private cue = "";
   private locks = 0;
   private readonly lit = [false, false, false];
   private scale = 0;
@@ -158,12 +174,15 @@ export class Plate {
     return this.coachCard.visible ? this.coachText : "";
   }
 
-  /** A new box: its name, as many latch lights as it has locks, all off, no Next. */
-  setBox(box: Box | null, spec: BoxSpec | null): void {
+  /** A new box: its name (and "Practice" under it for a practice box), as many latch lights as it has locks, all off, no Next. */
+  setBox(box: Box | null, spec: BoxSpec | null, practice = false): void {
     this.group.visible = box !== null;
     if (!box || !spec) return;
     this.spec = spec;
-    this.name = plateName(spec);
+    this.practice = practice;
+    const t = plateText(spec, practice);
+    this.name = t.name;
+    this.cue = t.cue;
     this.locks = box.locks.length;
     this.lit.fill(false);
     this.offerNext(false);
@@ -175,13 +194,20 @@ export class Plate {
     return this.name;
   }
 
-  /** The language changed (or its font arrived): name the box and the Next key again, and repaint. */
+  /** The cue under the name now ("Practice"), or "". */
+  get cueText(): string {
+    return this.cue;
+  }
+
+  /** The language changed (or its font arrived): name the box, its cue and the Next key again, and repaint. */
   relabel(): void {
     const next = copy().game.next;
     if (next === this.next.labelText) this.next.refresh();
     else this.next.setText(next);
     if (!this.spec) return;
-    this.name = plateName(this.spec);
+    const t = plateText(this.spec, this.practice);
+    this.name = t.name;
+    this.cue = t.cue;
     this.paint();
   }
 
@@ -221,7 +247,7 @@ export class Plate {
   }
 
   private paint(): void {
-    const n = this.locks, lit = this.lit, name = this.name;
+    const n = this.locks, lit = this.lit, name = this.name, cue = this.cue;
     this.label.paint((g, w, h) => {
       brassFace(g, w, h);
       g.fillStyle = "#2a1d0c";
@@ -230,7 +256,12 @@ export class Plate {
       // The name in the room left of the lights: smaller down to the floor, then condensed (never into a light).
       const L = plateLayout(w, h, n);
       plateNameFit(g, name, n);
-      g.fillText(name, L.nameX, h / 2, L.nameMax);
+      // With a cue, the name moves up and the cue sits small under it, in italics (upright in Japanese).
+      g.fillText(name, L.nameX, cue ? h * 0.4 : h / 2, L.nameMax);
+      if (cue) {
+        plateCueFit(g, cue, n);
+        g.fillText(cue, L.nameX, h * 0.78, L.nameMax);
+      }
       // The latch lights: a lamp and its numeral each, from the right.
       const r = L.lightR;
       for (let i = 0; i < n; i++) {

@@ -1,5 +1,6 @@
-// Home, on the open drawer: Continue (gold foil: back to the box behind the menu, else the box in
-// progress, else the next one), the Daily Box (opens once box 3 is solved), Lessons, Collection
+// Home, on the open drawer: Continue (gold foil: back to the box or lesson behind the menu, else the
+// numbered box in progress, else the next one; a Daily Box behind is the Daily key's), the Daily Box
+// (opens once box 3 is solved), Lessons, Collection
 // and Settings; the storage notice when progress cannot be saved; and, in the store edition's
 // paywall update only, the trial row. Pure view model and painting.
 import { canPlay, type Ent } from "../../core/entitlement";
@@ -29,13 +30,28 @@ export type ContinueTo =
   | { kind: "back" }
   | { kind: "box"; n: number; resume: boolean }
   /** The trial is over: endless boxes wait behind the trial screen. */
-  | { kind: "trial" };
+  | { kind: "trial" }
+  /** The entitlement is still being worked out: Continue waits (it cannot press). */
+  | { kind: "wait" };
 
-export function continueTo(p: Readonly<Profile>, behind: Behind, ent: Ent): ContinueTo {
-  if (behind) return { kind: "back" };
-  if (!canPlay(ent, "box")) return { kind: "trial" };
+/** The numbered box Continue means: the one behind the menu, else the one in progress, else the next. */
+function numbered(p: Readonly<Profile>, behind: Behind): { n: number; resume: boolean } {
+  if (behind?.kind === "box") return { n: behind.n, resume: true };
   const n = p.current ? boxNumberOf(p.current.key) : null;
-  return n !== null ? { kind: "box", n, resume: true } : { kind: "box", n: p.nextBox, resume: false };
+  return n !== null ? { n, resume: true } : { n: p.nextBox, resume: false };
+}
+
+/**
+ * Continue: a lesson behind the menu, back to it (lessons stay open whatever the trial); otherwise it is an endless
+ * box, so the entitlement decides (pending: wait; over: the trial screen); then back to the box behind, else the box
+ * in progress, else the next. A Daily Box behind is the Daily key's to go back to: Continue means the numbered box.
+ */
+export function continueTo(p: Readonly<Profile>, behind: Behind, ent: Ent | null): ContinueTo {
+  if (behind?.kind === "lesson") return { kind: "back" };
+  if (ent === null) return { kind: "wait" };
+  if (!canPlay(ent, "box")) return { kind: "trial" };
+  if (behind?.kind === "box") return { kind: "back" };
+  return { kind: "box", ...numbered(p, behind) };
 }
 
 export interface HomeView {
@@ -50,13 +66,14 @@ export interface HomeView {
   trial: { label: string; sub: string } | null;
   /** The storage notice (or a one-off line such as "Progress reset."), or null. */
   notice: string | null;
-  /** Keys that move but never click (the Daily Box before box 3). */
+  /** Keys that move but never click (the Daily Box before box 3; Continue while the entitlement is pending). */
   disabled: string[];
 }
 
 export interface HomeInput {
   behind: Behind;
-  ent: Ent;
+  /** What the player may play, or null while it is being worked out. */
+  ent: Ent | null;
   /** Today's day key on this device. */
   today: string;
   notice: string | null;
@@ -64,19 +81,17 @@ export interface HomeInput {
 
 function continueSub(p: Readonly<Profile>, i: HomeInput): string {
   const m = copy().menus.home;
-  const b = i.behind;
-  if (b) return b.kind === "box" ? fill(m.continueSub, { n: b.n }) : b.kind === "daily" ? m.backToDaily : m.backToLesson;
-  const to = continueTo(p, null, i.ent);
+  const to = continueTo(p, i.behind, i.ent);
+  if (i.behind?.kind === "lesson") return m.backToLesson;
   if (to.kind === "trial") return m.trialOver;
-  if (to.kind === "box") return fill(to.resume ? m.continueSub : m.startSub, { n: to.n });
-  return "";
+  const b = numbered(p, i.behind);
+  return fill(b.resume ? m.continueSub : m.startSub, { n: b.n });
 }
 
 function continueNo(p: Readonly<Profile>, i: HomeInput): string {
-  const b = i.behind;
-  if (b) return b.kind === "box" ? String(b.n) : "";
-  const to = continueTo(p, null, i.ent);
-  return to.kind === "box" ? String(to.n) : "";
+  if (i.behind?.kind === "lesson") return "";
+  if (continueTo(p, i.behind, i.ent).kind === "trial") return "";
+  return String(numbered(p, i.behind).n);
 }
 
 function dailySub(p: Readonly<Profile>, today: string): string {
@@ -87,8 +102,9 @@ function dailySub(p: Readonly<Profile>, today: string): string {
   return m.dailyNew;
 }
 
-function trialRow(ent: Ent): HomeView["trial"] {
+function trialRow(ent: Ent | null): HomeView["trial"] {
   const t = copy().menus.trial;
+  if (ent === null) return null;
   if (ent.kind === "trial") return { label: count(ent.daysLeft, t.daysLeft), sub: t.unlock };
   if (ent.kind === "trialOver") return { label: t.over, sub: t.unlock };
   return null;
@@ -107,7 +123,7 @@ export function homeView(p: Readonly<Profile>, i: HomeInput): HomeView {
     collectionSub: n === 0 ? m.collectionEmpty : count(n, m.rewards),
     trial: trialRow(i.ent),
     notice: i.notice,
-    disabled: open ? [] : ["home-daily"],
+    disabled: [...(open ? [] : ["home-daily"]), ...(continueTo(p, i.behind, i.ent).kind === "wait" ? ["home-continue"] : [])],
   };
 }
 

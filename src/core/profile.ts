@@ -31,6 +31,11 @@ export interface BoxSnapshot {
    * that may have changed.
    */
   gen?: number;
+  /**
+   * The box was played mirrored (for a left hand). A save resumed for the other hand is rebuilt the other way
+   * round, its lantern crossing to the same side of the box. Absent in older saves: taken as it is.
+   */
+  mirrored?: boolean;
   /** Lantern position in box units. */
   lantern: V3;
   /** Indexes of the open locks. */
@@ -152,6 +157,7 @@ export function isSnapshot(v: unknown): v is BoxSnapshot {
     typeof v.key === "string" &&
     v.key.length > 0 &&
     (v.gen === undefined || isNat(v.gen)) &&
+    (v.mirrored === undefined || typeof v.mirrored === "boolean") &&
     Array.isArray(v.lantern) &&
     v.lantern.length === 3 &&
     v.lantern.every(isNum) &&
@@ -174,6 +180,7 @@ function snapshotFrom(v: unknown): BoxSnapshot | null {
   return {
     key: v.key,
     ...(v.gen === undefined ? {} : { gen: v.gen }),
+    ...(v.mirrored === undefined ? {} : { mirrored: v.mirrored }),
     lantern: [v.lantern[0], v.lantern[1], v.lantern[2]],
     open: [...v.open],
     crystal: v.crystal.map((c) => ({ lock: c.lock, z: c.z })),

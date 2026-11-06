@@ -33,7 +33,17 @@ export class LockState {
 export function loadingSnapshot(spec: BoxSpec | null, snap: BoxSnapshot | null, left: boolean): BoxSnapshot {
   if (snap) return { ...snap, lantern: [snap.lantern[0], snap.lantern[1], snap.lantern[2]], open: [...snap.open], crystal: snap.crystal.map((c) => ({ ...c })), hintLevel: { ...snap.hintLevel } };
   const key = spec && spec.kind !== "lesson" ? seedKey(spec) : "";
-  return { key, gen: GENERATOR_VERSION, lantern: [ENVELOPE.START[0] * (left ? -1 : 1), ENVELOPE.START[1], ENVELOPE.START[2]], open: [], crystal: [], elapsedMs: 0, hints: 0, hintLevel: {} };
+  return {
+    key,
+    gen: GENERATOR_VERSION,
+    mirrored: left,
+    lantern: [ENVELOPE.START[0] * (left ? -1 : 1), ENVELOPE.START[1], ENVELOPE.START[2]],
+    open: [],
+    crystal: [],
+    elapsedMs: 0,
+    hints: 0,
+    hintLevel: {},
+  };
 }
 
 /** The lock a hint is for: the one in focus if it is still closed, else the warmest closed one, else -1. */

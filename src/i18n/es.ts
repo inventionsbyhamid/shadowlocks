@@ -38,7 +38,6 @@ export const ES: Copy = {
     home: {
       continueSub: `Caja n.º${NB}{n}`,
       startSub: `Empezar la caja n.º${NB}{n}`,
-      backToDaily: "Caja del día",
       backToLesson: "Tu lección",
       trialOver: "Prueba terminada",
       dailyLocked: `Tras la caja n.º${NB}3`,
@@ -141,6 +140,7 @@ export const ES: Copy = {
     storyLoot: "Contenido: {loot}.",
     short: "Falta una pieza.",
     controllerFinger: "O deja un controlador a un lado y usa el dedo.",
+    practice: "Práctica",
   },
   lessons: {
     pickUp: "Toma el farol.",

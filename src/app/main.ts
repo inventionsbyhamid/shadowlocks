@@ -16,7 +16,7 @@ import { styleRayCursors } from "../ui/ray-cursor";
 import { Access, billingFor } from "./access";
 import { emit, on } from "./bus";
 import { attachDrawer } from "./drawer-system";
-import { detectEdition, installedApp, paywallFor, testOverrides } from "./edition";
+import { detectEdition, installedApp, paywallFor, showLanding, testOverrides } from "./edition";
 import { disableMultiview, readFieldFlags, showPerfPanel, startBox } from "./field-flags";
 import { attachGame } from "./game";
 import { recordHands, recordSeconds } from "./hand-recorder";
@@ -49,7 +49,9 @@ async function main(): Promise<void> {
   // The landing page (box art, the name, "Open the box") is for the hosted link: the installed
   // Quest apps skip it and go straight into XR. Its words are in the headset's language from the
   // start, and follow the Language setting once the profile is open.
-  document.body.classList.toggle("installed", installedApp(window));
+  // No landing art in the installed apps (it would flash by as a splash before XR): only the status, and the
+  // button should going into XR fail.
+  document.body.classList.toggle("installed", !showLanding(window));
   applyLanguage("auto");
   let loading = status?.textContent === "Loading";
   const paintPage = () => {
@@ -120,17 +122,24 @@ async function main(): Promise<void> {
   registerAppSystem(world, SoundSystem, { name: "sound" });
   // The game (priority -2.8, after the hands): the box session (its finger locks fed by the hands), its
   // celebrations, the plate and the hint lantern.
-  const play = attachGame({ world, shell, lantern, sound, hands });
+  // Endless boxes ask the entitlement (pending until it is worked out; a trial over keeps the Daily Box and lessons).
+  const play = attachGame({ world, shell, lantern, sound, hands, canPlayBox: () => access.canPlayBox, boxRefused: () => go("trial") });
   // What the menus play through: the box session, and the lessons once they are wired (none yet: a first
   // launch then opens on Home, and lesson rows stay put).
   const menuGame = new GameMenus({
     game: play.game,
     session: play.session,
     lessons: NO_LESSONS,
+    canPlayBox: () => access.canPlayBox,
+    toTrial: () => go("trial"),
     toPlay: () => go("play"),
     clearBox: () => shell.box.setBox(null),
   });
   shell.useMenuGame(menuGame);
+  // Left hand on or off: the box behind the menus is rebuilt the other way round from its own save.
+  settings.subscribe(() => {
+    menuGame.rehand().catch((err) => console.error("the box could not be mirrored", err));
+  });
   // The menu drawer in the box's plinth (priority -2.7, after the lantern: the hand holding it never pulls). Not
   // while the box is opening or its reward is up; a menu over play holds the box (its clock stops, it saves).
   const drawer = attachDrawer(world, {
@@ -149,6 +158,8 @@ async function main(): Promise<void> {
     },
   });
   hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play, drawer, access, fakeBilling: bill.fake, menuGame });
+  // The entitlement from the start (a first launch goes into a lesson, never through Home, which also asks it).
+  void access.refresh();
   shell.start();
   const box = startBox(location.search);
   if (box) play.game.playBox(box);

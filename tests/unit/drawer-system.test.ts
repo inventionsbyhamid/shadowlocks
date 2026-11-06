@@ -19,7 +19,7 @@ afterEach(() => {
   if (screens.current() !== "play") go("play");
 });
 
-function bench() {
+function bench(o: { allowed?: () => boolean } = {}) {
   const root = new Group();
   root.position.set(0, 1, -0.6);
   root.scale.setScalar(0.24);
@@ -29,6 +29,7 @@ function bench() {
   const drawer = new MenuDrawer({
     root,
     reducedMotion: () => false,
+    allowed: o.allowed,
     pinches: pins,
     joints: {} as HandJoints,
     pulled: (_at: Vec3, hand) => said.push(`pulled ${hand}`),
@@ -111,6 +112,25 @@ describe("MenuDrawer", () => {
       go(s);
       expect(away(), s).toBe(s !== "play");
     }
+  });
+
+  it("the handle glows for a hand near it only while it can be pulled (not while the box opens)", () => {
+    let allowed = true;
+    const b = bench({ allowed: () => allowed });
+    const near = b.handle().add(new Vector3(0, 0, 0.05));
+    b.frame(near, false);
+    expect(b.drawer.view.glow).toBeGreaterThan(0.5);
+    allowed = false;
+    b.frame(near, false);
+    expect(b.drawer.view.glow).toBe(0);
+    // Nor can it be pulled then.
+    b.frame(b.handle(), true);
+    for (let i = 1; i <= 10; i++) b.frame(b.handle().add(new Vector3(0, 0, 0.006 * i)), true);
+    expect(b.drawer.pull.opened).toBe(0);
+    b.frame(near, false);
+    allowed = true;
+    b.frame(near, false);
+    expect(b.drawer.view.glow).toBeGreaterThan(0.5);
   });
 
   it("cannot be pulled while a menu is up", () => {

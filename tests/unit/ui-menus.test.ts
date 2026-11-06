@@ -53,7 +53,10 @@ describe("home", () => {
     expect(continueTo(profile({ nextBox: 6 }), null, UNLOCKED)).toEqual({ kind: "box", n: 6, resume: false });
     expect(home({ nextBox: 6 }).continueSub).toBe("Start Box No. 6");
     expect(home({}, { behind: { kind: "box", n: 5 } }).continueSub).toBe("Box No. 5");
-    expect(home({}, { behind: { kind: "daily" } }).continueSub).toBe("Daily Box");
+    // A Daily Box behind is the Daily key's: Continue still means the numbered box.
+    expect(home({}, { behind: { kind: "daily" } }).continueSub).toBe("Start Box No. 1");
+    expect(continueTo(profile({ nextBox: 3 }), { kind: "daily" }, UNLOCKED)).toEqual({ kind: "box", n: 3, resume: false });
+    expect(continueTo(profile({ nextBox: 3, current: snap("shadow-locks/2") }), { kind: "daily" }, UNLOCKED)).toEqual({ kind: "box", n: 2, resume: true });
     expect(home({}, { behind: { kind: "lesson" } }).continueSub).toBe("Your lesson");
     expect(continueTo(profile(), { kind: "lesson" }, UNLOCKED)).toEqual({ kind: "back" });
   });
@@ -80,7 +83,20 @@ describe("home", () => {
     expect(over.dailyOpen).toBe(true);
     expect(continueTo(profile({ nextBox: 7 }), null, { kind: "trialOver" })).toEqual({ kind: "trial" });
     // What waits behind the menu (a lesson, the Daily Box) is always open.
-    expect(continueTo(profile(), { kind: "daily" }, { kind: "trialOver" })).toEqual({ kind: "back" });
+    // A box behind is a box too: over, Continue goes to the trial screen; a lesson behind stays open.
+    expect(continueTo(profile(), { kind: "box", n: 4 }, { kind: "trialOver" })).toEqual({ kind: "trial" });
+    expect(continueTo(profile(), { kind: "daily" }, { kind: "trialOver" })).toEqual({ kind: "trial" });
+    expect(continueTo(profile(), { kind: "lesson" }, { kind: "trialOver" })).toEqual({ kind: "back" });
+  });
+
+  it("while the entitlement is still being worked out, Continue waits (it cannot press) and there is no trial row", () => {
+    const v = home({ nextBox: 4 }, { ent: null });
+    expect(v.disabled).toContain("home-continue");
+    expect(v.continueSub).toBe("Start Box No. 4");
+    expect(v.trial).toBeNull();
+    expect(continueTo(profile(), null, null)).toEqual({ kind: "wait" });
+    expect(continueTo(profile(), { kind: "lesson" }, null)).toEqual({ kind: "back" });
+    expect(home({ nextBox: 4 }).disabled).not.toContain("home-continue");
   });
 
   it("paints every line, the notice when there is one and the trial row only with a trial", () => {
@@ -111,7 +127,7 @@ describe("home", () => {
     expect(home({ nextBox: 6 }).continueNo).toBe("6");
     expect(home({ nextBox: 4, current: snap("shadow-locks/4") }).continueNo).toBe("4");
     expect(home({}, { behind: { kind: "box", n: 9 } }).continueNo).toBe("9");
-    expect(home({}, { behind: { kind: "daily" } }).continueNo).toBe("");
+    expect(home({}, { behind: { kind: "daily" } }).continueNo).toBe("1");
     expect(home({}, { behind: { kind: "lesson" } }).continueNo).toBe("");
     expect(home({ nextBox: 8 }, { ent: { kind: "trialOver" } }).continueNo).toBe("");
     const a = recorder();

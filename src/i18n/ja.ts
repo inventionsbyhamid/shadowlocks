@@ -39,7 +39,6 @@ export const JA: Copy = {
     home: {
       continueSub: "第{n}の箱",
       startSub: "第{n}の箱をはじめる",
-      backToDaily: "今日の箱",
       backToLesson: "レッスンのつづき",
       trialOver: "お試し期間終了",
       dailyLocked: "第3の箱のあとで",
@@ -142,6 +141,7 @@ export const JA: Copy = {
     storyLoot: "中身：{loot}。",
     short: "ピースがひとつ足りない。",
     controllerFinger: "コントローラーを置いて、指を使ってもいいよ。",
+    practice: "練習",
   },
   lessons: {
     pickUp: "ランタンを手に取ろう。",

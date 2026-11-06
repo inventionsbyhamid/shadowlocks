@@ -60,6 +60,16 @@ const notices = () => {
 };
 
 describe("profile", () => {
+  it("a saved box keeps which way it was mirrored (a hand change resumes it the other way round)", () => {
+    const s = { ...snap(), mirrored: true };
+    expect(isSnapshot(s)).toBe(true);
+    expect(isSnapshot({ ...snap(), mirrored: "yes" })).toBe(false);
+    const p = { ...newProfile(NOW, BUILD), current: s };
+    expect(migrate(JSON.parse(JSON.stringify(p)), NOW, BUILD).current).toEqual(s);
+    // Older saves say nothing about it, and stay so.
+    expect(migrate(JSON.parse(JSON.stringify({ ...p, current: snap() })), NOW, BUILD).current).not.toHaveProperty("mirrored");
+  });
+
   it("newProfile defaults: box 1, nothing played, the first-launch marker and default settings", () => {
     expect(newProfile(NOW, BUILD)).toEqual({
       version: 1,

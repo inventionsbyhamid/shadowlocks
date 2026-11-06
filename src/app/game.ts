@@ -104,13 +104,13 @@ export class GameView implements SessionView {
     return { plate: this.plate.title, keys, story: this.reward.story, coach: this.plate.coachShown };
   }
 
-  setBox(box: Box, spec: BoxSpec): void {
+  setBox(box: Box, spec: BoxSpec, practice = false): void {
     this.box = box;
     this.marks.setBox(box);
     this.lockFx.setBox(box);
     this.boxFx.reset();
     this.reward.setBox(box);
-    this.plate.setBox(box, spec);
+    this.plate.setBox(box, spec, practice);
     this.hintLantern.reset(true, this.d.settings.get().handed === "left" ? 1 : -1);
     this.hold(true);
   }
@@ -314,6 +314,10 @@ export interface GameDeps {
   sound: Pick<Sound, "game">;
   /** The hands in the box: the finger locks' finger source. */
   hands: FingerSource;
+  /** Endless boxes may be played now (the entitlement); the plate's Next asks it. */
+  canPlayBox?: () => boolean;
+  /** Next asked for a box the entitlement refuses: the trial screen. */
+  boxRefused?: () => void;
 }
 
 /** The game: the box session and its view, registered as the "game" system. Call once, after the lantern and the hands. */
@@ -342,6 +346,8 @@ export function attachGame(d: GameDeps): { game: Game; session: BoxSession; view
     head: playerHead(world, shell.box.root),
     view,
     saveSoon: (now) => shell.markDirty(now),
+    canPlayBox: d.canPlayBox,
+    boxRefused: d.boxRefused,
   });
   const game = new Game(session, shell);
   shell.useFlow(game);

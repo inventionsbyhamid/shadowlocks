@@ -39,8 +39,9 @@ async function fontsIn(app: XrApp, page: Page, l: string): Promise<void> {
 test("every piece of the box's lettering fits at a readable size in every language", async ({ page, boot }, testInfo) => {
   await boot();
   const fits = await page.evaluate(() => window.__sl!.i18n.boxFits());
-  // Every language, every piece: the plate's four names, three keys, the coach card, 24 owners and 22 loot lines.
-  expect(fits).toHaveLength(LANGS.length * (4 + 3 + 1 + 24 + 22));
+  // Every language, every piece: the plate's four names and its Practice cue, three keys, the coach card, 24 owners
+  // and 22 loot lines.
+  expect(fits).toHaveLength(LANGS.length * (4 + 1 + 3 + 1 + 24 + 22));
   const squeezed = fits.filter((f) => f.squeezed).map((f) => `${f.lang} ${f.where}: "${f.text}" at ${f.size} px`);
   // What had to be set smaller than full size, or a story sentence that wrapped (allowed; listed for the report).
   const full = (where: string) => Math.max(...fits.filter((x) => x.where === where).map((x) => x.size));

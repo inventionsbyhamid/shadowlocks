@@ -106,6 +106,12 @@ describe("the box's labels follow the language", () => {
     expect(p.next.labelText).toBe("Nächste");
     p.setBox(box, { kind: "daily", day: "2026-11-06" });
     expect(p.title).toBe("Tagesbox");
+    // A practice box's cue follows the language too.
+    p.setBox(box, { kind: "box", n: 4 }, true);
+    expect(p.cueText).toBe("Übung");
+    setLang("ja");
+    p.relabel();
+    expect([p.title, p.cueText]).toEqual(["第4の箱", "練習"]);
   });
 
   it("the controller coach card splits Japanese into two lines without spaces, by the rules", () => {

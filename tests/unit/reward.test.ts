@@ -6,7 +6,7 @@ import type { V3 } from "../../src/core/types";
 import { KEY_EVENT } from "../../src/render/finger-key";
 import { REWARD, Reward, type RewardHands } from "../../src/render/reward";
 import { COPY } from "../../src/ui/copy";
-import { PLATE, plateLayout, wrapTwo } from "../../src/ui/plate";
+import { PLATE, plateLayout, plateText, wrapTwo } from "../../src/ui/plate";
 import { PokeKey } from "../../src/ui/poke-key";
 
 const DT = 1 / 72;
@@ -132,6 +132,13 @@ describe("the plate", () => {
       // "Box No. 123" in bold serif is about 5.5 em: it fits at the full lettering size with three lights.
       expect(L.nameMax).toBeGreaterThan(5.5 * 0.46 * h * 0.85);
     }
+  });
+
+  it("names the box, and a practice box (the ?box flag) says so under its name", () => {
+    expect(plateText({ kind: "box", n: 3 }, false)).toEqual({ name: "Box No. 3", cue: "" });
+    expect(plateText({ kind: "box", n: 3 }, true)).toEqual({ name: "Box No. 3", cue: COPY.game.practice });
+    expect(plateText({ kind: "daily", day: "2026-11-06" }, false)).toEqual({ name: "Daily Box", cue: "" });
+    expect(COPY.game.practice).toBe("Practice");
   });
 
   it("sets the coach line in two balanced lines on its card, at full size", () => {

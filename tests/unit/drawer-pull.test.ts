@@ -161,11 +161,31 @@ describe("DrawerPull", () => {
     const toward = new Vector3(1, 0, 1).normalize();
     const b = bench({}, frame(HANDLE, toward));
     b.pinchAt("right", HANDLE);
-    // 5 cm along world +z is only 3.5 cm along the box's direction.
-    b.move("right", new Vector3(0, 0, 0.05));
+    // 3.5 cm along the box's direction is not yet 4.
+    b.move("right", toward.clone().multiplyScalar(0.035));
     expect(b.drawer.state).toBe("opening");
+    expect(b.drawer.progress).toBeCloseTo(0.875, 3);
     b.move("right", toward.clone().multiplyScalar(0.01), 2);
     expect(b.drawer.state).toBe("open");
+  });
+
+  it("a mostly sideways drag never opens it: the pull toward you must be at least twice the drift across", () => {
+    expect(DRAWER_PULL.dominance).toBe(2);
+    const b = bench();
+    b.pinchAt("right", HANDLE);
+    // 4.5 cm toward you, 10 cm to the side: a swipe across the plinth, not a pull.
+    b.move("right", new Vector3(0.1, 0, 0.045));
+    expect(b.drawer.state).toBe("opening");
+    // Coming back across (the drift now 2 cm against 4.5 cm toward): it opens.
+    b.move("right", new Vector3(-0.08, 0, 0), 8);
+    expect(b.drawer.state).toBe("open");
+    // At an angle: 5 cm toward with 3 cm up is not a pull (5 < 2 x 3); 6.5 cm toward with 3 cm up is.
+    const c = bench();
+    c.pinchAt("right", HANDLE);
+    c.move("right", new Vector3(0, 0.03, 0.05));
+    expect(c.drawer.state).toBe("opening");
+    c.move("right", new Vector3(0, 0, 0.015), 2);
+    expect(c.drawer.state).toBe("open");
   });
 
   it("losing the hand mid pull lets the drawer go back", () => {
