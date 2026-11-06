@@ -192,9 +192,26 @@ async function pullDrawer(app: XrApp): Promise<void> {
   await app.stepUntil((n) => n.ui.drawer().out === 0, { maxMs: 3_000, label: "drawer shut" });
   const d = await app.page.evaluate(() => window.__ns!.ui.drawer());
   const hand = new Hands(app, "right");
+  const say = async (when: string) =>
+    addRunNote(
+      `pull ${when}: ${JSON.stringify(
+        await app.page.evaluate(() => ({
+          drawer: window.__ns!.ui.drawer(),
+          screen: window.__ns!.state().screen,
+          stage: window.__sl!.session.state()?.stage,
+          lantern: window.__sl!.lantern(),
+        })),
+      )}`,
+    );
   await hand.pinchAt(d.handle);
+  if ((await app.page.evaluate(() => window.__ns!.ui.drawer().state)) !== "opening") await say("after the pinch");
   await hand.moveTo(along(d.handle, d.toward, 0.06), 400);
-  await app.stepUntil((n) => n.state().screen === "home", { maxMs: 2_000, label: "home after the pull" });
+  try {
+    await app.stepUntil((n) => n.state().screen === "home", { maxMs: 2_000, label: "home after the pull" });
+  } catch (err) {
+    await say("after 6 cm");
+    throw err;
+  }
   await hand.release();
   await hand.moveTo(along(d.handle, d.toward, 0.3), 300);
   await app.stepUntil((n) => !n.ui.busy(), { maxMs: 3_000, label: "home at rest" });
@@ -295,13 +312,23 @@ test("lessons rows replay", async ({ page, boot }) => {
 
 test("box size change keeps the solve state", async ({ page, boot }) => {
   const app = await boot();
+  // Box 5: three locks (box 1 has one, and opening it opens the box, when the drawer stays shut).
+  await page.evaluate(() => window.__ns!.ui.profile({ nextBox: 5 }));
   await app.poke("home-continue");
-  const s = await playing(app, "shadow-locks/1");
+  const s = await playing(app, "shadow-locks/5");
   // Open the first lock that needs no finger, with the lantern on its spot.
   const lock = s.locks.find((l: any) => !l.finger);
   await page.evaluate((L) => window.__sl!.placeLantern(L), lock.spot);
   await app.stepUntil((_n, w, i) => (w as any).__sl.session.state().open.includes(i), { arg: lock.i, maxMs: 3_000, batch: 1, label: "a lock open" });
+  // The lantern back near its start, off the spot (an open lock stays open), and clear of the drawer's handle:
+  // a pinch that starts by the lantern takes the lantern, not the drawer.
+  await page.evaluate(() => {
+    const st = window.__ns!.scene.box()!.start;
+    window.__sl!.placeLantern([st[0], st[1] + 0.1, st[2]]);
+  });
+  await app.step(5);
   const was = await page.evaluate(() => ({ s: window.__sl!.session.state()!, lantern: window.__sl!.lantern().pos }));
+  expect(was.s.stage).toBe("playing");
   // The drawer, Settings, the box two steps bigger.
   await pullDrawer(app);
   await app.poke("home-settings");
@@ -322,6 +349,22 @@ test("box size change keeps the solve state", async ({ page, boot }) => {
   expect(now.s.crystals).toEqual(was.s.crystals);
   for (let i = 0; i < 3; i++) expect(now.lantern[i]).toBeCloseTo(was.lantern[i]!, 5);
   expect(now.s.stage).toBe("playing");
+});
+
+test("the drawer stays shut while the box opens", async ({ page, boot }) => {
+  const app = await boot();
+  await app.poke("home-continue");
+  const s = await playing(app, "shadow-locks/1");
+  // Box 1's one lock: the box opens.
+  await page.evaluate((L) => window.__sl!.placeLantern(L), s.locks[0].spot);
+  await app.stepUntil((_n, w) => (w as any).__sl.session.state().stage === "opening", { maxMs: 3_000, batch: 1, label: "the box opening" });
+  const d = await page.evaluate(() => window.__ns!.ui.drawer());
+  const hand = new Hands(app, "right");
+  await hand.pinchAt(d.handle);
+  await hand.moveTo(along(d.handle, d.toward, 0.06), 400);
+  await hand.release();
+  expect((await app.state()).screen).toBe("play");
+  expect(await page.evaluate(() => window.__ns!.ui.drawer())).toMatchObject({ opened: 0, state: "closed" });
 });
 
 test("no live button within 10 cm of the box mouth during play", async ({ page, boot }) => {
