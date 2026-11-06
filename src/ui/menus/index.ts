@@ -10,7 +10,7 @@ import { go, type Screen } from "../../app/screens";
 import type { SettingsStore } from "../../app/settings";
 import { DRAWER_PANEL_ANCHOR } from "../../render/drawer";
 import type { BoxPose } from "../../render/placement";
-import { COPY } from "../copy";
+import { copy, lang, localNotice, onLangChange } from "../../i18n";
 import { type FrameTips, frameTips } from "../fingertips";
 import { KeyView, NO_TIPS } from "../key-view";
 import { MOTION } from "../motion";
@@ -20,6 +20,7 @@ import { UI } from "../theme";
 import { PanelMotion } from "../transitions";
 import { COLLECTION, collectionView, paintCollection } from "./collection";
 import { type ContinueTo, continueTo, HOME, homeView, paintHome } from "./home";
+import { paintLabels } from "./labels";
 import { LESSONS, type LessonRow, lessonRowOf, lessonsView, paintLessons } from "./lessons";
 import { paintSettings, RESET, SETTINGS, settingAction, settingsView, sliderPosition, TOGGLES, toggleOn } from "./settings";
 import { type BuyState, paintTrial, TRIAL, trialView } from "./trial";
@@ -123,6 +124,7 @@ export class Menus {
       }
       asset.visible = false;
       const view = new PanelView(asset, spec);
+      view.setLanguage(lang());
       // Numbers counting up: their ticks and landings are sounds. One event object, refilled for
       // every step (a count-up steps on many frames); listeners keep a copy if they need one.
       view.onRoll = (id, k, done) => {
@@ -148,6 +150,12 @@ export class Menus {
     // A save that finds storage gone raises the notice later; show it if Home is up.
     on("notice", () => {
       if (this.screen === "home") this.paint("home");
+    });
+    // A new language: every panel's fonts and wrapping, and the screen up painted again (the others are
+    // painted when they open). Once per change, never per frame.
+    onLangChange((l) => {
+      for (const p of this.live) p.view.setLanguage(l);
+      this.refresh();
     });
   }
 
@@ -397,11 +405,14 @@ export class Menus {
     if (!p) return;
     const profile = this.deps.profiles.profile;
     const data = this.deps.data;
+    // The fixed words first, in the language shown (PanelView writes only what changed).
+    paintLabels(p.view, screen, copy());
     switch (screen) {
       case "home": {
         // The storage notice shows once: it stays on this Home and is gone the next time.
         const pending = this.deps.profiles.pendingNotice;
-        const notice = pending ?? this.note;
+        const raised = pending ?? this.note;
+        const notice = raised === null ? null : localNotice(raised);
         const v = homeView(profile, { behind: data.behind(), ent: data.ent(), today: data.today(), notice });
         paintHome(p.view, v);
         this.keyStates(p, v.disabled);
@@ -495,7 +506,7 @@ export class Menus {
         return;
       case "reset-confirm":
         void a.resetProgress().then(() => {
-          this.note = COPY.menus.home.reset;
+          this.note = copy().menus.home.reset;
           go("home");
         });
         return;

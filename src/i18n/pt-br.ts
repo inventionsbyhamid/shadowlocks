@@ -113,7 +113,7 @@ export const PT_BR: Copy = {
       confirm: "Apagar",
     },
     trial: {
-      title: "Desbloquear o jogo completo",
+      title: "O jogo completo",
       keeps: "A Caixa do dia e as lições continuam abertas.",
       buy: "Comprar",
       buySub: "Pagamento único, seu para sempre",

@@ -37,6 +37,10 @@ describe("settings", () => {
     expect(settingAction("toggle-warmth", s)).toEqual({ warmth: false });
     expect(settingAction("toggle-hand", s)).toEqual({ handed: "left" });
     expect(settingAction("toggle-hand", { ...s, handed: "left" })).toEqual({ handed: "right" });
+    // The Language key steps to the next language, and round.
+    expect(settingAction("settings-language", s)).toEqual({ language: "en" });
+    expect(settingAction("settings-language", { ...s, language: "de" })).toEqual({ language: "pt-BR" });
+    expect(settingAction("settings-language", { ...s, language: "ja" })).toEqual({ language: "auto" });
     expect(settingAction("settings-done", s)).toBeNull();
     expect(settingAction("settings-recenter", s)).toBeNull();
     expect(settingAction("settings-reset", s)).toBeNull();
@@ -53,6 +57,7 @@ describe("settings", () => {
 
   it("offers every key it paints", () => {
     expect(SETTINGS.keys).toEqual([
+      "settings-language",
       "music-down",
       "music-up",
       "effects-down",
@@ -68,6 +73,17 @@ describe("settings", () => {
       "toggle-hand",
       "settings-done",
     ]);
+  });
+
+  it("shows the language: Automatic with the language it picked, or a language in its own words; and paints it", () => {
+    const auto = settingsView(defaultSettings());
+    expect(auto.language).toEqual({ label: "Language", value: "Automatic", sub: "English" });
+    const ja = settingsView({ ...defaultSettings(), language: "ja" });
+    expect(ja.language).toEqual({ label: "Language", value: "日本語", sub: "" });
+    const a = recorder();
+    paintSettings(a.ui, ja);
+    expect(a.calls).toContain("text settings-language-value 日本語");
+    expect(a.calls).toContain("show settings-language-sub false");
   });
 
   it("shows values, meter fill and the ends of each range", () => {

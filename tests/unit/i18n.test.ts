@@ -149,8 +149,9 @@ describe("the tables", () => {
   });
 
   it.each(OTHERS)("%s says the same thing the same way: lines English writes alike are translated alike", (l) => {
-    // Where English uses one word for two things, a language may need two.
-    const apart = new Set(["settings.off|settings.muted"]);
+    // Where English uses one word for two things, a language may need two; the trial panel's heading may be
+    // shorter than the key line that says the same (it sits beside the Back key, at title size).
+    const apart = new Set(["settings.off|settings.muted", "menus.trial.unlock|panels.trial.title"]);
     const byEn = new Map<string, string[]>();
     for (const [k, s] of EN) byEn.set(s, [...(byEn.get(s) ?? []), k]);
     const t = new Map(leaves(tableFor(l)));

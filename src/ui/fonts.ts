@@ -89,13 +89,25 @@ interface Classed {
 
 /** Give Archivo to every element of `root` with an Archivo class. Returns how many. */
 export function applyArchivo(root: Classed): number {
+  return applyFamily(root, ARCHIVO_CLASSES, "archivo");
+}
+
+/** Classes drawn in the "names" family: the Language key's value and the language Automatic picked. */
+export const NAMES_CLASSES = ["lang-value", "lang-name"] as const;
+
+/** Give the "names" family (every language's letters) to every element of `root` with a names class. */
+export function applyNames(root: Classed): number {
+  return applyFamily(root, NAMES_CLASSES, "names");
+}
+
+function applyFamily(root: Classed, classes: readonly string[], family: string): number {
   let n = 0;
   root.traverse((o) => {
     const el = o as Classed;
     if (!el.classList || !el.setProperties) return;
-    for (const c of ARCHIVO_CLASSES) {
+    for (const c of classes) {
       if (el.classList.contains(c)) {
-        el.setProperties({ fontFamily: "archivo" });
+        el.setProperties({ fontFamily: family });
         n++;
         return;
       }

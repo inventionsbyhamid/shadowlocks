@@ -133,6 +133,15 @@ export function formatDay(dayKey: string, l: Lang = current): string {
   return narrow(made(days, l, (t) => new Intl.DateTimeFormat(t, { month: "short", day: "numeric", timeZone: "UTC" })).format(at));
 }
 
+/** The notices the game raises in English (they travel the bus and wait for a screen as words). */
+const NOTICES: readonly ((c: Copy) => string)[] = [(c) => c.notice.notSaved, (c) => c.notice.updated, (c) => c.menus.home.reset];
+
+/** A notice raised in English, in the language shown when it is put on screen (any other text as given). */
+export function localNotice(text: string): string {
+  for (const words of NOTICES) if (words(COPY) === text) return words(table);
+  return text;
+}
+
 /** A saved reward's owner (stored in English) in the active language; words the game no longer has stay as given. */
 export function storyOwner(en: string, c: Copy = table): string {
   const i = COPY.story.owners.indexOf(en as (typeof COPY.story.owners)[number]);

@@ -70,7 +70,7 @@
     <div class="title">Shadow Locks</div>
     <div class="meta-row">
       <div class="led"></div>
-      <div class="meta">A puzzle box of light</div>
+      <div id="home-tagline" class="meta">A puzzle box of light</div>
     </div>
   </div>
   <div id="home-notice">

@@ -64,6 +64,9 @@
   .toggle-led { width: 6; height: 6; border-radius: 3; background-color: #3A3236; }
   .toggle-state { font-size: 10.5; font-weight: bold; flex-shrink: 0; }
   .toggle-sub { flex-shrink: 0; }
+  .lang-cap { flex-direction: row; align-items: center; justify-content: space-between; }
+  .lang-values { flex-direction: row; align-items: center; gap: 8; }
+  .lang-value { font-size: 11.5; font-weight: bold; color: #FFD36A; }
 </style>
 <div id="settings-root" class="root">
   <div class="crest">
@@ -71,8 +74,20 @@
     <div class="crest-mid"></div>
   </div>
   <div class="head">
-    <div class="title">Settings</div>
-    <div class="meta">Changes apply right away</div>
+    <div id="settings-title" class="title">Settings</div>
+    <div id="settings-note" class="meta">Changes apply right away</div>
+  </div>
+  <div class="row">
+    <div id="settings-language-slot" class="slot slot-sm">
+      <div id="settings-language-glow" class="glow"></div>
+      <div id="settings-language" class="key key-graphite">
+        <div id="settings-language-cap" class="cap cap-graphite lang-cap">
+          <div class="hair"></div>
+          <div id="settings-language-label" class="label-sm">Language</div>
+          <div class="lang-values"><div id="settings-language-value" class="lang-value">Automatic</div><div id="settings-language-sub" class="sub ink-dim lang-name">English</div></div>
+        </div>
+      </div>
+    </div>
   </div>
   <div class="cells">
     <div class="cell">
@@ -87,7 +102,7 @@
     </div>
         <div class="readout plate">
           <div class="readout-top">
-            <div class="readout-label">Music</div>
+            <div id="music-label" class="readout-label">Music</div>
             <div id="music-value" class="readout-value">70%</div>
           </div>
           <div class="meter"><div id="music-seg-0" class="seg"></div><div id="music-seg-1" class="seg"></div><div id="music-seg-2" class="seg"></div><div id="music-seg-3" class="seg"></div><div id="music-seg-4" class="seg"></div><div id="music-seg-5" class="seg"></div><div id="music-seg-6" class="seg"></div><div id="music-seg-7" class="seg"></div><div id="music-seg-8" class="seg"></div><div id="music-seg-9" class="seg"></div></div>
@@ -114,7 +129,7 @@
     </div>
         <div class="readout plate">
           <div class="readout-top">
-            <div class="readout-label">Effects</div>
+            <div id="effects-label" class="readout-label">Effects</div>
             <div id="effects-value" class="readout-value">90%</div>
           </div>
           <div class="meter"><div id="effects-seg-0" class="seg"></div><div id="effects-seg-1" class="seg"></div><div id="effects-seg-2" class="seg"></div><div id="effects-seg-3" class="seg"></div><div id="effects-seg-4" class="seg"></div><div id="effects-seg-5" class="seg"></div><div id="effects-seg-6" class="seg"></div><div id="effects-seg-7" class="seg"></div><div id="effects-seg-8" class="seg"></div><div id="effects-seg-9" class="seg"></div></div>
@@ -143,7 +158,7 @@
     </div>
         <div class="readout plate">
           <div class="readout-top">
-            <div class="readout-label">Box size</div>
+            <div id="box-label" class="readout-label">Box size</div>
             <div id="box-value" class="readout-value">24 cm</div>
           </div>
           <div class="meter"><div id="box-seg-0" class="seg"></div><div id="box-seg-1" class="seg"></div><div id="box-seg-2" class="seg"></div><div id="box-seg-3" class="seg"></div><div id="box-seg-4" class="seg"></div><div id="box-seg-5" class="seg"></div><div id="box-seg-6" class="seg"></div><div id="box-seg-7" class="seg"></div><div id="box-seg-8" class="seg"></div><div id="box-seg-9" class="seg"></div></div>

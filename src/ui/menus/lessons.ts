@@ -2,7 +2,7 @@
 // always there, and one per tip seen so far, in the order they were met; each replays (a replay never
 // touches box progress). Pure view model and painting.
 import type { TipId } from "../../core/profile";
-import { COPY } from "../copy";
+import { type Copy, copy } from "../../i18n";
 import type { ExampleKey, MenuSpec, PanelUi } from "./types";
 
 export const EXAMPLES: readonly ExampleKey[] = ["move", "near-far", "rings", "finger"];
@@ -18,18 +18,19 @@ export const LESSONS: MenuSpec = {
   keys: ["lessons-back", ...EXAMPLES.map(exampleKey), ...Array.from({ length: TIP_SLOTS }, (_, i) => `tip-${i}`)],
 };
 
-const L = COPY.menus.lessons;
-export const EXAMPLE_LABELS: Readonly<Record<ExampleKey, string>> = {
-  move: L.move,
-  "near-far": L.nearFar,
-  rings: L.rings,
-  finger: L.finger,
+/** Each example's name in the language shown. */
+export const EXAMPLE_LABELS: Readonly<Record<ExampleKey, (c: Copy) => string>> = {
+  move: (c) => c.menus.lessons.move,
+  "near-far": (c) => c.menus.lessons.nearFar,
+  rings: (c) => c.menus.lessons.rings,
+  finger: (c) => c.menus.lessons.finger,
 };
-export const TIP_LABELS: Readonly<Record<TipId, string>> = {
-  decoys: L.decoys,
-  ringless: L.ringless,
-  hidden: L.hidden,
-  drawer: L.drawer,
+/** Each tip's name in the language shown. */
+export const TIP_LABELS: Readonly<Record<TipId, (c: Copy) => string>> = {
+  decoys: (c) => c.menus.lessons.decoys,
+  ringless: (c) => c.menus.lessons.ringless,
+  hidden: (c) => c.menus.lessons.hidden,
+  drawer: (c) => c.menus.lessons.drawer,
 };
 
 /** One row of the Lessons menu: its key, what it replays and its label. */
@@ -42,9 +43,10 @@ export interface LessonsView {
 }
 
 export function lessonsView(tipsSeen: readonly TipId[]): LessonsView {
-  const rows: LessonRow[] = EXAMPLES.map((id) => ({ key: exampleKey(id), label: EXAMPLE_LABELS[id], kind: "example", id }));
+  const c = copy();
+  const rows: LessonRow[] = EXAMPLES.map((id) => ({ key: exampleKey(id), label: EXAMPLE_LABELS[id](c), kind: "example", id }));
   const tips = tipsSeen.filter((t, i) => Object.hasOwn(TIP_LABELS, t) && tipsSeen.indexOf(t) === i).slice(0, TIP_SLOTS);
-  tips.forEach((id, i) => rows.push({ key: `tip-${i}`, label: TIP_LABELS[id], kind: "tip", id }));
+  tips.forEach((id, i) => rows.push({ key: `tip-${i}`, label: TIP_LABELS[id](c), kind: "tip", id }));
   return { rows, noTips: tips.length === 0 };
 }
 

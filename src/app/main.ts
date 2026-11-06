@@ -10,7 +10,7 @@ import { attachInput } from "../input/grab-system";
 import { installOffline, showBriefly, takeOverAtBoot } from "../platform/offline";
 import { openStore } from "../platform/store";
 import { APP_VERSION } from "../platform/version";
-import { COPY } from "../ui/copy";
+import { applyLanguage, copy, localNotice, onLangChange } from "../i18n";
 import { MenuSystem, useMenus } from "../ui/menu-system";
 import { styleRayCursors } from "../ui/ray-cursor";
 import { Access, billingFor } from "./access";
@@ -47,20 +47,29 @@ async function main(): Promise<void> {
     if (status) status.textContent = text;
   };
   // The landing page (box art, the name, "Open the box") is for the hosted link: the installed
-  // Quest apps skip it and go straight into XR.
+  // Quest apps skip it and go straight into XR. Its words are in the headset's language from the
+  // start, and follow the Language setting once the profile is open.
   document.body.classList.toggle("installed", installedApp(window));
-  if (enter) enter.textContent = COPY.landing.open;
-  for (const [id, text] of [["tagline", COPY.landing.tagline], ["facts", COPY.landing.facts]] as const) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = text;
-  }
+  applyLanguage("auto");
+  let loading = status?.textContent === "Loading";
+  const paintPage = () => {
+    const c = copy().landing;
+    if (enter) enter.textContent = c.open;
+    for (const [id, text] of [["tagline", c.tagline], ["facts", c.facts]] as const) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+    }
+    if (loading) say(c.loading);
+  };
+  paintPage();
+  onLangChange(paintPage);
 
   const hooks = TEST_HOOKS ? await import("./test-hooks") : null;
   const video = VIDEO ? await import("../video/video-mode") : null;
   hooks?.startEventLog();
   on("notice", (e) => {
     console.info(`notice: ${e.text}`);
-    say(e.text);
+    say(localNotice(e.text));
   });
 
   const world = await World.create(document.getElementById("scene-container") as HTMLDivElement, projectOptions);
@@ -147,7 +156,7 @@ async function main(): Promise<void> {
   video?.installVideoMode(world);
 
   if (navigator.xr && world.xrEnabled) {
-    const failed = COPY.page.enterFailed;
+    const failed = () => copy().page.enterFailed;
     // Test builds may shorten the wait (?enterTimeoutMs=500) to check the retry path.
     const testTimeout = TEST_HOOKS ? Number(new URLSearchParams(location.search).get("enterTimeoutMs")) : 0;
     const tryEnter = async () => {
@@ -157,31 +166,35 @@ async function main(): Promise<void> {
         enter.disabled = false;
         enter.hidden = false;
       }
-      if (!ok) say(failed);
-      else if (status?.textContent === failed) say("");
+      if (!ok) say(failed());
+      else if (status?.textContent === failed()) say("");
     };
     enter?.addEventListener("click", () => {
       sound.unlock();
       void tryEnter();
     });
     world.renderer.xr.addEventListener("sessionstart", () => {
-      if (status?.textContent === failed) say("");
+      if (status?.textContent === failed()) say("");
       document.body.classList.add("in-xr");
     });
     world.renderer.xr.addEventListener("sessionend", () => document.body.classList.remove("in-xr"));
-    if (status && status.textContent === "Loading") say("");
+    if (loading) {
+      loading = false;
+      say("");
+    }
     // Installed Quest app (the TWA exposes the Digital Goods API): go straight into XR with no
     // gesture; Enter shows if that fails. Audio then starts on the first pinch (startAudio retries).
     if (installedApp(window)) void tryEnter();
     else if (enter) enter.hidden = false;
   } else {
-    say(COPY.page.noXr);
+    loading = false;
+    say(copy().page.noXr);
   }
   // Production builds precache everything for offline play, after the first screen is up.
   if (!import.meta.env.DEV) {
     installOffline(import.meta.url, (text) => {
       console.info(`notice: ${text}`);
-      showBriefly(status, text);
+      showBriefly(status, localNotice(text));
     });
   }
 }
@@ -189,5 +202,5 @@ async function main(): Promise<void> {
 main().catch((err) => {
   console.error("startup failed", err);
   const status = document.getElementById("status");
-  if (status) status.textContent = COPY.page.startupFailed;
+  if (status) status.textContent = copy().page.startupFailed;
 });

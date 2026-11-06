@@ -2,8 +2,9 @@
 // and count-up numbers. Values that move every frame go through signals, so a frame only assigns
 // numbers or constant strings (no allocation in our code).
 import { type Object3D, type Signal, signal, type UIKitMLAsset } from "@iwsdk/core";
+import type { Lang } from "../i18n";
 import { CountUp } from "./count-up";
-import { applyArchivo, FONT_FAMILIES } from "./fonts";
+import { applyArchivo, applyNames, FONT_FAMILIES, fontFamiliesFor } from "./fonts";
 import type { MenuSpec, PanelUi } from "./menus/types";
 import { MOTION } from "./motion";
 
@@ -43,6 +44,15 @@ export class PanelView implements PanelUi {
     this.root = asset.document.rootElement as unknown as UiEl;
     this.root.setProperties({ opacity: this.opacity, fontFamilies: FONT_FAMILIES });
     applyArchivo(this.root);
+    applyNames(this.root);
+  }
+
+  /**
+   * Draw in language `l`: its fonts for every family (Japanese draws all of them with the Japanese font), and
+   * lines broken between any characters in Japanese (it has no spaces; elsewhere between words).
+   */
+  setLanguage(l: Lang): void {
+    this.root.setProperties({ fontFamilies: fontFamiliesFor(l), wordBreak: l === "ja" ? "break-all" : "break-word" });
   }
 
   el(id: string): UiEl | null {

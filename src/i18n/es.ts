@@ -114,7 +114,7 @@ export const ES: Copy = {
       confirm: "Borrar",
     },
     trial: {
-      title: "Desbloquear el juego completo",
+      title: "El juego completo",
       keeps: "La Caja del día y las lecciones siguen abiertas.",
       buy: "Comprar",
       buySub: "Un solo pago, para siempre",
