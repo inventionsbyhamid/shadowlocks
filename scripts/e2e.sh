@@ -16,12 +16,16 @@
 # An exclusive run waits until every other run has ended, and none starts while one waits or runs.
 # scripts/e2e.sh --print-mode <args> says which kind a run would be.
 #
-# Waits up to 30 min while the server is busy (load > 25) or too many browser containers run (an
-# exclusive run needs none, a functional one fewer than two; still too many after that: exit 75), then
-# holds the "e2e" lock while the browser container runs: exclusively (remote.sh --lock e2e) or shared
-# in one of two slots (remote.sh --lock-shared e2e). It gives up after NS_LOCK_WAIT seconds (default
-# 3600) with exit 75. Older copies of this script hold the same lock exclusively, so they never
-# overlap with any run of this one.
+# First waits up to NS_E2E_PREWAIT seconds (default 1800) while the server is busy (load > 25) or too
+# many browser containers run (an exclusive run wants none, a functional one fewer than two). Then:
+#   - a functional run still facing two gives up (exit 75);
+#   - an exclusive run queues for the lock anyway: a queued exclusive request goes before any new
+#     run, so it starts as soon as the runs going now have ended.
+# It then holds the "e2e" lock while the browser container runs: exclusively (remote.sh --lock e2e) or
+# shared in one of two slots (remote.sh --lock-shared e2e). Waiting for the lock gives up after
+# NS_LOCK_WAIT seconds (default 3600) with exit 75. Older copies of this script hold the same lock
+# exclusively, so they never overlap with any run of this one. NS_E2E_LOCK names another lock instead
+# of "e2e": only for experiments with the locks.
 # A run that writes a lot (a video render) sets NS_EXPECT_GB=<n>: it then needs 100 + n GB free.
 # Screenshots come back in test-results/shots/, failure reports in test-results/artifacts/, and
 # notes the tests leave in test-results/notes.txt are printed at the end (remote.sh does that).
@@ -76,6 +80,9 @@ fi
 
 LANE=${NS_LANE:-$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null | sed -n 's#^lane/##p')}
 LANE=${LANE:-main}
+LOCK=${NS_E2E_LOCK:-e2e}
+PREWAIT=${NS_E2E_PREWAIT:-1800}
+[[ $PREWAIT =~ ^[0-9]{1,6}$ ]] || { echo "bad NS_E2E_PREWAIT: $PREWAIT (whole seconds)" >&2; exit 2; }
 MODE=$(e2e_mode "$@")
 if [ "$MODE" = exclusive ]; then
   MAX_BUSY=0 LOCK_OPT=--lock
@@ -89,17 +96,24 @@ ssh "$HOST" "docker image inspect shadowlocks-e2e >/dev/null 2>&1" || {
   exit 3
 }
 
-for _ in $(seq 1 60); do
+end=$((SECONDS + PREWAIT))
+while :; do
   read -r load busy < <(ssh "$HOST" "echo \$(awk '{print \$1}' /proc/loadavg) \$(docker ps -q --filter ancestor=shadowlocks-e2e | wc -l)") \
     || { echo "cannot reach $HOST (is the VPN on?)" >&2; exit 3; }
   if awk -v l="$load" -v m="$MAX_LOAD" 'BEGIN{exit !(l<=m)}' && [ "$busy" -le "$MAX_BUSY" ]; then break; fi
-  echo "waiting: load $load, e2e runs going $busy (a $MODE run starts with at most $MAX_BUSY)" >&2
-  sleep 30
+  left=$((end - SECONDS))
+  [ "$left" -gt 0 ] || break
+  echo "waiting: load $load, e2e runs going $busy ($MODE run: starts with at most $MAX_BUSY going)" >&2
+  sleep $((left < 30 ? left : 30))
 done
 if [ "$busy" -gt "$MAX_BUSY" ]; then
-  echo "refused: $busy browser runs were still going after 30 minutes of waiting (exit 75)" >&2
-  exit 75
+  if [ "$MODE" = functional ]; then
+    echo "refused: $busy browser runs were still going after $PREWAIT s of waiting (exit 75)" >&2
+    exit 75
+  fi
+  # A load still over the limit is refused by remote.sh (exit 3), as before.
+  echo "e2e: $busy browser runs still going after $PREWAIT s; queueing for the '$LOCK' lock (no new run starts while this one waits)" >&2
 fi
 
-exec "$ROOT/scripts/remote.sh" "$LANE" --image shadowlocks-e2e --shm 2g "$LOCK_OPT" e2e --pull test-results \
+exec "$ROOT/scripts/remote.sh" "$LANE" --image shadowlocks-e2e --shm 2g "$LOCK_OPT" "$LOCK" --pull test-results \
   ${NS_EXPECT_GB:+--expect-gb "$NS_EXPECT_GB"} -- npx playwright test "$@"

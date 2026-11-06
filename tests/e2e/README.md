@@ -82,7 +82,9 @@ Functional runs of named specs share that lock: up to two go at once, from any l
 go alone: the full suite (no spec named), any argument mentioning `cost`, `perf-budget`, `bot`,
 `store` or `tests/video` (a spec filter that also matches such a spec counts: `lantern` runs
 `lantern-cost.spec.ts` too), or `NS_E2E_EXCLUSIVE=1`. An exclusive run waits for every other run to
-end, and no new run starts while one waits. `scripts/e2e.sh --print-mode <args>` says which kind a
+end, and no new run starts while one waits. If browser runs are still going after the 30-minute
+pre-wait, a functional run gives up (exit 75) but an exclusive one queues for the lock anyway; only
+the lock wait itself (`NS_LOCK_WAIT`) then ends it with exit 75. `scripts/e2e.sh --print-mode <args>` says which kind a
 run would be; the rule is in the script's header.
 
 The run lives only as long as the Mac that started it. Ctrl-C, a dropped connection or a Mac that
