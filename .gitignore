@@ -10,9 +10,14 @@ __pycache__/
 .e2e-build
 dist-e2e*
 
-# Quest app: only the Bubblewrap config is kept; bubblewrap update writes the rest.
+# Quest apps (store and Competition): only each Bubblewrap config is kept; bubblewrap update writes the rest.
 twa/*
-!twa/twa-manifest.json
+!twa/store/
+!twa/competition/
+twa/store/*
+twa/competition/*
+!twa/store/twa-manifest.json
+!twa/competition/twa-manifest.json
 *.apk
 *.aab
 *.p12
