@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { type Material, ShaderLib } from "@iwsdk/core";
 import { generateBox } from "../../src/core/generator";
-import { proj } from "../../src/core/geom";
+import { inPoly, proj } from "../../src/core/geom";
+import { LESSON_1 } from "../../src/core/lessons-data";
 import { mirrorBox } from "../../src/core/mirror";
 import type { Box, V3 } from "../../src/core/types";
 import {
@@ -171,6 +172,20 @@ describe("writeScraps", () => {
     // Nearly every corner gets the whole gap; only sharp corners of small pieces get less.
     const full = insides.filter((d) => d >= SCRAP_GAP * 0.99).length / insides.length;
     expect(full).toBeGreaterThan(0.9);
+  });
+
+  it("fills a scrap that is not convex (lesson 1's Moon) by its own outline, never across its hollow", () => {
+    const out = buffers();
+    writeScraps(LESSON_1, out);
+    const moon = LESSON_1.elements[0]!;
+    if (moon.kind !== "piece" || moon.lock !== 0) throw new Error("lesson 1 starts with its Moon");
+    const L = LESSON_1.locks[0]!.L, outline = LESSON_1.locks[0]!.target[0]!, k = moon.verts.length;
+    // Its front and back faces, k - 2 triangles each: every triangle's middle, seen from the spot, is in the Moon.
+    for (let t = 0; t < (k - 2) * 6; t += 3) {
+      const a = v3(out.position, t), b = v3(out.position, t + 1), c = v3(out.position, t + 2);
+      const mid: V3 = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3];
+      expect(inPoly(proj(mid, L), outline), `triangle ${t / 3}`).toBe(true);
+    }
   });
 });
 

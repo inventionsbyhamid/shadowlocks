@@ -26,7 +26,9 @@ import {
   Vector3,
   type WebGLProgramParametersWithUniforms,
 } from "@iwsdk/core";
+import { proj } from "../core/geom";
 import type { Box, Element as BoxElement, Ring, V2, V3 } from "../core/types";
+import { triangulate } from "./shadow-mesh";
 import { COLORS, MATERIALS } from "./theme";
 
 /** Slot 0 holds decoys and rings (always shown, never glow); lock l's piece p is 1 + l * 16 + p. */
@@ -190,10 +192,18 @@ export function writeScraps(box: Box, out: ScrapBuffers): number {
         const d: V3 = L ? unit(sub(v, L)) : [0, 0, -1];
         return [v[0] + d[0] * SCRAP_THICKNESS, v[1] + d[1] * SCRAP_THICKNESS, v[2] + d[2] * SCRAP_THICKNESS];
       });
-      // Flat shaded: every triangle keeps its own normal (a tilted plate's corners are not coplanar).
+      // Flat shaded: every triangle keeps its own normal (a tilted plate's corners are not coplanar). A convex face is
+      // a fan from its first corner; one that is not (lesson 1's Moon) is cut into the same number of ears, judged as
+      // seen from its spot (where a piece is its lock's own convex or simple outline piece).
       const k = front.length;
-      for (let i = 1; i < k - 1; i++) w.tri(front[0]!, front[i]!, front[i + 1]!, null, slot);
-      for (let i = 1; i < k - 1; i++) w.tri(back[0]!, back[i + 1]!, back[i]!, null, slot);
+      const tris = triangulate(front.map((v): V2 => (L ? proj(v, L) : [v[0], v[1]])));
+      if (tris) {
+        for (let t = 0; t < tris.length; t += 3) w.tri(front[tris[t]!]!, front[tris[t + 1]!]!, front[tris[t + 2]!]!, null, slot);
+        for (let t = 0; t < tris.length; t += 3) w.tri(back[tris[t]!]!, back[tris[t + 2]!]!, back[tris[t + 1]!]!, null, slot);
+      } else {
+        for (let i = 1; i < k - 1; i++) w.tri(front[0]!, front[i]!, front[i + 1]!, null, slot);
+        for (let i = 1; i < k - 1; i++) w.tri(back[0]!, back[i + 1]!, back[i]!, null, slot);
+      }
       for (let i = 0; i < k; i++) {
         const j = (i + 1) % k;
         const side = unit(cross(sub(back[i]!, front[i]!), sub(back[j]!, front[i]!)));
