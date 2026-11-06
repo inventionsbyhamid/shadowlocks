@@ -4,8 +4,9 @@
 // and the camera image of the real hand shows through.
 //
 // One draw call for both hands: a unit capsule instanced per bone, its ends (aA, aB, world metres) and radius (aR)
-// per instance; the vertex shader puts each vertex round its end. The depth is written at the bone's centre line,
-// not its front surface, so the hand's own outline (drawn later and depth tested) is never hidden by the mask.
+// per instance; the vertex shader puts each vertex round its end. Its front (near) faces are drawn, their depth
+// pushed back to the bone's centre line, so the hand's own outline (drawn later and depth tested) is never hidden by
+// the mask, while anything of the game behind the centre line is.
 // Off without passthrough (a VR session has no real hand to show). No allocation per frame.
 import {
   BufferAttribute,
@@ -15,8 +16,19 @@ import {
   type Object3D,
   type WebGLProgramParametersWithUniforms,
 } from "@iwsdk/core";
-import { HAND_JOINTS, type HandJoints, type HandSide, JOINT_COUNT } from "../input/hand-joints";
-import { BONES_PER_HAND, FINGER_RADIUS_CM, HAND_BONES, MAX_HAND_OUTLINES, PALM_RADIUS_CM, readHand } from "./hand-shadow";
+import type { V3 } from "../core/types";
+import { type HandJoints, JOINT_COUNT } from "../input/hand-joints";
+import {
+  BONE_A,
+  BONE_B,
+  BONES_PER_HAND,
+  FINGER_RADIUS_CM,
+  HAND_BONES,
+  MAX_HAND_OUTLINES,
+  PALM_RADIUS_CM,
+  readHand,
+  SIDES,
+} from "./hand-shadow";
 import { LiveAttribute } from "./live-attribute";
 
 /** Drawn before everything: the box, the panels and the hand's own outline then test against its depth. */
@@ -67,7 +79,11 @@ attribute vec3 aA;
 attribute vec3 aB;
 attribute float aR;
 `;
-/** The vertex round its end of the bone; slEnd is that end, where the depth is written. */
+/**
+ * The vertex round its end of the bone; slEnd is that end, where the depth is written. The capsule's local x, y, z go
+ * to E1, U, E2 with E2 = E1 x U: a right-handed frame (a turn, not a mirror), so the geometry's outward faces stay
+ * counter-clockwise from outside and survive back-face culling. maskVertex is this, in TypeScript, for the tests.
+ */
 const MASK_BEGIN = /* glsl */ `
 vec3 slEnd = mix(aA, aB, aEnd);
 vec3 slAxis = aB - aA;
@@ -75,9 +91,26 @@ float slLen = length(slAxis);
 vec3 slU = slLen > 1e-6 ? slAxis / slLen : vec3(0.0, 1.0, 0.0);
 vec3 slH = abs(slU.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
 vec3 slE1 = normalize(cross(slU, slH));
-vec3 slE2 = cross(slU, slE1);
+vec3 slE2 = cross(slE1, slU);
 vec3 transformed = slEnd + aR * (position.x * slE1 + position.y * slU + position.z * slE2);
 `;
+
+const crossV = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const normV = (a: V3): V3 => {
+  const l = Math.hypot(a[0], a[1], a[2]);
+  return [a[0] / l, a[1] / l, a[2] / l];
+};
+
+/** MASK_BEGIN in TypeScript (allocates; for tests): where a capsule vertex (`local`, its `end`) lands for bone A-B. */
+export function maskVertex(local: V3, end: number, A: V3, B: V3, R: number): V3 {
+  const e: V3 = [A[0] + (B[0] - A[0]) * end, A[1] + (B[1] - A[1]) * end, A[2] + (B[2] - A[2]) * end];
+  const axis: V3 = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], len = Math.hypot(axis[0], axis[1], axis[2]);
+  const u: V3 = len > 1e-6 ? [axis[0] / len, axis[1] / len, axis[2] / len] : [0, 1, 0];
+  const h: V3 = Math.abs(u[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+  const e1 = normV(crossV(u, h)), e2 = crossV(e1, u);
+  const [x, y, z] = local;
+  return [0, 1, 2].map((k) => e[k]! + R * (x * e1[k]! + y * u[k]! + z * e2[k]!)) as V3;
+}
 /** Never nearer the eye than the bone's centre line (view space looks down -z). */
 const MASK_PROJECT = /* glsl */ `
 vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
@@ -90,10 +123,6 @@ function maskShader(shader: WebGLProgramParametersWithUniforms): void {
     MASK_VERTEX +
     shader.vertexShader.replace("#include <begin_vertex>", MASK_BEGIN).replace("#include <project_vertex>", MASK_PROJECT);
 }
-
-const SIDES: readonly HandSide[] = ["left", "right"];
-const BONE_A = Int32Array.from(HAND_BONES, (b) => HAND_JOINTS.indexOf(b.a));
-const BONE_B = Int32Array.from(HAND_BONES, (b) => HAND_JOINTS.indexOf(b.b));
 
 export class HandMask {
   readonly mesh: Mesh;

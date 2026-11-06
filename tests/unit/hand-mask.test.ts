@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { type InstancedBufferAttribute, type InstancedBufferGeometry, type Material, Scene, ShaderLib, Vector3 } from "@iwsdk/core";
-import { HAND_MASK_ORDER, HandMask } from "../../src/render/hand-mask";
+import {
+  FrontSide,
+  type InstancedBufferAttribute,
+  type InstancedBufferGeometry,
+  type Material,
+  Scene,
+  ShaderLib,
+  Vector3,
+} from "@iwsdk/core";
+import type { V3 } from "../../src/core/types";
+import { HAND_MASK_ORDER, HandMask, maskVertex } from "../../src/render/hand-mask";
 import { BONES_PER_HAND, FINGER_RADIUS_CM, HAND_BONES, PALM_RADIUS_CM } from "../../src/render/hand-shadow";
 import { boxToWorld } from "../../src/render/placement";
 import { fakeJoints, moved, pointingHand } from "./helpers/hands";
@@ -71,20 +80,50 @@ describe("HandMask", () => {
     ["aA", "aB", "aR"].forEach((n, i) => expect(attr(n).array).toBe(arrays[i]));
   });
 
-  it("builds each capsule in the vertex shader and writes its depth at the bone's centre line", () => {
+  it("turns every capsule face outward for any bone, so its near half is the half drawn", () => {
     const { mask } = setup();
     const mat = mask.mesh.material as Material;
+    // Back faces are culled: what survives must be the outward (near) faces.
+    expect(mat.side).toBe(FrontSide);
+    const g = mask.mesh.geometry as InstancedBufferGeometry;
+    const pos = g.getAttribute("position"), end = g.getAttribute("aEnd"), idx = g.getIndex()!;
+    const local = (i: number): V3 => [pos.getX(i), pos.getY(i), pos.getZ(i)];
+    const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    // Bones every way, among them straight up and down (the frame's helper axis switches there) and a zero-length one.
+    const bones: [V3, V3][] = [
+      [[0, 1, -0.4], [0.05, 1.01, -0.42]],
+      [[0, 1, -0.4], [0, 1.05, -0.4]],
+      [[0, 1, -0.4], [0.001, 0.96, -0.4]],
+      [[0.2, 1.1, -0.3], [0.17, 1.13, -0.27]],
+      [[0, 1, -0.4], [-0.02, 0.99, -0.36]],
+      [[0.1, 1, -0.5], [0.1, 1, -0.5]],
+    ];
+    let faces = 0;
+    for (const [A, B] of bones) {
+      const ab = sub(B, A), ab2 = dot(ab, ab);
+      for (let t = 0; t < idx.count; t += 3) {
+        const [i0, i1, i2] = [idx.getX(t), idx.getX(t + 1), idx.getX(t + 2)];
+        const [p0, p1, p2] = [i0, i1, i2].map((i) => maskVertex(local(i), end.getX(i), A, B, 0.009)) as [V3, V3, V3];
+        const n = cross(sub(p1, p0), sub(p2, p0));
+        if (Math.hypot(n[0], n[1], n[2]) < 1e-12) continue; // a pole's degenerate sliver
+        const c: V3 = [(p0[0] + p1[0] + p2[0]) / 3, (p0[1] + p1[1] + p2[1]) / 3, (p0[2] + p1[2] + p2[2]) / 3];
+        const k = ab2 > 0 ? Math.max(0, Math.min(1, dot(sub(c, A), ab) / ab2)) : 0;
+        const onAxis: V3 = [A[0] + ab[0] * k, A[1] + ab[1] * k, A[2] + ab[2] * k];
+        expect(dot(n, sub(c, onAxis)), `bone ${A} to ${B}, triangle ${t / 3}`).toBeGreaterThan(0);
+        faces++;
+      }
+    }
+    expect(faces).toBeGreaterThan(6 * 100);
+    // The shader places vertices in that same frame (maskVertex is its twin) and pulls their depth back to the bone.
     const shader = {
       uniforms: {},
       vertexShader: ShaderLib.basic.vertexShader,
       fragmentShader: ShaderLib.basic.fragmentShader,
     } as unknown as Parameters<Material["onBeforeCompile"]>[0];
     mat.onBeforeCompile(shader, undefined as never);
-    const vs = shader.vertexShader;
-    for (const s of ["attribute vec3 aA", "attribute vec3 aB", "attribute float aR", "attribute float aEnd"]) expect(vs).toContain(s);
-    expect(vs).not.toContain("#include <begin_vertex>");
-    expect(vs).not.toContain("#include <project_vertex>");
-    expect(vs).toContain("min(mvPosition.z");
-    expect(vs).toContain("modelViewMatrix");
+    expect(shader.vertexShader).toContain("vec3 slE2 = cross(slE1, slU);");
+    expect(shader.vertexShader).toContain("mvPosition.z = min(mvPosition.z, (modelViewMatrix * vec4(slEnd, 1.0)).z);");
   });
 });
