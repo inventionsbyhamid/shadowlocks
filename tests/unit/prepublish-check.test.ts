@@ -44,6 +44,15 @@ const SAMPLES: Array<[string, string]> = [
   ["secret in an assignment", j("NPM_TOK", "EN=ab12 npm publish")],
   ["secret in an assignment", j("NPM_TOK", "EN=ab12 # the old one")],
   ["secret in an assignment", j("NPM_TOK", "EN=ab12; npm publish")],
+  // A tight value that starts with punctuation.
+  ["secret in an assignment", j("KEYSTORE_PASS", "WORD=!hunter2")],
+  ["secret in an assignment", j("PASS", "WORD=@dm1n")],
+  ["secret in an assignment", j("export NPM_TOK", "EN=%ab12")],
+  // A web address with a user and password in it still counts, plain or quoted.
+  ["secret in an assignment", j("TOKEN_U", "RL=https://user:pa", "ss@example.com/token")],
+  ["secret in a quoted literal", j("  tokenU", "rl: \"https://user:pa", "ss@example.com/token\",")],
+  // A plain address passes, but not a secret next to it on the same line.
+  ["secret in a quoted literal", j("const c = { tokenU", "rl: \"https://a.example.com/t\", apiK", "ey: \"abc!d\" };")],
   ["secret in a quoted literal", j("const apiK", "ey = \"x1\";")],
   ["secret in a quoted literal", j("  keyPass", "word: 'q';")],
   // Punctuation inside the quotes.
@@ -133,12 +142,18 @@ describe("prepublish-check.sh", () => {
         "TOK", "EN=$(cat f)\n",
         "TOK", "EN=\"$X\"\n",
         "TOK", "EN=abc$X\n",
+        // Plain web addresses (no user or password before the host) are no secrets, a @ in the path included.
+        "TOKEN_U", "RL=https://auth.example.com/oauth/token\n",
+        "export API_TOKEN_U", "RL=\"https://cdn.example.com/npm/@scope/pkg\"\n",
+        "PASSWORD_RESET_U", "RL=http://localhost:8080/reset?next=/home npm start\n",
       ),
       "src/key.ts": j(
         "const apiK", "ey = process.env.KIE_API_KEY;\nconst t = { tok", "en: \"${name}\" };\n",
         "let apiK", "ey = \"\";\n",
         "  const tok", "en = localStorage.getItem(\"t\");\n",
         "  secretS", "ub: \"In play\",\n",
+        "  tokenU", "rl: \"https://auth.example.com/token\",\n",
+        "const t2 = { tokenU", "rl: 'https://a.example.com/t?x=1', retries: 3 };\n",
       ),
       "package-lock.json": j("{\n  \"js-tok", "ens\": \"^4.0.0\",\n  \"b-tok", "ens\": \"4.0.0\"\n}\n"),
     });
@@ -214,6 +229,17 @@ describe("prepublish-check.sh", () => {
     expect(r.out).toMatch(/FAIL email s\*\*\*@gmail\.com: message of [0-9a-f]+/);
     expect(r.out).toMatch(/FAIL absolute \/Users\/ path: message of [0-9a-f]+/);
     expect(r.out).not.toMatch(/FAIL AWS access key: src\/c\.ts/);
+  });
+
+  it("reads each message on its own, so a line cannot pose as another commit and borrow its exception", () => {
+    const d = repo({ "a.txt": "a\n" });
+    write(d, { "a.txt": "b\n" });
+    // dd1f70c... has a reviewed message exception for this rule; the line after it is this commit's own.
+    const own = commit(d, j("tidy\n\n@@commit dd1f70cfb756ba6fdad9ea2f5236713649ca5b07\n", "KEYSTORE_PASS", "WORD=abc,def\n"));
+    const r = check(d);
+    expect(r.status, r.out).toBe(1);
+    expect(r.out).toContain(`FAIL secret in an assignment: message of ${own}`);
+    expect(r.out).not.toMatch(/message of dd1f70c/);
   });
 
   it("looks inside merge commits", () => {

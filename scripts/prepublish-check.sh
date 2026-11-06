@@ -62,9 +62,16 @@ QUOTED_VALUE="${Q}${VALUE_CHARS}*[A-Za-z]${VALUE_CHARS}*${Q}"
 # A variable or key that holds a secret: upper-case env names with KEY or PASS too (CLOUDFLARE_API_KEY, NPM_PASS), and
 # any name with password, passwd, secret, token or api key in it (storePassword, keyPassword).
 ASSIGNED_NAME="([A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD|PASSWD|PASS)[A-Z0-9_]*|[A-Za-z0-9_.]*${SECRET_NAME}[A-Za-z0-9_]*)"
+# Punctuation a tight value may start with; never $, a bracket, a brace or a quote (an expansion, code or a pattern).
+LEAD_CHARS="[!#%&*,:?@^|]"
+# A plain web address (http or https, no user or password before its host) is no secret: the rules marked "urls" read
+# each line with such addresses replaced by $U, which none of them takes as a value. An address with credentials in it
+# (user:pass@ or token@ before the host) is left as it is, so it still counts. Group 2 is that @.
+URL_RE="https?://[^/@[:space:]\"'\`]+([/?#][^[:space:]\"'\`]*)?(@?)"
 NAMES=()
 RES=()
-rule() { NAMES+=("$1"); RES+=("$2"); }
+URLS=()
+rule() { NAMES+=("$1"); RES+=("$2"); URLS+=("${3:-}"); }
 rule "private key" '-----BEGIN ([A-Z]+ )*PRIVATE KEY'
 rule "AWS access key" '(AKIA|ASIA)[0-9A-Z]{16}'
 rule "GitHub token" 'gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}'
@@ -76,16 +83,19 @@ rule "bearer token" '[Bb]earer[[:space:]]+[A-Za-z0-9_.=-]{30,}'
 rule "Meta access token" '(OC|[0-9]{8,20})[|][0-9]{8,20}[|][0-9a-f]{32}|(^|[^0-9])[0-9]{10,20}[|][0-9a-f]{32}'
 rule "Meta app secret" "([Aa][Pp][Pp]_?)?[Ss][Ee][Cc][Rr][Ee][Tt]${Q}?[[:space:]]*[:=][[:space:]]*${Q}?[0-9a-f]{32}"
 # A secret-named assignment at the start of a line, optionally exported, the value quoted or not. Two shapes:
-# - Tight, NAME=value (shell, env and properties files): token characters ending at the line's end or at any character
-#   that is neither a token character nor $, so punctuation, a space before a command or comment, or a ; ends it.
-#   Only $ continues the word: an expansion ($X, ${X}, $(...), abc$X) never matches.
+# - Tight, NAME=value (shell, env and properties files): token characters, after any run of leading punctuation
+#   (LEAD_CHARS), ending at the line's end or at any character that is neither a token character nor $, so punctuation,
+#   a space before a command or comment, or a ; ends it. Only $ continues the word: an expansion ($X, ${X}, $(...),
+#   abc$X) never matches.
 # - Spaced, name = value (code style): 12 or more token characters whatever follows them, or a shorter value ending the
 #   word (end of line, a space before a command or a comment, a ;). A code reassignment of a longer expression can trip
 #   it; HEAD and the history must stay clean anyway.
-rule "secret in an assignment" "^[[:space:]]*(export[[:space:]]+)?${ASSIGNED_NAME}(=${Q}?${TOKEN_CHARS}+([^\$A-Za-z0-9/+_.~=-]|\$)|[[:space:]]*=[[:space:]]*${Q}?(${TOKEN_CHARS}{12,}|${TOKEN_CHARS}+${Q}?([[:space:]#;]|\$)))"
+# A plain web address as the value passes (urls): a token endpoint is no secret.
+rule "secret in an assignment" "^[[:space:]]*(export[[:space:]]+)?${ASSIGNED_NAME}(=${Q}?${LEAD_CHARS}*${TOKEN_CHARS}+([^\$A-Za-z0-9/+_.~=-]|\$)|[[:space:]]*=[[:space:]]*${Q}?(${TOKEN_CHARS}{12,}|${TOKEN_CHARS}+${Q}?([[:space:]#;]|\$)))" urls
 # A secret-named key or variable given a quoted secret-like value (QUOTED_VALUE: punctuation in, spaces out) anywhere
-# in a line, any value length (an apiKey or a storePassword set to a quoted string in code or config).
-rule "secret in a quoted literal" "[A-Za-z0-9_]*${SECRET_NAME}[A-Za-z0-9_]*${Q}?[[:space:]]*[:=][[:space:]]*${QUOTED_VALUE}"
+# in a line, any value length (an apiKey or a storePassword set to a quoted string in code or config). A plain web
+# address passes here too (urls).
+rule "secret in a quoted literal" "[A-Za-z0-9_]*${SECRET_NAME}[A-Za-z0-9_]*${Q}?[[:space:]]*[:=][[:space:]]*${QUOTED_VALUE}" urls
 rule "absolute /Users/ path" '/[U]sers/[A-Za-z0-9._-]'
 if [ -n "${PREPUBLISH_TEST_RULE:-}" ]; then rule "${PREPUBLISH_TEST_RULE%%$'\t'*}" "${PREPUBLISH_TEST_RULE#*$'\t'}"; fi
 EMAIL_RE='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
@@ -99,6 +109,25 @@ for i in "${!NAMES[@]}"; do
   [[ "x" =~ ${RES[$i]} ]] 2>/dev/null || rc=$?
   [ "$rc" -le 1 ] || die "the pattern for \"${NAMES[$i]}\" does not compile for bash"
 done
+
+# PLAIN: line $1 with every plain web address (URL_RE without its @) replaced by $U; addresses with credentials stay.
+without_urls() {
+  local rest=$1 m
+  PLAIN=
+  while [[ $rest =~ $URL_RE ]]; do
+    m=${BASH_REMATCH[0]}
+    if [ -n "${BASH_REMATCH[2]}" ]; then PLAIN+=${rest%%"$m"*}$m; else PLAIN+=${rest%%"$m"*}'$U'; fi
+    rest=${rest#*"$m"}
+  done
+  PLAIN+=$rest
+}
+# Does rule $1 (an index) match line $2? A "urls" rule must still match once plain web addresses are set aside.
+hits() {
+  [[ $2 =~ ${RES[$1]} ]] || return 1
+  [ "${URLS[$1]}" = urls ] || return 0
+  without_urls "$2"
+  [[ $PLAIN =~ ${RES[$1]} ]]
+}
 
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 mask() { printf '%s***@%s' "${1:0:1}" "${1#*@}"; }
@@ -181,7 +210,7 @@ history_allowed() { # full commit hash, rule name
   done
   return 1
 }
-# Does commit $1 (against any parent) add a line that matches $2?
+# Does commit $1 (against any parent) add a line that rule $2 (an index) hits?
 adds() {
   local d l header=0
   d=$(gitq show --format= -U0 --no-color --no-ext-diff --no-renames -m "$1") || die "git show $1 failed"
@@ -191,17 +220,31 @@ adds() {
       "@@"*) header=0; continue ;;
     esac
     [ $header -eq 0 ] || continue
-    case $l in "+"*) if [[ ${l:1} =~ $2 ]]; then return 0; fi ;; esac
+    case $l in "+"*) if hits "$2" "${l:1}"; then return 0; fi ;; esac
   done <<<"$d"
   return 1
 }
 for i in "${!NAMES[@]}"; do
-  out=$(gitq grep -I -c -E -e "${RES[$i]}" HEAD -- .)
+  # HEAD's matching lines (never shown), counted per file; git grep lists one file's lines together. A "urls" rule
+  # counts a line only if it still matches with plain web addresses set aside.
+  out=$(gitq grep -I -n -E -e "${RES[$i]}" HEAD -- .)
+  cur= n=0
   while IFS= read -r l; do
     [ -n "$l" ] || continue
     l=${l#HEAD:}
-    fail "${NAMES[$i]}: ${l%:*} (${l##*:} lines)"
+    f=${l%%:*}
+    rest=${l#*:}
+    if [ "${URLS[$i]}" = urls ]; then
+      without_urls "${rest#*:}"
+      [[ $PLAIN =~ ${RES[$i]} ]] || continue
+    fi
+    if [ "$f" != "$cur" ]; then
+      [ "$n" -eq 0 ] || fail "${NAMES[$i]}: $cur ($n lines)"
+      cur=$f n=0
+    fi
+    n=$((n + 1))
   done <<<"$out"
+  [ "$n" -eq 0 ] || fail "${NAMES[$i]}: $cur ($n lines)"
   n=0
   SEEN=$'\n'
   # Full hashes (%H), so an exception matches exactly one commit; reported by their first 7 characters.
@@ -210,7 +253,7 @@ for i in "${!NAMES[@]}"; do
     [ -n "$c" ] || continue
     case $SEEN in *$'\n'"$c"$'\n'*) continue ;; esac
     SEEN="$SEEN$c"$'\n'
-    adds "$c" "${RES[$i]}" || continue
+    adds "$c" "$i" || continue
     history_allowed "$c" "${NAMES[$i]}" && continue
     n=$((n + 1))
     [ $n -le 5 ] && fail "${NAMES[$i]}: added in commit ${c:0:7}"
@@ -259,18 +302,22 @@ while IFS= read -r c; do
     case $l in "+"* | "-"*) registry_line "$file" "$l" || scan_line "commit $c" "${l:1}" "$file" ;; esac
   done <<<"$diff"
 done <<<"$commits"
-commit=
-# Full hashes, so a message exception matches exactly one commit; reported by their first 7 characters.
-out=$(gitq log $REVS --format='@@commit %H%n%B')
-while IFS= read -r l; do
-  case $l in "@@commit "*) commit=${l#@@commit }; continue ;; esac
-  scan_line "message of ${commit:0:7}" "$l" ""
-  for i in "${!NAMES[@]}"; do
-    if [[ $l =~ ${RES[$i]} ]] && ! history_allowed "$commit" "${NAMES[$i]} (message)"; then
-      fail "${NAMES[$i]}: message of ${commit:0:7}"
-    fi
-  done
-done <<<"$out"
+# Each message is read on its own, by its commit's full hash, so no line of one message can pose as the start of
+# another (or claim another commit's exception); a message exception matches exactly one commit. Reported by the
+# first 7 characters.
+revs=$(gitq rev-list $REVS)
+while IFS= read -r commit; do
+  [ -n "$commit" ] || continue
+  msg=$(gitq log -1 --format=%B "$commit")
+  while IFS= read -r l; do
+    scan_line "message of ${commit:0:7}" "$l" ""
+    for i in "${!NAMES[@]}"; do
+      if hits "$i" "$l" && ! history_allowed "$commit" "${NAMES[$i]} (message)"; then
+        fail "${NAMES[$i]}: message of ${commit:0:7}"
+      fi
+    done
+  done <<<"$msg"
+done <<<"$revs"
 
 if [ "$FOUND" -eq 0 ]; then
   echo clean
