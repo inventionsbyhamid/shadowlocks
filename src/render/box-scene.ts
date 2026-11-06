@@ -7,7 +7,8 @@
 // from above, and a rail there would cut across the panel. Draw calls: frame, trim, floor, glass,
 // panel, shadows, scraps, threads, rings, and four for the lantern; thirteen for any box, plus one
 // for each crystallised piece (three more while one forms). The panel shader and the shadows live in
-// panel.ts and shadow-mesh.ts.
+// panel.ts and shadow-mesh.ts. The hands' shadows and the crystallised pieces' join the box's own in
+// the one shadow mesh, after them.
 import {
   BackSide,
   BoxGeometry,
@@ -37,14 +38,14 @@ import {
   type World,
 } from "@iwsdk/core";
 import { ENVELOPE } from "../core/envelope";
-import type { Box, V3 } from "../core/types";
+import type { Box, V2, V3 } from "../core/types";
 import { Crystals } from "./fx/crystallise";
 import { LanternView } from "./lantern-view";
 import { mergeParts } from "./merge";
 import { BOX_ROOT_NAME, DEFAULT_BOX_CM } from "./placement";
 import { Panel } from "./panel";
-import { type ScrapHandle, Scraps, slotOf } from "./scraps";
-import { BoxShadows } from "./shadow-mesh";
+import { MAX_SLOTS, type ScrapHandle, Scraps, slotOf } from "./scraps";
+import { BoxShadows, MAX_EXTRAS, penumbra } from "./shadow-mesh";
 import { COLORS, ENV, LIGHTS, MATERIALS } from "./theme";
 
 /** Frame bars: thickness and edge radius (box units). The radius gives the clearcoat a rim to catch light. */
@@ -208,6 +209,19 @@ export class BoxScene {
   readonly crystals: Crystals;
   private current: Box | null = null;
   private readonly lanternAt: V3 = [0, 0, 0];
+  /** This frame's extra shadows (crystallised pieces, then hands) and their softness. */
+  private readonly extras: V2[][] = Array.from({ length: MAX_EXTRAS }, (): V2[] => []);
+  private readonly extraSoft = new Float32Array(MAX_EXTRAS);
+  /** The hands' outlines and depths as the hand system last gave them. */
+  private handOutlines: readonly V2[][] = [];
+  private handCount = 0;
+  private handDepth: Float32Array = new Float32Array(0);
+  /** What the last cast with extras drew: how many, from where, and the crystals' version then. */
+  private castCount = 0;
+  private castCrystals = -1;
+  private readonly lastCast: V3 = [Number.NaN, Number.NaN, Number.NaN];
+  /** Each scrap slot's visibility at the last look (see scrapsChanged). */
+  private readonly shownSlots = new Float32Array(MAX_SLOTS);
 
   constructor(world: World) {
     this.root.name = BOX_ROOT_NAME;
@@ -276,20 +290,75 @@ export class BoxScene {
     this.crystals.setBox(box);
     this.panelArt.setBox(box);
     this.shadows.setBox(box);
+    // The hands' outlines were for the last box; the hand system gives this box's on the next frame.
+    this.handCount = 0;
+    this.castCount = 0;
     const s = box ? box.start : ENVELOPE.START;
     this.lantern.setPos([s[0], s[1], s[2]]);
     this.syncShadows();
   }
 
   /**
-   * Cast the shadows and move the light pool if the lantern moved or a scrap appeared or went since
-   * the last time; true when it did. Every frame calls it; so can whoever moves the lantern.
+   * The hands' shadows this frame: outlines on the panel (box units, a fixed corner count each) in
+   * outlines[0..n), each one's depth (box z) for its softness. The hand system gives them every frame
+   * before the box updates; they are drawn after the crystallised pieces'.
+   */
+  setHandShadows(outlines: readonly V2[][], n: number, depth: Float32Array): void {
+    this.handOutlines = outlines;
+    this.handCount = n;
+    this.handDepth = depth;
+  }
+
+  /**
+   * Cast the shadows and move the light pool if anything changed since the last time; true when it
+   * did. Every frame calls it; so can whoever moves the lantern. With extra shadows (crystallised
+   * pieces, then the hands) it casts once with them, never refresh then cast: with hands in the beam
+   * every frame, with only pieces when the lantern moved, a piece changed or a scrap appeared or went.
+   * Without any, refresh (which clears the extras once after they go). Allocation-free.
    */
   syncShadows(): boolean {
     const L = this.lantern.getPos(this.lanternAt);
-    if (!this.shadows.refresh(L)) return false;
+    const extras = this.extras, soft = this.extraSoft;
+    let n = this.crystals.castShadows(L, extras, soft);
+    const hands = Math.min(this.handCount, MAX_EXTRAS - n);
+    for (let i = 0; i < hands; i++) {
+      extras[n] = this.handOutlines[i]!;
+      soft[n] = penumbra(this.handDepth[i]!, L[2]);
+      n++;
+    }
+    if (n === 0) {
+      // No extras now; refresh recasts once if the last cast had some.
+      this.castCount = 0;
+      if (!this.shadows.refresh(L)) return false;
+    } else {
+      const last = this.lastCast;
+      const moved = L[0] !== last[0] || L[1] !== last[1] || L[2] !== last[2];
+      const changed = hands > 0 || n !== this.castCount || moved || this.crystals.version !== this.castCrystals || this.scrapsChanged();
+      if (!changed) return false;
+      this.shadows.cast(L, extras, n, soft);
+      last[0] = L[0];
+      last[1] = L[1];
+      last[2] = L[2];
+      this.castCrystals = this.crystals.version;
+      this.castCount = n;
+    }
+    this.scrapsChanged();
     this.panelArt.setLantern(L);
     return true;
+  }
+
+  /** Whether any scrap appeared or went since the last call (the shadows cast only shown pieces). */
+  private scrapsChanged(): boolean {
+    const slots = this.scraps.slots, seen = this.shownSlots;
+    let changed = false;
+    for (let s = 0; s < seen.length; s++) {
+      const v = slots[s * 2 + 1]!;
+      if (v !== seen[s]) {
+        seen[s] = v;
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   get box(): Box | null {
@@ -321,7 +390,7 @@ export class BoxScene {
 
   /**
    * Per frame: the lantern's flare and ripple, any crystallise running, the shadows when anything
-   * moved, the panel's warmth and opening.
+   * moved (the hands' among them), the panel's warmth and opening.
    */
   update(dt: number): void {
     this.lantern.update(dt);

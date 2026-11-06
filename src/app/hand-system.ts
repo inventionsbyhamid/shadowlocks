@@ -1,6 +1,7 @@
 // The player's hands in the box, once a frame right after the lantern (priority -2.9, "hands"): the depth mask that
-// keeps the real hand in front of the box (passthrough only), and each hand's shadow outlines from the lantern for
-// the panel's shadow mesh (the hand holding the lantern casts none).
+// keeps the real hand in front of the box (passthrough only), and each hand's shadow outlines from the lantern, handed
+// to the box scene, which draws them in the panel's shadow mesh when it updates later in the frame (the hand holding
+// the lantern casts none).
 //
 // Until the box session exists, this also runs the box's finger locks: each measured with this frame's finger
 // polygons, held through its FingerLockLoop, crystallised when done. The box session takes that part over (it
@@ -78,6 +79,8 @@ export class HandsInBox {
     this.n = r.n;
     this.nFinger = r.nFinger;
     this.fingerZ = r.fingerZ;
+    // Drawn in the panel's shadow mesh when the box updates, later this frame.
+    scene.setHandShadows(this.outlines, r.n, this.shadow.depth);
     if (scene.box !== this.shown) this.setBox(scene.box);
 
     // Finger locks (the box session's, once it exists).
@@ -106,6 +109,7 @@ export class HandsInBox {
             samples: prepareLock(lock),
             coverage: { cover: 0, spill: 0, spillAll: 0, gap: 0 },
             meets: false,
+            // The box session plays sound.game.crystallise here when it takes this loop over.
             loop: new FingerLockLoop(() =>
               crystallise(this.deps.scene, lock, Number.isFinite(this.fingerZ) ? this.fingerZ : pieceDepth(box, lock), {
                 reducedMotion: this.deps.reducedMotion(),

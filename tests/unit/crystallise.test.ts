@@ -5,6 +5,7 @@ import type { Box, Lock, V2, V3 } from "../../src/core/types";
 import type { BoxScene } from "../../src/render/box-scene";
 import { CRYSTAL_FILL_MS, CRYSTAL_MS, Crystals, crystallise } from "../../src/render/fx/crystallise";
 import { MIN_GAP_S } from "../../src/render/fx/flash-budget";
+import { penumbra } from "../../src/render/shadow-mesh";
 
 const DT_S = 1 / 72;
 const box3 = generateBox({ kind: "box", n: 3 });
@@ -177,6 +178,33 @@ describe("crystallise", () => {
     expect([slot.fill.visible, slot.piece.visible, slot.glitter.visible]).toEqual([false, true, false]);
     expect(slot.piece.scale.x).toBe(1);
     expect(c.flashes).toBe(0);
+  });
+
+  it("the piece casts the missing outline from the spot, at its depth's softness, once it shows", () => {
+    const { c, lock, frame } = setup();
+    const out: V2[][] = [], soft = new Float32Array(4);
+    expect(c.castShadows(lock.L, out, soft)).toBe(0);
+    const v0 = c.version;
+    void c.form(lock, 0.45);
+    expect(c.version).toBeGreaterThan(v0);
+    // No piece yet while the gold fills.
+    for (let t = 0; t < CRYSTAL_FILL_MS - 20; t += DT_S * 1000) frame();
+    expect(c.castShadows(lock.L, out, soft)).toBe(0);
+    for (let t = 0; t < CRYSTAL_MS; t += DT_S * 1000) frame();
+    const outline = lock.target[lock.missing]!;
+    expect(c.castShadows(lock.L, out, soft)).toBe(1);
+    expect(out[0]!.length).toBe(outline.length);
+    for (const p of out[0]!) expect(outline.some((o) => near(p, o))).toBe(true);
+    expect(soft[0]).toBeCloseTo(penumbra(0.45, lock.L[2]), 6);
+    // From elsewhere it is the piece's own shadow, still a polygon of the same corners, the same array.
+    const arr = out[0]!, L2: V3 = [lock.L[0] + 0.1, lock.L[1], lock.L[2] + 0.2];
+    c.castShadows(L2, out, soft);
+    expect(out[0]).toBe(arr);
+    const p = c.piece(lock.i)!;
+    p.verts.forEach((v, i) => expect(near(out[0]![i]!, proj(v, L2))).toBe(true));
+    // A new box: nothing.
+    c.setBox(null);
+    expect(c.castShadows(lock.L, out, soft)).toBe(0);
   });
 
   it("crystallise(scene, lock, fingerZ) runs in the box scene's crystals", () => {

@@ -1,7 +1,8 @@
 // A finger lock completing: the finger has held the gap, so gold fills its shadow (the missing piece's outline on
 // the panel) over 300 ms, then a brass piece forms where the finger is: at depth fingerZ on the rays from the lock's
 // spot through the gap, so from the spot it casts exactly the missing outline. 700 ms in all. The piece stays (the
-// lock is open) until the box changes; the hand can leave.
+// lock is open) until the box changes; the hand can leave. Its shadow goes into the panel's shadow mesh with the
+// hands' (castShadows: its front face as it is now, from wherever the lantern is).
 //
 // Comfort: the whole moment is one brightening (the fill rises, then hands its gold to the piece and both fade), and
 // a crystallise starting within a third of a second of another flash fills at half strength instead of flashing
@@ -24,9 +25,10 @@ import {
   PointsMaterial,
   type Texture,
 } from "@iwsdk/core";
-import type { Box, Lock, V3 } from "../../core/types";
+import type { Box, Lock, V2, V3 } from "../../core/types";
 import type { BoxScene } from "../box-scene";
 import { SCRAP_THICKNESS } from "../scraps";
+import { penumbra } from "../shadow-mesh";
 import { COLORS, MATERIALS } from "../theme";
 import { clamp01, outBack, outCubic, smoothstep } from "./ease";
 import { FlashBudget } from "./flash-budget";
@@ -82,6 +84,9 @@ interface State {
   /** Front corners, x y z each (box units); `corners` of them. */
   readonly front: Float64Array;
   corners: number;
+  /** The piece's shadow on the panel: `corners` points, from a pool of MAX_CORNERS. */
+  readonly shadow: V2[];
+  readonly pool: V2[];
   t: number;
   running: boolean;
   formed: boolean;
@@ -123,6 +128,8 @@ function triNormal(p: Float32Array, i: number, out: Float32Array): void {
 export class Crystals {
   readonly group = new Group();
   readonly slots: CrystalSlot[] = [];
+  /** Goes up whenever a piece's shadow may have changed (a piece made, growing, formed or gone). */
+  version = 0;
   private readonly states: State[] = [];
   private readonly budget = new FlashBudget();
 
@@ -182,6 +189,8 @@ export class Crystals {
         z: 0,
         front: new Float64Array(MAX_CORNERS * 3),
         corners: 0,
+        shadow: [],
+        pool: Array.from({ length: MAX_CORNERS }, (): V2 => [0, 0]),
         t: 0,
         running: false,
         formed: false,
@@ -239,12 +248,38 @@ export class Crystals {
     return { z: st.z, verts, formed: st.formed };
   }
 
+  /**
+   * Every piece shown, its shadow on the panel with the lantern at L (box units): its front face as it is now
+   * (growing or formed) projected from L, into out[0..n) with each one's softness (penumbra at its depth) in
+   * soft[0..n). Returns n. Each piece's outline keeps its corner count. Allocation-free.
+   */
+  castShadows(L: Readonly<V3>, out: V2[][], soft: Float32Array): number {
+    let n = 0;
+    for (let s = 0; s < MAX_LOCKS; s++) {
+      const st = this.states[s]!, piece = this.slots[s]!.piece;
+      if (!st.lock || !piece.visible || !(L[2] > st.z)) continue;
+      const g = piece.scale.x, cx = piece.position.x, cy = piece.position.y, k = L[2] / (L[2] - st.z);
+      const f = st.front, poly = st.shadow;
+      for (let i = 0; i < poly.length; i++) {
+        const x = cx + (f[i * 3]! - cx) * g, y = cy + (f[i * 3 + 1]! - cy) * g;
+        const p = poly[i]!;
+        p[0] = L[0] + (x - L[0]) * k;
+        p[1] = L[1] + (y - L[1]) * k;
+      }
+      out[n] = poly;
+      soft[n] = penumbra(st.z, L[2]);
+      n++;
+    }
+    return n;
+  }
+
   /** Per frame (seconds). */
   update(dt: number): void {
     this.budget.step(dt);
     for (let s = 0; s < MAX_LOCKS; s++) {
       const st = this.states[s]!;
       if (!st.running) continue;
+      this.version++;
       st.t += dt * 1000;
       const t = st.t;
       if (t >= CRYSTAL_MS) {
@@ -286,6 +321,9 @@ export class Crystals {
     st.lock = lock;
     st.z = z;
     st.corners = c;
+    st.shadow.length = 0;
+    for (let i = 0; i < c; i++) st.shadow.push(st.pool[i]!);
+    this.version++;
 
     // The fill: the outline itself, just in front of the panel.
     const fillAttr = slot.fill.geometry.getAttribute("position") as BufferAttribute;
@@ -359,6 +397,7 @@ export class Crystals {
   /** Lock slot s formed: the piece at full size and unlit, the fill and glitter gone, the run settled. */
   private finish(s: number): void {
     const st = this.states[s]!, slot = this.slots[s]!;
+    this.version++;
     st.running = false;
     st.formed = true;
     slot.fill.visible = false;
@@ -374,6 +413,7 @@ export class Crystals {
   /** Slot s holds nothing; a run still going is settled. */
   private clear(s: number): void {
     const st = this.states[s]!, slot = this.slots[s]!;
+    if (st.lock) this.version++;
     st.lock = null;
     st.running = false;
     st.formed = false;
