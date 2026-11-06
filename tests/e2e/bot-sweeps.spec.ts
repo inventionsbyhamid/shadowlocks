@@ -2,7 +2,8 @@
 // Fast sweeps open nothing: the jitter bot's hand (3 mm of noise, 200 ms out of tracking every 10 s) holds the lantern
 // and waves it back and forth through the spots at 15 to 30 cm/s, 30 s on each of boxes 1 to 10 (five minutes), each
 // sweep passing within 1 cm of a spot in a random direction (helpers/jitter.ts sweepPlan). No lock may open, and the
-// lantern is never pulled in (no settle, no ring line lock). Results: test-results/bot/sweeps.json.
+// lantern is never pulled in (no settle, no ring line lock). Results: test-results/bot/sweeps.json. Opt in, outside the
+// routine suite: scripts/e2e.sh -c playwright.bot.config.ts tests/e2e/bot-sweeps.spec.ts
 import { Bot, pageErrors, report, saveResults, sweepPlan } from "./helpers/jitter";
 import { expect, test } from "./helpers/test";
 import { addRunNote } from "./helpers/xr-app";

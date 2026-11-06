@@ -4,6 +4,7 @@
 // must solve boxes 1 to 20 by the feel layer's assists (the speed gate, the settle, the ring line lock, the release
 // lookback), every lock on the first careful approach. The same bot with Touch controllers is bot-controllers.spec.ts;
 // the fast sweeps are bot-sweeps.spec.ts (one spec would run far over the e2e budget). Results: test-results/bot/.
+// Opt in, outside the routine suite: scripts/e2e.sh -c playwright.bot.config.ts tests/e2e/bot.spec.ts
 import { boxLine, lockLine, pageErrors, solveBoxes } from "./helpers/jitter";
 import { expect, test } from "./helpers/test";
 

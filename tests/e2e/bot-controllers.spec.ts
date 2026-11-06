@@ -2,7 +2,8 @@
 // The jitter bot (helpers/jitter.ts) with Touch controllers only (the store declares them): the trigger is
 // the pinch, 1 mm of tremor, 0.3-0.6 cm of drift as the trigger lets go, 200 ms out of tracking every 10 s. It must
 // solve boxes 1 to 20 as bot.spec.ts's hands do; on a finger lock the controller's tip casts the fingertip. Results:
-// test-results/bot/controllers.json.
+// test-results/bot/controllers.json. Opt in, outside the routine suite:
+// scripts/e2e.sh -c playwright.bot.config.ts tests/e2e/bot-controllers.spec.ts
 import { boxLine, lockLine, pageErrors, solveBoxes } from "./helpers/jitter";
 import { expect, test } from "./helpers/test";
 
