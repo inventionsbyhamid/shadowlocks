@@ -1,19 +1,18 @@
 // scripts/deploy-pages.sh --print-plan: what each combination of options would publish, and what it refuses, without
-// building, reading a secret or touching the network. NS_DEPLOY_NOW stands in for the clock (with --print-plan only).
+// building, reading a secret or touching the network. NS_DEPLOY_NOW stands in for the clock (with --print-plan only),
+// and every call sets it: a test without a time runs a second before the deadline, so no plan depends on the date.
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 const DEADLINE = 1795032000; // 2026-11-18 20:00 UTC
 
-function plan(args: string[], now?: number): { status: number | null; out: string } {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  if (now !== undefined) env.NS_DEPLOY_NOW = String(now);
-  else delete env.NS_DEPLOY_NOW;
+function plan(args: string[], now: number = DEADLINE - 1): { status: number | null; out: string } {
+  const env: NodeJS.ProcessEnv = { ...process.env, NS_DEPLOY_NOW: String(now) };
   const r = spawnSync("bash", ["scripts/deploy-pages.sh", "--print-plan", ...args], { encoding: "utf8", env });
   return { status: r.status, out: `${r.stdout}${r.stderr}`.trim() };
 }
 
-const ok = (args: string[], now?: number) => {
+const ok = (args: string[], now: number = DEADLINE - 1) => {
   const r = plan(args, now);
   expect(r.status, r.out).toBe(0);
   return r.out;
