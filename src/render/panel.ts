@@ -113,6 +113,8 @@ export const LOOK = {
   skirtClear: 0.3,
   /** How much of an open lock's colour is its gold foil (over its shadows, which fill it at its spot). */
   openFoil: 0.85,
+  /** How much of the open outline's hot burn is held back inside the shape, so the foil's bands show. */
+  openBurnInside: 0.75,
 } as const;
 
 /** Display-space RGB of a #rrggbb colour (no colour management: the shader works in display values). */
@@ -183,6 +185,7 @@ const float LINE_FROM = ${LOOK.lineFrom.toFixed(3)};
 const float LINE_TO = ${LOOK.lineTo.toFixed(3)};
 const float SKIRT_CLEAR = ${LOOK.skirtClear.toFixed(3)};
 const float OPEN_FOIL = ${LOOK.openFoil.toFixed(3)};
+const float OPEN_BURN_INSIDE = ${LOOK.openBurnInside.toFixed(3)};
 ${foilGlsl()}
 void main() {
 #ifdef SHADOW
@@ -222,12 +225,13 @@ void main() {
   float glow = mix(band, line * inFrame, sh.z);
   c += clamp(1.2 * w, 0.0, 1.0) * glow * uGold;
   // Open: banded gold foil fills the shape, over its shadows (the outline fills with light), the etching showing
-  // through it as engraving, and its outline burns bright.
+  // through it as engraving, and its outline burns bright. The burn is the band's, mostly outside the shape: inside
+  // a small shape the band's soft halo would wash the foil's bands out to white.
   if (o > 0.0) {
     float f = m.r * o;
     c = mix(c, foil(0.5 + (rel.x - rel.y) / (2.2 * sh.x)), OPEN_FOIL * f);
     c *= mix(vec3(1.0), albedo, 0.85 * f);
-    c += 0.55 * o * band * uGoldHot;
+    c += 0.55 * o * band * (1.0 - OPEN_BURN_INSIDE * m.r) * uGoldHot;
   }
   gl_FragColor = sRGBTransferEOTF(vec4(clamp(c, 0.0, 1.0), 1.0));
   #include <colorspace_fragment>
