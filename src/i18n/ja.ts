@@ -142,6 +142,7 @@ export const JA: Copy = {
     storyOwner: "{owner}の机から。",
     storyLoot: "中身：{loot}。",
     short: "ピースがひとつ足りない。",
+    controllerFinger: "コントローラーを置いて、指を使ってもいいよ。",
   },
   lessons: {
     pickUp: "ランタンを手に取ろう。",

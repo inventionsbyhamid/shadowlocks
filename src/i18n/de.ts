@@ -140,6 +140,7 @@ export const DE: Copy = {
     storyOwner: "Vom Schreibtisch {owner}.",
     storyLoot: "Inhalt: {loot}.",
     short: "Ein Teil fehlt.",
+    controllerFinger: "Oder leg einen Controller weg und nimm deinen Finger.",
   },
   lessons: {
     pickUp: "Nimm die Laterne.",

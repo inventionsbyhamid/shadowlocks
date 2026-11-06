@@ -141,6 +141,7 @@ export const FR: Copy = {
     storyOwner: "Du bureau {owner}.",
     storyLoot: `Contenu${NB}: {loot}.`,
     short: "Il manque une pièce.",
+    controllerFinger: "Ou pose une manette et utilise ton doigt.",
   },
   lessons: {
     pickUp: "Prends la lanterne.",

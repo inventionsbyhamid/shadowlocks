@@ -152,6 +152,8 @@ export const COPY = {
     storyOwner: "Off the desk of {owner}.",
     storyLoot: "Inside: {loot}.",
     short: "One piece short.",
+    /** The coach line while a finger lock waits and controllers are in use. */
+    controllerFinger: "Or set a controller down and use your finger.",
   },
   /** The lessons: the coach line under the box, the lessons' and examples' names (the Lessons menu), and the tips. */
   lessons: {
