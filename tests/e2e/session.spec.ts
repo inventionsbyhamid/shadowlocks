@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // The box session end to end: boxes played through the test hooks (the lantern put on each spot), the box opening,
-// the reward taken by hand and the next box offered on the plate; a reload resuming the box; a hidden page stopping
-// the clock; and the head's gaze choosing the lock in focus. IWER's emulated headset and hands on the virtual clock.
+// the reward taken by hand and the next box offered on the plate; a reload resuming the box; the solve kept through
+// a reload before the take, and recorded for a box resumed just before it opened; a `?box=N` practice box leaving
+// the player's progress alone; a hidden page stopping the clock; and the head's gaze choosing the lock in focus.
+// IWER's emulated headset and hands on the virtual clock.
 import type { Page } from "@playwright/test";
 import type { SlKey, SlSessionState } from "../../src/app/test-api";
 import type { BoxSpec, V3, Vec3 } from "../../src/core/types";
@@ -9,7 +11,7 @@ import { SEATED } from "./helpers/boot";
 import { axisOf, fingerLocks, onRay, Pointer, worldOf } from "./helpers/finger";
 import { Hands } from "./helpers/hands";
 import { add, dist, sub, toWorld, unit } from "./helpers/lantern";
-import { setHeadset, storedInProgress } from "./helpers/page-scripts";
+import { setHeadset, storedInProgress, storedProgress } from "./helpers/page-scripts";
 import { expect, test } from "./helpers/test";
 import { DT, POKE_DEPTH_M, type XrApp } from "./helpers/xr-app";
 
@@ -119,15 +121,18 @@ test("test hooks solve boxes 1 to 3", async ({ page, boot }) => {
     expect(opened.map((e) => e.order)).toEqual(s.locks.map((_, i) => i + 1));
     expect(opened.map((e) => e.lock).sort()).toEqual(s.locks.map((l) => l.i));
     expect((await page.evaluate(() => window.__sl!.frameState()))!.openLocks).toEqual(s.locks.map((l) => l.i));
-    // The box opens, the reward rises and is taken (by hand on box 1, by itself after 8 s on the others).
+    // The box opens (solved: it is in the collection and the next box moves on), the reward rises and is taken (by
+    // hand on box 1, by itself after 8 s on the others).
     await app.stepUntil((_ns, w) => w.__sl.session.state().stage === "reward", { maxMs: REWARD_UP_WITHIN_MS, label: "the reward up" });
     expect(await app.events("box-open")).toEqual([{ type: "box-open", key: s.key }]);
-    const before = await session(page);
+    const before = (await session(page))!;
+    expect(before.collected).toBe(n);
+    expect(before.nextBox).toBe(n + 1);
     if (n === 1) await dropRewardTowardMe(app, page);
     await app.stepUntil((_ns, w) => w.__sl.session.state().stage === "offered", { maxMs: AUTO_TAKE_MS + 1_000, label: "the reward taken" });
     expect(await app.events("reward-taken")).toEqual([{ type: "reward-taken", key: s.key }]);
     const after = (await session(page))!;
-    expect(after.collected).toBe(before!.collected + 1);
+    expect(after.collected).toBe(n);
     expect(after.nextBox).toBe(n + 1);
     // The plate offers the next box: poke it.
     expect((await keys(page)).find((k) => k.id === "plate-next")?.live).toBe(true);
@@ -192,6 +197,114 @@ test("reload resumes the box", async ({ page, boot }) => {
   const panel = await page.evaluate(() => window.__sl!.panelState());
   for (const i of before.open) expect(panel.open[i]).toBeCloseTo(1, 3);
   expect((await page.evaluate(() => window.__ns!.scene.draws())).parts).toContain("Crystal Piece");
+});
+
+/** Solve the box in play: every plain lock with the lantern on its spot, then the finger locks with a finger. */
+async function solve(app: XrApp, page: Page, s: SlSessionState): Promise<void> {
+  for (const l of s.locks.filter((x) => !x.finger)) await openWithLantern(app, page, l.i, l.spot);
+  for (const l of s.locks.filter((x) => x.finger)) await openWithFinger(app, page, l.i);
+}
+
+/** The game in play again after a reload: Continue, and step until the saved box is shown. */
+async function continueSaved(app: XrApp, page: Page): Promise<void> {
+  expect(await page.evaluate(() => window.__sl!.session.continue())).toBe(true);
+  await app.stepUntil(
+    (_ns, w) => {
+      const st = w.__sl.session.state();
+      return !!st && st.stage !== "loading" && st.stage !== "idle" && st.revealed;
+    },
+    { maxMs: 10_000, label: "the saved box shown" },
+  );
+}
+
+test("a box closed between opening and the take keeps its reward", async ({ page, boot }) => {
+  let app = await boot();
+  const s = await play(app, page, { kind: "box", n: 1 });
+  await solve(app, page, s);
+  await app.stepUntil((ns) => ns.events("box-open").length > 0, { maxMs: 2_000, batch: 1, label: "the box opens" });
+  // The reward has not risen yet, let alone been taken; the solve is stored all the same.
+  const opened = (await session(page))!;
+  expect(opened.stage).toBe("opening");
+  expect((await page.evaluate(() => window.__sl!.session.reward()))?.up ?? false).toBe(false);
+  expect(opened.collected).toBe(1);
+  await expect.poll(() => page.evaluate(storedProgress)).toEqual({ nextBox: 2, current: null, collection: [s.key] });
+
+  app = await boot();
+  const back = (await session(page))!;
+  expect(back.stage).toBe("idle");
+  expect([back.collected, back.nextBox]).toEqual([1, 2]);
+  expect(await page.evaluate(storedProgress)).toEqual({ nextBox: 2, current: null, collection: [s.key] });
+});
+
+test("a box saved between its last lock and its opening opens when resumed, and is solved", async ({ page, boot }) => {
+  let app = await boot();
+  const s = await play(app, page, { kind: "box", n: 1 });
+  await solve(app, page, s);
+  // Saved at once (as on hide), inside the 0.7 s before the box opens, then the page is loaded again.
+  expect((await session(page))!.stage).toBe("opening");
+  expect(await app.events("box-open")).toEqual([]);
+  await page.evaluate(() => window.__sl!.session.save());
+  await expect.poll(() => page.evaluate(storedInProgress)).toMatchObject({ key: s.key, open: s.locks.map((l) => l.i) });
+
+  app = await boot();
+  await page.evaluate(() => window.__ns!.clearEvents());
+  await continueSaved(app, page);
+  await app.stepUntil((ns) => ns.events("box-open").length > 0, { maxMs: 2_000, batch: 1, label: "the resumed box opens" });
+  expect(await app.events("box-open")).toEqual([{ type: "box-open", key: s.key }]);
+  const st = (await session(page))!;
+  expect([st.collected, st.nextBox]).toEqual([1, 2]);
+  await expect.poll(() => page.evaluate(storedProgress)).toEqual({ nextBox: 2, current: null, collection: [s.key] });
+  // And on to the reward, as any opened box.
+  await app.stepUntil((_ns, w) => w.__sl.session.state().stage === "reward", { maxMs: REWARD_UP_WITHIN_MS, label: "the reward up" });
+});
+
+test("a ?box=N practice box never touches the player's progress", async ({ page, boot }) => {
+  // Box 7 in progress: one lock open, saved.
+  let app = await boot();
+  const s7 = await play(app, page, { kind: "box", n: 7 });
+  const first = s7.locks.find((l) => !l.finger)!;
+  await openWithLantern(app, page, first.i, first.spot);
+  await page.evaluate(() => window.__sl!.session.save());
+  await expect.poll(() => page.evaluate(storedInProgress)).toMatchObject({ key: s7.key, open: [first.i] });
+  const saved = (await page.evaluate(storedProgress))!;
+
+  // Box 3 played and solved as practice, its reward taken by itself and its plate's Next poked (box 4, practice).
+  app = await boot({ url: "/?box=3", expectScreen: "play" });
+  await app.stepUntil(
+    (_ns, w) => {
+      const st = w.__sl.session.state();
+      return st?.stage === "playing" && st.revealed;
+    },
+    { maxMs: 10_000, label: "box 3 in play" },
+  );
+  const s3 = (await session(page))!;
+  expect([s3.key, s3.practice, s3.phase]).toEqual(["shadow-locks/3", true, "playing"]);
+  await solve(app, page, s3);
+  await app.stepUntil((_ns, w) => w.__sl.session.state().stage === "offered", { maxMs: REWARD_UP_WITHIN_MS + AUTO_TAKE_MS + 1_000, label: "the reward taken" });
+  expect(await app.events("box-open")).toEqual([{ type: "box-open", key: s3.key }]);
+  await page.evaluate(() => window.__sl!.session.save());
+  await pokeKey(app, "plate-next");
+  await app.stepUntil(
+    (_ns, w) => {
+      const st = w.__sl.session.state();
+      return st.key === "shadow-locks/4" && st.stage === "playing" && st.revealed;
+    },
+    { maxMs: 10_000, label: "box 4 in play" },
+  );
+  expect((await session(page))!.practice).toBe(true);
+  await app.step(Math.ceil(3_000 / DT));
+  await page.evaluate(() => window.__sl!.session.save());
+  await app.step(2);
+  const st = (await session(page))!;
+  expect([st.collected, st.nextBox]).toEqual([saved.collection.length, saved.nextBox]);
+  expect(await page.evaluate(storedProgress)).toEqual(saved);
+
+  // Loaded again: box 7 is still the box in progress, as it was.
+  app = await boot();
+  expect(await page.evaluate(storedProgress)).toEqual(saved);
+  await continueSaved(app, page);
+  const back = (await session(page))!;
+  expect([back.key, back.open, back.practice]).toEqual([s7.key, [first.i], false]);
 });
 
 test("hidden page pauses time", async ({ page, boot }) => {

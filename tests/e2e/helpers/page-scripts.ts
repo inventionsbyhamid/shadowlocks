@@ -122,6 +122,46 @@ export function roomPlanes(): Array<{ label: string; position: [number, number, 
 }
 
 /**
+ * The progress stored in IndexedDB right now: the next box, the box in progress (`current`) and the collection's
+ * keys; null with no profile stored. As storedInProgress, it never creates the database.
+ */
+export function storedProgress(): Promise<{ nextBox: number; current: unknown; collection: string[] } | null> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("shadow-locks");
+    let missing = false;
+    req.onupgradeneeded = () => {
+      missing = true;
+      req.transaction?.abort();
+    };
+    req.onblocked = () => reject(new Error("IndexedDB open blocked"));
+    req.onerror = () => (missing ? resolve(null) : reject(req.error ?? new Error("IndexedDB open failed")));
+    req.onsuccess = () => {
+      const db = req.result;
+      try {
+        if (!db.objectStoreNames.contains("profile")) {
+          db.close();
+          resolve(null);
+          return;
+        }
+        const get = db.transaction("profile", "readonly").objectStore("profile").get("me");
+        get.onsuccess = () => {
+          db.close();
+          const p = get.result as { nextBox: number; current?: unknown; collection: { key: string }[] } | undefined;
+          resolve(p ? { nextBox: p.nextBox, current: p.current ?? null, collection: p.collection.map((c) => c.key) } : null);
+        };
+        get.onerror = () => {
+          db.close();
+          reject(get.error ?? new Error("IndexedDB read failed"));
+        };
+      } catch (e) {
+        db.close();
+        reject(e);
+      }
+    };
+  });
+}
+
+/**
  * The numbered box in progress as stored in IndexedDB right now (the profile's `current`; null when
  * there is none). Never creates the database: if it does not exist yet the open is aborted. Rejects on
  * real IndexedDB errors.

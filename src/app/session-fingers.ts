@@ -1,7 +1,9 @@
 // The box session's finger locks: the one place the hand system plugs into the game. It brings three things, all
 // optional (without them a finger lock simply cannot be filled):
-// - `fingers` (FingerSource): this frame's finger shadow on the panel, whether a hand that can cast it is in tracking,
-//   and the depth of the finger over a lock's gap (the hand system's HandsInBox);
+// - `fingers` (FingerSource): this frame's finger shadow on the panel (a hand's index finger, or a held controller's
+//   fingertip-sized stand-in), a counter that moves only when that shadow changed, whether a hand that can cast it is
+//   in tracking, whether controllers are in use, the fingertip, and the depth of the finger over a lock's gap (the hand
+//   system's HandsInBox);
 // - `makeFingerLoop` (FingerLoop): one hold per finger lock per box, FingerHold fed the solve rule with the finger
 //   (the hand system's FingerLockLoop);
 // - `crystals` (CrystalSink): the missing piece forming where the finger was, or put back at once for a resumed box
@@ -9,12 +11,13 @@
 // Per finger lock and frame: "one piece short" once its scraps are in place but not its piece, the hold fed this
 // frame's coverage (nothing fills it away from its spot), the hold's progress on the bus, and on the frame it completes
 // the piece forms; the session then opens the lock once the piece has formed (CRYSTAL_MS). The fingertip hum follows a
-// finger in the beam. Per frame it allocates nothing.
+// finger in the beam, and stops whenever play does. While a finger lock is one piece short and controllers are in use,
+// the coach line suggests setting one down. Per frame it allocates nothing.
 import type { GameSounds } from "../audio/cues";
 import { type Coverage, isShort, type LockSamples } from "../core/solve";
-import type { Box, Lock, V2 } from "../core/types";
+import type { Box, Lock, V2, Vec3 } from "../core/types";
 import type { FeedbackEvent } from "./bus";
-import { CRYSTALLISE, MAX_LOCKS, reusedEvents, SHORT } from "./events";
+import { COACH, CRYSTALLISE, MAX_LOCKS, reusedEvents, SHORT } from "./events";
 
 /** A finger lock's piece forms over this long (fx/crystallise.ts); the lock opens when it has. */
 export const CRYSTAL_MS = 700;
@@ -25,12 +28,18 @@ const FINGER_EVENT_STEP = 0.1;
 export interface FingerSource {
   readonly finger: V2[][];
   readonly nFinger: number;
+  /** Moves whenever the finger's shadow changed since the last frame (a still finger measures nothing). */
+  readonly version: number;
   /** The fingers' depth (box z), NaN with no finger in the beam (the fingertip hum follows it). */
   readonly fingerZ: number;
   /** A hand that can cast the finger (one not holding the lantern) is in tracking. */
   readonly tracked: boolean;
+  /** Controllers are in use (a finger lock then suggests setting one down). */
+  readonly controllers: boolean;
   /** The depth of the finger whose shadow covers these gap points (box z): where the piece forms; NaN for none. */
   depthOver(gap: readonly V2[]): number;
+  /** Where the casting fingertip is (world metres) into `out`; false with no finger in the beam. */
+  tip(out: Vec3): boolean;
 }
 
 export type FingerLoopState = "idle" | "holding" | "done";
@@ -55,6 +64,8 @@ export interface FingerLocksDeps {
   crystals?: CrystalSink;
   sound: Pick<GameSounds, "finger" | "crystallise">;
   emit: (e: FeedbackEvent) => void;
+  /** The coach line's controller tip (on), or none (off). */
+  coach?: (on: boolean) => void;
 }
 
 const NOOP = () => {};
@@ -82,6 +93,8 @@ export class FingerLocks {
   /** The furthest hold this frame (the fingertip hum's glide). */
   private hold = 0;
   private fingerIn = false;
+  private coachOn = false;
+  private readonly at: Vec3 = [0, 0, 0];
 
   constructor(private readonly d: FingerLocksDeps) {}
 
@@ -94,12 +107,17 @@ export class FingerLocks {
     return this.d.fingers ? this.d.fingers.nFinger : 0;
   }
 
+  /** The finger shadow's change counter (0 without the hand system). */
+  get version(): number {
+    return this.d.fingers ? this.d.fingers.version : 0;
+  }
+
   /** A finger lock's hold (null for a plain lock, or without the hand system). */
   loopOf(lock: number): FingerLoop | null {
     return this.loops[lock] ?? null;
   }
 
-  /** A new box (`samples`: each lock's, as the session measures it): a hold for each finger lock; the fingertip hum ends. */
+  /** A new box (`samples`: each lock's, as the session measures it): a hold for each finger lock; the hum and coach end. */
   setBox(box: Box, samples: readonly LockSamples[]): void {
     const make = this.d.makeFingerLoop;
     this.box = box;
@@ -110,8 +128,14 @@ export class FingerLocks {
     });
     this.short.fill(0);
     this.sent.fill(0);
+    this.quiet();
+  }
+
+  /** Play stopped (the box is opening, or another is coming): the fingertip hum and the coach line end. */
+  quiet(): void {
     if (this.fingerIn) this.d.sound.finger(null);
     this.fingerIn = false;
+    this.setCoach(false);
   }
 
   /** Before the locks, each frame. */
@@ -140,6 +164,7 @@ export class FingerLocks {
       d.emit(e);
     }
     if (state !== "done") return Number.NaN;
+    this.short[i] = 0;
     // At the depth of the hand whose finger fills the gap (with two hands in the mouth, not their mean).
     const over = f.depthOver(this.gaps[i]!);
     const z = Number.isFinite(over) ? over : pieceDepth(this.box!, lock);
@@ -154,15 +179,28 @@ export class FingerLocks {
     this.d.crystals?.place(lock, z);
   }
 
-  /** After the locks: the fingertip hum while a finger is in the beam (toward the panel, through the hold), off when it leaves. */
+  /**
+   * After the locks: the fingertip hum while a finger is in the beam (toward the panel, through the hold, at the
+   * fingertip), off when it leaves; the coach line while a finger lock is one piece short and controllers are in use.
+   */
   end(): void {
     const f = this.d.fingers;
     if (f && f.nFinger > 0) {
-      this.d.sound.finger(1 - Math.min(1, Math.max(0, f.fingerZ)), this.hold);
+      this.d.sound.finger(1 - Math.min(1, Math.max(0, f.fingerZ)), this.hold, f.tip(this.at) ? this.at : undefined);
       this.fingerIn = true;
     } else if (this.fingerIn) {
       this.d.sound.finger(null);
       this.fingerIn = false;
     }
+    let short = false;
+    for (let i = 0; i < MAX_LOCKS; i++) if (this.short[i]) short = true;
+    this.setCoach(short && !!f && f.controllers);
+  }
+
+  private setCoach(on: boolean): void {
+    if (on === this.coachOn) return;
+    this.coachOn = on;
+    this.d.emit(COACH[on ? 1 : 0]);
+    this.d.coach?.(on);
   }
 }
