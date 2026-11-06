@@ -4,9 +4,11 @@
 //                 draw calls, triangles, multiview on or off
 //   ?multiview=0  draw the two eyes one after the other instead of together (no OCULUS_multiview), to
 //                 compare frame times with the default
-//   ?box=N        start straight into box N (resumed if it is the box in progress); the box session then
-//                 plays and saves it as any box, nothing else about progress changes
-//   ?lesson=l1    start straight into lesson 1 (or l2) as practice: nothing about progress changes
+//   ?box=N        start straight into box N as practice, from the start: it is never saved, solved or
+//                 collected, so the box in progress, the next box, the collection and the streak stay as
+//                 they were (its Next is box N+1, practice too)
+//   ?lesson=l1    start straight into lesson 1 (or l2) as practice: its steps, its end and its reward change
+//                 nothing about progress
 import { CanvasTexture, Mesh, MeshBasicMaterial, PlaneGeometry, Quaternion, SRGBColorSpace, Vector3, type World } from "@iwsdk/core";
 import { BOX_ROOT_NAME } from "../render/placement";
 

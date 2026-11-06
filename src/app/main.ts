@@ -80,6 +80,7 @@ async function main(): Promise<void> {
     scene: shell.box,
     lantern,
     passthrough: () => shell.sessionMode === "immersive-ar",
+    rays: world.player.raySpaces,
   });
   // The rays' cursor in the game's look (rays press keys too).
   styleRayCursors(world);

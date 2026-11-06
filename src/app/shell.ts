@@ -160,11 +160,12 @@ export class Shell {
   }
 
   /**
-   * The lifecycle's save of the box in play: a Daily Box's goes to the daily save, a numbered box's to the box in
-   * progress (by its key; nothing in play: by the box the game says the saves are about). Lessons keep their own.
+   * The lifecycle's save of the box in play, where the game says it goes: a Daily Box's to the daily save, a numbered
+   * box's to the box in progress, a practice box (`?box=N`) nowhere. Without a game, by the save's key. Lessons keep
+   * their own.
    */
   private persist(snap: BoxSnapshot | null): void {
-    const kind = snap ? specOfKey(snap.key)?.kind : this.flow?.slot();
+    const kind = this.flow ? this.flow.slot() : snap ? specOfKey(snap.key)?.kind : undefined;
     if (kind === "daily") void this.profiles.setDailyCurrent(snap);
     else if (kind === "box") void this.profiles.setCurrent(snap);
   }
