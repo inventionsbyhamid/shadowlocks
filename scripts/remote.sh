@@ -99,6 +99,8 @@ LOCK_WAIT=${NS_LOCK_WAIT:-3600}
 MAX_RUN=${NS_MAX_RUN:-7200}
 [[ $MAX_RUN =~ ^[1-9][0-9]*$ ]] || { echo "bad NS_MAX_RUN: $MAX_RUN" >&2; exit 2; }
 [[ $MIN_FREE_GB =~ ^[0-9]{1,5}$ ]] || { echo "bad NS_MIN_FREE_GB: $MIN_FREE_GB (whole GB, up to 5 digits)" >&2; exit 2; }
+# A limit that is not a number would make the load comparison a string comparison, which can pass any load.
+[[ $MAX_LOAD =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "bad NS_MAX_LOAD: $MAX_LOAD" >&2; exit 2; }
 # 10#: a leading zero (08) is decimal, not octal.
 NEED_GB=$((10#$MIN_FREE_GB + 10#$EXPECT_GB))
 
@@ -116,7 +118,7 @@ LOAD=$(printf '%s\n' "$gate" | sed -n 1p)
 FREE=$(printf '%s\n' "$gate" | sed -n 2p)
 [[ $LOAD =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "refused: could not read load average from $HOST (got '$LOAD')" >&2; exit 3; }
 [[ $FREE =~ ^[0-9]+$ ]] || { echo "refused: could not read free disk from $HOST (got '$FREE')" >&2; exit 3; }
-if awk -v l="$LOAD" -v m="$MAX_LOAD" 'BEGIN{exit !(l>m)}'; then
+if awk -v l="$LOAD" -v m="$MAX_LOAD" 'BEGIN{exit !(l+0>m+0)}'; then
   echo "refused: $HOST load average $LOAD > $MAX_LOAD" >&2; exit 3
 fi
 if [ "${FREE:-0}" -lt "$NEED_GB" ]; then

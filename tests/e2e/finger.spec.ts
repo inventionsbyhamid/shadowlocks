@@ -6,6 +6,7 @@
 import type { V2, V3, Vec3 } from "../../src/core/types";
 import {
   atFingerLock,
+  ControllerFinger,
   fingerLocks,
   hands,
   indexInMouth,
@@ -291,6 +292,46 @@ test("the crystallise hook forms the piece with no hand", async ({ page, boot })
   }
   // It draws the piece only; opening the lock is the game's.
   expect(l!.state).toBe("idle");
+});
+
+test("with controllers only, a controller's stand-in finger opens box 3's finger lock, and the coach line says so", async ({ page, boot }) => {
+  const app = await boot();
+  await app.queue("set_input_mode", { mode: "controller" });
+  await app.settle();
+  // Both controllers out of the box first (beside and below it, nearer the player).
+  const right = new ControllerFinger(app, "right"), left = new ControllerFinger(app, "left");
+  const [farR, farL] = await worldOf(page, [[2.5, -2, 3], [-2.5, -2, 3]]);
+  await right.place(farR!);
+  await left.place(farL!);
+  await page.evaluate(() => window.__ns!.clearEvents());
+  const { lock, mid, dir } = await atFingerLock(app, page, Z);
+  await app.step(5);
+  // One piece short, with controllers in hand: the coach line suggests a finger.
+  expect((await page.evaluate(() => window.__sl!.session.state()))!.coach).toBe("controllerFinger");
+  expect(await app.events("coach")).toEqual([{ type: "coach", line: "controllerFinger" }]);
+  expect((await hands(page)).standIn).toBeNull();
+
+  // The right controller held into the beam: its stand-in along the gap at depth Z fills it, held, and the lock opens.
+  const laid = await right.lay(mid, dir);
+  expect(laid.off).toBeLessThan(0.01);
+  expect(laid.angle).toBeLessThan(0.05);
+  const h = await hands(page);
+  expect(h.standIn?.by).toBe("right");
+  expect(h.left).toBeNull();
+  expect(h.right).toBeNull();
+  expect(h.finger).toHaveLength(1);
+  expect(Math.abs(h.fingerZ! - Z)).toBeLessThan(0.01);
+  await app.stepUntil((_ns, w) => w.__sl.fingerLocks()[0].state === "done", { maxMs: 2_000, batch: 1, label: "lock done" });
+  await app.stepUntil((_ns, w, i) => w.__sl.session.state().open.includes(i), { arg: lock.lock, maxMs: 1_500, batch: 1, label: "lock open" });
+  const [l] = await fingerLocks(page);
+  expect(Math.abs(l!.crystal!.z - Z)).toBeLessThan(0.01);
+  // The line goes once the gap is filled.
+  expect(await app.events("coach")).toEqual([
+    { type: "coach", line: "controllerFinger" },
+    { type: "coach", line: null },
+  ]);
+  expect((await page.evaluate(() => window.__sl!.session.state()))!.coach).toBeNull();
+  expect(app.consoleLines.filter((x) => x.startsWith("error:") || x.startsWith("PAGEERROR"))).toEqual([]);
 });
 
 test("finger shots: the finger in the beam, gold filling the gap, the piece left behind", async ({ page, boot }) => {
