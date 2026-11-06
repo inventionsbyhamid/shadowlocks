@@ -48,9 +48,9 @@ const ROT_MAX = 0.5;
 /**
  * A lock's two sight rings: a depth range, and the outer and inner radius of the ring's shadow on the panel when
  * the lantern is at the spot. Each ring is sized for its depth, so from the spot the deep ring's shadow sits inside
- * the shallow ring's hole with a 0.008 gap: a bullseye on the mark.
+ * the shallow ring's hole with a 0.008 gap: a bullseye on the mark. The lessons hang theirs by the same sizes.
  */
-const RINGS: { z: [number, number]; out: number; in: number }[] = [
+export const RINGS: readonly { z: readonly [number, number]; out: number; in: number }[] = [
   { z: [0.5, 0.7], out: 0.044, in: 0.032 }, // shallow: nearer the lantern
   { z: [0.18, 0.35], out: 0.024, in: 0.014 }, // deep: nearer the panel
 ];
