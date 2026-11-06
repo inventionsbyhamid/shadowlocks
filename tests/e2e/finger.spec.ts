@@ -294,7 +294,7 @@ test("the crystallise hook forms the piece with no hand", async ({ page, boot })
   expect(l!.state).toBe("idle");
 });
 
-test("with controllers only, a controller's stand-in finger opens box 3's finger lock, and the coach line says so", async ({ page, boot }) => {
+test("with controllers only, the deeper controller's stand-in finger opens box 3's finger lock, and the coach line says so", async ({ page, boot }) => {
   const app = await boot();
   await app.queue("set_input_mode", { mode: "controller" });
   await app.settle();
@@ -305,13 +305,18 @@ test("with controllers only, a controller's stand-in finger opens box 3's finger
   await left.place(farL!);
   await page.evaluate(() => window.__ns!.clearEvents());
   const { lock, mid, dir } = await atFingerLock(app, page, Z);
-  await app.step(5);
-  // One piece short, with controllers in hand: the coach line suggests a finger.
+  // One piece short, with controllers in hand: after its 300 ms hold, the coach line suggests a finger.
+  expect((await page.evaluate(() => window.__sl!.session.state()))!.coach).toBeNull();
+  await app.step(Math.ceil(300 / DT) + 2);
   expect((await page.evaluate(() => window.__sl!.session.state()))!.coach).toBe("controllerFinger");
   expect(await app.events("coach")).toEqual([{ type: "coach", line: "controllerFinger" }]);
   expect((await hands(page)).standIn).toBeNull();
 
-  // The right controller held into the beam: its stand-in along the gap at depth Z fills it, held, and the lock opens.
+  // The left controller just inside the mouth, away from the gap: its stand-in is the finger.
+  await left.lay([-0.35, 0.4, 0.85], [1, 0, 0]);
+  expect((await hands(page)).standIn?.by).toBe("left");
+  // The right controller held deeper into the beam: its stand-in (the deeper tip) is the finger now, along the gap at
+  // depth Z; it fills it, held, and the lock opens.
   const laid = await right.lay(mid, dir);
   expect(laid.off).toBeLessThan(0.01);
   expect(laid.angle).toBeLessThan(0.05);
