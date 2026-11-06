@@ -8,6 +8,7 @@ import {
   atFingerLock,
   fingerLocks,
   hands,
+  indexInMouth,
   inside,
   median,
   panelLuma,
@@ -124,15 +125,18 @@ test("tracking lost resets the finger hold", async ({ page, boot }) => {
 test("the holding hand casts no shadow", async ({ page, boot }) => {
   const app = await play(boot, page);
   const right = new Hands(app, "right");
+  // The lantern in front of the box's middle, picked up and carried into the box: it stops at the front (z 1) while
+  // the hand holding it goes on into the mouth.
+  const l0: V3 = [0.05, -0.05, 1.1];
+  await page.evaluate((p) => window.__sl!.placeLantern(p), l0);
+  await app.step(2);
   const off = await grab(app, page, right);
-  // Carry the lantern into the box: it stops at the front (z 1) while the hand holding it goes on into the mouth.
-  const l0 = (await lantern(page)).pos;
   await carry(right, off, await toWorld(page, [l0[0], l0[1], 0.85]), 400);
   await app.step(20);
   let h = await hands(page);
   expect((await lantern(page)).held).toBe(true);
   expect(h.right).not.toBeNull();
-  expect(h.right!.minZ).toBeLessThanOrEqual(1);
+  expect(indexInMouth(h.right!)).toBe(true);
   expect(h.right!.outlines).toBe(0);
   expect(h.outlines.length).toBe(h.left?.outlines ?? 0);
 
@@ -143,7 +147,7 @@ test("the holding hand casts no shadow", async ({ page, boot }) => {
   await app.step(3);
   h = await hands(page);
   expect((await lantern(page)).held).toBe(true);
-  expect(h.left!.minZ).toBeLessThanOrEqual(1);
+  expect(indexInMouth(h.left!)).toBe(true);
   expect(h.left!.outlines).toBeGreaterThan(0);
   expect(h.right!.outlines).toBe(0);
   expect(h.outlines.length).toBe(h.left!.outlines);
@@ -154,7 +158,7 @@ test("the holding hand casts no shadow", async ({ page, boot }) => {
   await app.step(5);
   expect((await lantern(page)).held).toBe(false);
   h = await hands(page);
-  expect(h.right!.minZ).toBeLessThanOrEqual(1);
+  expect(indexInMouth(h.right!)).toBe(true);
   expect(h.right!.outlines).toBeGreaterThan(0);
   expect(h.outlines.length).toBe(h.left!.outlines + h.right!.outlines);
 });
@@ -234,7 +238,7 @@ test("on the panel: the finger's shadow darkens the gap, and the hand holding th
   await app.step(20);
   let h = await hands(page);
   expect((await lantern(page)).held).toBe(true);
-  expect(h.right!.minZ).toBeLessThanOrEqual(1);
+  expect(indexInMouth(h.right!)).toBe(true);
   expect(h.right!.outlines).toBe(0);
   const grid: V3[] = [];
   for (let i = -4; i <= 4; i++) for (let j = -4; j <= 4; j++) grid.push([i * 0.1, j * 0.1, 0]);

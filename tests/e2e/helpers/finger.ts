@@ -2,13 +2,20 @@
 // Helpers for the finger specs: read the hands and the finger locks through window.__sl, lay an IWER hand's pointing
 // index finger along a line in the box (box units), and record the finger lock frame by frame.
 import type { Page } from "@playwright/test";
-import type { SlFingerLock, SlHands } from "../../../src/app/test-api";
+import type { SlFingerLock, SlHand, SlHands } from "../../../src/app/test-api";
 import type { V2, V3, Vec3 } from "../../../src/core/types";
 import { Hands } from "./hands";
 import { add, dot, len, type P3, sub, unit } from "./lantern";
 import type { XrApp } from "./xr-app";
 
 export const hands = (page: Page): Promise<SlHands> => page.evaluate(() => window.__sl!.hands());
+
+/**
+ * The hand is in the box mouth as its shadows count it: an index finger joint at box z <= 1 (MOUTH_Z) within 0.6
+ * (MOUTH_XY, src/render/hand-shadow.ts) of the box's middle across and up.
+ */
+export const indexInMouth = (h: SlHand): boolean =>
+  h.index.some(([x, y, z]) => z <= 1 && Math.abs(x) <= 0.6 && Math.abs(y) <= 0.6);
 export const fingerLocks = (page: Page): Promise<SlFingerLock[]> => page.evaluate(() => window.__sl!.fingerLocks());
 
 export async function worldOf(page: Page, pts: P3[]): Promise<Vec3[]> {
