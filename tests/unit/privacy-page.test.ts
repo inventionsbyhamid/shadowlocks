@@ -23,6 +23,8 @@ describe("privacy page", () => {
       "IP address",
       "We do not see or keep that data",
       "clear the game's data in your headset's settings: the app's data, and the browser's site data",
+      // One policy for both builds: the store app opens the public site, the Competition build the judge site.
+      "shadowlocks.pages.dev, or shadowlocks-judge.pages.dev for the Competition build",
       "13 and over",
       "Meta will handle the payment",
     ]) {
