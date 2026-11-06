@@ -1,8 +1,10 @@
+// e2e: exclusive (times real milliseconds at 4x throttle: scripts/e2e.sh runs this spec alone on the server)
 // The performance budget for a box in play (the plan's rule): box 15 with the lantern carried back and forth in the
 // right hand and the left hand's fingers in the beam, casting. At most 50 draw calls and 100k triangles; our JS (every
-// app system the perf hook times: hands, lantern, shell with the box and the theatre, menus, sound) at most 3 ms a
-// frame at p95 with the CPU throttled 4x; and no objects, arrays or closures made per frame. The box-open peak (at
-// most 100 draw calls) is measured once the box session's celebrations are in.
+// app system the perf hook times: hands, lantern, the game, shell with the box and the theatre, menus, sound) at most
+// 3 ms a frame at p95 with the CPU throttled 4x; and no objects, arrays or closures made per frame. Then box 15
+// opened through the box session, its last lock's sunburst and sparkle running into the box's opening and the
+// reward's rise: at most 100 draw calls and 100k triangles in its busiest frame.
 //
 // Time is real CPU time on a shared server, judged as the other cost checks are (helpers/lantern.ts): WINDOWS
 // windows of TIMED_FRAMES frames one after the other, the better window held to the budget, host stalls (frames
@@ -14,7 +16,7 @@
 // how it splits with box-scene's syncShadows depends on what the engine inlines). An object made per shadow a frame
 // (60 shadows, 32 bytes or more each) would add about 2 KB, past both budgets.
 import { CHROME_ARGS } from "./helpers/chromium";
-import { hands, Pointer, worldOf } from "./helpers/finger";
+import { axisOf, fingerLocks, hands, onRay, Pointer, worldOf } from "./helpers/finger";
 import { Hands } from "./helpers/hands";
 import {
   carry,
@@ -41,7 +43,11 @@ const ALLOC_BUDGET = 1600;
 const FUNCTION_BUDGET = 900;
 /** Test-only modules: they time and log the frames, they are not the game. */
 const TEST_ONLY = ["src/app/test-hooks.ts", "src/app/virtual-clock.ts"];
-const SYSTEMS = ["hand-pinch", "hands", "lantern", "menus", "shell", "sound"];
+const SYSTEMS = ["hand-pinch", "hands", "lantern", "game", "menus", "shell", "sound"];
+/** The busiest frame of a box opening: draw calls at most. */
+const MAX_PEAK_CALLS = 100;
+/** A finger lay this deep in the beam (box units). */
+const FINGER_Z = 0.5;
 
 test.use({
   launchOptions: { args: [...CHROME_ARGS, "--js-flags=--invocation-count-for-maglev=5 --invocation-count-for-turbofan=30"] },
@@ -217,6 +223,52 @@ test("boot at 4x CPU throttle: the first panel lays out on the page, before the 
   }
 });
 
-test.fixme("the box-open peak stays within 100 draw calls", async () => {
-  // Waits for the box session's box-open celebration (walls, drawer, sweep, reward): the peak frame's draw calls.
+test("box 15 opening: its busiest frame stays within 100 draw calls and 100k triangles", async ({ page, boot }, testInfo) => {
+  const app = await boot();
+  await page.evaluate(() => window.__sl!.session.play({ kind: "box", n: 15 }));
+  await app.stepUntil(
+    (_ns, w) => {
+      const s = w.__sl.session.state();
+      return s?.stage === "playing" && s.revealed;
+    },
+    { maxMs: 10_000, label: "box 15 in play" },
+  );
+  const s = (await page.evaluate(() => window.__sl!.session.state()))!;
+  const open = (lock: number, label: string) =>
+    app.stepUntil((_ns, w, i) => w.__sl.session.state().open.includes(i), { arg: lock, maxMs: 3_000, batch: 1, label });
+  // The finger locks first, each by the right index finger laid in its gap with the lantern on its spot.
+  const hand = new Pointer(app, "right");
+  for (const f of await fingerLocks(page)) {
+    await page.evaluate((L) => window.__sl!.placeLantern(L), f.spot);
+    await app.step(3);
+    const { mid, angle } = axisOf(f.piece);
+    const sign = Math.cos(angle) >= 0 ? -1 : 1;
+    const laid = await hand.lay(onRay(f.spot, mid, FINGER_Z), [sign * Math.cos(angle), sign * Math.sin(angle), 0]);
+    expect(laid.off).toBeLessThan(0.01);
+    await open(f.lock, `finger lock ${f.lock} open`);
+    const [inBox, out] = await worldOf(page, [[0, 0, FINGER_Z], [0, 0, 1.6]]);
+    await hand.shift([out![0] - inBox![0], out![1] - inBox![1], out![2] - inBox![2]]);
+    await app.step(3);
+  }
+  // Then the plain locks by the lantern: the last one's sunburst and sparkle run into the box's opening.
+  for (const l of s.locks.filter((x) => !x.finger)) {
+    await page.evaluate((L) => window.__sl!.placeLantern(L), l.spot);
+    await open(l.i, `lock ${l.i} open`);
+  }
+  // Every frame from the last opening to the reward floating (frames of up to 100 ms of play, the session's longest).
+  let peak = { calls: 0, triangles: 0, stage: "", ms: 0 }, ms = 0;
+  for (; ms < 6_000; ms += 100) {
+    await app.step(1, 100);
+    const p = await app.perf();
+    const stage = (await page.evaluate(() => window.__sl!.session.state()?.stage ?? "")) as string;
+    if (p.calls > peak.calls) peak = { calls: p.calls, triangles: p.triangles, stage, ms };
+    peak.triangles = Math.max(peak.triangles, p.triangles);
+    if (stage === "reward" && ms > 3_000) break;
+  }
+  const line = `perf-budget, box 15 opening: busiest frame ${peak.calls} draw calls at ${peak.ms} ms after the last lock (${peak.stage}), ${peak.triangles} triangles at most`;
+  testInfo.annotations.push({ type: "perf", description: line });
+  console.log(line);
+  expect(await app.events("box-open")).toHaveLength(1);
+  expect(peak.calls).toBeLessThanOrEqual(MAX_PEAK_CALLS);
+  expect(peak.triangles).toBeLessThanOrEqual(MAX_TRIANGLES);
 });

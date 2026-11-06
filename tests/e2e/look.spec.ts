@@ -1,3 +1,4 @@
+// e2e: exclusive (its theatre test reads the fade frame by frame and its shots run long: run alone on the server)
 // The look, as the owner and the judges see it: headset-density shots (25 px per degree) of the box in the lap
 // and wide shots of the room around it. Box 1 as the player first meets it, box 5 (three locks, one a hidden
 // silhouette) lit from a lock's spot and warming, a lock opening in gold, box 3's finger lock filling with gold,
@@ -222,4 +223,70 @@ test("without passthrough the theatre shows its studio and dims it the same way"
   await app.capture("look-vr-studio-wide");
   const box = (await app.state()).boxPose.position;
   await app.captureHeadset("look-vr-studio-headset", { x: box[0], y: box[1], z: box[2] });
+});
+
+test("celebrations: a lock opening with its glints, the box opening and the light coming up, the reward's glow, the next box dims again", async ({
+  page,
+  boot,
+}) => {
+  const app = await boot({ mode: "visual" });
+  await page.evaluate(() => window.__sl!.session.play({ kind: "box", n: 1 }));
+  await app.stepUntil(
+    (_ns, w) => {
+      const s = w.__sl.session.state();
+      return s?.stage === "playing" && s.revealed;
+    },
+    { maxMs: 10_000, label: "box 1 in play" },
+  );
+  await app.step(Math.ceil(1000 / DT));
+  expect(await veilNow(page)).toBeCloseTo(0.65, 3);
+  const s = (await page.evaluate(() => window.__sl!.session.state()))!;
+  const panel = (await app.state()).boxPose.position;
+  const at = { x: panel[0], y: panel[1], z: panel[2] };
+  // Frames of 100 ms of play (the session's longest step), as session.spec.ts does: the sequence in few rendered frames.
+  const playFor = async (ms: number) => {
+    for (let t = 0; t < ms; t += 100) await app.step(1, 100);
+  };
+  const sparkle = () =>
+    page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const p = (window.__ns!.world as any).scene.getObjectByName("Lock Sparkle");
+      return p.visible as boolean;
+    });
+  await page.evaluate((L) => window.__sl!.placeLantern(L), s.locks[0]!.spot);
+  await app.stepUntil((_ns, w) => w.__sl.session.state().open.includes(0), { maxMs: 2_000, batch: 1, label: "lock I open" });
+  // The sunburst, then the first glint a third of a second on (the box's flash budget), the glitter rising.
+  await playFor(200);
+  await app.captureHeadset("look-celebrate-lock-burst-headset", at);
+  await playFor(300);
+  expect(await sparkle()).toBe(true);
+  await app.captureHeadset("look-celebrate-lock-glints-headset", at);
+  // The box opens: the sweep, the room's light coming up, the walls and lid lifting away.
+  await app.stepUntil((_ns, w) => w.__ns.events("box-open").length > 0, { maxMs: 3_000, dt: 100, label: "the box opens" });
+  await playFor(300);
+  await app.captureHeadset("look-celebrate-box-sweep-headset", at);
+  await playFor(1100);
+  await app.captureHeadset("look-celebrate-box-walls-headset", at);
+  await app.capture("look-celebrate-box-open-wide");
+  expect(await veilNow(page)).toBe(0);
+  // The hinged lid has faded away (it never stands behind the plate as a dark pane); the box's own lid is hidden.
+  const lid = await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const scene = (window.__ns!.world as any).scene;
+    return { open: scene.getObjectByName("Box Lid Open").parent.visible as boolean, shut: scene.getObjectByName("Box Lid").visible as boolean };
+  });
+  expect(lid).toEqual({ open: false, shut: false });
+  await app.stepUntil((_ns, w) => w.__sl.session.state().stage === "reward", { maxMs: 4_000, dt: 100, label: "the reward up" });
+  const r = (await page.evaluate(() => window.__sl!.session.reward()))!;
+  await app.captureHeadset("look-celebrate-reward-headset", { x: r.world[0], y: r.world[1], z: r.world[2] });
+  // Taken by itself after a while; the plate offers the next box (its key's corners: no dark fringe).
+  await app.stepUntil((_ns, w) => w.__sl.session.state().stage === "offered", { maxMs: 9_000, dt: 100, label: "the reward taken" });
+  await playFor(500);
+  const next = (await page.evaluate(() => window.__sl!.session.keys())).find((k) => k.id === "plate-next")!;
+  await app.captureHeadset("look-celebrate-plate-next-headset", { x: next.world[0], y: next.world[1], z: next.world[2] }, 60);
+  // The next box: the room goes down again.
+  await page.evaluate(() => window.__sl!.session.play({ kind: "box", n: 2 }));
+  await app.stepUntil((_ns, w) => w.__sl.session.state()?.stage === "playing", { maxMs: 10_000, label: "box 2 in play" });
+  await app.step(Math.ceil(1000 / DT));
+  expect(await veilNow(page)).toBeCloseTo(0.65, 3);
 });
