@@ -23,3 +23,18 @@ function strings(v: unknown): string[] {
 export function expectCleanCopy(v: unknown): void {
   for (const s of strings(v)) expect(s, s).not.toMatch(DASHES);
 }
+
+/** A PanelUi that records every paint call as a line ("text id value", "show id true", ...). */
+export function recorder() {
+  const calls: string[] = [];
+  const ui = {
+    text: (id: string, t: string) => calls.push(`text ${id} ${t}`),
+    show: (id: string, on: boolean) => calls.push(`show ${id} ${on}`),
+    visible: (id: string, on: boolean) => calls.push(`visible ${id} ${on}`),
+    fill: (id: string, c: string) => calls.push(`fill ${id} ${c}`),
+    ink: (id: string, c: string) => calls.push(`ink ${id} ${c}`),
+    edge: () => {},
+    roll: () => {},
+  };
+  return { calls, ui };
+}

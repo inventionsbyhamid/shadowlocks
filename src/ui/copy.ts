@@ -5,7 +5,7 @@
 export const COPY = {
   /** The 2D page, under the Enter button. */
   page: {
-    enterFailed: "Could not start. Tap Enter to try again.",
+    enterFailed: "Could not start. Tap Open the box to try again.",
     noXr: "Open this page in the Meta Quest browser to play.",
     startupFailed: "Something went wrong. Reload to try again.",
   },
@@ -26,6 +26,55 @@ export const COPY = {
     motionSub: "No bounce",
     dimming: "Dim room",
     dimmingSub: "In play",
+    warmth: "Warmth",
+    warmthSub: "Glow, hums",
+    hand: "Left hand",
+    handSub: "Mirrored",
+  },
+  /** The drawer's menus: Home, Lessons, Collection, the reset confirm and the trial ({names} filled in). */
+  menus: {
+    home: {
+      continueSub: "Box No. {n}",
+      startSub: "Start Box No. {n}",
+      backToDaily: "Daily Box",
+      backToLesson: "Your lesson",
+      trialOver: "Trial over",
+      dailyLocked: "After Box No. 3",
+      dailyNew: "New today",
+      dailyDone: "Solved today",
+      streak: "Streak {n}",
+      lessons: "Watch again",
+      collectionEmpty: "Empty so far",
+      collectionOne: "1 reward",
+      collectionMany: "{n} rewards",
+      reset: "Progress reset.",
+    },
+    lessons: {
+      move: "Move the light",
+      nearFar: "Near and far",
+      rings: "Sight the rings",
+      finger: "Lend a hand",
+      decoys: "Decoys",
+      ringless: "No rings",
+      hidden: "Hidden outline",
+      drawer: "The drawer",
+    },
+    collection: {
+      none: "No rewards yet",
+      one: "1 reward",
+      many: "{n} rewards",
+      box: "Box No. {n}",
+      daily: "Daily Box {day}",
+      page: "{from} to {to} of {n}",
+    },
+    trial: {
+      daysLeft: "Your trial: {n} days left",
+      dayLeft: "Your trial: 1 day left",
+      over: "Your trial has ended.",
+      unlock: "Unlock the full game",
+      bought: "Thank you. The full game is yours.",
+      failed: "The store did not answer. Try again later.",
+    },
   },
   /** Sound captions (Settings, Captions), for sounds that carry meaning. */
   captions: {
@@ -56,7 +105,13 @@ export const COPY = {
     tagline: "Your hands. One light. Every shadow a lock.",
     facts: ["Seated", "Hands only", "Plays offline"],
   },
-  /** The lessons: the coach line under the box, the lessons' and examples' names (the Lessons menu), and the tips. */
+  /** The landing page (the hosted link only; the installed app goes straight in). */
+  landing: {
+    open: "Open the box",
+    tagline: "A puzzle box of light and shadow.",
+    facts: "Seated. Hands only. Plays offline.",
+  },
+  /** The lessons: the coach line, the lessons' and examples' names, and the tips. */
   lessons: {
     pickUp: "Pick up the lantern.",
     watchMove: "Watch the shadows move.",

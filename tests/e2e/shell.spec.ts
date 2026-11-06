@@ -38,11 +38,13 @@ test("a stepper changes the setting live and the box follows its size", async ({
 test("Recenter places the box again in front of where the head looks now", async ({ page, boot }) => {
   const app = await boot();
   const first = (await app.state()).boxPose;
+  await app.poke("home-settings");
+  await app.stepUntil((ns) => ns.state().screen === "settings", { maxMs: 5_000, label: "settings" });
   // The player turns a quarter to the left and leans a little.
   await page.evaluate(setHeadset, { position: { x: 0.1, y: 1.15, z: -1.38 }, lookAt: { x: -1, y: 0.9, z: -1.38 } });
   await app.step(2);
   expect((await app.state()).boxPose).toEqual(first);
-  await app.poke("home-recenter");
+  await app.poke("settings-recenter");
   await app.stepUntil((ns) => Math.abs(ns.state().boxPose.yaw - Math.PI / 2) < 0.01, { maxMs: 2_000, label: "box turned with the head" });
   const s = await app.state();
   const head = s.head!;
@@ -50,8 +52,11 @@ test("Recenter places the box again in front of where the head looks now", async
   expect(s.boxPose.position[2]).toBeCloseTo(head[2], 3);
   expect(head[1] - s.boxPose.position[1]).toBeCloseTo(0.28, 3);
   for (let i = 0; i < 3; i++) expect(s.box.world![i]).toBeCloseTo(s.boxPose.position[i]!, 4);
-  // The home panel moved with it (it sits in front of the box).
-  expect(s.buttons.find((b) => b.id === "home-settings")!.world[0]).toBeLessThan(head[0] - 0.3);
+  // The settings panel moved with it once the finger left (it stands on the box's drawer).
+  await app.stepUntil((ns) => !ns.ui.layoutHeld(), { maxMs: 2_000, label: "panel follows the box" });
+  const done = (await app.state()).buttons.find((b) => b.id === "settings-done")!.world;
+  expect(done[0]).toBeLessThan(head[0] - 0.12);
+  expect(done[0]).toBeGreaterThan(head[0] - 0.55);
 });
 
 test("without passthrough the game runs in VR", async ({ page, boot }) => {

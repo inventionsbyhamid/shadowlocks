@@ -77,6 +77,59 @@ describe("lifecycle", () => {
     expect(audio).toEqual(["suspend", "resume"]);
   });
 
+  it("holds the box while a menu is up over it: paused and saved, sound left running", () => {
+    const { life, saved, audio } = setup();
+    life.setXrVisibility("visible", 0);
+    const s = new FakeSession();
+    life.attach(s, 100);
+    saved.length = 0;
+    life.setHeld(true, 2000);
+    expect(life.held).toBe(true);
+    expect(life.active).toBe(true);
+    expect(s.log).toEqual(["resume@100", "pause@2000"]);
+    expect(saved.map(at)).toEqual([2000]);
+    expect(audio).toEqual([]);
+    // Holding again changes nothing.
+    life.setHeld(true, 2500);
+    expect(s.log).toEqual(["resume@100", "pause@2000"]);
+    // Headset off and on under the menu: the box stays paused (only sound follows).
+    life.setXrVisibility("visible-blurred", 3000);
+    life.setXrVisibility("visible", 4000);
+    expect(s.log).toEqual(["resume@100", "pause@2000"]);
+    expect(audio).toEqual(["suspend", "resume"]);
+    life.setHeld(false, 5000);
+    expect(s.log).toEqual(["resume@100", "pause@2000", "resume@5000"]);
+    // Let go while hidden: it resumes only when the player can see it again.
+    life.setHeld(true, 6000);
+    life.setDocumentHidden(true, 6500);
+    life.setHeld(false, 7000);
+    expect(s.log).toEqual(["resume@100", "pause@2000", "resume@5000", "pause@6000"]);
+    life.setDocumentHidden(false, 8000);
+    expect(s.log).toEqual(["resume@100", "pause@2000", "resume@5000", "pause@6000", "resume@8000"]);
+  });
+
+  it("a session attached under a menu starts paused", () => {
+    const { life } = setup();
+    life.setXrVisibility("visible", 0);
+    life.setHeld(true, 0);
+    const s = new FakeSession();
+    life.attach(s, 10);
+    expect(s.log).toEqual(["pause@10"]);
+    life.setHeld(false, 20);
+    expect(s.log).toEqual(["pause@10", "resume@20"]);
+  });
+
+  it("a held clock stops under the menu and goes on exactly", () => {
+    const { life, saved } = setup();
+    life.setXrVisibility("visible", 0);
+    const s = new ClockSession();
+    life.attach(s, 0);
+    life.setHeld(true, 10_000);
+    life.setHeld(false, 70_000);
+    expect(s.elapsed(75_000)).toBe(15_000);
+    expect((saved[saved.length - 1] as BoxSnapshot).elapsedMs).toBe(10_000);
+  });
+
   it("pauses once when the page hides while XR is blurred, and resumes only when both are back", () => {
     const { life } = setup();
     life.setXrVisibility("visible", 0);
