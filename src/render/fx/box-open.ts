@@ -89,7 +89,7 @@ export class BoxOpenFx {
       depthWrite: false,
       toneMapped: false,
     });
-    this.burst =new Mesh(sunburstGeometry(BOX_OPEN_FX.burstRays, 0.3, 0.1), this.burstMat);
+    this.burst = new Mesh(sunburstGeometry(BOX_OPEN_FX.burstRays, 0.3, 0.1), this.burstMat);
     this.burst.name = "Box Burst";
     this.burst.position.set(0, 0, 0.005);
     this.burst.renderOrder = 3;
