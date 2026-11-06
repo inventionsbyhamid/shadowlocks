@@ -11,6 +11,8 @@ export const COACH = {
   /** The old line fades out over this long (ms), the new one in over this long. */
   fadeOutMs: 250,
   fadeInMs: 300,
+  /** A line asked for and then not stays this long (ms), so one asked for on and off never flickers. */
+  holdMs: 1200,
   /** Lettering (mm): bigger than a sound caption's 11 mm, for one line read at 55 cm. */
   fontMm: 13,
   lineGapMm: 4,
@@ -65,6 +67,25 @@ export function wrapCoach(text: string, maxChars: number): string[] {
     else lines.push(w);
   }
   return lines;
+}
+
+/**
+ * A line that comes and goes as play does (the session's "set a controller down" while a finger lock is short): shown
+ * as soon as it is asked for, kept until it has not been asked for COACH.holdMs, so a condition crossing its
+ * threshold back and forth never flickers it. Another line takes over at once.
+ */
+export class LineHold {
+  private line: string | null = null;
+  private offMs = 0;
+
+  /** This frame's line (null: none asked for), `dtMs` since the last; returns the line to show. */
+  update(want: string | null, dtMs: number): string | null {
+    if (want !== null) {
+      this.line = want;
+      this.offMs = 0;
+    } else if (this.line !== null && (this.offMs += Math.max(0, dtMs)) >= COACH.holdMs) this.line = null;
+    return this.line;
+  }
 }
 
 export interface CoachPainter {

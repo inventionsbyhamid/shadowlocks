@@ -20,7 +20,6 @@ import { Reward, type RewardHands } from "../render/reward";
 import { type FrameTips, frameTips } from "../ui/fingertips";
 import { HINT_ASK, HintLantern } from "../ui/hint-lantern";
 import { NO_TIPS } from "../ui/key-view";
-import { COPY } from "../ui/copy";
 import { Plate } from "../ui/plate";
 import { BoxSession } from "./box-session";
 import { FingerLockLoop } from "./finger-lock";
@@ -145,9 +144,9 @@ export class GameView implements SessionView {
     return this.hintLantern.worldPos(out);
   }
 
+  /** The session's suggestion: the lessons' coach line shows it (the one place coach text shows). */
   coach(line: CoachLine | null): void {
     this.coachLine = line;
-    this.plate.coach(line ? COPY.game[line] : null);
   }
 
   update(dtMs: number, stage: Stage): number {

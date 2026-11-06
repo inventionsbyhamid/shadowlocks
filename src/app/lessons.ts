@@ -32,6 +32,9 @@ import { go } from "./screens";
 import type { SettingsStore } from "./settings";
 import { registerAppSystem } from "./systems";
 import { TIP_LINES, tipDone, tipFor } from "./tips";
+import { LineHold } from "../ui/coach-line";
+import { COPY } from "../ui/copy";
+import type { CoachLine } from "./events";
 
 /** The menu drawer as lesson 2 reads it (the menus' DrawerPull: `update(joints, tMs)` returns its state). */
 export type DrawerState = "closed" | "opening" | "open";
@@ -61,7 +64,7 @@ export interface LessonsDeps {
   lantern: Lantern;
   hands: HandsInBox;
   sound: { game: { lessonStep(): void; settle(): void; crystallise(lock: number): void } };
-  play: { game: Game; session: BoxSession };
+  play: { game: Game; session: BoxSession; view: { readonly coachLine: CoachLine | null } };
   /** The player is in XR: lessons wait outside it (the box forms as they enter). */
   presenting(): boolean;
   drawer?: LessonDrawer;
@@ -74,7 +77,7 @@ export class Lessons {
   /** The lesson running is practice (`?lesson=`): its steps and its end change nothing about progress. */
   practice = false;
   /** The box in play when a replay started, put back when it ends. */
-  private saved: { spec: BoxSpec; snap: BoxSnapshot | null } | null = null;
+  private saved: { spec: BoxSpec; snap: BoxSnapshot | null; practice: boolean } | null = null;
   private drawerOpen = false;
   private starting = false;
   private tip: TipId | null = null;
@@ -83,6 +86,8 @@ export class Lessons {
   /** Made once: the frame passes them every frame. */
   private readonly onScreen: { lesson: LessonId | null } = { lesson: null };
   private readonly isOpen = (lock: number) => this.d.play.session.isOpen(lock);
+  /** The session's suggestion, held through brief drops (a finger lock's coverage crossing its threshold). */
+  private readonly hold = new LineHold();
 
   constructor(private readonly d: LessonsDeps) {
     const { lantern, hands, settings } = d;
@@ -128,7 +133,8 @@ export class Lessons {
     this.starting = true;
     this.director.start(id, step);
     this.starting = false;
-    this.d.play.game.play({ kind: "lesson", id }, lessonSnapshot(id, this.director.step, left));
+    // Practice (`?lesson=`) plays the box as the session's practice too: never saved, solved or collected.
+    this.d.play.game.play({ kind: "lesson", id }, lessonSnapshot(id, this.director.step, left), this.practice);
   }
 
   /**
@@ -155,8 +161,8 @@ export class Lessons {
     const dir = this.director, session = this.d.play.session;
     // The player left the lesson (another box was started): the lesson stops where it is.
     const lesson = dir.lesson;
-    if (lesson && !dir.replaying && !dir.done) {
-      const s = session.saving;
+    if (lesson && !dir.replaying && !dir.done && session.stage !== "loading") {
+      const s = session.spec;
       if (!s || s.kind !== "lesson" || s.id !== lesson) dir.stop();
     }
     const on = dir.replaying ? EXAMPLES[dir.replaying].lesson : dir.done ? null : dir.lesson;
@@ -164,8 +170,11 @@ export class Lessons {
       if (dir.lesson === "l2" && dir.step === LESSON_DRAWER_STEP && !dir.replaying && this.drawer.update(handJoints, tMs) === "open") this.drawerOpen = true;
       dir.update(tMs);
     }
+    // One coach line: a lesson's, else the session's suggestion (held through brief drops), else a tip.
+    const asked = this.d.play.view.coachLine;
+    const held = this.hold.update(asked ? COPY.game[asked] : null, dt);
     this.onScreen.lesson = on;
-    this.view.update(dir.frame, this.onScreen, on ? dir.frame.line : this.tipLine(session), dt, tMs);
+    this.view.update(dir.frame, this.onScreen, on ? dir.frame.line : (held ?? this.tipLine(session)), dt, tMs);
   }
 
   /** The tip for the box in play: shown the first time its mechanic matters, until the player has done it. */
@@ -211,14 +220,15 @@ export class Lessons {
   private replayed(_ex: ExampleId, lesson: LessonId, start: boolean): void {
     const { game, session } = this.d.play;
     if (start) {
-      // What was in play, as it would be saved now; the example's lesson box afresh meanwhile.
-      this.saved = session.box && session.spec ? { spec: { ...session.spec }, snap: session.snapshot() } : null;
-      game.play({ kind: "lesson", id: lesson });
+      // What was in play, as it would be saved now; the example's lesson box afresh meanwhile, as practice (nothing
+      // it does is saved, solved or collected).
+      this.saved = session.box && session.spec ? { spec: { ...session.spec }, snap: session.snapshot(), practice: session.practice } : null;
+      game.play({ kind: "lesson", id: lesson }, null, true);
       return;
     }
     const saved = this.saved;
     this.saved = null;
-    if (saved) game.play(saved.spec, saved.snap);
+    if (saved) game.play(saved.spec, saved.snap, saved.practice);
     else go("home");
   }
 }

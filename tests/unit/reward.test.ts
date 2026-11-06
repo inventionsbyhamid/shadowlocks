@@ -5,8 +5,7 @@ import { generateBox } from "../../src/core/generator";
 import type { V3 } from "../../src/core/types";
 import { KEY_EVENT } from "../../src/render/finger-key";
 import { REWARD, Reward, type RewardHands } from "../../src/render/reward";
-import { COPY } from "../../src/ui/copy";
-import { PLATE, plateLayout, wrapTwo } from "../../src/ui/plate";
+import { PLATE, plateLayout } from "../../src/ui/plate";
 import { PokeKey } from "../../src/ui/poke-key";
 
 const DT = 1 / 72;
@@ -134,19 +133,6 @@ describe("the plate", () => {
     }
   });
 
-  it("sets the coach line in two balanced lines on its card, at full size", () => {
-    // Italic serif runs about half an em a letter: the card's lettering is 0.26 of its height.
-    const em = PLATE.coach.h * 5000 * 0.26, width = (s: string) => s.length * 0.5 * em, max = PLATE.coach.w * 5000 * 0.9;
-    const lines = wrapTwo(COPY.game.controllerFinger, width, max);
-    expect(lines).toEqual(["Or set a controller down", "and use your finger."]);
-    for (const l of lines) expect(width(l)).toBeLessThanOrEqual(max);
-    // At least 12 mm lettering, and no wider than the box's plate by much.
-    expect(PLATE.coach.h * 0.26).toBeGreaterThanOrEqual(0.012);
-    expect(PLATE.coach.w).toBeLessThanOrEqual(PLATE.w + 0.04);
-    // A line that fits stays one; one word stays whole.
-    expect(wrapTwo("Hint", width, max)).toEqual(["Hint"]);
-    expect(wrapTwo("x".repeat(80), width, max)).toEqual(["x".repeat(80)]);
-  });
 });
 
 describe("a key on the box", () => {

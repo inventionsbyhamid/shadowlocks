@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COACH, CoachLine, CoachLineView, coachChars, wrapCoach } from "../../src/ui/coach-line";
+import { COACH, CoachLine, CoachLineView, coachChars, LineHold, wrapCoach } from "../../src/ui/coach-line";
 import { COPY } from "../../src/ui/copy";
 
 const strings = (v: unknown): string[] =>
@@ -110,6 +110,29 @@ describe("CoachLine", () => {
     c.update(16);
     expect(c.opacity).toBeGreaterThan(0.5);
     expect(p.painted).toHaveLength(1);
+  });
+});
+
+describe("LineHold", () => {
+  it("shows a line at once and keeps it through short drops, so a line asked for on and off never flickers", () => {
+    const h = new LineHold();
+    expect(h.update(null, 16)).toBeNull();
+    expect(h.update(COPY.game.controllerFinger, 16)).toBe(COPY.game.controllerFinger);
+    // Asked for on and off every few frames (coverage crossing the gap's threshold): it stays up.
+    for (let i = 0; i < 100; i++) expect(h.update(i % 3 === 0 ? null : COPY.game.controllerFinger, 16)).toBe(COPY.game.controllerFinger);
+    // Gone for good: it goes once it has not been asked for for COACH.holdMs.
+    let t = 0;
+    while (h.update(null, 16) !== null) t += 16;
+    // (The flicker loop's last frame was already a drop.)
+    expect(t).toBeGreaterThanOrEqual(COACH.holdMs - 48);
+    expect(t).toBeLessThanOrEqual(COACH.holdMs + 16);
+    // A different line takes over at once.
+    h.update(COPY.lessons.watch, 16);
+    expect(h.update(COPY.lessons.yourTurn, 16)).toBe(COPY.lessons.yourTurn);
+  });
+
+  it("fits the session's controller line in two lines", () => {
+    expect(wrapCoach(COPY.game.controllerFinger, coachChars())).toEqual(["Or set a controller down", "and use your finger."]);
   });
 });
 
