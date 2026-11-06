@@ -230,6 +230,11 @@ export class LessonsDirector {
     return this.replayEx;
   }
 
+  /** An example is showing (a lesson's own or a replay): the ghost has the lantern, so the drawer stays shut. */
+  get showing(): boolean {
+    return this.script !== null;
+  }
+
   /** Start lesson `id` at the start of step `fromStep` (a resumed lesson; a damaged step number starts it over). */
   start(id: LessonId, fromStep = 0): void {
     const steps = LESSON_STEPS[id];

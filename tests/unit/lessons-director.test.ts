@@ -553,6 +553,29 @@ describe("LessonsDirector: replay", () => {
     r.run(500);
     expect(r.d.replay("rings")).toBe(false);
   });
+
+  it("says when an example is showing (the drawer stays shut meanwhile)", () => {
+    const r = rig();
+    expect(r.d.showing).toBe(false);
+    r.d.start("l1", 1);
+    r.run(500);
+    expect(r.d.showing).toBe(false);
+    // A lesson's own example, from its first frame to its last.
+    r.d.start("l1", 2);
+    expect(r.d.showing).toBe(true);
+    r.run(16);
+    expect(r.d.showing).toBe(true);
+    watch(r);
+    expect(r.d.showing).toBe(false);
+    // A replay, until it hands the box back.
+    r.d.replay("rings");
+    expect(r.d.showing).toBe(true);
+    watch(r);
+    expect(r.d.showing).toBe(false);
+    r.d.replay("move");
+    r.d.stop();
+    expect(r.d.showing).toBe(false);
+  });
 });
 
 describe("lesson copy", () => {
