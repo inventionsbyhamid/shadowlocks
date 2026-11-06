@@ -55,10 +55,11 @@ lane_clear() { local ids; ids=$(docker ps -aq --filter "label=shadowlocks.lane=$
 # <name>.lock shared (fd 9), but only once no one waits for it exclusively. flock gives a new shared
 # lock even while an exclusive request waits, so a stream of shared runs could keep a --lock run (or
 # an older script's) out for good: a blocked exclusive request shows in /proc/locks as
-# "-> FLOCK ADVISORY WRITE <pid> <dev>:<inode>", and while one is there for this file, no new shared
-# hold starts. Polls every 2 s; false (1) after WAIT s in all.
+# "-> FLOCK ADVISORY WRITE <pid> <major>:<minor>:<inode>" (device numbers in hex), and while one is
+# there for this file, no new shared hold starts. Polls every 2 s; false (1) after WAIT s in all.
 lock_shared() {
-  local name=$1 slots=$2 end=$((SECONDS + WAIT)) i ino
+  # 10#: a leading zero (0600) is decimal, not octal.
+  local name=$1 slots=$2 end=$((SECONDS + 10#$WAIT)) i st dev key
   while :; do
     for i in $(seq 1 "$slots"); do
       exec 6>"$LOCKS/$name.slot$i.lock"
@@ -69,8 +70,11 @@ lock_shared() {
     sleep 2
   done
   exec 9>"$LOCKS/$name.lock"
-  ino=$(stat -c %i "$LOCKS/$name.lock") || return 1
-  until ! grep -qE -- "-> FLOCK +ADVISORY +WRITE +[0-9]+ [0-9a-f]+:[0-9a-f]+:$ino " /proc/locks && flock -n -s 9; do
+  # The file open on fd 9, as /proc/locks names it: the kernel's major and minor of st_dev, in hex.
+  st=$(stat -L -c '%d %i' /dev/fd/9) && [[ $st =~ ^[0-9]+\ [0-9]+$ ]] || return 1
+  dev=${st% *}
+  key=$(printf '%02x:%02x:%s' $(((dev >> 8) & 0xfff)) $(((dev & 0xff) | ((dev >> 12) & 0xfff00))) "${st#* }")
+  until ! grep -qE -- "-> FLOCK +ADVISORY +WRITE +[0-9]+ $key " /proc/locks && flock -n -s 9; do
     [ "$SECONDS" -lt "$end" ] || return 1
     sleep 2
   done

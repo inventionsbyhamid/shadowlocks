@@ -8,24 +8,28 @@
 #   exclusive  runs alone: no other browser run of any lane goes meanwhile. A run is exclusive when
 #              - it names no spec file (the full suite; a --grep alone still spans every spec), or
 #              - any argument (a spec path or filter, a --grep, any option) contains cost,
-#                perf-budget, bot, store or tests/video, ignoring case: timing-sensitive or long specs, or
-#              - a spec filter also matches such a spec here (Playwright reads filters as patterns:
-#                "lantern" runs lantern-cost.spec.ts too) or matches no spec here at all, or
-#              - NS_E2E_EXCLUSIVE=1 is set.
+#                perf-budget, bot, store, shadows, lantern or tests/video, ignoring case, or
+#              - a spec filter is not a plain path or name (after an optional :line, only letters,
+#                digits and . _ / -, and not /.../; anything else is a pattern this script does not
+#                follow), or
+#              - a spec filter matches a spec here whose name is one of those or which carries the
+#                line "// e2e: exclusive" (every spec that gates on wall-clock time must), or matches
+#                no spec here at all (Playwright reads filters as patterns: "hand" runs
+#                hand-cost.spec.ts too), or
+#              - NS_E2E_EXCLUSIVE is set to anything but empty or 0.
 #   functional anything else: up to two functional runs (of any lanes) go at once.
-# An exclusive run waits until every other run has ended, and none starts while one waits or runs.
-# scripts/e2e.sh --print-mode <args> says which kind a run would be.
+# An exclusive run waits until every other run has ended. Once its lock request waits on the server
+# (after the pre-wait below), no new run starts ahead of it; during its pre-wait on this Mac,
+# functional runs still start. scripts/e2e.sh --print-mode <args> says which kind a run would be.
 #
 # First waits up to NS_E2E_PREWAIT seconds (default 1800) while the server is busy (load > 25) or too
 # many browser containers run (an exclusive run wants none, a functional one fewer than two). Then:
 #   - a functional run still facing two gives up (exit 75);
-#   - an exclusive run queues for the lock anyway: a queued exclusive request goes before any new
-#     run, so it starts as soon as the runs going now have ended.
+#   - an exclusive run queues for the lock anyway, and starts as soon as the runs holding it end.
 # It then holds the "e2e" lock while the browser container runs: exclusively (remote.sh --lock e2e) or
 # shared in one of two slots (remote.sh --lock-shared e2e). Waiting for the lock gives up after
 # NS_LOCK_WAIT seconds (default 3600) with exit 75. Older copies of this script hold the same lock
-# exclusively, so they never overlap with any run of this one. NS_E2E_LOCK names another lock instead
-# of "e2e": only for experiments with the locks.
+# exclusively, so they never overlap with any run of this one.
 # A run that writes a lot (a video render) sets NS_EXPECT_GB=<n>: it then needs 100 + n GB free.
 # Screenshots come back in test-results/shots/, failure reports in test-results/artifacts/, and
 # notes the tests leave in test-results/notes.txt are printed at the end (remote.sh does that).
@@ -40,9 +44,10 @@ MAX_LOAD=${NS_MAX_LOAD:-25}
 # spec's path in the container, /work/tests/...) against the spec files of this checkout.
 e2e_mode() (
   shopt -s nocasematch
-  hot='cost|perf-budget|bot|store|tests/video'
+  hot='cost|perf-budget|bot|store|shadows|lantern|tests/video'
   linecol='^([^:]*):[0-9]+(:[0-9]+)?$'
-  if [ "${NS_E2E_EXCLUSIVE:-}" = 1 ]; then echo exclusive; exit 0; fi
+  plain='^[A-Za-z0-9._/-]+$'
+  case ${NS_E2E_EXCLUSIVE:-0} in 0) ;; *) echo exclusive; exit 0 ;; esac
   specs=$(cd "$ROOT" && find tests -name '*.spec.ts' -type f 2>/dev/null) || specs=
   filters=0 skip=
   for a in "$@"; do
@@ -56,16 +61,13 @@ e2e_mode() (
     esac
     filters=$((filters + 1))
     if [[ $a =~ $linecol ]]; then a=${BASH_REMATCH[1]}; fi
+    # /.../ is Playwright's own pattern form.
+    if ! [[ $a =~ $plain ]] || [[ $a == /*/ ]]; then echo exclusive; exit 0; fi
     n=0
     for f in $specs; do
-      rc=0
-      [[ /work/$f =~ $a ]] || rc=$?
-      # 2: not a pattern bash can read, so what it runs is unknown.
-      if [ "$rc" -eq 2 ]; then echo exclusive; exit 0; fi
-      if [ "$rc" -eq 0 ]; then
-        n=$((n + 1))
-        if [[ $f =~ $hot ]]; then echo exclusive; exit 0; fi
-      fi
+      [[ /work/$f =~ $a ]] || continue
+      n=$((n + 1))
+      if [[ $f =~ $hot ]] || grep -qF '// e2e: exclusive' "$ROOT/$f"; then echo exclusive; exit 0; fi
     done
     if [ "$n" -eq 0 ]; then echo exclusive; exit 0; fi
   done
@@ -80,9 +82,8 @@ fi
 
 LANE=${NS_LANE:-$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null | sed -n 's#^lane/##p')}
 LANE=${LANE:-main}
-LOCK=${NS_E2E_LOCK:-e2e}
 PREWAIT=${NS_E2E_PREWAIT:-1800}
-[[ $PREWAIT =~ ^[0-9]{1,6}$ ]] || { echo "bad NS_E2E_PREWAIT: $PREWAIT (whole seconds)" >&2; exit 2; }
+[[ $PREWAIT =~ ^(0|[1-9][0-9]{0,5})$ ]] || { echo "bad NS_E2E_PREWAIT: $PREWAIT (whole seconds, no leading zero)" >&2; exit 2; }
 MODE=$(e2e_mode "$@")
 if [ "$MODE" = exclusive ]; then
   MAX_BUSY=0 LOCK_OPT=--lock
@@ -112,8 +113,8 @@ if [ "$busy" -gt "$MAX_BUSY" ]; then
     exit 75
   fi
   # A load still over the limit is refused by remote.sh (exit 3), as before.
-  echo "e2e: $busy browser runs still going after $PREWAIT s; queueing for the '$LOCK' lock (no new run starts while this one waits)" >&2
+  echo "e2e: $busy browser runs still going after $PREWAIT s; queueing for the 'e2e' lock (once it waits there, no new run starts ahead of it)" >&2
 fi
 
-exec "$ROOT/scripts/remote.sh" "$LANE" --image shadowlocks-e2e --shm 2g "$LOCK_OPT" "$LOCK" --pull test-results \
+exec "$ROOT/scripts/remote.sh" "$LANE" --image shadowlocks-e2e --shm 2g "$LOCK_OPT" e2e --pull test-results \
   ${NS_EXPECT_GB:+--expect-gb "$NS_EXPECT_GB"} -- npx playwright test "$@"
