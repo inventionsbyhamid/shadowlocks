@@ -24,7 +24,7 @@ Always import `test` and `expect` from `./helpers/test`, not from `@playwright/t
   `test-results/artifacts/<test>/`.
 - Every test fails if the page asked any host but the local server for anything (offline rule).
 
-An offline spec (`offline.spec.ts`, with the ship work) is different: the dev server has no service worker, so it first builds the app for
+The offline spec (`offline.spec.ts`) is different: the dev server has no service worker, so it first builds the app for
 production with the test hooks and the emulator (`helpers/pwa-site.ts`, about a minute, into
 `dist-e2e/`, without the emulator's synthetic room) and serves that on port 8082 with the headers
 from `public/_headers`, the report-only CSP sent enforced. The update test serves a copy on port
