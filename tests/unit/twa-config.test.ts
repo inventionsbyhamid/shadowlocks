@@ -38,13 +38,14 @@ const dirs: string[] = [];
 afterAll(() => {
   for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
 });
-/** An empty folder, optionally with a copy of the privacy page (the fill writes its support link). */
+/** An empty folder, optionally with a privacy page whose support link is still the placeholder (the fill writes it). */
 function tmpRoot(withPrivacy = false): string {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), "twa-config-"));
   dirs.push(d);
   if (withPrivacy) {
     fs.mkdirSync(path.join(d, "public"), { recursive: true });
-    fs.copyFileSync(PRIVACY, path.join(d, PRIVACY));
+    const p = "REPLACE_WITH_SUPPORT_EMAIL";
+    fs.writeFileSync(path.join(d, PRIVACY), `<p>Email <a id="support-email" href="mailto:${p}">${p}</a>.</p>\n`);
   }
   return d;
 }
@@ -57,6 +58,11 @@ describe("the committed Quest app configs", () => {
     const r = run(process.cwd(), "check", "--allow-placeholders");
     expect(r.out).toMatch(/twa-config: ok/);
     expect(r.status).toBe(0);
+  });
+
+  it("use the owner's package ids, which are permanent once uploaded", () => {
+    expect(store.packageId).toBe("com.shadowlocks");
+    expect(competition.packageId).toBe("com.shadowlocks.judge");
   });
 
   it("open the public host from the store app and the judge host from the Competition app", () => {
@@ -139,7 +145,7 @@ describe("filling in what the owner sends", () => {
     expect(page).toContain('<a id="support-email" href="mailto:help@example.com">help@example.com</a>');
     expect(page).not.toContain("REPLACE_WITH");
     const c = run(root, "check");
-    expect(c.out).toMatch(/twa-config: ok: store com\.inventionsbyhamid\.shadowlocks on shadowlocks\.pages\.dev \(App ID 1234567890123456/);
+    expect(c.out).toMatch(/twa-config: ok: store com\.shadowlocks on shadowlocks\.pages\.dev \(App ID 1234567890123456/);
     expect(c.status).toBe(0);
   });
 
@@ -184,7 +190,7 @@ describe("filling in what the owner sends", () => {
       expect(r.status, args.join(" ")).toBe(2);
     }
     expect(fs.existsSync(path.join(root, STORE))).toBe(false);
-    const same = run(root, "fill", "--competition-package", "com.inventionsbyhamid.shadowlocks");
+    const same = run(root, "fill", "--competition-package", "com.shadowlocks");
     expect(same.status).toBe(1);
     expect(same.out).toMatch(/both apps use the package id/);
     expect(run(root, "fill", "--store-host", "shadowlocks-judge.pages.dev").out).toMatch(/both apps open/);

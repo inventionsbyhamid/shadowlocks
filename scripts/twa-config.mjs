@@ -33,16 +33,17 @@ const NAME = "Shadow Locks";
 /** Where the build container mounts the keystore (plan: never in the repo, deleted after each build). */
 const KEYSTORE = { path: "/secrets/shadowlocks-android.keystore", alias: "shadowlocks" };
 
+/** The owner's package ids (decided 2026-11-06): permanent once the first APK of each app is uploaded. */
 export const APPS = {
   store: {
     file: "twa/store/twa-manifest.json",
-    packageId: "com.inventionsbyhamid.shadowlocks",
+    packageId: "com.shadowlocks",
     host: "shadowlocks.pages.dev",
     appIdPlaceholder: "REPLACE_WITH_STORE_APP_ID",
   },
   competition: {
     file: "twa/competition/twa-manifest.json",
-    packageId: "com.inventionsbyhamid.shadowlocks.judge",
+    packageId: "com.shadowlocks.judge",
     host: "shadowlocks-judge.pages.dev",
     appIdPlaceholder: "REPLACE_WITH_COMPETITION_APP_ID",
   },

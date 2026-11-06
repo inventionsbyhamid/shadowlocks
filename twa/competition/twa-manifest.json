@@ -1,5 +1,5 @@
 {
-  "packageId": "com.inventionsbyhamid.shadowlocks.judge",
+  "packageId": "com.shadowlocks.judge",
   "applicationId": "REPLACE_WITH_COMPETITION_APP_ID",
   "host": "shadowlocks-judge.pages.dev",
   "name": "Shadow Locks",
