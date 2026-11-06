@@ -92,7 +92,9 @@ export function twaManifest(app) {
     backgroundColor: THEME,
     enableNotifications: false,
     enableMicrophone: false,
-    enableXRScene: true,
+    // No scene permission: the game reads no room data (iwsdk.config.json: sceneUnderstanding and environmentRaycast
+    // off; the box is placed from the head pose), and VRC Security.2 allows only permissions the app uses.
+    enableXRScene: false,
     startUrl: "/",
     iconUrl: url("/icons/icon-512.png"),
     maskableIconUrl: url("/icons/icon-512-maskable.png"),

@@ -15,7 +15,7 @@
   "backgroundColor": "#1a1410",
   "enableNotifications": false,
   "enableMicrophone": false,
-  "enableXRScene": true,
+  "enableXRScene": false,
   "startUrl": "/",
   "iconUrl": "https://shadowlocks-judge.pages.dev/icons/icon-512.png",
   "maskableIconUrl": "https://shadowlocks-judge.pages.dev/icons/icon-512-maskable.png",

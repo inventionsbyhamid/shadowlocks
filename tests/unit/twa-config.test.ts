@@ -93,6 +93,14 @@ describe("the committed Quest app configs", () => {
     }
   });
 
+  it("ask for no permission the game does not use: no scene, microphone or notifications", () => {
+    for (const m of [store, competition]) {
+      expect(m.enableXRScene).toBe(false);
+      expect(m.enableMicrophone).toBe(false);
+      expect(m.enableNotifications).toBe(false);
+    }
+  });
+
   it("take the walnut theme colour of the page and the web manifest", () => {
     for (const m of [store, competition]) {
       for (const k of ["themeColor", "themeColorDark", "navigationColor", "navigationColorDark", "backgroundColor"]) {
