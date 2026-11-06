@@ -2,6 +2,9 @@
 // module behind that flag, so production bundles drop it).
 import { type Matrix4, Quaternion, Vector3, type World } from "@iwsdk/core";
 import { generateBox } from "../core/generator";
+import { lang } from "../i18n";
+import { boxTextFits } from "../ui/box-text";
+import { loadCanvasFonts } from "../ui/fonts";
 import { mirrorBox } from "../core/mirror";
 import type { Settings } from "../core/profile";
 import { meets, SKIP_MISSING, shadowBuffers, shadowPolys } from "../core/solve";
@@ -525,5 +528,15 @@ export function installTestHooks(
     },
     sound: app.sound.game,
     captions: () => app.sound.captionsShown(),
+    i18n: {
+      lang: () => ({ shown: lang(), doc: document.documentElement.lang }),
+      texts: () => view.texts(),
+      boxFits: async () => {
+        await loadCanvasFonts("ja");
+        const g = document.createElement("canvas").getContext("2d");
+        if (!g) throw new Error("no 2D canvas");
+        return boxTextFits(g);
+      },
+    },
   };
 }

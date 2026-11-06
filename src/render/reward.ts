@@ -5,9 +5,10 @@
 // shown. The plaque and card are made once per box; per frame nothing is allocated.
 import { ExtrudeGeometry, Group, type Material, Mesh, MeshBasicMaterial, type Object3D, PlaneGeometry, Shape, Vector3 } from "@iwsdk/core";
 import type { Box, V2, V3 } from "../core/types";
-import { COPY, fill } from "../ui/copy";
+import { copy, type Lang, lang, storyLoot, storyOwner } from "../i18n";
+import { fill } from "../ui/copy";
 import { clamp01, outBack, outCubic } from "./fx/ease";
-import { LABEL_FONT, LabelCanvas, roundRect } from "./label";
+import { fitLabel, LabelCanvas, labelFont, roundRect, wrapLabel } from "./label";
 import { mergeParts } from "./merge";
 import { COLORS } from "./theme";
 
@@ -27,9 +28,42 @@ export const REWARD = {
   takeS: 0.45,
   /** The plaque: size and thickness (box units); each shape's size on it and their spacing. */
   plaque: { w: 0.34, h: 0.14, d: 0.012, shape: 0.1, gap: 0.11, relief: 0.014 },
-  /** The story card above it (box units), and its canvas. */
-  card: { w: 0.62, h: 0.12, above: 0.14, px: [1024, 198] as const },
+  /**
+   * The story card above it (box units), and its canvas: room for the two sentences on a line each, or on two lines
+   * each where a language's sentence is longer (the card drawn only as tall as its lines, centred where it was).
+   */
+  card: { w: 0.62, h: 0.2, above: 0.14, px: [1024, 330] as const },
 } as const;
+
+/**
+ * The story lines' lettering (canvas px on the 1024 px card): 54 px where both sentences fit a line each, smaller in
+ * steps to no less than English itself needs for its longest sentence (44 px); past that a sentence wraps onto a
+ * second line rather than shrink. Lines are this far apart (times the size), inside this much side room.
+ */
+export const STORY = { max: 54, floor: 44, lineH: 1.35, padY: 22, room: 1024 - 70, linesEach: 2 } as const;
+
+/** How the story's two sentences are set: their size and lines, and whether one is still too wide (squeezed). */
+export interface StoryLayout {
+  size: number;
+  lines: string[];
+  squeezed: boolean;
+}
+
+/** Set the box's two story sentences in `g` (language `l`): one line each where they fit, else wrapped. */
+export function storyLayout(g: Parameters<typeof fitLabel>[0], owner: string, loot: string, l: Lang = lang()): StoryLayout {
+  const S = STORY;
+  const a = fitLabel(g, owner, "italic", S.max, S.floor, S.room, l);
+  const b = fitLabel(g, loot, "italic", S.max, S.floor, S.room, l);
+  if (!a.squeezed && !b.squeezed) {
+    const size = Math.min(a.size, b.size);
+    g.font = labelFont("italic", size, l);
+    return { size, lines: [owner, loot], squeezed: false };
+  }
+  // At the floor: each sentence on as many lines as it needs, up to two.
+  g.font = labelFont("italic", S.floor, l);
+  const lines = [...wrapLabel(g, owner, S.room, S.linesEach), ...wrapLabel(g, loot, S.room, S.linesEach)];
+  return { size: S.floor, lines, squeezed: lines.some((l) => g.measureText(l).width > S.room) };
+}
 
 /** The hands as the reward needs them: pinch points in box units this frame. */
 export interface RewardHands {
@@ -83,6 +117,8 @@ export class Reward {
   private readonly trinket: Mesh;
   private readonly card: Mesh;
   private readonly label = new LabelCanvas(REWARD.card.px[0], REWARD.card.px[1]);
+  /** The box whose story the card tells (repainted in a new language). */
+  private box: Box | null = null;
   private phase: Phase = "hidden";
   private t = 0;
   private wait = 0;
@@ -114,11 +150,31 @@ export class Reward {
   /** Make this box's reward (hidden until the box opens). */
   setBox(box: Box | null): void {
     this.hide();
+    this.box = box;
     if (!box) return;
     this.trinket.geometry.dispose();
     this.trinket.geometry = trinketGeometry(box);
+    this.paintStory();
+  }
+
+  /** The two story sentences in the language shown (the saved English words translated by place). */
+  get story(): [string, string] {
+    const b = this.box, g = copy().game;
+    if (!b) return ["", ""];
+    return [fill(g.storyOwner, { owner: storyOwner(b.owner) }), fill(g.storyLoot, { loot: storyLoot(b.loot) })];
+  }
+
+  /** The language changed (or its font arrived): the story card again. */
+  relabel(): void {
+    if (this.box) this.paintStory();
+  }
+
+  private paintStory(): void {
+    const [a, b] = this.story;
     this.label.paint((g, w, h) => {
-      roundRect(g, 4, 4, w - 8, h - 8, 26);
+      const L = storyLayout(g, a, b);
+      const lineH = L.size * STORY.lineH, block = L.lines.length * lineH, ch = block + 2 * STORY.padY;
+      roundRect(g, 4, (h - ch) / 2, w - 8, ch, 26);
       g.fillStyle = "rgba(20, 16, 22, 0.86)";
       g.fill();
       g.lineWidth = 4;
@@ -127,19 +183,8 @@ export class Reward {
       g.fillStyle = "#f6e7c4";
       g.textAlign = "center";
       g.textBaseline = "middle";
-      const fit = (s: string, px: number) => {
-        let size = px;
-        g.font = `italic ${size}px ${LABEL_FONT}`;
-        while (g.measureText(s).width > w - 70 && size > 20) {
-          size -= 2;
-          g.font = `italic ${size}px ${LABEL_FONT}`;
-        }
-      };
-      const a = fill(COPY.game.storyOwner, { owner: box.owner }), b = fill(COPY.game.storyLoot, { loot: box.loot });
-      fit(a, 54);
-      g.fillText(a, w / 2, h * 0.33);
-      fit(b, 54);
-      g.fillText(b, w / 2, h * 0.7);
+      const top = (h - block) / 2 + lineH / 2;
+      L.lines.forEach((line, i) => g.fillText(line, w / 2, top + i * lineH, STORY.room));
     });
   }
 

@@ -25,6 +25,7 @@ import { BoxSession } from "./box-session";
 import { FingerLockLoop } from "./finger-lock";
 import type { FingerSource } from "./session-fingers";
 import { emit } from "./bus";
+import { onLangChange } from "../i18n";
 import type { HintLevel } from "./events";
 import { HintMarks } from "./hints";
 import type { Lantern } from "./lantern-system";
@@ -82,6 +83,22 @@ export class GameView implements SessionView {
       started: (i) => hands[i].edge === "start",
       busy: (i) => d.lantern.grab.holding(i),
     };
+    // The box's lettering repaints once when the language changes (or its font arrives), never per frame.
+    onLangChange(() => this.relabel());
+  }
+
+  /** Paint the plate, the box's keys and the story card again in the language shown. */
+  relabel(): void {
+    this.plate.relabel();
+    this.hintLantern.relabel();
+    this.reward.relabel();
+  }
+
+  /** What the box's lettering says now, for the test hooks. */
+  texts(): { plate: string; keys: Record<string, string>; story: [string, string] } {
+    const keys: Record<string, string> = {};
+    for (const k of [this.plate.next, this.hintLantern.hint, this.hintLantern.showMe]) keys[k.id] = k.labelText;
+    return { plate: this.plate.title, keys, story: this.reward.story };
   }
 
   setBox(box: Box, spec: BoxSpec): void {

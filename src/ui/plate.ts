@@ -6,8 +6,9 @@
 import { Group, Mesh, MeshBasicMaterial, type Object3D, PlaneGeometry } from "@iwsdk/core";
 import type { Box, BoxSpec } from "../core/types";
 import { KEY_EVENT } from "../render/finger-key";
-import { brassFace, LABEL_FONT, LabelCanvas } from "../render/label";
-import { COPY, fill } from "./copy";
+import { copy, type Lang } from "../i18n";
+import { brassFace, fitLabel, LabelCanvas, type LabelFit, labelFont } from "../render/label";
+import { fill } from "./copy";
 import type { Tips } from "./key-view";
 import { PokeKey } from "./poke-key";
 
@@ -40,13 +41,26 @@ export function plateLayout(w: number, h: number, n: number): { nameX: number; n
   return { nameX, nameMax: end - nameX, lightX, lightR };
 }
 
+/** The plate's name for a box in the language now shown: "Box No. 3", "Daily Box". */
+export function plateName(spec: BoxSpec): string {
+  const g = copy().game;
+  return spec.kind === "box" ? fill(g.boxNo, { n: spec.n }) : spec.kind === "daily" ? g.daily : "";
+}
+
+/** How `name` sits on the plate beside `n` latch lights (canvas px) in language `l`: the fit it is painted with. */
+export function plateNameFit(g: Parameters<typeof fitLabel>[0], name: string, n: number, l?: Lang): LabelFit {
+  const w = Math.round(PLATE.w * PX), h = Math.round(PLATE.h * PX);
+  return fitLabel(g, name, "bold", h * NAME_SIZE, h * NAME_FLOOR, plateLayout(w, h, n).nameMax, l);
+}
+
 export class Plate {
   /** Cancels the box's scale: everything under it is in metres. */
   readonly group = new Group();
-  readonly next = new PokeKey("plate-next", PLATE.key.w, PLATE.key.h, COPY.game.next);
+  readonly next = new PokeKey("plate-next", PLATE.key.w, PLATE.key.h, copy().game.next);
   private readonly face: Mesh;
   private readonly label = new LabelCanvas(Math.round(PLATE.w * PX), Math.round(PLATE.h * PX));
   private name = "";
+  private spec: BoxSpec | null = null;
   private locks = 0;
   private readonly lit = [false, false, false];
   private scale = 0;
@@ -71,10 +85,26 @@ export class Plate {
   setBox(box: Box | null, spec: BoxSpec | null): void {
     this.group.visible = box !== null;
     if (!box || !spec) return;
-    this.name = spec.kind === "box" ? fill(COPY.game.boxNo, { n: spec.n }) : spec.kind === "daily" ? COPY.game.daily : "";
+    this.spec = spec;
+    this.name = plateName(spec);
     this.locks = box.locks.length;
     this.lit.fill(false);
     this.offerNext(false);
+    this.paint();
+  }
+
+  /** The name shown now. */
+  get title(): string {
+    return this.name;
+  }
+
+  /** The language changed (or its font arrived): name the box and the Next key again, and repaint. */
+  relabel(): void {
+    const next = copy().game.next;
+    if (next === this.next.labelText) this.next.refresh();
+    else this.next.setText(next);
+    if (!this.spec) return;
+    this.name = plateName(this.spec);
     this.paint();
   }
 
@@ -122,12 +152,7 @@ export class Plate {
       g.textAlign = "left";
       // The name in the room left of the lights: smaller down to the floor, then condensed (never into a light).
       const L = plateLayout(w, h, n);
-      let size = Math.round(h * NAME_SIZE);
-      g.font = `bold ${size}px ${LABEL_FONT}`;
-      while (g.measureText(name).width > L.nameMax && size > h * NAME_FLOOR) {
-        size -= 2;
-        g.font = `bold ${size}px ${LABEL_FONT}`;
-      }
+      plateNameFit(g, name, n);
       g.fillText(name, L.nameX, h / 2, L.nameMax);
       // The latch lights: a lamp and its numeral each, from the right.
       const r = L.lightR;
@@ -142,7 +167,7 @@ export class Plate {
         g.stroke();
         g.fillStyle = "#2a1d0c";
         g.textAlign = "center";
-        g.font = `bold ${Math.round(h * 0.2)}px ${LABEL_FONT}`;
+        g.font = labelFont("bold", Math.round(h * 0.2), "en");
         g.fillText(ROMAN[i]!, x, h * 0.8);
       }
     });

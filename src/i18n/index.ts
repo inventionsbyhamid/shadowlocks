@@ -40,6 +40,16 @@ export function setLang(l: Lang): void {
   if (l === current) return;
   current = l;
   table = TABLES[l];
+  tell();
+}
+
+/** Ask everything showing text to paint it again in the language shown (a font it draws with has arrived). */
+export function repaintText(): void {
+  tell();
+}
+
+function tell(): void {
+  const l = current;
   for (const fn of [...listeners]) {
     try {
       fn(l);
@@ -60,7 +70,10 @@ export function applyLanguage(setting: LanguageSetting, prefs: readonly string[]
   return current;
 }
 
-/** Told after every change of language (repaint the text you show). Returns a function that stops it. */
+/**
+ * Told after every change of language, and when a font text is drawn with arrives (repaint the text you show).
+ * Returns a function that stops it.
+ */
 export function onLangChange(fn: (l: Lang) => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);

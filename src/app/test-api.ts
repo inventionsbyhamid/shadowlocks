@@ -1,6 +1,7 @@
 import type { GameSounds } from "../audio/cues";
 import type { BoxSnapshot } from "../core/profile";
 import type { BoxSpec, V2, V3, Vec3 } from "../core/types";
+import type { BoxTextFit } from "../ui/box-text";
 import type { FeedbackEvent } from "./bus";
 import type { Screen } from "./screens";
 
@@ -363,6 +364,18 @@ export interface SlApi {
   sound: GameSounds;
   /** The caption texts up now. */
   captions(): string[];
+  /** The game's languages (set one with __ns.ui.setSettings({ language })). */
+  i18n: SlI18n;
+}
+
+/** The game's languages, for tests. */
+export interface SlI18n {
+  /** The language shown, and the page's `lang`. */
+  lang(): { shown: string; doc: string };
+  /** What the box's lettering says now: the plate, the box's keys by id, the story card's two sentences. */
+  texts(): { plate: string; keys: Record<string, string>; story: [string, string] };
+  /** Every piece of the box's lettering in every language, measured once the canvas fonts have loaded. */
+  boxFits(): Promise<BoxTextFit[]>;
 }
 
 declare global {

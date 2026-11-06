@@ -4,8 +4,9 @@
 // (the key lives in a group that cancels the box's scale), so a key is at least 40 mm whatever the box size. One
 // draw call; per frame it allocates nothing and repaints nothing.
 import { Group, Mesh, MeshBasicMaterial, PlaneGeometry, Vector3 } from "@iwsdk/core";
+import type { Lang } from "../i18n";
 import { FingerKey, KEY_EVENT, nearestFinger } from "../render/finger-key";
-import { brassFace, LABEL_FONT, LabelCanvas } from "../render/label";
+import { brassFace, fitLabel, LabelCanvas, type LabelFit } from "../render/label";
 import type { Tips } from "./key-view";
 
 /** How far the face travels under the finger (m). */
@@ -20,6 +21,14 @@ export const LABEL_SIZE = 0.42;
 export const LABEL_FLOOR = 0.34;
 /** The share of the key's width the label may use. */
 const LABEL_ROOM = 0.86;
+
+type Measure = Parameters<typeof fitLabel>[0];
+
+/** How `text` sits on a key `width` x `height` m (canvas px) in language `l`: the fit its label is painted with. */
+export function keyLabelFit(g: Measure, text: string, width: number, height: number, l?: Lang): LabelFit {
+  const w = Math.round(width * PX_PER_M), h = Math.round(height * PX_PER_M);
+  return fitLabel(g, text, "bold", h * LABEL_SIZE, h * LABEL_FLOOR, w * LABEL_ROOM, l);
+}
 
 const tipDist = new Float64Array(2);
 const tipOver = new Uint8Array(2);
@@ -38,6 +47,8 @@ export class PokeKey {
   private readonly label: LabelCanvas;
   private text = "";
   private lit = false;
+  /** An icon face instead of a label (the hint lantern), kept to repaint. */
+  private icon: Parameters<LabelCanvas["paint"]>[0] | null = null;
 
   constructor(
     readonly id: string,
@@ -53,31 +64,43 @@ export class PokeKey {
     this.setText(text);
   }
 
+  /** The label now on the key. */
+  get labelText(): string {
+    return this.text;
+  }
+
   /** The label (repainted only when it changes). */
   setText(text: string, lit = this.lit): void {
-    if (text === this.text && lit === this.lit) return;
+    if (text === this.text && lit === this.lit && !this.icon) return;
     this.text = text;
     this.lit = lit;
+    this.icon = null;
+    this.paintLabel();
+  }
+
+  /** Paint the label again as it is (its font arrived, or the language changed and the words did not). */
+  refresh(): void {
+    if (this.icon) this.label.paint(this.icon);
+    else this.paintLabel();
+  }
+
+  private paintLabel(): void {
+    const text = this.text, lit = this.lit;
     this.label.paint((g, w, h) => {
       brassFace(g, w, h, lit);
       g.fillStyle = "#2a1d0c";
       g.textAlign = "center";
       g.textBaseline = "middle";
       // Full size where it fits; smaller only down to the floor, then condensed: the letters never get too small to read.
-      const room = w * LABEL_ROOM;
-      let size = Math.round(h * LABEL_SIZE);
-      g.font = `bold ${size}px ${LABEL_FONT}`;
-      while (g.measureText(text).width > room && size > h * LABEL_FLOOR) {
-        size -= 2;
-        g.font = `bold ${size}px ${LABEL_FONT}`;
-      }
-      g.fillText(text, w / 2, h / 2 + size * 0.04, room);
+      const f = keyLabelFit(g, text, this.width, this.height);
+      g.fillText(text, w / 2, h / 2 + f.size * 0.04, f.room);
     });
   }
 
   /** A face painted some other way than a label (an icon). */
   paintWith(draw: Parameters<LabelCanvas["paint"]>[0]): void {
     this.text = "";
+    this.icon = draw;
     this.label.paint(draw);
   }
 

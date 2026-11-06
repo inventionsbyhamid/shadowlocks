@@ -18,6 +18,7 @@ import { attachGame } from "./game";
 import { recordHands, recordSeconds } from "./hand-recorder";
 import { attachHands } from "./hand-system";
 import { localInputProfileUrl } from "./input-profiles";
+import { followLanguage } from "./language";
 import { attachLantern } from "./lantern-system";
 import { ProfileStore } from "./profile-store";
 import { SettingsStore } from "./settings";
@@ -63,6 +64,8 @@ async function main(): Promise<void> {
   // The wall clock enters the profile here only (first launch, latest time seen): core code takes times as arguments.
   const store = await ProfileStore.open(video ? video.videoStore() : await openStore(), emit, { now: () => Date.now(), build: APP_VERSION });
   const settings = new SettingsStore(store);
+  // The language before anything paints text: the saved one, or the headset's.
+  followLanguage(settings);
   const shell = new Shell(world, store, settings);
   useShell(shell);
   // Register app systems through registerAppSystem so the test hooks time them all.
