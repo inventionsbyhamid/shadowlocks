@@ -46,7 +46,7 @@ import { mergeParts } from "./merge";
 import { BOX_ROOT_NAME, DEFAULT_BOX_CM } from "./placement";
 import { Panel } from "./panel";
 import { type ScrapHandle, Scraps, slotOf } from "./scraps";
-import { BoxShadows, MAX_EXTRAS, penumbra } from "./shadow-mesh";
+import { BoxShadows, LANTERN_RADIUS, MAX_EXTRAS, PENUMBRA_MAX } from "./shadow-mesh";
 import { COLORS, ENV, type EnvPanel, LIGHTS, MATERIALS } from "./theme";
 
 /** Frame bars: thickness and edge radius (box units). The radius gives the clearcoat a rim to catch light. */
@@ -329,10 +329,14 @@ export class BoxScene {
     const L = this.lantern.getPos(this.lanternAt);
     const extras = this.extras, soft = this.extraSoft;
     let n = this.crystals.castShadows(L, extras, soft);
-    const hands = Math.min(this.handCount, MAX_EXTRAS - n);
+    const room = MAX_EXTRAS - n, hands = this.handCount < room ? this.handCount : room;
+    const Lz = L[2], depth = this.handDepth;
     for (let i = 0; i < hands; i++) {
       extras[n] = this.handOutlines[i]!;
-      soft[n] = penumbra(this.handDepth[i]!, L[2]);
+      // penumbra(depth, Lz) written out: no float crosses a call, so none is boxed (36 of them a frame for two hands).
+      const z = depth[i]!, d = Lz - z;
+      const pen = d > 0 ? (LANTERN_RADIUS * z) / d : PENUMBRA_MAX;
+      soft[n] = pen < PENUMBRA_MAX ? pen : PENUMBRA_MAX;
       n++;
     }
     const changed = hands > 0 || this.crystals.version !== this.castCrystals;

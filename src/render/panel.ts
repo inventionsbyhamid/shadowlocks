@@ -651,7 +651,11 @@ export class Panel {
 
   /** Where the lantern is (box units): its pool of light follows. */
   setLantern(L: V3): void {
-    this.uniforms.uLantern.value.set(L[0], L[1], L[2]);
+    // Written field by field: no float crosses a call (Vector3.set would take three, boxed when not inlined).
+    const u = this.uniforms.uLantern.value;
+    u.x = L[0];
+    u.y = L[1];
+    u.z = L[2];
   }
 
   /** How warm lock `lock` is (0..1, unsmoothed); the glow eases toward it. */
