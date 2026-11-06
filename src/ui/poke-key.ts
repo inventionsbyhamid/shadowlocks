@@ -12,6 +12,14 @@ import type { Tips } from "./key-view";
 export const KEY_TRAVEL_M = 0.006;
 /** Canvas pixels per metre of key. */
 const PX_PER_M = 5000;
+/**
+ * A label's lettering: this share of the key's height (about 18 mm on a 44 mm key), never below the floor (about
+ * 15 mm, over a degree at 55 cm); a label too long for the key's width at the floor is condensed, not shrunk.
+ */
+export const LABEL_SIZE = 0.42;
+export const LABEL_FLOOR = 0.34;
+/** The share of the key's width the label may use. */
+const LABEL_ROOM = 0.86;
 
 const tipDist = new Float64Array(2);
 const tipOver = new Uint8Array(2);
@@ -55,13 +63,15 @@ export class PokeKey {
       g.fillStyle = "#2a1d0c";
       g.textAlign = "center";
       g.textBaseline = "middle";
-      let size = Math.round(h * 0.42);
+      // Full size where it fits; smaller only down to the floor, then condensed: the letters never get too small to read.
+      const room = w * LABEL_ROOM;
+      let size = Math.round(h * LABEL_SIZE);
       g.font = `bold ${size}px ${LABEL_FONT}`;
-      while (g.measureText(text).width > w * 0.86 && size > 10) {
+      while (g.measureText(text).width > room && size > h * LABEL_FLOOR) {
         size -= 2;
         g.font = `bold ${size}px ${LABEL_FONT}`;
       }
-      g.fillText(text, w / 2, h / 2 + size * 0.04);
+      g.fillText(text, w / 2, h / 2 + size * 0.04, room);
     });
   }
 

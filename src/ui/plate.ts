@@ -16,15 +16,29 @@ export const PLATE = {
   at: [0, 0.535, 0.03] as const,
   /** It leans back this much more than the box (radians), to face a seated player's eyes. */
   lean: (-12 * Math.PI) / 180,
-  /** Its size (m): wide enough for the name and three lights, legible at 55 cm. */
-  w: 0.13,
+  /** Its size (m): room for the name beside three lights at full size, legible at 55 cm. */
+  w: 0.17,
   h: 0.034,
-  /** The Next key (m): above the plate. */
-  key: { w: 0.07, h: 0.044, above: 0.012 },
+  /** The Next key (m): above the plate, wide enough for its label at full size. */
+  key: { w: 0.1, h: 0.044, above: 0.012 },
 } as const;
 
 const ROMAN = ["I", "II", "III"];
 const PX = 5000;
+/** The name's lettering: this share of the plate's height, never smaller than the floor (it condenses instead). */
+const NAME_SIZE = 0.46;
+const NAME_FLOOR = 0.36;
+
+/**
+ * The plate's layout on its canvas (`w` x `h` px) with `n` latch lights: each light's centre and radius, and where the
+ * name starts and how wide it may run, so it always stops short of the first light.
+ */
+export function plateLayout(w: number, h: number, n: number): { nameX: number; nameMax: number; lightX: number[]; lightR: number } {
+  const lightR = h * 0.2, pitch = h * 0.72, right = w - h * 0.45, nameX = h * 0.4;
+  const lightX = Array.from({ length: n }, (_, i) => right - (n - 1 - i) * pitch);
+  const end = n > 0 ? lightX[0]! - lightR - h * 0.25 : w - nameX;
+  return { nameX, nameMax: end - nameX, lightX, lightR };
+}
 
 export class Plate {
   /** Cancels the box's scale: everything under it is in metres. */
@@ -106,12 +120,19 @@ export class Plate {
       g.fillStyle = "#2a1d0c";
       g.textBaseline = "middle";
       g.textAlign = "left";
-      g.font = `bold ${Math.round(h * 0.46)}px ${LABEL_FONT}`;
-      g.fillText(name, h * 0.4, h / 2);
+      // The name in the room left of the lights: smaller down to the floor, then condensed (never into a light).
+      const L = plateLayout(w, h, n);
+      let size = Math.round(h * NAME_SIZE);
+      g.font = `bold ${size}px ${LABEL_FONT}`;
+      while (g.measureText(name).width > L.nameMax && size > h * NAME_FLOOR) {
+        size -= 2;
+        g.font = `bold ${size}px ${LABEL_FONT}`;
+      }
+      g.fillText(name, L.nameX, h / 2, L.nameMax);
       // The latch lights: a lamp and its numeral each, from the right.
-      const r = h * 0.2;
+      const r = L.lightR;
       for (let i = 0; i < n; i++) {
-        const x = w - h * 0.45 - (n - 1 - i) * h * 0.72, y = h * 0.38;
+        const x = L.lightX[i]!, y = h * 0.38;
         g.beginPath();
         g.arc(x, y, r, 0, Math.PI * 2);
         g.fillStyle = lit[i] ? "#fff3b0" : "#3b2a1c";

@@ -5,6 +5,7 @@ import { generateBox } from "../../src/core/generator";
 import type { V3 } from "../../src/core/types";
 import { KEY_EVENT } from "../../src/render/finger-key";
 import { REWARD, Reward, type RewardHands } from "../../src/render/reward";
+import { PLATE, plateLayout } from "../../src/ui/plate";
 import { PokeKey } from "../../src/ui/poke-key";
 
 const DT = 1 / 72;
@@ -112,6 +113,24 @@ describe("reward", () => {
     run(REWARD.takeS + 0.1);
     expect(r.group.visible).toBe(false);
     expect(r.up).toBe(false);
+  });
+});
+
+describe("the plate", () => {
+  it("keeps the box's name clear of its latch lights, with room for it at full size", () => {
+    const w = PLATE.w * 5000, h = PLATE.h * 5000;
+    for (const n of [1, 2, 3]) {
+      const L = plateLayout(w, h, n);
+      expect(L.lightX).toHaveLength(n);
+      // The name ends before the first light's edge, and every light is inside the plate.
+      expect(L.nameX + L.nameMax).toBeLessThan(L.lightX[0]! - L.lightR);
+      for (const x of L.lightX) {
+        expect(x - L.lightR).toBeGreaterThan(0);
+        expect(x + L.lightR).toBeLessThan(w);
+      }
+      // "Box No. 123" in bold serif is about 5.5 em: it fits at the full lettering size with three lights.
+      expect(L.nameMax).toBeGreaterThan(5.5 * 0.46 * h * 0.85);
+    }
   });
 });
 

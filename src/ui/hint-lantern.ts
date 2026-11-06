@@ -20,7 +20,7 @@ export const HINT_LANTERN = {
   turn: (25 * Math.PI) / 180,
   /** The lantern key and the choice keys (m); the choices stand outward of it, this far apart. */
   key: 0.046,
-  choice: { w: 0.062, h: 0.042, gap: 0.014, out: 0.016 },
+  choice: { w: 0.088, h: 0.042, gap: 0.014, out: 0.016 },
   /** The choices put themselves away after this long untouched (s). */
   choicesS: 8,
   /** The stuck glow: its size (m), and its breathing period (s): far slower than any flash. */
