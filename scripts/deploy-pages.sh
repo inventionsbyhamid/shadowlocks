@@ -37,7 +37,8 @@ set -euo pipefail
 HOST=ioflood
 WRANGLER=wrangler@4.150.0
 IMAGE=node:22-bookworm
-NPM_VOLUME=shadowlocks-npm-user
+# Wrangler's own volume, which only this script mounts (the lanes share shadowlocks-npm-user, never this one).
+WRANGLER_VOLUME=shadowlocks-deploy-wrangler
 MAX_LOAD=${NS_MAX_LOAD:-25}
 MIN_FREE_GB=${NS_MIN_FREE_GB:-100}
 BUILD_LANE=${NS_DEPLOY_LANE:-deploy}
@@ -267,21 +268,25 @@ load_account
 gate
 
 # Wrangler is installed in a container of its own, before the token leaves this Mac: no token on stdin or in the
-# environment while any package install script runs. It goes to its own folder on the npm volume, and the deploy
-# container below runs that binary directly: nothing is installed there (no npx).
-WRANGLER_BIN=/npm-cache/${WRANGLER/@/-}/node_modules/.bin/wrangler
+# environment while any package install script runs. It goes to a versioned folder on its own volume (its npm cache
+# too), so no lane's install script or test can change it; the deploy container below mounts that volume read-only
+# and runs the binary directly: nothing is installed there (no npx).
+WRANGLER_DIR=/opt/wrangler/${WRANGLER/@/-}
+WRANGLER_BIN=$WRANGLER_DIR/node_modules/.bin/wrangler
 echo "installing $WRANGLER on $HOST"
-ssh "$HOST" "docker run --rm --name shadowlocks-deploy-install-$(date -u +%m%d%H%M%S)-$RANDOM --cpus 2 --memory 2g \
+ssh "$HOST" "docker volume create $WRANGLER_VOLUME >/dev/null \
+  && chown 1000:1000 \$(docker volume inspect -f '{{.Mountpoint}}' $WRANGLER_VOLUME) \
+  && docker run --rm --name shadowlocks-deploy-install-$(date -u +%m%d%H%M%S)-$RANDOM --cpus 2 --memory 2g \
   --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 \
-  -v $NPM_VOLUME:/npm-cache -e npm_config_cache=/npm-cache $IMAGE bash -c \
-  'cd /tmp && npm install --no-audit --no-fund --prefix /npm-cache/${WRANGLER/@/-} $WRANGLER >/dev/null && $WRANGLER_BIN --version'" </dev/null \
+  -v $WRANGLER_VOLUME:/opt/wrangler -e npm_config_cache=/opt/wrangler/.npm $IMAGE bash -c \
+  'cd /tmp && npm install --no-audit --no-fund --no-update-notifier --prefix $WRANGLER_DIR $WRANGLER >/dev/null && $WRANGLER_BIN --version'" </dev/null \
   || { echo "refused: could not install $WRANGLER on $HOST" >&2; exit 3; }
 
 # In the deploy container: the first stdin line is the token, the rest is dist/ as a tar stream. The token is checked;
 # then every project gets the same files, one after the other; the first failure stops the rest.
 INNER="set -euo pipefail
 cd /tmp
-[ -x $WRANGLER_BIN ] || { echo 'deploy: $WRANGLER is not installed on the npm volume' >&2; exit 3; }
+[ -x $WRANGLER_BIN ] || { echo 'deploy: $WRANGLER is not installed on $WRANGLER_VOLUME' >&2; exit 3; }
 IFS= read -r CLOUDFLARE_API_TOKEN
 export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID=$ACCOUNT WRANGLER_SEND_METRICS=false CI=1
 $TOKEN_CHECK
@@ -302,7 +307,7 @@ if tar --version 2>/dev/null | grep -q bsdtar; then TAR=(env COPYFILE_DISABLE=1 
 echo "publishing to Pages project(s) $LIST, branch '$BRANCH'"
 { send_token; "${TAR[@]}" -C "$DIST" -cf - .; } | ssh "$HOST" "docker run --rm -i --name $NAME --cpus 2 --memory 2g \
   --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 \
-  -v $NPM_VOLUME:/npm-cache -e npm_config_cache=/npm-cache $IMAGE bash -c $(printf '%q' "$INNER")"
+  -v $WRANGLER_VOLUME:/opt/wrangler:ro $IMAGE bash -c $(printf '%q' "$INNER")"
 
 # The placeholder's checks: both pages answer 200 as HTML, and the privacy page is the one sent (its
 # support address in, no placeholder left). Pages redirects /privacy.html to /privacy (308).
