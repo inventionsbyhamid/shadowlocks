@@ -251,23 +251,37 @@ if [ "$DRY" -eq 1 ]; then
   exit 0
 fi
 
-# The placeholder never replaces the game: once the public host serves real asset links, the game is live there.
+# The placeholder never replaces the game: once the public host serves real asset links, the game is live there. When
+# the host cannot be asked, that is no answer: refuse too (--over-game publishes anyway).
 if [ "$PLACEHOLDER" -eq 1 ] && [ "$OVER_GAME" -eq 0 ]; then
-  if curl -s --max-time 20 "https://$PUBLIC_PROJECT.pages.dev/.well-known/assetlinks.json" | grep -q delegate_permission; then
-    echo "refused: $PUBLIC_PROJECT.pages.dev already serves asset links (the game is live); --over-game replaces it anyway" >&2
-    exit 2
-  fi
+  links=$(curl -s --max-time 20 "https://$PUBLIC_PROJECT.pages.dev/.well-known/assetlinks.json") \
+    || { echo "refused: could not read $PUBLIC_PROJECT.pages.dev/.well-known/assetlinks.json to see whether the game is live; --over-game publishes anyway" >&2; exit 2; }
+  case $links in
+    *delegate_permission*)
+      echo "refused: $PUBLIC_PROJECT.pages.dev already serves asset links (the game is live); --over-game replaces it anyway" >&2
+      exit 2 ;;
+  esac
 fi
 
 load_account
 gate
 
-# In the container: wrangler is installed first, with nothing on stdin and no token in the environment, so no
-# package install script can see the token. Then the first stdin line is the token, the rest is dist/ as a tar stream.
-# The token is checked; then every project gets the same files, one after the other; the first failure stops the rest.
+# Wrangler is installed in a container of its own, before the token leaves this Mac: no token on stdin or in the
+# environment while any package install script runs. It goes to its own folder on the npm volume, and the deploy
+# container below runs that binary directly: nothing is installed there (no npx).
+WRANGLER_BIN=/npm-cache/${WRANGLER/@/-}/node_modules/.bin/wrangler
+echo "installing $WRANGLER on $HOST"
+ssh "$HOST" "docker run --rm --name shadowlocks-deploy-install-$(date -u +%m%d%H%M%S)-$RANDOM --cpus 2 --memory 2g \
+  --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 \
+  -v $NPM_VOLUME:/npm-cache -e npm_config_cache=/npm-cache $IMAGE bash -c \
+  'cd /tmp && npm install --no-audit --no-fund --prefix /npm-cache/${WRANGLER/@/-} $WRANGLER >/dev/null && $WRANGLER_BIN --version'" </dev/null \
+  || { echo "refused: could not install $WRANGLER on $HOST" >&2; exit 3; }
+
+# In the deploy container: the first stdin line is the token, the rest is dist/ as a tar stream. The token is checked;
+# then every project gets the same files, one after the other; the first failure stops the rest.
 INNER="set -euo pipefail
 cd /tmp
-npx -y $WRANGLER --version </dev/null >/dev/null
+[ -x $WRANGLER_BIN ] || { echo 'deploy: $WRANGLER is not installed on the npm volume' >&2; exit 3; }
 IFS= read -r CLOUDFLARE_API_TOKEN
 export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID=$ACCOUNT WRANGLER_SEND_METRICS=false CI=1
 $TOKEN_CHECK
@@ -277,8 +291,8 @@ find /tmp/site -name '._*' -delete
 cd /tmp
 for p in ${PROJECTS[*]}; do
   echo \"publishing to Pages project \$p, branch $BRANCH\"
-  if [ $CREATE -eq 1 ]; then npx -y $WRANGLER pages project create \$p --production-branch main; fi
-  npx -y $WRANGLER pages deploy /tmp/site --project-name \$p --branch $BRANCH \
+  if [ $CREATE -eq 1 ]; then $WRANGLER_BIN pages project create \$p --production-branch main; fi
+  $WRANGLER_BIN pages deploy /tmp/site --project-name \$p --branch $BRANCH \
     --commit-hash $COMMIT --commit-message $(printf '%q' "$SUBJECT") --commit-dirty=$([ -n "$(git -C "$ROOT" status --porcelain)" ] && echo true || echo false)
 done"
 NAME="shadowlocks-deploy-$(date -u +%m%d%H%M%S)-$RANDOM"
