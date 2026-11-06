@@ -55,7 +55,10 @@ export class HandsInBox {
   readonly finger: V2[][] = [];
   n = 0;
   nFinger = 0;
-  /** The finger's depth (box z), NaN with no finger in the beam. */
+  /**
+   * The fingers' depth (box z; with two hands in the mouth, both fingers' mean), NaN with no finger in the beam. A
+   * crystallise forms at the depth of the finger over the gap (HandShadow.fingerDepthOver), not this.
+   */
   fingerZ = Number.NaN;
   /** The box's finger locks (made per box). */
   locks: FingerLockEntry[] = [];
@@ -87,7 +90,8 @@ export class HandsInBox {
   }
 
   // --- Interim finger-lock driver: the box session takes this over (it measures every lock anyway) and keeps the
-  // --- FingerLockLoops; it then deletes this method, setBox, `locks` and pieceDepth, and nothing else changes.
+  // --- FingerLockLoops; it then deletes this method, setBox, `locks` and pieceDepth, and nothing else here changes.
+  // --- The `__sl.fingerLocks()` test hook (test-hooks.ts) reads `locks` and moves with the driver.
 
   /** Each unopened finger lock measured with this frame's finger and held through its loop; done opens it. */
   private driveFingerLocks(dtMs: number, holder: HandSide | null, L: V3): void {
@@ -111,18 +115,24 @@ export class HandsInBox {
     this.locks = box
       ? box.locks
           .filter((l) => l.finger)
-          .map((lock) => ({
-            lock,
-            samples: prepareLock(lock),
-            coverage: { cover: 0, spill: 0, spillAll: 0, gap: 0 },
-            meets: false,
-            // The box session plays sound.game.crystallise here when it takes this loop over.
-            loop: new FingerLockLoop(() =>
-              crystallise(this.deps.scene, lock, Number.isFinite(this.fingerZ) ? this.fingerZ : pieceDepth(box, lock), {
-                reducedMotion: this.deps.reducedMotion(),
+          .map((lock) => {
+            const samples = prepareLock(lock);
+            // The missing piece's sample points: the finger over them is the one the piece forms at.
+            const gap = samples.missingIdx.map((i) => samples.inside[i]!);
+            return {
+              lock,
+              samples,
+              coverage: { cover: 0, spill: 0, spillAll: 0, gap: 0 },
+              meets: false,
+              // The box session plays sound.game.crystallise here when it takes this loop over.
+              loop: new FingerLockLoop(() => {
+                const z = this.shadow.fingerDepthOver(this.finger, this.nFinger, gap);
+                return crystallise(this.deps.scene, lock, Number.isFinite(z) ? z : pieceDepth(box, lock), {
+                  reducedMotion: this.deps.reducedMotion(),
+                });
               }),
-            ),
-          }))
+            };
+          })
       : [];
   }
 }
