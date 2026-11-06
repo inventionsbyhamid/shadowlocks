@@ -340,6 +340,12 @@ export interface LockResult {
   settled: boolean[];
   /** How far the lantern came to rest from the spot after the last release (mm). */
   restMm: number;
+  /**
+   * Plain locks: when the lock opened (virtual ms, to the frame) after the lantern's last settle click on its spot, and
+   * after the hand started to let go (negative: it opened while still held). Unset when it did not open.
+   */
+  openAfterSettleMs?: number;
+  openAfterReleaseMs?: number;
   /** Finger locks: how many times the finger was laid. */
   lays: number;
   /**
@@ -378,7 +384,7 @@ const AWAY_CMPS = 20;
 /** Pinches before giving up on picking the lantern up; careful approaches before giving up on a lock. */
 const GRAB_TRIES = 4;
 const LOCK_TRIES = 3;
-/** A released lantern on the spot opens its lock well within this (ms: OPEN_DWELL_MS is 100). */
+/** A released lantern on the spot opens its lock well within this (ms: OPEN_DWELL_MS is far shorter). */
 const OPEN_WAIT_MS = 1500;
 /** A laid finger opens its lock within this (ms: a 600 ms hold, the piece forming 700 ms, dropouts restarting it). */
 const FINGER_WAIT_MS = 5000;
@@ -419,6 +425,8 @@ function pageBot(cfg: { src: string; jitter: JitterOptions | null; device: strin
     watch: null as null | { spots: number[][]; min: number[] },
     /** While set: a finger lock's hold, frame by frame (frames, meeting, the hold's best progress, gap and spill). */
     hold: null as null | Record<string, number>,
+    /** While set: the frame time `lock` was first seen open (-1 until then). */
+    openWatch: null as null | { lock: number; at: number },
     idle() {
       return !bot.leg && bot.legs.length === 0 && !bot.ramp;
     },
@@ -436,6 +444,10 @@ function pageBot(cfg: { src: string; jitter: JitterOptions | null; device: strin
           const s = W.spots[i];
           W.min[i] = Math.min(W.min[i], Math.hypot(L[0] - s[0], L[1] - s[1], L[2] - s[2]));
         }
+      }
+      if (bot.openWatch && bot.openWatch.at < 0) {
+        const fs = w.__sl.frameState();
+        if (fs && fs.openLocks.includes(bot.openWatch.lock)) bot.openWatch.at = t;
       }
       if (bot.hold) {
         const H = bot.hold, f = w.__sl.fingerLocks().find((x: any) => x.lock === H.lock);
@@ -731,25 +743,46 @@ export class Bot {
   async openPlain(lock: SlLock): Promise<LockResult> {
     const t0 = await this.app.now();
     const r: LockResult = { lock: lock.i, finger: false, open: false, attempts: 0, grabs: 0, settled: [], restMm: NaN, lays: 0, ms: 0 };
+    // When the lock opens, to the frame, against the settle click and the hand letting go.
+    await this.page.evaluate((lock) => {
+      window.__sl!.clearFeelEvents();
+      (window as any).__bot.openWatch = { lock, at: -1 };
+    }, lock.i);
+    let releasedAt = Number.NaN;
     while (!r.open && r.attempts < LOCK_TRIES) {
       r.attempts++;
-      await this.place(lock.spot, r);
+      releasedAt = await this.place(lock.spot, r);
       r.open = await this.waitFor((w, i) => w.__sl.session.state().open.includes(i), lock.i, OPEN_WAIT_MS);
       await this.away();
+    }
+    const t = await this.page.evaluate((lock) => {
+      const b = (window as any).__bot, at = b.openWatch?.at as number;
+      b.openWatch = null;
+      const settles = window.__sl!.feelEvents().filter((e) => e.type === "settle" && e.lock === lock && e.at <= at);
+      return { at, settledAt: settles.length ? settles[settles.length - 1]!.at : Number.NaN };
+    }, lock.i);
+    if (r.open && t.at >= 0) {
+      r.openAfterSettleMs = t.at - t.settledAt;
+      r.openAfterReleaseMs = t.at - releasedAt;
     }
     r.ms = (await this.app.now()) - t0;
     return r;
   }
 
-  /** Pick the lantern up, bring it carefully onto `spot` and let go (a retry first backs off 5 cm). */
-  private async place(spot: V3, r: LockResult): Promise<void> {
+  /**
+   * Pick the lantern up, bring it carefully onto `spot` and let go (a retry first backs off 5 cm). Returns when the
+   * hand started to let go (virtual ms).
+   */
+  private async place(spot: V3, r: LockResult): Promise<number> {
     r.grabs += await this.grab();
     if (r.attempts > 1) await this.carryAlong([{ to: [spot[0], spot[1], spot[2] + 5 / this.cmPerUnit], cmps: 10 }], "backing off");
     await this.approach(spot);
     r.settled.push((await this.lantern()).mode === "settled");
+    const releasedAt = await this.app.now();
     await this.release();
     const L = (await this.lantern()).pos;
     r.restMm = Math.hypot(L[0] - spot[0], L[1] - spot[1], L[2] - spot[2]) * this.cmPerUnit * 10;
+    return releasedAt;
   }
 
   /**
@@ -958,6 +991,11 @@ export function lockLine(l: LockResult): string {
   if (l.grabs > l.attempts) parts.push(`${l.grabs} pinches`);
   if (l.settled.length) parts.push(`settled ${l.settled.map((s) => (s ? "yes" : "no")).join("/")}`);
   if (Number.isFinite(l.restMm)) parts.push(`rest ${l.restMm.toFixed(1)} mm`);
+  if (l.openAfterSettleMs !== undefined && Number.isFinite(l.openAfterSettleMs)) parts.push(`opened ${l.openAfterSettleMs.toFixed(0)} ms after the settle`);
+  if (l.openAfterReleaseMs !== undefined) {
+    const ms = l.openAfterReleaseMs;
+    parts.push(ms < 0 ? `${(-ms).toFixed(0)} ms before letting go` : `${ms.toFixed(0)} ms after letting go`);
+  }
   for (const h of l.holds ?? []) parts.push(`lay: ${h.meets}/${h.frames} frames meeting, gap ${(h.gap * 100).toFixed(0)}%`);
   parts.push(`${s1(l.ms)} s`);
   return parts.join(", ");
@@ -1008,10 +1046,15 @@ export async function solveBoxes(app: XrApp, o: BotOptions & { from: number; to:
   const solved = out.filter((r) => r.solved);
   const frames = out.reduce((a, r) => a + r.frames, 0), real = out.reduce((a, r) => a + r.realMs, 0);
   const blocked = locks.filter((l) => l.blocked);
+  const afterSettle = locks.map((l) => l.openAfterSettleMs).filter((x): x is number => x !== undefined && Number.isFinite(x));
+  const afterRelease = locks.map((l) => l.openAfterReleaseMs).filter((x): x is number => x !== undefined && Number.isFinite(x));
+  const span = (xs: number[]) => (xs.length ? `median ${median(xs).toFixed(0)} (${Math.min(...xs).toFixed(0)} to ${Math.max(...xs).toFixed(0)}) ms` : "none");
   const note =
     `bot (${input}) boxes ${o.from}-${o.to}: ${solved.length}/${out.length} solved, median ${s1(median(solved.map((r) => r.ms)))} s, ` +
     `slowest ${s1(Math.max(0, ...solved.map((r) => r.ms)))} s; ${firstTry}/${tried.length} locks on the first approach; ` +
-    `lantern settled at ${placed.filter(Boolean).length}/${placed.length} releases; ${out.reduce((a, r) => a + r.dropouts, 0)} dropouts; ` +
+    `lantern settled at ${placed.filter(Boolean).length}/${placed.length} releases; ` +
+    `plain locks opened after the settle click ${span(afterSettle)}, after letting go ${span(afterRelease)}; ` +
+    `${out.reduce((a, r) => a + r.dropouts, 0)} dropouts; ` +
     `${frames} frames in ${s1(real)} s real (${(real / Math.max(1, frames)).toFixed(0)} ms a frame)` +
     (blocked.length ? `; ${blocked.length} finger locks blocked: ${blocked[0]!.blocked}` : "");
   report(testInfo, note);
