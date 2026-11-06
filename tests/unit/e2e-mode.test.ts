@@ -114,3 +114,36 @@ describe("e2e run mode (scripts/e2e.sh --print-mode)", () => {
     expect(mode(["tests/e2e/boot.spec.ts"], { NS_E2E_EXCLUSIVE: "" })).toBe("functional");
   });
 });
+
+/** `scripts/e2e.sh --print-limits`: "<mode> <load limit> <browser runs that may be going>". */
+function limits(args: string[], env: Record<string, string> = {}): string {
+  const r = spawnSync("bash", ["scripts/e2e.sh", "--print-limits", ...args], {
+    encoding: "utf8",
+    env: { ...process.env, NS_E2E_EXCLUSIVE: "", NS_MAX_LOAD: "", ...env },
+  });
+  expect(r.status, r.stderr).toBe(0);
+  return r.stdout.trim();
+}
+
+describe("e2e start gates (Ruling 111)", () => {
+  it("starts a functional run at load 34 or less beside up to three others", () => {
+    expect(limits(["tests/e2e/boot.spec.ts"])).toBe("functional 34 3");
+  });
+
+  it("starts an exclusive run at load 25 or less with no other browser run", () => {
+    expect(limits([])).toBe("exclusive 25 0");
+    expect(limits(["tests/e2e/hand-cost.spec.ts"])).toBe("exclusive 25 0");
+    expect(limits(["tests/e2e/boot.spec.ts"], { NS_E2E_EXCLUSIVE: "1" })).toBe("exclusive 25 0");
+  });
+
+  it("lets NS_MAX_LOAD set the load limit of either kind", () => {
+    expect(limits(["tests/e2e/boot.spec.ts"], { NS_MAX_LOAD: "20" })).toBe("functional 20 3");
+    expect(limits([], { NS_MAX_LOAD: "20" })).toBe("exclusive 20 0");
+  });
+
+  it("keeps e2e.sh's functional slots equal to remote.sh's shared slots", () => {
+    const slots = (file: string, name: string) => readFileSync(file, "utf8").match(new RegExp(`^${name}=(\\d+)$`, "m"))?.[1];
+    expect(slots("scripts/e2e.sh", "FUNCTIONAL_SLOTS")).toBe("4");
+    expect(slots("scripts/remote.sh", "SHARED_SLOTS")).toBe("4");
+  });
+});
