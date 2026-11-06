@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { Group, type Material, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, PlaneGeometry } from "@iwsdk/core";
+import { Group, type Material, Mesh, type MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, PlaneGeometry } from "@iwsdk/core";
+import { LOCK_TO_BOX_MS } from "../../src/app/box-session";
 import { generateBox } from "../../src/core/generator";
 import { BOX_OPEN_FX, BoxOpenFx } from "../../src/render/fx/box-open";
 import { FlashBudget, MIN_GAP_S } from "../../src/render/fx/flash-budget";
@@ -107,6 +108,56 @@ describe("a lock opening", () => {
 });
 
 describe("the box opening", () => {
+  it("wins its flash: the last lock opens at 0 and the box at 0.7 s on the same budget, at full strength; the glints wait", () => {
+    const budget = new FlashBudget(), s = lockScene();
+    const lockFx = new LockOpenFx(s, budget);
+    lockFx.setBox(box5);
+    const box = new BoxOpenFx(boxRoot().root, budget);
+    // The last lock: the box opens LOCK_TO_BOX_MS after it.
+    lockFx.open(2, false, LOCK_TO_BOX_MS / 1000);
+    expect(budget.started).toBe(1);
+    const takes: number[] = [];
+    let t = 0;
+    const frame = () => {
+      budget.step(DT);
+      t += DT;
+      const before = budget.started;
+      lockFx.update(DT, false);
+      if (budget.started > before) takes.push(t);
+    };
+    while (t < LOCK_TO_BOX_MS / 1000 - 1e-9) frame();
+    box.start(1);
+    // Full strength: its burst as bright as a box opening on a budget of its own.
+    const ref = new BoxOpenFx(boxRoot().root, new FlashBudget());
+    ref.start(1);
+    box.update(0.1, false);
+    ref.update(0.1, false);
+    const opacity = (fx: BoxOpenFx) => ((fx.group.getObjectByName("Box Burst") as Mesh).material as MeshBasicMaterial).opacity;
+    expect(opacity(ref)).toBeGreaterThan(0);
+    expect(opacity(box)).toBeCloseTo(opacity(ref), 9);
+    // No glint flared within the gap before the opening; they flare after it, a gap apart, none lost.
+    expect(takes.every((x) => x <= LOCK_TO_BOX_MS / 1000 - MIN_GAP_S)).toBe(true);
+    const after: number[] = [];
+    for (let i = 0; i < 3 / DT; i++) {
+      budget.step(DT);
+      t += DT;
+      const before = budget.started;
+      lockFx.update(DT, false);
+      if (budget.started > before) after.push(t);
+    }
+    expect(after.length + takes.length).toBe(SPARKLE.glints);
+    expect(after[0]! - LOCK_TO_BOX_MS / 1000).toBeGreaterThanOrEqual(MIN_GAP_S - DT);
+  });
+
+  it("a reservation nobody claims lapses: flashes go on after its time has passed", () => {
+    const budget = new FlashBudget();
+    budget.reserve(0.7);
+    budget.step(0.5);
+    expect(budget.take()).toBe(false);
+    budget.step(0.6);
+    expect(budget.take()).toBe(true);
+  });
+
   it("hides the box's side glass and smoked lid while its panes swing, and a new box puts them back", () => {
     const { root, glass, lid } = boxRoot(), budget = new FlashBudget();
     const fx = new BoxOpenFx(root, budget);

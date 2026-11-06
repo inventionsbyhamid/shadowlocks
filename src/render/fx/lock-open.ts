@@ -123,7 +123,7 @@ export class LockOpenFx {
   }
 
   /** Lock `lock` opened: its burst and flare, or (restored) only its resting glow. */
-  open(lock: number, restored: boolean): void {
+  open(lock: number, restored: boolean, boxOpensInS = 0): void {
     const l = this.box?.locks[lock];
     if (!l || lock >= SLOTS) return;
     if (restored) {
@@ -131,6 +131,8 @@ export class LockOpenFx {
       return;
     }
     this.strength[lock] = this.budget.take() ? 1 : LOCK_OPEN_FX.refused;
+    // The box's last lock: its opening's flash is kept clear (this lock's glints wait until after it).
+    if (boxOpensInS > 0) this.budget.reserve(boxOpensInS);
     this.t[lock] = 0;
     const b = this.bursts[lock]!;
     b.position.set(l.center[0], l.center[1], BURST_Z);

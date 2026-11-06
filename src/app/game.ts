@@ -22,7 +22,7 @@ import { HINT_ASK, HintLantern } from "../ui/hint-lantern";
 import { NO_TIPS } from "../ui/key-view";
 import { COPY } from "../ui/copy";
 import { Plate } from "../ui/plate";
-import { BoxSession } from "./box-session";
+import { BoxSession, LOCK_TO_BOX_MS } from "./box-session";
 import { FingerLockLoop } from "./finger-lock";
 import type { FingerSource } from "./session-fingers";
 import { emit } from "./bus";
@@ -102,9 +102,11 @@ export class GameView implements SessionView {
     this.hold(false);
   }
 
-  lockOpened(lock: number, _order: number, restored: boolean): void {
+  lockOpened(lock: number, order: number, restored: boolean): void {
     this.plate.latch(lock, true);
-    this.lockFx.open(lock, restored);
+    // The last lock: the box opens LOCK_TO_BOX_MS after it, and its flash is reserved so the climax is never refused.
+    const last = this.box !== null && order === this.box.locks.length;
+    this.lockFx.open(lock, restored, last ? LOCK_TO_BOX_MS / 1000 : 0);
   }
 
   focus(lock: number | null): void {

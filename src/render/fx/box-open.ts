@@ -154,7 +154,8 @@ export class BoxOpenFx {
   /** The box opens; the drawer comes out on side `side` (+1 right, -1 left). */
   start(side: number): void {
     this.side = side < 0 ? -1 : 1;
-    this.strength = this.budget.take() ? 1 : BOX_OPEN_FX.refused;
+    // The flash the last lock reserved for it (FlashBudget.reserve): the climax always has its turn.
+    this.strength = this.budget.claim() ? 1 : BOX_OPEN_FX.refused;
     this.t = 0;
     this.group.visible = true;
     if (this.glass) this.glass.visible = false;
