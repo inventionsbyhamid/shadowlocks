@@ -89,7 +89,7 @@ describe("detecting the headset's language", () => {
   });
 
   it("names each language in its own words", () => {
-    expect(LANG_NAMES).toEqual({ en: "English", es: "Español", fr: "Français", de: "Deutsch", "pt-BR": "Português (Brasil)", ja: "日本語" });
+    expect(LANG_NAMES).toEqual({ en: "English", es: "Español", fr: "Français", de: "Deutsch", "pt-BR": `Português${NBSP}(Brasil)`, ja: "日本語" });
   });
 });
 
@@ -118,6 +118,10 @@ describe("the tables", () => {
       else if (en.endsWith("?")) expect(s, why).toMatch(ask);
       else expect(s, why).not.toMatch(/[.。？]$/);
     }
+  });
+
+  it("Japanese writes a space a reader sees as a no-break space (a plain one marks where a panel line may break)", () => {
+    for (const [k, s] of leaves(tableFor("ja"))) if (k !== "film.title") expect(s, `ja ${k}`).not.toMatch(/ /);
   });
 
   it("Japanese uses Japanese punctuation (no ASCII . , : ? ! in Japanese text)", () => {
@@ -256,7 +260,7 @@ describe("counts, numbers and dates", () => {
     setLang("pt-BR");
     expect(count(1, copy().menus.trial.daysLeft)).toBe("Seu teste: falta 1 dia");
     setLang("ja");
-    expect(count(3, copy().menus.home.rewards)).toBe("お宝 3個");
+    expect(count(3, copy().menus.home.rewards)).toBe(`お宝${NBSP}3個`);
   });
 
   it("writes numbers, percents and centimetres the language's way, with only spaces the fonts have", () => {

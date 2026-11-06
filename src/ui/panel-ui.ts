@@ -3,6 +3,7 @@
 // numbers or constant strings (no allocation in our code).
 import { type Object3D, type Signal, signal, type UIKitMLAsset } from "@iwsdk/core";
 import type { Lang } from "../i18n";
+import { breakUnits } from "../render/label";
 import { CountUp } from "./count-up";
 import { applyArchivo, applyNames, FONT_FAMILIES, fontFamiliesFor } from "./fonts";
 import type { MenuSpec, PanelUi } from "./menus/types";
@@ -21,6 +22,14 @@ interface Roll {
   id: string;
   text: Signal<string>;
   counter: CountUp;
+}
+
+/** Japanese text with a plain space at every place a line may break (the Japanese atlas draws it with no width). */
+export function japaneseBreaks(s: string): string {
+  // Only plain spaces go: a no-break space is a gap the reader sees.
+  return breakUnits(s)
+    .map((u) => u.replace(/ +$/, ""))
+    .join(" ");
 }
 
 /** Told when a count-up shows its next value (`k` of the way, 0..1) and when it lands (`done`). */
@@ -47,12 +56,13 @@ export class PanelView implements PanelUi {
     applyNames(this.root);
   }
 
-  /**
-   * Draw in language `l`: its fonts for every family (Japanese draws all of them with the Japanese font), and
-   * lines broken between any characters in Japanese (it has no spaces; elsewhere between words).
-   */
+  /** Japanese text gets a place to break between characters (see `text`). */
+  private japanese = false;
+
+  /** Draw in language `l`: its fonts for every family (Japanese draws all of them with the Japanese font). */
   setLanguage(l: Lang): void {
-    this.root.setProperties({ fontFamilies: fontFamiliesFor(l), wordBreak: l === "ja" ? "break-all" : "break-word" });
+    this.japanese = l === "ja";
+    this.root.setProperties({ fontFamilies: fontFamiliesFor(l) });
   }
 
   el(id: string): UiEl | null {
@@ -65,8 +75,13 @@ export class PanelView implements PanelUi {
     return e;
   }
 
+  /**
+   * Set an element's text. UIKit breaks lines only at a plain space; Japanese has none, so in Japanese a plain
+   * space (drawn with no width by the Japanese atlas) goes wherever a line may break by the kinsoku rules: never
+   * before a closing mark or small kana, never after an opening mark, never inside a Latin word.
+   */
   text(id: string, s: string): void {
-    if (this.changed("t", id, s)) this.el(id)?.setProperties({ text: s });
+    if (this.changed("t", id, s)) this.el(id)?.setProperties({ text: this.japanese ? japaneseBreaks(s) : s });
   }
 
   show(id: string, on: boolean): void {

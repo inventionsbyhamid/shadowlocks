@@ -35,10 +35,14 @@ const GLOSSARY: Record<string, Term> = {
   collection: { en: /collection/i, in: { es: /colección/i, fr: /collection/i, de: /sammlung/i, "pt-BR": /coleção/i, ja: /コレクション/ } },
   streak: { en: /streak/i, in: { es: /racha/i, fr: /série/i, de: /serie/i, "pt-BR": /sequência/i, ja: /連続/ } },
   trial: { en: /\btrial\b/i, in: { es: /prueba/i, fr: /essai/i, de: /testphase/i, "pt-BR": /teste/i, ja: /お試し/ } },
-  settings: { en: /\bsettings\b/i, in: { es: /ajustes/i, fr: /réglages/i, de: /einstellungen/i, "pt-BR": /ajustes/i, ja: /設定/ } },
+  settings: { en: /\bsettings\b/i, in: { es: /ajustes/i, fr: /réglages/i, de: /optionen/i, "pt-BR": /ajustes/i, ja: /設定/ } },
   controller: { en: /controllers?/i, in: { es: /controlador/i, fr: /manette/i, de: /controller/i, "pt-BR": /controle/i, ja: /コントローラー/ } },
-  metaQuest: { en: /Meta Quest/, in: { es: /Meta Quest/, fr: /Meta Quest/, de: /Meta Quest/, "pt-BR": /Meta Quest/, ja: /Meta Quest/ } },
-  store: { en: /Meta Horizon Store/, in: { es: /Meta Horizon Store/, fr: /Meta Horizon Store/, de: /Meta Horizon Store/, "pt-BR": /Meta Horizon Store/, ja: /Meta Horizon Store/ } },
+  // Kept as they are (Japanese writes their spaces as no-break spaces: \s takes both).
+  metaQuest: { en: /Meta\sQuest/, in: { es: /Meta\sQuest/, fr: /Meta\sQuest/, de: /Meta\sQuest/, "pt-BR": /Meta\sQuest/, ja: /Meta\sQuest/ } },
+  store: {
+    en: /Meta\sHorizon\sStore/,
+    in: { es: /Meta\sHorizon\sStore/, fr: /Meta\sHorizon\sStore/, de: /Meta\sHorizon\sStore/, "pt-BR": /Meta\sHorizon\sStore/, ja: /Meta\sHorizon\sStore/ },
+  },
 };
 
 /** [term, language, key]: why the line does without the term. */

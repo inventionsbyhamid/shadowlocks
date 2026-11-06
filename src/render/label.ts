@@ -49,9 +49,9 @@ export function fitLabel(g: Measure, text: string, style: LabelStyle, max: numbe
 }
 
 /** Japanese characters a line may not start with (closing marks, small kana, the long vowel mark). */
-const NO_START = new Set([..."、。，．・：；？！ー」』）］｝〕〉》】ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ々〜»"]);
+export const NO_START: ReadonlySet<string> = new Set([..."、。，．・：；？！ー」』）］｝〕〉》】ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ々〜»"]);
 /** Japanese characters a line may not end with (opening marks; French « too). */
-const NO_END = new Set([..."「『（［｛〔〈《【«"]);
+export const NO_END: ReadonlySet<string> = new Set([..."「『（［｛〔〈《【«"]);
 
 /**
  * The places a line may break in `text`: between words where there are spaces, and between Japanese characters

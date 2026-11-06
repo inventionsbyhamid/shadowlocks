@@ -80,7 +80,7 @@ export const DE: Copy = {
       continue: "Weiter",
       lessons: "Lektionen",
       collection: "Sammlung",
-      settings: "Einstellungen",
+      settings: "Optionen",
       settingsSub: "Ton und Größe",
     },
     lessons: {
@@ -97,7 +97,7 @@ export const DE: Copy = {
       older: "Älter",
     },
     settings: {
-      title: "Einstellungen",
+      title: "Optionen",
       note: "Änderungen gelten sofort",
       recenter: "Zentrieren",
       reset: "Löschen",
@@ -107,7 +107,7 @@ export const DE: Copy = {
     reset: {
       title: "Fortschritt löschen?",
       body: "Boxen, Lektionen, Sammlung und Serie beginnen von vorn.",
-      keeps: "Deine Einstellungen bleiben.",
+      keeps: "Deine Optionen bleiben erhalten.",
       keep: "Behalten",
       confirm: "Löschen",
     },

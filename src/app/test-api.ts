@@ -2,6 +2,7 @@ import type { GameSounds } from "../audio/cues";
 import type { BoxSnapshot } from "../core/profile";
 import type { BoxSpec, V2, V3, Vec3 } from "../core/types";
 import type { BoxTextFit } from "../ui/box-text";
+import type { PanelTextProblem } from "../ui/panel-fits";
 import type { FeedbackEvent } from "./bus";
 import type { Screen } from "./screens";
 
@@ -413,6 +414,8 @@ export interface SlI18n {
   texts(): { plate: string; keys: Record<string, string>; story: [string, string]; coach: string };
   /** Every piece of the box's lettering in every language, measured once the canvas fonts have loaded. */
   boxFits(): Promise<BoxTextFit[]>;
+  /** The texts of a menu screen's panel, as laid out now, that do not fit (null without that panel). */
+  panelFits(screen: Screen): PanelTextProblem[] | null;
 }
 
 declare global {

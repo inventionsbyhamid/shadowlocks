@@ -1,13 +1,14 @@
 // Japanese: system messages polite (です/ます), the coach line warm and plain (〜しよう, 〜よ), keys in the
 // dictionary form (箱を開ける). Japanese punctuation (、。「」：？〜), Arabic numerals, ・ between the parts of a
 // foreign name. Every character here must be in the Japanese font subset (scripts/fonts; tests/unit/i18n-fonts).
-// Terms: the glossary in tests/unit/i18n-glossary.test.ts.
-import type { Copy } from "./types";
+// Terms: the glossary in tests/unit/i18n-glossary.test.ts. A space a reader sees is a no-break space (NB): on
+// the panels a plain space is where a line may break (src/ui/panel-ui.ts) and is drawn with no width.
+import { type Copy, NBSP as NB } from "./types";
 
 export const JA: Copy = {
   page: {
     enterFailed: "起動できませんでした。「箱を開ける」をタップして、もう一度お試しください。",
-    noXr: "プレイするには、Meta Quest のブラウザでこのページを開いてください。",
+    noXr: `プレイするには、Meta${NB}Quest${NB}のブラウザでこのページを開いてください。`,
     startupFailed: "問題が発生しました。ページを再読み込みして、もう一度お試しください。",
   },
   notice: {
@@ -47,7 +48,7 @@ export const JA: Copy = {
       streak: "{n}日連続",
       lessons: "もう一度見る",
       collectionEmpty: "まだ空っぽ",
-      rewards: { one: "お宝 {n}個", other: "お宝 {n}個" },
+      rewards: { one: `お宝${NB}{n}個`, other: `お宝${NB}{n}個` },
       reset: "進行状況をリセットしました。",
     },
     lessons: {
@@ -62,10 +63,10 @@ export const JA: Copy = {
     },
     collection: {
       none: "お宝はまだありません",
-      rewards: { one: "お宝 {n}個", other: "お宝 {n}個" },
+      rewards: { one: `お宝${NB}{n}個`, other: `お宝${NB}{n}個` },
       box: "第{n}の箱",
       daily: "{day}の箱",
-      page: "{n}件中 {from}〜{to}件",
+      page: `{n}件中${NB}{from}〜{to}件`,
     },
     trial: {
       daysLeft: { one: "お試し期間：残り{n}日", other: "お試し期間：残り{n}日" },
@@ -118,7 +119,7 @@ export const JA: Copy = {
       keeps: "今日の箱とレッスンは引き続き遊べます。",
       buy: "購入する",
       buySub: "買い切り、ずっと遊べる",
-      store: "Meta Horizon Store で入手",
+      store: `Meta${NB}Horizon${NB}Store${NB}で入手`,
       storeSub: "ストアのページを開きます",
     },
   },

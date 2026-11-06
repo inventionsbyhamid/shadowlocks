@@ -9,13 +9,16 @@ export type Lang = (typeof LANGS)[number];
 export type LanguageSetting = "auto" | Lang;
 export const LANGUAGE_SETTINGS: readonly LanguageSetting[] = ["auto", ...LANGS];
 
-/** Each language in its own name, as the Language row shows it. */
+/**
+ * Each language in its own name, as the Language row shows it. Drawn in the Japanese font, where a plain space is
+ * only a place to break a line: the one space here is a no-break space.
+ */
 export const LANG_NAMES: Readonly<Record<Lang, string>> = {
   en: "English",
   es: "Español",
   fr: "Français",
   de: "Deutsch",
-  "pt-BR": "Português (Brasil)",
+  "pt-BR": "Português (Brasil)",
   ja: "日本語",
 };
 

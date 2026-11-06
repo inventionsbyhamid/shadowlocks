@@ -5,6 +5,7 @@ import { generateBox } from "../core/generator";
 import { lang } from "../i18n";
 import { boxTextFits } from "../ui/box-text";
 import { loadCanvasFonts } from "../ui/fonts";
+import { panelTextProblems } from "../ui/panel-fits";
 import { mirrorBox } from "../core/mirror";
 import type { Settings } from "../core/profile";
 import { meets, SKIP_MISSING, shadowBuffers, shadowPolys } from "../core/solve";
@@ -597,6 +598,10 @@ export function installTestHooks(
         const g = document.createElement("canvas").getContext("2d");
         if (!g) throw new Error("no 2D canvas");
         return boxTextFits(g);
+      },
+      panelFits: (screen) => {
+        const o = shell.panels.panelObject(screen);
+        return o ? panelTextProblems(o) : null;
       },
     },
   };

@@ -73,5 +73,5 @@ atlas inter-md 44 msdf 1024,1024 latin.txt
 atlas inter-bd 44 msdf 1024,1024 latin.txt
 atlas archivo-xb 48 msdf 1024,1024 latin.txt
 atlas noto-jp 40 sdf 2048,2048 ja.txt
-node scripts/fonts/finish-atlas.mjs "$WORK" "$OUT" inter-md:latin.txt inter-bd:latin.txt archivo-xb:latin.txt noto-jp:ja.txt
+node scripts/fonts/finish-atlas.mjs "$WORK" "$OUT" inter-md:latin.txt inter-bd:latin.txt archivo-xb:latin.txt noto-jp:ja.txt:zws
 ls -l "$OUT"
