@@ -106,6 +106,12 @@ export interface NsUi {
   billing(patch: { available?: boolean; owned?: boolean; buyResult?: "bought" | "cancelled" | "error" }): boolean;
   /** Pages a store link opened (window.open), newest last. */
   opened(): string[];
+  /** Lesson and tip replays the menus asked for, oldest first, and whether the lessons ran them. */
+  replays(): { kind: string; id: string; ran: boolean }[];
+  /** What waits behind the menus: a box (its number), the Daily Box, a lesson, or null. */
+  behind(): { kind: string; n?: number } | null;
+  /** The box is held under a menu (its clock stopped). */
+  held(): boolean;
   /** Change the profile (say `{ nextBox: 4 }`: box 3 solved), save it, and paint the menu shown again. */
   profile(patch: Record<string, unknown>): void;
 }

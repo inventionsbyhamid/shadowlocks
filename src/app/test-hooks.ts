@@ -15,6 +15,7 @@ import type { Access, FakeBillingState } from "./access";
 import type { BoxSession } from "./box-session";
 import { emit, type FeedbackEvent, onAny } from "./bus";
 import type { MenuDrawer } from "./drawer-system";
+import type { GameMenus } from "./menu-game";
 import { REUSED_EVENT_TYPES } from "./events";
 import type { Game, GameView } from "./game";
 import { Panels } from "./panels";
@@ -192,6 +193,7 @@ export function installTestHooks(
     drawer: MenuDrawer;
     access: Access;
     fakeBilling: FakeBillingState | null;
+    menuGame: GameMenus;
   },
 ): void {
   const w = window as unknown as { __vt?: VirtualClock; __ns?: NsApi; __sl?: SlApi };
@@ -368,6 +370,9 @@ export function installTestHooks(
         return true;
       },
       opened: () => [...opened],
+      replays: () => app.menuGame.replays.map((r) => ({ ...r })),
+      behind: () => app.menuGame.behind(),
+      held: () => shell.lifecycle.held,
       profile: (patch) => {
         Object.assign(shell.profiles.profile, patch);
         void shell.profiles.save();

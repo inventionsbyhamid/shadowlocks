@@ -187,6 +187,188 @@ test("trial screens with fake billing", async ({ page, boot }) => {
   await shows(app, "trial-keeps", "The Daily Box and the lessons stay open.");
 });
 
+/** Pull the drawer open with the right hand (pinch its handle, 6 cm toward you, let go) and wait for Home at rest. */
+async function pullDrawer(app: XrApp): Promise<void> {
+  await app.stepUntil((n) => n.ui.drawer().out === 0, { maxMs: 3_000, label: "drawer shut" });
+  const d = await app.page.evaluate(() => window.__ns!.ui.drawer());
+  const hand = new Hands(app, "right");
+  await hand.pinchAt(d.handle);
+  await hand.moveTo(along(d.handle, d.toward, 0.06), 400);
+  await app.stepUntil((n) => n.state().screen === "home", { maxMs: 2_000, label: "home after the pull" });
+  await hand.release();
+  await hand.moveTo(along(d.handle, d.toward, 0.3), 300);
+  await app.stepUntil((n) => !n.ui.busy(), { maxMs: 3_000, label: "home at rest" });
+}
+
+/** Wait for the box session to play `key` with its etching shown; returns its state. */
+async function playing(app: XrApp, key: string): Promise<any> {
+  await app.stepUntil(
+    (_n, w, k) => {
+      const s = (w as any).__sl.session.state();
+      return s?.stage === "playing" && s.revealed && s.key === k;
+    },
+    { arg: key, maxMs: 10_000, label: `${key} in play` },
+  );
+  return app.page.evaluate(() => window.__sl!.session.state());
+}
+
+test("poke every home button", async ({ page, boot }) => {
+  const app = await boot();
+  const screenAfter = async (key: string, screen: string) => {
+    await app.poke(key);
+    await app.stepUntil((n, _w, s) => n.state().screen === s, { arg: screen, maxMs: 5_000, label: `${screen} after ${key}` });
+  };
+  // Lessons, Collection and Settings open their panels, and each comes back.
+  await screenAfter("home-lessons", "lessons");
+  await screenAfter("lessons-back", "home");
+  await screenAfter("home-collection", "collection");
+  await screenAfter("collection-back", "home");
+  await screenAfter("home-settings", "settings");
+  await screenAfter("settings-done", "home");
+  // The Daily Box before box 3: no press.
+  await app.poke("home-daily");
+  await app.step(20);
+  expect((await app.events("press")).map((e: any) => e.id)).not.toContain("home-daily");
+  // Continue starts box 1 (a first launch with lessons not wired yet opens on Home).
+  await shows(app, "home-continue-sub", "Start Box No. 1");
+  await screenAfter("home-continue", "play");
+  await playing(app, "shadow-locks/1");
+  expect(await page.evaluate(() => window.__ns!.ui.held())).toBe(false);
+  // Pull the drawer over play: the box waits behind the menu, held, and Continue goes back to it.
+  await pullDrawer(app);
+  expect(await page.evaluate(() => window.__ns!.ui.behind())).toEqual({ kind: "box", n: 1 });
+  expect(await page.evaluate(() => window.__ns!.ui.held())).toBe(true);
+  await shows(app, "home-continue-sub", "Box No. 1");
+  const t0 = (await page.evaluate(() => window.__sl!.session.state()))!.elapsedMs;
+  await app.step(60);
+  expect((await page.evaluate(() => window.__sl!.session.state()))!.elapsedMs).toBe(t0);
+  await screenAfter("home-continue", "play");
+  expect(await page.evaluate(() => window.__ns!.ui.held())).toBe(false);
+  expect((await page.evaluate(() => window.__sl!.session.state()))!.key).toBe("shadow-locks/1");
+  // Box 3 solved: the Daily Box opens today's box; the drawer over it, Continue goes back to it.
+  await page.evaluate(() => window.__ns!.ui.profile({ nextBox: 4 }));
+  await pullDrawer(app);
+  await shows(app, "home-daily-sub", COPY.menus.home.dailyNew);
+  await screenAfter("home-daily", "play");
+  const daily = await playing(app, "shadow-locks/daily/2026-11-02");
+  expect(daily.spec).toEqual({ kind: "daily", day: "2026-11-02" });
+  await pullDrawer(app);
+  expect(await page.evaluate(() => window.__ns!.ui.behind())).toEqual({ kind: "daily" });
+  await shows(app, "home-continue-sub", COPY.menus.home.backToDaily);
+  await screenAfter("home-daily", "play");
+  expect((await page.evaluate(() => window.__sl!.session.state()))!.key).toBe("shadow-locks/daily/2026-11-02");
+  const presses = (await app.events("press")).map((e: any) => e.id);
+  for (const id of ["home-lessons", "home-collection", "home-settings", "home-continue", "home-daily"]) expect(presses, id).toContain(id);
+});
+
+test("lessons rows replay", async ({ page, boot }) => {
+  const app = await boot();
+  await page.evaluate(() => window.__ns!.ui.profile({ tipsSeen: ["ringless"], nextBox: 5 }));
+  // Box 5 in play, then the drawer: the replays happen with the box waiting behind the menu.
+  await app.poke("home-continue");
+  await playing(app, "shadow-locks/5");
+  await pullDrawer(app);
+  const before = await page.evaluate(() => ({ behind: window.__ns!.ui.behind(), s: window.__sl!.session.snapshot() }));
+  expect(before.behind).toEqual({ kind: "box", n: 5 });
+  await app.poke("home-lessons");
+  await app.stepUntil((n) => n.state().screen === "lessons", { maxMs: 5_000, label: "lessons" });
+  // Every example and the tip seen are rows; each asks the lessons to replay it.
+  const ids = (await app.state()).buttons.map((b) => b.id);
+  for (const id of ["lesson-move", "lesson-near-far", "lesson-rings", "lesson-finger", "tip-0"]) expect(ids).toContain(id);
+  expect(ids).not.toContain("tip-1");
+  await shows(app, "tip-0-label", COPY.menus.lessons.ringless);
+  for (const id of ["lesson-move", "lesson-near-far", "lesson-rings", "lesson-finger", "tip-0"]) {
+    await app.poke(id);
+    await app.step(20);
+  }
+  const asked = (await page.evaluate(() => window.__ns!.ui.replays())).map((r) => `${r.kind} ${r.id}`);
+  expect(asked).toEqual(["example move", "example near-far", "example rings", "example finger", "tip ringless"]);
+  // A replay never touches box progress: the same box waits, as it was, and Continue goes back to it.
+  const after = await page.evaluate(() => ({ behind: window.__ns!.ui.behind(), s: window.__sl!.session.snapshot() }));
+  expect(after).toEqual(before);
+  await app.poke("lessons-back");
+  await app.stepUntil((n) => n.state().screen === "home", { maxMs: 5_000, label: "home" });
+  await app.poke("home-continue");
+  await app.stepUntil((n) => n.state().screen === "play", { maxMs: 5_000, label: "back to box 5" });
+  expect((await page.evaluate(() => window.__sl!.session.state()))!.key).toBe("shadow-locks/5");
+});
+
+test("box size change keeps the solve state", async ({ page, boot }) => {
+  const app = await boot();
+  await app.poke("home-continue");
+  const s = await playing(app, "shadow-locks/1");
+  // Open the first lock that needs no finger, with the lantern on its spot.
+  const lock = s.locks.find((l: any) => !l.finger);
+  await page.evaluate((L) => window.__sl!.placeLantern(L), lock.spot);
+  await app.stepUntil((_n, w, i) => (w as any).__sl.session.state().open.includes(i), { arg: lock.i, maxMs: 3_000, batch: 1, label: "a lock open" });
+  const was = await page.evaluate(() => ({ s: window.__sl!.session.state()!, lantern: window.__sl!.lantern().pos }));
+  // The drawer, Settings, the box two steps bigger.
+  await pullDrawer(app);
+  await app.poke("home-settings");
+  await app.stepUntil((n) => n.state().screen === "settings", { maxMs: 5_000, label: "settings" });
+  await app.poke("box-up");
+  await app.poke("box-up");
+  await app.stepUntil((n) => n.ui.settings().boxSizeCm === 28, { maxMs: 3_000, label: "box 28 cm" });
+  expect((await app.state()).box.sizeM).toBeCloseTo(0.28, 6);
+  await app.poke("settings-done");
+  await app.stepUntil((n) => n.state().screen === "home", { maxMs: 5_000, label: "home" });
+  await app.poke("home-continue");
+  await app.stepUntil((n) => n.state().screen === "play", { maxMs: 5_000, label: "play" });
+  await app.step(10);
+  const now = await page.evaluate(() => ({ s: window.__sl!.session.state()!, lantern: window.__sl!.lantern().pos }));
+  // Everything lives in box units: the same box, the same open locks, the lantern where it was.
+  expect(now.s.key).toBe(was.s.key);
+  expect(now.s.open).toEqual(was.s.open);
+  expect(now.s.crystals).toEqual(was.s.crystals);
+  for (let i = 0; i < 3; i++) expect(now.lantern[i]).toBeCloseTo(was.lantern[i]!, 5);
+  expect(now.s.stage).toBe("playing");
+});
+
+test("no live button within 10 cm of the box mouth during play", async ({ page, boot }) => {
+  const app = await boot();
+  await app.poke("home-continue");
+  await playing(app, "shadow-locks/1");
+  await app.step(30);
+  const near = await page.evaluate(() => {
+    const ns = window.__ns!, sl = window.__sl!;
+    const m = ns.scene.matrix();
+    const size = ns.state().box.sizeM;
+    // A world point to box units (the box matrix is a turn and one uniform scale).
+    const toBox = (p: number[]) => {
+      const dx = p[0]! - m[12]!, dy = p[1]! - m[13]!, dz = p[2]! - m[14]!;
+      const s2 = m[0]! * m[0]! + m[1]! * m[1]! + m[2]! * m[2]!;
+      return [(m[0]! * dx + m[1]! * dy + m[2]! * dz) / s2, (m[4]! * dx + m[5]! * dy + m[6]! * dz) / s2, (m[8]! * dx + m[9]! * dy + m[10]! * dz) / s2];
+    };
+    // Distance (m) from a point to the mouth: the open front, x and y in [-0.5, 0.5] at z = 1.
+    const toMouth = (p: number[]) => {
+      const b = toBox(p);
+      const cx = Math.min(0.5, Math.max(-0.5, b[0]!)), cy = Math.min(0.5, Math.max(-0.5, b[1]!));
+      return Math.hypot(b[0]! - cx, b[1]! - cy, b[2]! - 1) * size;
+    };
+    const live: { id: string; d: number }[] = [];
+    // The menus' keys on the screen shown (none in play), and every key of a panel still drawn.
+    for (const b of ns.state().buttons) live.push({ id: b.id, d: toMouth(b.world) });
+    // The box's own keys (the plate's Next, the hint lantern and its choices) that are live now.
+    for (const k of sl.session.keys()) if (k.live) live.push({ id: k.id, d: toMouth(k.world) });
+    // Every menu key in the scene that is drawn (a hidden panel is not drawn): keys carry their id as the name.
+    const world = (ns.world as any).scene;
+    const tmp = { x: 0, y: 0, z: 0 };
+    world.traverseVisible((o: any) => {
+      if (!o.name || !/^(home|lessons|lesson|tip|collection|coll|settings|toggle|music|effects|box|reset|trial)-[a-z0-9-]+$/.test(o.name)) return;
+      o.updateWorldMatrix(true, false);
+      const e = o.matrixWorld.elements;
+      tmp.x = e[12];
+      tmp.y = e[13];
+      tmp.z = e[14];
+      live.push({ id: `drawn ${o.name}`, d: toMouth([tmp.x, tmp.y, tmp.z]) });
+    });
+    return { screen: ns.state().screen, live };
+  });
+  expect(near.screen).toBe("play");
+  expect(near.live.length).toBeGreaterThan(0);
+  for (const k of near.live) expect(k.d, k.id).toBeGreaterThan(0.1);
+});
+
 /**
  * A whole panel in the headset's view: half Quest 3's pixel density (12 px per degree, a 60 degree tall
  * view at 720p), so the panel fits; the text is then drawn about half as sharp as on the device.

@@ -23,7 +23,9 @@ import { recordHands, recordSeconds } from "./hand-recorder";
 import { attachHands } from "./hand-system";
 import { localInputProfileUrl } from "./input-profiles";
 import { attachLantern } from "./lantern-system";
+import { GameMenus, NO_LESSONS } from "./menu-game";
 import { ProfileStore } from "./profile-store";
+import { go } from "./screens";
 import { SettingsStore } from "./settings";
 import { Shell } from "./shell";
 import { ShellSystem, useShell } from "./shell-system";
@@ -106,19 +108,34 @@ async function main(): Promise<void> {
   // The game (priority -2.8, after the hands): the box session (its finger locks fed by the hands), its
   // celebrations, the plate and the hint lantern.
   const play = attachGame({ world, shell, lantern, sound, hands });
-  // The menu drawer in the box's plinth (priority -2.7, after the lantern: the hand holding it never pulls).
+  // What the menus play through: the box session, and the lessons once they are wired (none yet: a first
+  // launch then opens on Home, and lesson rows stay put).
+  const menuGame = new GameMenus({
+    game: play.game,
+    session: play.session,
+    lessons: NO_LESSONS,
+    toPlay: () => go("play"),
+    clearBox: () => shell.box.setBox(null),
+  });
+  shell.useMenuGame(menuGame);
+  // The menu drawer in the box's plinth (priority -2.7, after the lantern: the hand holding it never pulls). Not
+  // while the box is opening or its reward is up; a menu over play holds the box (its clock stops, it saves).
   const drawer = attachDrawer(world, {
     root: shell.box.root,
     busy: (side) => lantern.grab.holding(side),
+    allowed: () => play.session.stage !== "opening" && play.session.stage !== "reward",
     reducedMotion: () => settings.get().reducedMotion,
     pulled: (at, hand) => sound.game.drawerPull(at, hand),
-    menuOpen: (open) => sound.game.menuOpen(open),
+    menuOpen: (open) => {
+      sound.game.menuOpen(open);
+      shell.lifecycle.setHeld(open, performance.now());
+    },
     away: (away) => {
       lantern.setAway(away, performance.now());
       shell.box.lantern.group.visible = !away;
     },
   });
-  hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play, drawer, access, fakeBilling: bill.fake });
+  hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play, drawer, access, fakeBilling: bill.fake, menuGame });
   shell.start();
   const box = startBox(location.search);
   if (box) play.game.playBox(box);

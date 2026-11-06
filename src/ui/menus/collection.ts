@@ -1,5 +1,6 @@
 // Collection: every solved box's reward, newest first, three cards at a time ("Box No. 3", whose
 // desk it came off, what was inside), with Newer and Older to page. Pure view model and painting.
+import { specOfKey } from "../../core/generator";
 import type { CollectionItem } from "../../core/profile";
 import { COPY, fill } from "../copy";
 import type { MenuSpec, PanelUi } from "./types";
@@ -15,17 +16,16 @@ export const COLLECTION: MenuSpec = {
 
 /** The numbered box a box key names ("shadow-locks/3"), else null. */
 export function boxNumberOf(key: string): number | null {
-  const m = /^shadow-locks\/(\d+)$/.exec(key);
-  return m ? Number(m[1]) : null;
+  const spec = specOfKey(key);
+  return spec?.kind === "box" ? spec.n : null;
 }
 
 /** A reward's title from its box key: "Box No. 3", or "Daily Box 2026-11-02" for a daily. */
 export function titleOf(key: string): string {
   const c = COPY.menus.collection;
-  const n = boxNumberOf(key);
-  if (n !== null) return fill(c.box, { n });
-  const d = /^shadow-locks\/daily\/(\d{4}-\d{2}-\d{2})$/.exec(key);
-  if (d) return fill(c.daily, { day: d[1] as string });
+  const spec = specOfKey(key);
+  if (spec?.kind === "box") return fill(c.box, { n: spec.n });
+  if (spec?.kind === "daily") return fill(c.daily, { day: spec.day });
   return key;
 }
 
@@ -60,7 +60,8 @@ export function collectionView(items: readonly CollectionItem[], page: number): 
   const cards: CardView[] = [];
   for (let k = from; k < Math.min(n, from + CARDS); k++) {
     const it = items[n - 1 - k] as CollectionItem;
-    cards.push({ title: titleOf(it.key), owner: fill(c.owner, { owner: it.owner }), loot: fill(c.loot, { loot: it.loot }) });
+    // The same story lines the reward card carries as it rises out of the box.
+    cards.push({ title: titleOf(it.key), owner: fill(COPY.game.storyOwner, { owner: it.owner }), loot: fill(COPY.game.storyLoot, { loot: it.loot }) });
   }
   const newer = index > 0;
   const older = index < pages - 1;

@@ -48,6 +48,8 @@ export interface MenuGame {
   replay(row: LessonRow): void;
   /** Progress was reset: drop whatever box or lesson was in play. */
   dropped(): void;
+  /** A first launch: lesson 1 at once (the play screen), never Home. False when it cannot start. */
+  startFirst(): boolean;
 }
 
 export class Shell {
@@ -155,8 +157,13 @@ export class Shell {
     this.lifecycle.markDirty(now);
   }
 
-  /** First screen: Home on the open drawer (the entitlement is worked out as it comes up). */
+  /**
+   * First screen. A first launch (lesson 1 not finished) goes straight into lesson 1, never Home; any
+   * later launch opens on Home, on the open drawer (the entitlement is worked out as it comes up).
+   * Without lessons to start, Home.
+   */
   start(): void {
+    if (!this.profiles.profile.lessons.l1 && this.game?.startFirst()) return;
     go("home");
   }
 

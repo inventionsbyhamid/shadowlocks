@@ -49,8 +49,7 @@ describe("copy", () => {
       expect(s).not.toMatch(/\.$/);
       expect(s.length).toBeLessThanOrEqual(16);
     }
-    expect(m.collection.owner).toMatch(/\.$/);
-    expect(m.collection.loot).toMatch(/\.$/);
+    expect(m.collection.page).toBe("{from} to {to} of {n}");
     for (const k of ["over", "bought", "failed"] as const) expect(m.trial[k]).toMatch(/^[A-Z].*\.$/);
     expect(m.trial.daysLeft).toBe("Your trial: {n} days left");
     expect(m.trial.unlock).toBe("Unlock the full game");

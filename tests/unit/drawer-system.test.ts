@@ -100,6 +100,19 @@ describe("MenuDrawer", () => {
     expect(b.drawer.view.out).toBe(0);
   });
 
+  it("the lantern is put away exactly while a menu is up, whatever the screens do", () => {
+    const b = bench();
+    const away = () => {
+      const last = b.said.filter((s) => s.startsWith("away ")).pop();
+      return last === "away true";
+    };
+    expect(away()).toBe(false);
+    for (const s of ["home", "lessons", "collection", "settings", "reset", "settings", "home", "trial", "play", "home", "play"] as const) {
+      go(s);
+      expect(away(), s).toBe(s !== "play");
+    }
+  });
+
   it("cannot be pulled while a menu is up", () => {
     const b = bench();
     go("home");

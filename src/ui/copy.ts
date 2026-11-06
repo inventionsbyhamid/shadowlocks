@@ -65,8 +65,6 @@ export const COPY = {
       many: "{n} rewards",
       box: "Box No. {n}",
       daily: "Daily Box {day}",
-      owner: "Off the desk of {owner}.",
-      loot: "Inside: {loot}.",
       page: "{from} to {to} of {n}",
     },
     trial: {
