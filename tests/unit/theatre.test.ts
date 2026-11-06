@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { BackSide, type Mesh, type MeshBasicMaterial, Vector3 } from "@iwsdk/core";
+import {
+  BackSide,
+  CustomBlending,
+  type Mesh,
+  type MeshBasicMaterial,
+  OneFactor,
+  OneMinusSrcAlphaFactor,
+  SrcAlphaFactor,
+  Vector3,
+} from "@iwsdk/core";
 import { HAND_MASK_ORDER } from "../../src/render/hand-mask";
 import { ROOM } from "../../src/render/theme";
 import { roomLightFor, Theatre, THEATRE } from "../../src/render/theatre";
@@ -118,7 +127,7 @@ describe("theatre lights", () => {
     expect(t.opacity).toBeCloseTo(1 - ROOM.play, 6);
   });
 
-  it("the veil is an inside-out sphere 3 m round the head, drawn before everything see-through, writing no depth", () => {
+  it("the veil is an inside-out sphere 3 m round the head, blended in first of all (before the hand mask), writing no depth", () => {
     const t = new Theatre();
     const head = new Vector3(0.3, 1.2, -1.4);
     t.dim(true);
@@ -126,12 +135,24 @@ describe("theatre lights", () => {
     expect(t.veil.position.toArray()).toEqual(head.toArray());
     const mat = veilMat(t);
     expect(mat.side).toBe(BackSide);
-    expect(mat.transparent).toBe(true);
+    // In the opaque pass (so it draws before the hand mask, which is opaque), blending as normal alpha does.
+    expect(mat.transparent).toBe(false);
+    expect(mat.blending).toBe(CustomBlending);
+    expect([mat.blendSrc, mat.blendDst, mat.blendSrcAlpha, mat.blendDstAlpha]).toEqual([
+      SrcAlphaFactor,
+      OneMinusSrcAlphaFactor,
+      OneFactor,
+      OneMinusSrcAlphaFactor,
+    ]);
     expect(mat.depthWrite).toBe(false);
     expect(mat.depthTest).toBe(true);
     expect(mat.toneMapped).toBe(false);
     expect(t.veil.frustumCulled).toBe(false);
     expect(t.veil.renderOrder).toBeLessThan(HAND_MASK_ORDER);
+    // The studio draws before the veil (the veil writes no depth, so whatever draws after it covers it).
+    t.room.traverse((o) => {
+      if ((o as Mesh).isMesh) expect(o.renderOrder).toBeLessThan(t.veil.renderOrder);
+    });
     t.veil.geometry.computeBoundingSphere();
     expect(t.veil.geometry.boundingSphere!.radius).toBeCloseTo(THEATRE.radiusM, 3);
     expect(THEATRE.radiusM).toBe(3);
@@ -152,6 +173,7 @@ describe("theatre lights", () => {
     for (const m of meshes) {
       const mat = m.material as MeshBasicMaterial;
       expect(mat.transparent).toBe(false);
+      expect(mat.blending).not.toBe(CustomBlending);
       m.geometry.computeBoundingSphere();
       // Centred on the box, it still holds the seated head (about 0.6 m away) and the veil round it.
       expect(m.geometry.boundingSphere!.radius).toBeGreaterThan(THEATRE.radiusM + 0.75);

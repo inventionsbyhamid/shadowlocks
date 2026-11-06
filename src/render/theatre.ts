@@ -1,10 +1,11 @@
 // Theatre lights: while a box is in play the room dims, so the lantern's light and the shadows carry the scene; the
 // light comes back up when the box opens, and half way in the menus. The room is the passthrough (or, without it,
-// the virtual studio below), so dimming it is a veil: an inside-out sphere 3 m round the head, near black, drawn
-// before anything see-through and writing no depth. It hides nothing nearer than itself (the box, the menus, the
-// lantern's glow and a real hand behind the hand mask all stay at full light) and lays its opacity over everything
-// beyond: in passthrough the headset shows the room through what the page leaves transparent, so the room shows at
-// 1 - opacity. Brightness kept (theme.ts, ROOM): 35% in play, 55% in menus, full when the box opens or dimming is
+// the virtual studio below), so dimming it is a veil: an inside-out sphere 3 m round the head, near black, blended
+// over the clear page as the very first thing drawn, writing no depth. Everything drawn after it in front (the box,
+// the menus, the lantern's glow) covers it at full light; what stays is its opacity over the room: in passthrough
+// the headset shows the room through what the page leaves transparent, so the room shows at 1 - opacity. Drawn
+// before the hand mask, it dims the room behind a real hand too, so the mask's capsules (wider than the hand) cut
+// no bright halo out of the dark room. Brightness kept (theme.ts, ROOM): 35% in play, 55% in menus, full when the box opens or dimming is
 // off, never darker than 35%. Every change fades over 0.8 s, eased, from wherever the light is; a fade is a slow
 // change of light, not motion and not a flash, so it is the same with reduced motion.
 //
@@ -13,14 +14,19 @@
 //
 // One draw call for the veil while the room is dimmed, none at full light. Nothing allocates per frame.
 import {
+  AddEquation,
   BackSide,
   BufferAttribute,
   BufferGeometry,
   Color,
+  CustomBlending,
   Group,
   Mesh,
   MeshBasicMaterial,
+  OneFactor,
+  OneMinusSrcAlphaFactor,
   SphereGeometry,
+  SrcAlphaFactor,
   type Vector3,
 } from "@iwsdk/core";
 import { smoothstep } from "./fx/ease";
@@ -35,7 +41,7 @@ export const THEATRE = {
   fadeS: ROOM.fadeS,
   /** Veil opacity per light: what the room loses. */
   opacity: { up: 0, menu: 1 - ROOM.menu, play: 1 - ROOM.play } as const,
-  /** Drawn first among see-through things, so it dims what lies behind the box and never what is in front. */
+  /** Drawn first of all (the studio just before it), ahead of the hand mask (-10). */
   renderOrder: -100,
   /** The virtual room: its dome (m, centred at head height over the box) and floor. */
   domeRadiusM: 4.5,
@@ -116,10 +122,19 @@ export class Theatre {
   private readonly mat: MeshBasicMaterial;
 
   constructor() {
+    // Blended over what is there (normal alpha blending, written out), but in the opaque pass: drawn first of all,
+    // before the hand mask, so the room behind a real hand dims too (the mask's capsules are wider than the hand;
+    // undimmed, they would cut a bright halo out of the dark room round it).
     this.mat = new MeshBasicMaterial({
       color: ROOM.veil,
       side: BackSide,
-      transparent: true,
+      transparent: false,
+      blending: CustomBlending,
+      blendEquation: AddEquation,
+      blendSrc: SrcAlphaFactor,
+      blendDst: OneMinusSrcAlphaFactor,
+      blendSrcAlpha: OneFactor,
+      blendDstAlpha: OneMinusSrcAlphaFactor,
       opacity: 0,
       depthWrite: false,
       depthTest: true,
@@ -137,7 +152,11 @@ export class Theatre {
     dome.name = "Theatre Dome";
     const floor = new Mesh(floorGeometry(), new MeshBasicMaterial({ vertexColors: true, toneMapped: false, dithering: true }));
     floor.name = "Theatre Floor";
-    for (const m of [dome, floor]) m.frustumCulled = false;
+    for (const m of [dome, floor]) {
+      m.frustumCulled = false;
+      // Drawn before the veil, which writes no depth and must lie over it.
+      m.renderOrder = THEATRE.renderOrder - 1;
+    }
     this.room.name = "Theatre Room";
     this.room.add(dome, floor);
   }
