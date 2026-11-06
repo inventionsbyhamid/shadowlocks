@@ -108,4 +108,54 @@ describe("Lantern", () => {
     expect(scene.pos).toEqual(b.start);
     expect(said).toEqual(["grab right", "release right"]);
   });
+
+  it("is put away under a menu: a hold lets go at once where it stands, nothing takes it, and it carries on after", () => {
+    const a = generateBox({ kind: "box", n: 1 });
+    const scene = fakeScene(a);
+    const pins: [HandPinch, HandPinch] = [newPin(), newPin()];
+    const lantern = new Lantern(scene as unknown as LanternBoxScene, { pinches: pins, joints: {} as HandJoints });
+    const said: string[] = [];
+    offs.push(on("grab", (e) => said.push(`grab ${e.hand}`)), on("release", (e) => said.push(`release ${e.hand}`)));
+    let t = 0;
+    const right = pins[1];
+    const frame = (p: V3, trigger: boolean) => {
+      right.edge = trigger && !right.pinching ? "start" : !trigger && right.pinching ? "end" : null;
+      right.kind = "controller";
+      right.tracked = true;
+      right.pinching = trigger;
+      right.point.set(p[0], p[1], p[2]);
+      t += DT;
+      lantern.update(t);
+    };
+    const grip = add(a.start, [0, u(2), 0]);
+    frame(grip, false);
+    frame(grip, true);
+    for (let i = 1; i <= 10; i++) frame(add(grip, [u(i / 2), 0, 0]), true);
+    for (let i = 0; i < 40; i++) frame(add(grip, [u(5), 0, 0]), true);
+    expect(lantern.grab.holder).toBe("right");
+    const held: V3 = [...scene.pos];
+
+    lantern.setAway(true, t);
+    expect(lantern.away).toBe(true);
+    // Let go where it stood (the release looks back to the standstill: within a hair).
+    const stood: V3 = [...scene.pos];
+    for (let i = 0; i < 3; i++) expect(stood[i]).toBeCloseTo(held[i]!, 4);
+    expect(lantern.grab.holder).toBeNull();
+    expect(said).toEqual(["grab right", "release right"]);
+    // The hand moves on and pinches again on it: nothing moves it or takes it.
+    frame(add(grip, [u(9), 0, 0]), false);
+    frame(stood, false);
+    frame(stood, true);
+    for (let i = 0; i < 20; i++) frame(add(stood, [u(i), 0, 0]), true);
+    expect(scene.pos).toEqual(stood);
+    expect(lantern.grab.holder).toBeNull();
+    expect(said).toEqual(["grab right", "release right"]);
+
+    // Back: a new pinch on it takes it again; no release is told twice.
+    lantern.setAway(false, t);
+    frame(stood, false);
+    frame(stood, true);
+    expect(lantern.grab.holder).toBe("right");
+    expect(said).toEqual(["grab right", "release right", "grab right"]);
+  });
 });
