@@ -11,7 +11,7 @@
 // fake clock with fake frames. Per frame it allocates nothing: lock state, shadow buffers and coverage are made once
 // per box, and the events it sends every frame or so are shared or reused (events.ts).
 import { HINT_GLOW_GAIN } from "../audio/cues";
-import { GENERATOR_VERSION } from "../core/generator";
+import { GENERATOR_VERSION, specOfKey } from "../core/generator";
 import { mirrorBox } from "../core/mirror";
 import type { BoxSnapshot } from "../core/profile";
 import { type Coverage, measure, meets, prepareLock, ShadowCaster, SKIP_MISSING, warmth, WARMTH_RANGE } from "../core/solve";
@@ -31,7 +31,7 @@ import { collect, hintTargetOf, loadingSnapshot, LockState, lockOnPanel, solveBo
 export const LOCK_TO_BOX_MS = 700;
 /** From the box opening until its reward has risen out of the drawer and can be taken (it rises with the tune). */
 export const REWARD_UP_MS = 2500;
-/** A reward nobody takes goes into the collection by itself this long after it is up. */
+/** A reward nobody takes is taken by itself this long after it is up (it is in the collection since the box opened). */
 export const REWARD_AUTO_MS = 8000;
 /** A box in play is saved this often (the lifecycle debounces it), besides on hide and after anything that matters. */
 export const SAVE_EVERY_MS = 2000;
@@ -192,14 +192,17 @@ export class BoxSession {
   }
 
   /**
-   * The offered next box (the plate's Next): the player's next numbered box, resumed when it is the box in progress
-   * (after a Daily Box it can be). After a practice box, the box after it, as practice too.
+   * The offered next box (the plate's Next), as Continue picks it: the numbered box in progress if there is one (after
+   * a Daily Box there can be), resumed, else the player's next box. After a practice box, the box after it, as
+   * practice too.
    */
   next(): Promise<void> {
     if (this.stageNow !== "offered") return Promise.resolve();
     const spec = this.currentSpec, p = this.deps.profiles.profile;
     if (this.practiceNow && spec?.kind === "box") return this.start({ kind: "box", n: spec.n + 1 }, null, { practice: true });
-    return this.start({ kind: "box", n: p.nextBox }, p.current);
+    const saved = p.current ? specOfKey(p.current.key) : null;
+    if (saved) return this.start(saved, p.current);
+    return this.start({ kind: "box", n: p.nextBox });
   }
 
   /** Out of view: play stops (and the fingertip hum with it) until resume. */
@@ -427,7 +430,7 @@ export class BoxSession {
     }
     this.best = best;
     // The last lock ends play (the hum and the coach stopped with it).
-    if (this.stageNow === "playing") fingers.end();
+    if (this.stageNow === "playing") fingers.end(dt);
     return opened;
   }
 
@@ -536,7 +539,10 @@ export class BoxSession {
     return hintTargetOf(this.locks, this.focused);
   }
 
-  /** From the last lock to the reward: the box opens, the reward rises, and one nobody takes is collected. */
+  /**
+   * From the last lock to the reward: the box opens (solved, its reward collected), the reward rises, and one nobody
+   * takes is taken by itself.
+   */
   private sequence(dt: number): void {
     if (this.stageNow === "opening") {
       this.seqMs += dt;

@@ -12,7 +12,8 @@
 // frame's coverage (nothing fills it away from its spot), the hold's progress on the bus, and on the frame it completes
 // the piece forms; the session then opens the lock once the piece has formed (CRYSTAL_MS). The fingertip hum follows a
 // finger in the beam, and stops whenever play does. While a finger lock is one piece short and controllers are in use,
-// the coach line suggests setting one down. Per frame it allocates nothing.
+// the coach line suggests setting one down (it comes and goes only after 300 ms, so it never flickers). Per frame it
+// allocates nothing.
 import type { GameSounds } from "../audio/cues";
 import { type Coverage, isShort, type LockSamples } from "../core/solve";
 import type { Box, Lock, V2, Vec3 } from "../core/types";
@@ -23,6 +24,8 @@ import { COACH, CRYSTALLISE, MAX_LOCKS, reusedEvents, SHORT } from "./events";
 export const CRYSTAL_MS = 700;
 /** A finger hold's progress on the bus moves in steps of this (or to 0 or 1). */
 const FINGER_EVENT_STEP = 0.1;
+/** The coach line comes or goes only once that has held this long (no flicker at the edge of a lock's spot). */
+export const COACH_HOLD_MS = 300;
 
 /** The finger's shadow this frame, as the hand system casts it (panel, box units). */
 export interface FingerSource {
@@ -94,6 +97,8 @@ export class FingerLocks {
   private hold = 0;
   private fingerIn = false;
   private coachOn = false;
+  /** How long the coach line has wanted to change. */
+  private coachMs = 0;
   private readonly at: Vec3 = [0, 0, 0];
 
   constructor(private readonly d: FingerLocksDeps) {}
@@ -135,6 +140,7 @@ export class FingerLocks {
   quiet(): void {
     if (this.fingerIn) this.d.sound.finger(null);
     this.fingerIn = false;
+    this.coachMs = 0;
     this.setCoach(false);
   }
 
@@ -180,10 +186,11 @@ export class FingerLocks {
   }
 
   /**
-   * After the locks: the fingertip hum while a finger is in the beam (toward the panel, through the hold, at the
-   * fingertip), off when it leaves; the coach line while a finger lock is one piece short and controllers are in use.
+   * After the locks (`dt`: this frame's ms): the fingertip hum while a finger is in the beam (toward the panel, through
+   * the hold, at the fingertip), off when it leaves; the coach line while a finger lock is one piece short and
+   * controllers are in use, coming and going after COACH_HOLD_MS.
    */
-  end(): void {
+  end(dt: number): void {
     const f = this.d.fingers;
     if (f && f.nFinger > 0) {
       this.d.sound.finger(1 - Math.min(1, Math.max(0, f.fingerZ)), this.hold, f.tip(this.at) ? this.at : undefined);
@@ -194,7 +201,12 @@ export class FingerLocks {
     }
     let short = false;
     for (let i = 0; i < MAX_LOCKS; i++) if (this.short[i]) short = true;
-    this.setCoach(short && !!f && f.controllers);
+    const want = short && !!f && f.controllers;
+    if (want === this.coachOn) this.coachMs = 0;
+    else if ((this.coachMs += dt) >= COACH_HOLD_MS - 1e-6) {
+      this.coachMs = 0;
+      this.setCoach(want);
+    }
   }
 
   private setCoach(on: boolean): void {

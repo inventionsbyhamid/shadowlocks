@@ -22,7 +22,8 @@ export type HintLevel = 1 | 2 | 3 | 4;
  * - `crystallise` {lock}: the hold is done and the missing piece forms where the finger was.
  * - `lock-open` {lock, order}: a lock opened, the `order`-th of its box (1 for the first).
  * - `box-open` {key}: every lock is open: the box opens (the theatre's cue: gold sweep, room light up).
- * - `reward-taken` {key}: the box's reward went into the collection.
+ * - `reward-taken` {key}: the box's reward was taken (by hand, or by itself after 8 s); it went into the collection
+ *   when the box opened.
  * - `hint` {lock, level}: a hint was shown for a lock.
  * - `stuck` {on}: the stuck watch lit the hint lantern (on), or the player moved on or took a hint (off).
  * - `focus` {lock}: the lock the head gaze rests on (null: none; it clears when that lock opens).
