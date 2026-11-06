@@ -261,7 +261,8 @@ test("poke every home button", async ({ page, boot }) => {
   await screenAfter("home-continue", "play");
   expect(await page.evaluate(() => window.__ns!.ui.held())).toBe(false);
   expect((await page.evaluate(() => window.__sl!.session.state()))!.key).toBe("shadow-locks/1");
-  // Box 3 solved: the Daily Box opens today's box; the drawer over it, Continue goes back to it.
+  // Box 3 solved: the Daily Box opens today's box. The drawer over it: the Daily key goes back to it, and
+  // Continue still means the numbered box in progress (box 1, saved when the drawer opened over it).
   await page.evaluate(() => window.__ns!.ui.profile({ nextBox: 4 }));
   await pullDrawer(app);
   await shows(app, "home-daily-sub", COPY.menus.home.dailyNew);
@@ -270,9 +271,12 @@ test("poke every home button", async ({ page, boot }) => {
   expect(daily.spec).toEqual({ kind: "daily", day: "2026-11-02" });
   await pullDrawer(app);
   expect(await page.evaluate(() => window.__ns!.ui.behind())).toEqual({ kind: "daily" });
-  await shows(app, "home-continue-sub", COPY.menus.home.backToDaily);
+  await shows(app, "home-continue-sub", "Box No. 1");
   await screenAfter("home-daily", "play");
   expect((await page.evaluate(() => window.__sl!.session.state()))!.key).toBe("shadow-locks/daily/2026-11-02");
+  await pullDrawer(app);
+  await screenAfter("home-continue", "play");
+  await playing(app, "shadow-locks/1");
   const presses = (await app.events("press")).map((e: any) => e.id);
   for (const id of ["home-lessons", "home-collection", "home-settings", "home-continue", "home-daily"]) expect(presses, id).toContain(id);
 });

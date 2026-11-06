@@ -19,7 +19,7 @@ describe("copy", () => {
       expect(s.length).toBeLessThanOrEqual(16);
     }
     // The box in play: short labels; the story line and "one piece short" are sentences.
-    for (const s of [COPY.game.boxNo, COPY.game.daily, COPY.game.next, COPY.game.hint, COPY.game.showMe]) {
+    for (const s of [COPY.game.boxNo, COPY.game.daily, COPY.game.next, COPY.game.hint, COPY.game.showMe, COPY.game.practice]) {
       expect(s).not.toMatch(/\.$/);
       expect(s.length).toBeLessThanOrEqual(12);
     }

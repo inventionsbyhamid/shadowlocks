@@ -153,6 +153,11 @@ export class DrawerView {
     this.target = open ? DRAWER.out : 0;
   }
 
+  /** The gold's glow now, 0..1. */
+  get glow(): number {
+    return Math.max(0, this.glowV);
+  }
+
   /** The gold's glow, 0..1 (a hand near the handle). Writes only a change. */
   setGlow(k: number): void {
     const v = Math.round(Math.min(1, Math.max(0, k)) * 100) / 100;

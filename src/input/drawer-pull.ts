@@ -22,6 +22,8 @@ export const DRAWER_PULL = {
   openM: 0.04,
   /** A pinch must start within this distance of the handle's centre (m) to take hold. */
   gripM: 0.04,
+  /** The pull toward the player must be at least this many times the drift across it: a sideways swipe is no pull. */
+  dominance: 2,
 } as const;
 
 /** What the drawer reads of the hands (HandJoints has it all; controllers go through an adapter). */
@@ -107,9 +109,12 @@ export class DrawerPull {
       const side = SIDES[this.who]!;
       // Out of tracking: the pull holds where it was until the hand comes back or the pinch times out.
       if (joints.joint(side, KNUCKLE, this.at)) {
-        const pulled = this.at.sub(this.start).dot(this.frame.toward(this.out));
+        const moved = this.at.sub(this.start);
+        const pulled = moved.dot(this.frame.toward(this.out));
+        // The drift across the drawer's axis (up, down or sideways): what is left of the move off the axis.
+        const across = Math.sqrt(Math.max(0, moved.lengthSq() - pulled * pulled));
         this.progress = Math.min(1, Math.max(0, pulled / DRAWER_PULL.openM));
-        if (pulled >= DRAWER_PULL.openM) {
+        if (pulled >= DRAWER_PULL.openM && pulled >= DRAWER_PULL.dominance * across) {
           this.who = -1;
           this.hand = null;
           this.state = "open";

@@ -43,7 +43,7 @@ export interface MenuActions {
   /** Place the box again from where the head is now. */
   recenter(): void;
   /** Continue: back to what waits behind the menus, or the numbered box in progress, or the next. */
-  continueBox(to: Exclude<ContinueTo, { kind: "trial" }>): void;
+  continueBox(to: Extract<ContinueTo, { kind: "back" | "box" }>): void;
   /** Today's Daily Box (the key is live only once box 3 is solved). */
   playDaily(): void;
   /** Replay a lesson example or a tip (never touches box progress). */
@@ -310,12 +310,6 @@ export class Menus {
     return this.slabs.shown;
   }
 
-  /** Any panel drawn now (entering, shown or still leaving). */
-  get anyVisible(): boolean {
-    for (const p of this.live) if (p.motion.visible) return true;
-    return false;
-  }
-
   /** True while a panel is moving, a number is still counting, or a key's action is waiting. */
   get busy(): boolean {
     for (const p of this.live) {
@@ -455,7 +449,8 @@ export class Menus {
       case "home-continue": {
         const to = continueTo(this.deps.profiles.profile, this.deps.data.behind(), this.deps.data.ent());
         if (to.kind === "trial") go("trial");
-        else a.continueBox(to);
+        // Still working the entitlement out: the key is disabled (no click), so nothing to do.
+        else if (to.kind !== "wait") a.continueBox(to);
         return;
       }
       case "home-daily":

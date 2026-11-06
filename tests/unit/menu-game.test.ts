@@ -1,17 +1,19 @@
 // The menus over the game: what waits behind them, Continue and the Daily Box, lesson and tip replays, a
 // first launch going straight into lesson 1, and a progress reset letting the box in play go.
 import { describe, expect, it } from "vitest";
-import { GameMenus, type MenuLessons, NO_LESSONS, TIP_EXAMPLE } from "../../src/app/menu-game";
+import { GameMenus, type MenuLessons, NO_LESSONS, REPLAYS_KEPT, TIP_EXAMPLE } from "../../src/app/menu-game";
 import type { Stage } from "../../src/app/session-deps";
 import { newProfile } from "../../src/core/profile";
 import type { BoxSpec } from "../../src/core/types";
 import type { ExampleKey } from "../../src/ui/menus/types";
 
-function bench(o: { lessons?: MenuLessons } = {}) {
+function bench(o: { lessons?: MenuLessons; canPlayBox?: () => boolean } = {}) {
   const said: string[] = [];
-  const session: { stage: Stage; spec: BoxSpec | null } = { stage: "idle", spec: null };
+  const session: { stage: Stage; spec: BoxSpec | null; rehand?: () => Promise<void> } = { stage: "idle", spec: null };
   const profile = newProfile(0, "1.0.0");
   const menus = new GameMenus({
+    canPlayBox: o.canPlayBox ?? (() => true),
+    toTrial: () => said.push("toTrial"),
     game: {
       play: (spec: BoxSpec) => {
         said.push(`play ${JSON.stringify(spec)}`);
@@ -131,7 +133,56 @@ describe("GameMenus", () => {
     b.menus.dropped();
     expect(b.said).toEqual(["clearBox"]);
     expect(b.menus.behind()).toBeNull();
-    b.menus.playBox(1, false);
-    expect(b.menus.behind()).toEqual({ kind: "box", n: 1 });
+    // Box 7 is not behind any more: Continue starts it, it does not "go back" to it.
+    b.menus.playBox(7, false);
+    expect(b.said).toEqual(["clearBox", 'play {"kind":"box","n":7}']);
+    expect(b.menus.behind()).toEqual({ kind: "box", n: 7 });
+    // The same for a Daily Box let go: the Daily key plays today's afresh.
+    const c = bench();
+    c.session.spec = { kind: "daily", day: "2026-11-06" };
+    c.session.stage = "playing";
+    c.menus.dropped();
+    c.menus.playDaily(Date.UTC(2026, 10, 6, 12));
+    expect(c.said).toEqual(["clearBox", `playDaily ${Date.UTC(2026, 10, 6, 12)}`]);
+  });
+
+  it("endless boxes ask the entitlement: refused, Continue goes to the trial screen instead, even with a box behind", () => {
+    let allowed = false;
+    const b = bench({ canPlayBox: () => allowed });
+    b.menus.playBox(3, false);
+    b.menus.playBox(2, true);
+    b.session.spec = { kind: "box", n: 4 };
+    b.session.stage = "playing";
+    b.menus.playBox(4, true);
+    expect(b.said).toEqual(["toTrial", "toTrial", "toTrial"]);
+    // The Daily Box stays open.
+    b.menus.playDaily(5);
+    expect(b.said.at(-1)).toBe("playDaily 5");
+    allowed = true;
+    b.menus.playBox(4, true);
+    expect(b.said.at(-1)).toBe("toPlay");
+  });
+
+  it("a hand change re-mirrors the box behind, never one a reset let go", async () => {
+    const b = bench();
+    const asked: string[] = [];
+    b.session.rehand = async () => {
+      asked.push("rehand");
+    };
+    await b.menus.rehand();
+    expect(asked).toEqual([]);
+    b.session.spec = { kind: "box", n: 3 };
+    b.session.stage = "playing";
+    await b.menus.rehand();
+    expect(asked).toEqual(["rehand"]);
+    b.menus.dropped();
+    await b.menus.rehand();
+    expect(asked).toEqual(["rehand"]);
+  });
+
+  it("keeps only the last few replays asked for", () => {
+    const b = bench();
+    for (let i = 0; i < 40; i++) b.menus.replay({ key: "lesson-move", label: "Move the light", kind: "example", id: "move" });
+    expect(b.menus.replays.length).toBe(REPLAYS_KEPT);
   });
 });

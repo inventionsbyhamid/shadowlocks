@@ -6,7 +6,7 @@ import { ACT_HINT, ACT_NEXT, ACT_TAKE, type BoxSessionDeps, type SessionView } f
 import { COACH_HOLD_MS, CRYSTAL_MS, type FingerLoop } from "../../src/app/session-fingers";
 import type { FeedbackEvent } from "../../src/app/bus";
 import { GENERATOR_VERSION, generateBox } from "../../src/core/generator";
-import { type BoxSnapshot, defaultSettings, newProfile, type Profile } from "../../src/core/profile";
+import { type BoxSnapshot, defaultSettings, newProfile, type Profile, type Settings } from "../../src/core/profile";
 import { meets } from "../../src/core/solve";
 import type { Box, BoxSpec, Lock, V2, V3, Vec3 } from "../../src/core/types";
 import { GAZE_DWELL_MS, OPEN_DWELL_MS, STUCK_MS } from "../../src/feel/constants";
@@ -39,6 +39,10 @@ interface Harness {
   events: FeedbackEvent[];
   calls: string[];
   profile: Profile;
+  /** The settings the session reads (change them as the settings screen does). */
+  settings: Settings;
+  /** Times Next asked for a box the entitlement refused. */
+  refused: () => number;
   /** Every warmth the panel was given, by lock. */
   panelWarmth: Map<number, number[]>;
   panelOpen: Set<number>;
@@ -69,7 +73,8 @@ interface Harness {
   types(type: string): FeedbackEvent[];
 }
 
-function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "right" } = {}): Harness {
+function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "right"; canPlayBox?: () => boolean } = {}): Harness {
+  let refused = 0;
   const events: FeedbackEvent[] = [];
   const calls: string[] = [];
   const panelWarmth = new Map<number, number[]>();
@@ -229,6 +234,10 @@ function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "ri
     makeFingerLoop: fingerLoop,
     crystals: { crystallise: rec("crystals.crystallise"), place: rec("crystals.place") },
     view: fakeView,
+    canPlayBox: o.canPlayBox,
+    boxRefused: () => {
+      refused++;
+    },
   };
   const session = new BoxSession(deps);
   let t = 1000;
@@ -237,6 +246,8 @@ function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "ri
     events,
     calls,
     profile,
+    settings,
+    refused: () => refused,
     panelWarmth,
     panelOpen,
     feelOpen,
@@ -637,6 +648,76 @@ describe("box session", () => {
     expect(h.pos[0]).toBeLessThan(0);
     openPlainLocks(h);
     expect(h.session.isOpen(0)).toBe(true);
+  });
+
+  it("a save keeps which way its box was mirrored; resumed for the other hand, the lantern crosses to the same side of its box", async () => {
+    const h = harness();
+    await h.session.start(BOX(2));
+    h.place(h.session.box!.locks[0]!.L);
+    h.until(() => h.session.isOpen(0), 1000);
+    h.place([0.2, -0.3, 1.3]);
+    h.frames(2);
+    const s1 = h.session.snapshot();
+    expect(s1.mirrored).toBe(false);
+    const left = harness({ handed: "left" });
+    await left.session.start(BOX(2), JSON.parse(JSON.stringify(s1)) as BoxSnapshot);
+    expect(left.session.box!.mirrored).toBe(true);
+    expect(left.pos).toEqual([-0.2, -0.3, 1.3]);
+    expect(left.session.isOpen(0)).toBe(true);
+    expect(left.session.snapshot().mirrored).toBe(true);
+    // A save from before saves said (no `mirrored`) is taken as it is.
+    const old: BoxSnapshot = { ...s1 };
+    delete old.mirrored;
+    const l2 = harness({ handed: "left" });
+    await l2.session.start(BOX(2), old);
+    expect(l2.pos).toEqual([0.2, -0.3, 1.3]);
+  });
+
+  it("the Left hand setting mirrors the box in play from its own save: the same open locks, time and hints", async () => {
+    const h = harness();
+    await h.session.start(BOX(2));
+    h.place(h.session.box!.locks[0]!.L);
+    h.until(() => h.session.isOpen(0), 1000);
+    h.place([0.15, -0.25, 1.3]);
+    h.frames(30);
+    const before = h.session.snapshot();
+    h.settings.handed = "left";
+    await h.session.rehand();
+    expect(h.session.box!.mirrored).toBe(true);
+    expect(h.pos).toEqual([-0.15, -0.25, 1.3]);
+    expect(h.session.isOpen(0)).toBe(true);
+    expect(h.session.isOpen(1)).toBe(false);
+    expect(h.session.snapshot()).toMatchObject({ key: before.key, open: [0], elapsedMs: before.elapsedMs, mirrored: true });
+    // Nothing to do when the box already matches the hand, or none plays.
+    const box = h.session.box;
+    await h.session.rehand();
+    expect(h.session.box).toBe(box);
+    await harness().session.rehand();
+  });
+
+  it("Next asks the entitlement: when endless boxes are not allowed (a trial over) it starts none and says so", async () => {
+    const profile = newProfile(0, "test");
+    let allowed = true;
+    const h = harness({ profile, canPlayBox: () => allowed });
+    await h.session.start({ kind: "daily", day: "2026-11-06" });
+    openPlainLocks(h);
+    for (const l of h.session.box!.locks) if (l.finger) openFingerLock(h, l);
+    h.until(() => h.session.stage === "reward", LOCK_TO_BOX_MS + REWARD_UP_MS + 100);
+    h.view.acts = ACT_TAKE;
+    h.frames(1);
+    allowed = false;
+    const daily = h.session.box;
+    h.view.acts = ACT_NEXT;
+    h.frames(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.refused()).toBe(1);
+    expect(h.session.box).toBe(daily);
+    expect(h.session.stage).toBe("offered");
+    allowed = true;
+    h.view.acts = ACT_NEXT;
+    h.frames(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.session.box?.key).toBe(generateBox(BOX(1)).key);
   });
 
   it("a practice box never touches the player's progress, and its Next is the next practice box", async () => {
