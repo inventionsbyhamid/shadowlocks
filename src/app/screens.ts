@@ -1,9 +1,17 @@
 import { emit as appEmit, type FeedbackEvent } from "./bus";
 
-/** The screens so far: the first screen (home), settings, and play (a box in the lap, no panel). */
-export type Screen = "boot" | "home" | "settings" | "play";
+/**
+ * The screens: the drawer's menus (home, lessons, collection, settings, the reset confirm, the
+ * trial) and play (a box or lesson in the lap, the drawer shut, no panel).
+ */
+export type Screen = "boot" | "home" | "lessons" | "collection" | "settings" | "reset" | "trial" | "play";
 
-export const SCREENS: readonly Screen[] = ["boot", "home", "settings", "play"];
+export const SCREENS: readonly Screen[] = ["boot", "home", "lessons", "collection", "settings", "reset", "trial", "play"];
+
+/** The screens that raise a menu panel on the open drawer. */
+export const MENU_SCREENS: readonly Screen[] = ["home", "lessons", "collection", "settings", "reset", "trial"];
+
+export const isMenuScreen = (s: Screen): boolean => MENU_SCREENS.includes(s);
 
 export interface Screens {
   current(): Screen;

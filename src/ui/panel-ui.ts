@@ -56,28 +56,38 @@ export class PanelView implements PanelUi {
   }
 
   text(id: string, s: string): void {
-    this.el(id)?.setProperties({ text: s });
+    if (this.changed("t", id, s)) this.el(id)?.setProperties({ text: s });
   }
 
   show(id: string, on: boolean): void {
-    this.el(id)?.setProperties({ display: on ? "flex" : "none" });
+    if (this.changed("d", id, on ? "flex" : "none")) this.el(id)?.setProperties({ display: on ? "flex" : "none" });
   }
 
   /** Seen or not, keeping its place in the layout (no relayout, unlike show). Children follow. */
   visible(id: string, on: boolean): void {
-    this.el(id)?.setProperties({ visibility: on ? "visible" : "hidden" });
+    if (this.changed("v", id, on ? "visible" : "hidden")) this.el(id)?.setProperties({ visibility: on ? "visible" : "hidden" });
   }
 
   fill(id: string, color: string): void {
-    this.el(id)?.setProperties({ backgroundColor: color });
+    if (this.changed("f", id, color)) this.el(id)?.setProperties({ backgroundColor: color });
   }
 
   ink(id: string, color: string): void {
-    this.el(id)?.setProperties({ color });
+    if (this.changed("i", id, color)) this.el(id)?.setProperties({ color });
   }
 
   edge(id: string, color: string): void {
-    this.el(id)?.setProperties({ borderColor: color });
+    if (this.changed("e", id, color)) this.el(id)?.setProperties({ borderColor: color });
+  }
+
+  /** What each element was last given, per property: a paint writes only what changed (no relayout for nothing). */
+  private readonly given = new Map<string, string>();
+
+  private changed(kind: string, id: string, value: string): boolean {
+    const k = `${kind}:${id}`;
+    if (this.given.get(k) === value) return false;
+    this.given.set(k, value);
+    return true;
   }
 
   roll(id: string, steps: readonly string[], delayS: number): void {

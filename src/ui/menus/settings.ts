@@ -1,13 +1,14 @@
-// Settings: three stepped sliders (minus and plus keys around an LED meter), Recenter and three
-// toggles. Every change applies live and is saved through the settings store, inside the profile's
-// ranges. (The full settings screen, with every field and Reset progress, comes with the menus pass.)
+// Settings: every field of the profile's Settings. Three stepped sliders (music, effects, box size:
+// minus and plus keys around an LED meter), five latching toggles (warmth, captions, less motion,
+// dim room, left hand), Recenter, Reset progress (it asks first, on its own panel) and Done. Every
+// change applies live and is saved through the settings store, inside the profile's ranges.
 import { BOX_SIZE_CM, type Settings } from "../../core/profile";
 import { COPY } from "../copy";
 import { UI } from "../theme";
 import type { MenuSpec, PanelUi } from "./types";
 
 export type SliderKey = "musicVol" | "sfxVol" | "boxSizeCm";
-export type ToggleKey = "captions" | "reducedMotion" | "dimming";
+export type ToggleKey = "warmth" | "captions" | "reducedMotion" | "dimming" | "handed";
 
 interface SliderDef {
   key: SliderKey;
@@ -26,19 +27,40 @@ export const SLIDERS: readonly SliderDef[] = [
   { key: "boxSizeCm", prefix: "box", label: COPY.settings.boxSize, min: BOX_SIZE_CM.min, max: BOX_SIZE_CM.max, step: 2 },
 ];
 
+/** The toggles, in panel order. "Left hand" is on for a left-handed player (the box mirrors). */
 export const TOGGLES: readonly { id: string; key: ToggleKey; label: string; sub: string }[] = [
+  { id: "toggle-warmth", key: "warmth", label: COPY.settings.warmth, sub: COPY.settings.warmthSub },
   { id: "toggle-captions", key: "captions", label: COPY.settings.captions, sub: COPY.settings.captionsSub },
   { id: "toggle-motion", key: "reducedMotion", label: COPY.settings.motion, sub: COPY.settings.motionSub },
   { id: "toggle-dimming", key: "dimming", label: COPY.settings.dimming, sub: COPY.settings.dimmingSub },
+  { id: "toggle-hand", key: "handed", label: COPY.settings.hand, sub: COPY.settings.handSub },
 ];
+
+/** A toggle's state in the settings. */
+export function toggleOn(s: Readonly<Settings>, key: ToggleKey): boolean {
+  return key === "handed" ? s.handed === "left" : s[key];
+}
 
 /** LED segments in each slider's meter. */
 export const METER_SEGMENTS = 10;
 
+/** Reset progress asks first, on its own small panel: keep it (back to Settings) or reset. */
+export const RESET: MenuSpec = {
+  node: "reset-panel",
+  screen: "reset",
+  keys: ["reset-keep", "reset-confirm"],
+};
+
 export const SETTINGS: MenuSpec = {
   node: "settings-panel",
   screen: "settings",
-  keys: [...SLIDERS.flatMap((s) => [`${s.prefix}-down`, `${s.prefix}-up`]), "settings-recenter", ...TOGGLES.map((t) => t.id), "settings-done"],
+  keys: [
+    ...SLIDERS.flatMap((s) => [`${s.prefix}-down`, `${s.prefix}-up`]),
+    "settings-recenter",
+    "settings-reset",
+    ...TOGGLES.map((t) => t.id),
+    "settings-done",
+  ],
 };
 
 const def = (key: SliderKey): SliderDef => SLIDERS.find((s) => s.key === key) as SliderDef;
@@ -71,8 +93,9 @@ export function settingAction(id: string, s: Readonly<Settings>): Partial<Settin
     if (id === `${d.prefix}-down`) return stepSetting(s, d.key, -1);
   }
   const t = TOGGLES.find((x) => x.id === id);
-  if (t) return { [t.key]: !s[t.key] } as Partial<Settings>;
-  return null;
+  if (!t) return null;
+  if (t.key === "handed") return { handed: s.handed === "left" ? "right" : "left" };
+  return { [t.key]: !s[t.key] } as Partial<Settings>;
 }
 
 /** For a slider's step key (`<prefix>-up` / `-down`): where its value sits in the range (0..1); else null. */
@@ -117,13 +140,10 @@ export function settingsView(s: Readonly<Settings>): SettingsView {
         atMax: v >= d.max - 1e-6,
       };
     }),
-    toggles: TOGGLES.map((t) => ({
-      id: t.id,
-      label: t.label,
-      sub: t.sub,
-      on: s[t.key],
-      state: s[t.key] ? COPY.settings.on : COPY.settings.off,
-    })),
+    toggles: TOGGLES.map((t) => {
+      const on = toggleOn(s, t.key);
+      return { id: t.id, label: t.label, sub: t.sub, on, state: on ? COPY.settings.on : COPY.settings.off };
+    }),
     disabled: SLIDERS.flatMap((d) => {
       const v = s[d.key];
       const out: string[] = [];
@@ -144,10 +164,10 @@ export function paintSettings(ui: PanelUi, v: SettingsView): void {
     ui.fill(`${sl.prefix}-up-bar`, sl.atMax ? UI.stepperOff : UI.text);
     ui.fill(`${sl.prefix}-up-bar-v`, sl.atMax ? UI.stepperOff : UI.text);
   }
-  // A toggle that is on lights up: a brass cap (the menus light the cap) with ink legends, an
-  // amber LED and "On".
+  // A toggle that is on lights up: a gold cap (the menus light the cap) with ink legends, an ink
+  // dot (a gold one would vanish on the gold) and "On".
   for (const t of v.toggles) {
-    ui.fill(`${t.id}-led`, t.on ? UI.ledOn : UI.ledOff);
+    ui.fill(`${t.id}-led`, t.on ? UI.ink : UI.ledOff);
     ui.text(`${t.id}-state`, t.state);
     ui.ink(`${t.id}-cap`, t.on ? UI.ink : UI.text);
     ui.ink(`${t.id}-sub`, t.on ? UI.inkSoft : UI.textOnGraphiteDim);

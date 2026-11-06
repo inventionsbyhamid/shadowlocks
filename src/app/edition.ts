@@ -12,6 +12,12 @@ export const STORE_HOSTS: readonly string[] = ["shadowlocks.pages.dev"];
 export const JUDGE_HOSTS: readonly string[] = ["shadowlocks-judge.pages.dev"];
 
 /**
+ * Where "Get it on the Meta Horizon Store" goes (a browser's trial screen, paywall update only): the
+ * store's web listing. The paywall update replaces it with the game's own page once it has one.
+ */
+export const STORE_PAGE_URL = "https://www.meta.com/experiences/";
+
+/**
  * Fake billing a test build can ask for: `app` the installed app with billing that sells,
  * `owned` the installed app where the full game is already bought, `web` a browser without billing.
  */
