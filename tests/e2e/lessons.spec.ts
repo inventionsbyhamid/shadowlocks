@@ -84,7 +84,9 @@ async function takeReward(app: XrApp, page: Page, side: "left" | "right" = "left
   await hand.moveTo(add(r.world, unit(sub(head, r.world)), 0.12), 400);
   await hand.release();
   await hand.moveTo(add(r.world, [side === "left" ? -0.25 : 0.25, 0.25, 0.2]), 200);
-  await app.stepUntil((_ns, w) => w.__sl.session.state().stage === "offered", { maxMs: 9_000, label: "the reward taken" });
+  // Taken: the stage moves on (in a lesson the next one may start in the same frame, so "offered" can pass unseen).
+  await app.stepUntil((_ns, w) => w.__sl.session.state()?.stage !== "reward", { maxMs: 9_000, batch: 1, label: "the reward taken" });
+  expect((await app.events("reward-taken")).length).toBeGreaterThan(0);
 }
 
 /** Pick the lantern up by hand where it stands, then let it go there. */
