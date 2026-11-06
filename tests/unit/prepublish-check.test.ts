@@ -53,6 +53,11 @@ const SAMPLES: Array<[string, string]> = [
   ["secret in a quoted literal", j("  tokenU", "rl: \"https://user:pa", "ss@example.com/token\",")],
   // A plain address passes, but not a secret next to it on the same line.
   ["secret in a quoted literal", j("const c = { tokenU", "rl: \"https://a.example.com/t\", apiK", "ey: \"abc!d\" };")],
+  // A credential in a web address's query, whatever holds the address (a plain address passes the rules above).
+  ["secret in a URL query", j("TOKEN_U", "RL=https://auth.example.com/cb?tok", "en=", "a1b2".repeat(3))],
+  ["secret in a URL query", j("fetch(\"https://api.example.com/v1/items?limit=5&api_k", "ey=", "0f".repeat(8), "\");")],
+  ["secret in a URL query", j("  blob: 'https://x.example.net/c/f?sv=2024&si", "g=", "AbCd".repeat(4), "%3D',")],
+  ["secret in a URL query", j("curl -d x https://id.example.com/token?client_sec", "ret=", "s3".repeat(6))],
   ["secret in a quoted literal", j("const apiK", "ey = \"x1\";")],
   ["secret in a quoted literal", j("  keyPass", "word: 'q';")],
   // Punctuation inside the quotes.
@@ -146,6 +151,10 @@ describe("prepublish-check.sh", () => {
         "TOKEN_U", "RL=https://auth.example.com/oauth/token\n",
         "export API_TOKEN_U", "RL=\"https://cdn.example.com/npm/@scope/pkg\"\n",
         "PASSWORD_RESET_U", "RL=http://localhost:8080/reset?next=/home npm start\n",
+        // A query credential given by an expansion, or too short to be one, is no secret.
+        "curl \"https://api.example.com/v1?tok", "en=$X\"\n",
+        "curl \"https://api.example.com/v1?tok", "en=${TOKEN}&ke", "y=short1&page=12345678\"\n",
+        "curl \"https://api.example.com/v1?access_tok", "en=$(cat f)&monkey=abcdefgh123\"\n",
       ),
       "src/key.ts": j(
         "const apiK", "ey = process.env.KIE_API_KEY;\nconst t = { tok", "en: \"${name}\" };\n",

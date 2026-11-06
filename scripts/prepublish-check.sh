@@ -96,6 +96,10 @@ rule "secret in an assignment" "^[[:space:]]*(export[[:space:]]+)?${ASSIGNED_NAM
 # in a line, any value length (an apiKey or a storePassword set to a quoted string in code or config). A plain web
 # address passes here too (urls).
 rule "secret in a quoted literal" "[A-Za-z0-9_]*${SECRET_NAME}[A-Za-z0-9_]*${Q}?[[:space:]]*[:=][[:space:]]*${QUOTED_VALUE}" urls
+# A credential in any web address's query: a known parameter name given 8 or more token characters. It reads the line
+# as it is (no "urls"), so it covers what the two rules above let pass in a plain address. $ is no token character, so
+# an expansion as the value never matches.
+rule "secret in a URL query" "[?&](token|access_token|api_key|apikey|key|secret|client_secret|password|pass|sig|signature)=${TOKEN_CHARS}{8,}"
 rule "absolute /Users/ path" '/[U]sers/[A-Za-z0-9._-]'
 if [ -n "${PREPUBLISH_TEST_RULE:-}" ]; then rule "${PREPUBLISH_TEST_RULE%%$'\t'*}" "${PREPUBLISH_TEST_RULE#*$'\t'}"; fi
 EMAIL_RE='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
