@@ -65,8 +65,6 @@ export const JA: Copy = {
       rewards: { one: "お宝 {n}個", other: "お宝 {n}個" },
       box: "第{n}の箱",
       daily: "{day}の箱",
-      owner: "{owner}の机から。",
-      loot: "中身：{loot}。",
       page: "{n}件中 {from}〜{to}件",
     },
     trial: {

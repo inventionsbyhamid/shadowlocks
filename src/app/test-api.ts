@@ -86,6 +86,35 @@ export interface NsUi {
   panelBox(screen: Screen): { center: Vec3; width: number; height: number } | null;
   /** World position of a panel's root (its bottom centre). */
   panelPosition(screen: Screen): Vec3 | null;
+  /**
+   * The menu drawer: its pull state and progress (0..1), how far it is out (box units), how many
+   * times a hand pulled it open, its handle's centre and the direction it slides out (world).
+   */
+  drawer(): {
+    state: string;
+    progress: number;
+    out: number;
+    opened: number;
+    handle: Vec3;
+    toward: Vec3;
+    hand: string | null;
+    /** Each hand's thumb to index tip (m), NaN when not tracked. */
+    gaps: [number, number];
+  };
+  /** What the player may play: the edition, the paywall switch, the entitlement and whether billing can sell. */
+  access(): { edition: string; paywall: boolean; ent: { kind: string; daysLeft?: number }; canBuy: boolean };
+  /** Change the fake billing of a test build started with `?billing=` (what the next purchase answers). */
+  billing(patch: { available?: boolean; owned?: boolean; buyResult?: "bought" | "cancelled" | "error" }): boolean;
+  /** Pages a store link opened (window.open), newest last. */
+  opened(): string[];
+  /** Lesson and tip replays the menus asked for, oldest first, and whether the lessons ran them. */
+  replays(): { kind: string; id: string; ran: boolean }[];
+  /** What waits behind the menus: a box (its number), the Daily Box, a lesson, or null. */
+  behind(): { kind: string; n?: number } | null;
+  /** The box is held under a menu (its clock stopped). */
+  held(): boolean;
+  /** Change the profile (say `{ nextBox: 4 }`: box 3 solved), save it, and paint the menu shown again. */
+  profile(patch: Record<string, unknown>): void;
 }
 
 /**

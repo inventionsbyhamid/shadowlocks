@@ -63,8 +63,6 @@ export const DE: Copy = {
       rewards: { one: "{n} Fundstück", other: "{n} Fundstücke" },
       box: `Box Nr.${NB}{n}`,
       daily: "Tagesbox vom {day}",
-      owner: "Vom Schreibtisch {owner}.",
-      loot: "Inhalt: {loot}.",
       page: "{from} bis {to} von {n}",
     },
     trial: {

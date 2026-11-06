@@ -24,15 +24,17 @@ test("boots into XR with the box in the lap and the home panel", async ({ page, 
   // The home panel springs in with a body; its keys are full size (at least 40 mm) once at rest.
   await app.stepUntil((ns) => !ns.ui.busy(), { maxMs: 2_000, label: "home panel at rest" });
   const rest = await app.state();
-  expect(rest.buttons.map((b) => b.id).sort()).toEqual(["home-recenter", "home-settings"]);
+  // Home on the open drawer: Continue, the Daily Box, Lessons, Collection, Settings (no trial row in v1).
+  expect(rest.buttons.map((b) => b.id).sort()).toEqual(["home-collection", "home-continue", "home-daily", "home-lessons", "home-settings"]);
   for (const b of rest.buttons) expect(b.size[1]).toBeGreaterThanOrEqual(0.04);
+  expect(await page.evaluate(() => window.__ns!.ui.drawer().state)).toBe("open");
   expect(await page.evaluate(() => window.__ns!.ui.slabCount())).toBe(1);
   await app.capture("boot-home");
   await app.captureHeadset("boot-home-headset", { x, y, z });
 
   const perf = await app.perf();
   expect(perf.frames).toBeGreaterThan(0);
-  expect(Object.keys(perf.systems).sort()).toEqual(["game", "hand-pinch", "hands", "lantern", "menus", "shell", "sound"]);
+  expect(Object.keys(perf.systems).sort()).toEqual(["drawer", "game", "hand-pinch", "hands", "lantern", "menus", "shell", "sound"]);
   // Offline: nothing but the local server was asked for anything, and the Quest 3 controller
   // models came from our own origin.
   expect(app.foreignHosts()).toEqual([]);

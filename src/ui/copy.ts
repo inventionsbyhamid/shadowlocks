@@ -6,9 +6,9 @@
 // generated UIKitML carries are here too (`panels`), so they can be painted in any language.
 
 export const COPY = {
-  /** The 2D page, under the Enter button. */
+  /** The 2D page, under the Open the box button. */
   page: {
-    enterFailed: "Could not start. Tap Enter to try again.",
+    enterFailed: "Could not start. Tap Open the box to try again.",
     noXr: "Open this page in the Meta Quest browser to play.",
     startupFailed: "Something went wrong. Reload to try again.",
   },
@@ -72,8 +72,6 @@ export const COPY = {
       rewards: { one: "{n} reward", other: "{n} rewards" },
       box: "Box No. {n}",
       daily: "Daily Box {day}",
-      owner: "Off the desk of {owner}.",
-      loot: "Inside: {loot}.",
       page: "{from} to {to} of {n}",
     },
     trial: {

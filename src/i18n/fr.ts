@@ -64,8 +64,6 @@ export const FR: Copy = {
       rewards: { one: "{n} récompense", other: "{n} récompenses" },
       box: `Boîte n°${NB}{n}`,
       daily: "Boîte du {day}",
-      owner: "Du bureau {owner}.",
-      loot: `Contenu${NB}: {loot}.`,
       page: "{from} à {to} sur {n}",
     },
     trial: {

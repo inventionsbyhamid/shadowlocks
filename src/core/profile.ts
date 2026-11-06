@@ -256,3 +256,13 @@ export function migrate(raw: unknown, nowMs: number, build: string): Profile {
     settings: settingsFrom(raw.settings),
   };
 }
+
+/**
+ * The profile with its progress started over (Settings, Reset progress): boxes, the box in
+ * progress, lessons, tips, the collection and the Daily Box with its streak. Settings stay, and so
+ * do the first-launch marker and the latest time seen: a reset never gives back trial days.
+ */
+export function withProgressReset(p: Readonly<Profile>): Profile {
+  const fresh = newProfile(p.firstLaunch.atMs, p.firstLaunch.build);
+  return { ...fresh, firstLaunch: { ...p.firstLaunch }, lastSeenMs: p.lastSeenMs, settings: { ...p.settings } };
+}

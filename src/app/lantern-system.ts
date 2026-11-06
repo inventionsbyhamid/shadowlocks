@@ -44,6 +44,8 @@ export class Lantern {
   private shown: Box | null | undefined = undefined;
   private listeners: FeelListener[] = [];
   private readonly tmp: V3 = [0, 0, 0];
+  /** Put away while a menu is up over the box: not held, not grabbable (its view is hidden by the app). */
+  private awayNow = false;
 
   /** `o` swaps the app's hands for scripted ones (tests). */
   constructor(
@@ -67,7 +69,28 @@ export class Lantern {
     };
   }
 
+  /** Put away while a menu is up over the box. */
+  get away(): boolean {
+    return this.awayNow;
+  }
+
+  /**
+   * A menu came up over the box (true) or went (false). Going away, a hand holding the lantern lets go
+   * of it where it stands (the release is told at once); while away nothing moves it and no pinch takes
+   * it. Back, it carries on from where it stood.
+   */
+  setAway(away: boolean, tMs: number): void {
+    if (away === this.awayNow) return;
+    if (away && this.grab.holder) {
+      this.grab.drop(tMs, this.feel.ctx);
+      // One frame now, so the release goes out with this change, not when the menu closes.
+      this.update(tMs);
+    }
+    this.awayNow = away;
+  }
+
   update(tMs: number): void {
+    if (this.awayNow) return;
     const scene = this.scene;
     if (scene.box !== this.shown) {
       // A new box: a hand holding the lantern lets go of it first (it is put at the new box's start, not carried
@@ -108,7 +131,8 @@ export class LanternSystem extends createSystem({}) {
 export function attachLantern(world: World, scene: BoxScene): Lantern {
   const lantern = new Lantern(scene);
   current = lantern;
-  setBusyHands((side) => lantern.grab.busy(side));
+  // Put away under a menu, the lantern keeps no hand busy: both rays work on the panel.
+  setBusyHands((side) => !lantern.away && lantern.grab.busy(side));
   setHoldingHands((side) => lantern.grab.holding(side));
   registerAppSystem(world, LanternSystem, { priority: -3, name: "lantern" });
   return lantern;

@@ -9,12 +9,14 @@ import type { Screen } from "./screens";
  * - `count`: a number counting up on a panel (`id`, the element) moved on, `k` of the way (0..1);
  *   `done` when it landed on its value. One object is reused for every step: copy it to keep it.
  * - `slider`: a settings slider (`id`, the key pressed) stepped to `k` of its range (0..1).
+ * - `drawer`: a hand pulled the menu drawer open (a record: its sound went through GameSounds).
  */
 export type UiEvent =
   | { type: "screen"; from: Screen; to: Screen }
   | { type: "notice"; text: string }
   | { type: "count"; id: string; k: number; done: boolean }
-  | { type: "slider"; id: string; k: number };
+  | { type: "slider"; id: string; k: number }
+  | { type: "drawer"; hand: "left" | "right" };
 
 /** Everything visuals, sound and captions react to: hands, the shell and the box session's game events (events.ts). */
 export type FeedbackEvent = InputEvent | UiEvent | GameEvent;

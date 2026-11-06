@@ -14,8 +14,11 @@ import { HAND_JOINTS } from "../input/hand-joints";
 import { crystallise } from "../render/fx/crystallise";
 import { BOX_ROOT_NAME, boxToWorld, placement, worldToBox } from "../render/placement";
 import { slotOf } from "../render/scraps";
+import type { Access, FakeBillingState } from "./access";
 import type { BoxSession } from "./box-session";
 import { emit, type FeedbackEvent, onAny } from "./bus";
+import type { MenuDrawer } from "./drawer-system";
+import type { GameMenus } from "./menu-game";
 import { REUSED_EVENT_TYPES } from "./events";
 import type { Game, GameView } from "./game";
 import { Panels } from "./panels";
@@ -185,9 +188,21 @@ export function installTestHooks(
   world: World,
   shell: Shell,
   system: ShellSystem,
-  app: { sound: Sound; lantern: Lantern; hands: HandsInBox; play: { game: Game; session: BoxSession; view: GameView } },
+  app: {
+    sound: Sound;
+    lantern: Lantern;
+    hands: HandsInBox;
+    play: { game: Game; session: BoxSession; view: GameView };
+    drawer: MenuDrawer;
+    access: Access;
+    fakeBilling: FakeBillingState | null;
+    menuGame: GameMenus;
+  },
 ): void {
   const w = window as unknown as { __vt?: VirtualClock; __ns?: NsApi; __sl?: SlApi };
+  // The store link opens nothing in tests (the page must stay offline): it is only recorded.
+  const opened: string[] = [];
+  shell.openPage = (url) => opened.push(url);
   const realNow = w.__vt ? w.__vt.realNow : performance.now.bind(performance);
   const timing = instrument(world, realNow);
   const tmp = new Vector3();
@@ -332,6 +347,41 @@ export function installTestHooks(
       panelPosition: (screen) => {
         const o = shell.panels.panelObject(screen);
         return o ? v3(o.getWorldPosition(tmp)) : null;
+      },
+      drawer: () => {
+        const d = app.drawer;
+        box.root.updateWorldMatrix(true, false);
+        const handle = v3(d.view.handle(tmp).applyMatrix4(box.root.matrixWorld));
+        const e = box.root.matrixWorld.elements;
+        const toward = v3(tmp2.set(e[8]!, e[9]!, e[10]!).normalize());
+        const gap = (h: "left" | "right") => Math.round(handJoints.pinchDistance(h) * 1000) / 1000;
+        return {
+          state: d.pull.state,
+          progress: d.pull.progress,
+          out: d.view.out,
+          opened: d.pull.opened,
+          handle,
+          toward,
+          hand: d.pull.hand,
+          gaps: [gap("left"), gap("right")] as [number, number],
+        };
+      },
+      access: () => ({ edition: app.access.edition, paywall: app.access.paywall, ent: { ...app.access.ent }, canBuy: app.access.canBuy }),
+      billing: (patch) => {
+        if (!app.fakeBilling) return false;
+        Object.assign(app.fakeBilling, patch);
+        return true;
+      },
+      opened: () => [...opened],
+      replays: () => app.menuGame.replays.map((r) => ({ ...r })),
+      behind: () => app.menuGame.behind(),
+      held: () => shell.lifecycle.held,
+      profile: (patch) => {
+        Object.assign(shell.profiles.profile, patch);
+        void shell.profiles.save();
+        shell.panels.refresh();
+        // The entitlement reads the first launch: work it out again (it repaints on a change).
+        void app.access.refresh();
       },
     },
     emit,

@@ -2,11 +2,17 @@
 // handling. Per-frame work lives in ShellSystem; this class reacts to events. The box session
 // (the game) plugs in through `useFlow` and runs boxes the shell restores and saves.
 import { type Object3D, SessionMode, type World } from "@iwsdk/core";
+import { todayKey } from "../core/daily";
 import { specOfKey } from "../core/generator";
 import type { BoxSnapshot } from "../core/profile";
 import { BoxScene } from "../render/box-scene";
 import { placement } from "../render/placement";
+import type { ContinueTo } from "../ui/menus/home";
+import type { LessonRow } from "../ui/menus/lessons";
+import type { Behind } from "../ui/menus/types";
+import type { Access } from "./access";
 import { on } from "./bus";
+import { STORE_PAGE_URL } from "./edition";
 import { Lifecycle, type LifecycleSession, type XrVisibility } from "./lifecycle";
 import { Panels } from "./panels";
 import type { ProfileStore } from "./profile-store";
@@ -24,6 +30,28 @@ export interface GameFlow {
   slot(): "box" | "daily" | null;
 }
 
+/**
+ * What the menus ask of the game: what waits behind them, and how to play. The box session and the
+ * lessons plug in through `useMenuGame`; until then nothing waits and nothing can start but Continue
+ * (which resumes a saved box through the GameFlow when there is one).
+ */
+export interface MenuGame {
+  /** A box or lesson paused behind the menus, or null. */
+  behind(): Behind;
+  /** Close the menus and go back to it. */
+  back(): void;
+  /** Play numbered box `n` (from its save when `resume`). */
+  playBox(n: number, resume: boolean): void;
+  /** Today's Daily Box. */
+  playDaily(nowMs: number): void;
+  /** Replay a lesson example or a tip (never touches box progress). */
+  replay(row: LessonRow): void;
+  /** Progress was reset: drop whatever box or lesson was in play. */
+  dropped(): void;
+  /** A first launch: lesson 1 at once (the play screen), never Home. False when it cannot start. */
+  startFirst(): boolean;
+}
+
 export class Shell {
   readonly lifecycle: Lifecycle;
   readonly panels: Panels;
@@ -35,11 +63,13 @@ export class Shell {
   recenterAsked = false;
   private xrSession: XRSession | null = null;
   private flow: GameFlow | null = null;
+  private game: MenuGame | null = null;
 
   constructor(
     readonly world: World,
     readonly profiles: ProfileStore,
     readonly settings: SettingsStore,
+    readonly access: Access,
   ) {
     this.lifecycle = new Lifecycle({ persist: (snap) => this.persist(snap) });
     this.box = new BoxScene(world);
@@ -47,9 +77,28 @@ export class Shell {
     this.panels = new Panels(world, {
       profiles,
       settings,
-      actions: { recenter: () => this.requestRecenter() },
+      actions: {
+        recenter: () => this.requestRecenter(),
+        continueBox: (to) => this.continueBox(to),
+        playDaily: () => this.game?.playDaily(Date.now()),
+        replay: (row) => this.game?.replay(row),
+        resetProgress: () => this.resetProgress(),
+        buy: () => access.buy(),
+        openStore: () => this.openStore(),
+      },
+      data: {
+        behind: () => this.game?.behind() ?? null,
+        ent: () => access.ent,
+        canBuy: () => access.canBuy,
+        today: () => todayKey(Date.now()),
+      },
     });
-    on("screen", (e) => this.panels.show(e.to));
+    on("screen", (e) => {
+      this.panels.show(e.to);
+      // Trial days move on with the calendar: look again whenever Home comes up.
+      if (e.to === "home") void access.refresh();
+    });
+    access.onChange(() => this.panels.refresh());
     // The box size is part of the placement: it scales the box around its panel (ShellSystem lays it out).
     placement.setSize(this.settings.get().boxSizeCm);
     this.settings.subscribe((s) => placement.setSize(s.boxSizeCm));
@@ -62,13 +111,59 @@ export class Shell {
     this.flow = flow;
   }
 
+  /** What the menus play through (the box session and the lessons); set once at startup. */
+  useMenuGame(game: MenuGame): void {
+    this.game = game;
+  }
+
+  /** Continue on Home: back to what waits behind the menus, else the box in progress, else the next. */
+  continueBox(to: Exclude<ContinueTo, { kind: "trial" }>): void {
+    const g = this.game;
+    if (to.kind === "back") {
+      if (g) g.back();
+      else go("play");
+      return;
+    }
+    if (g) g.playBox(to.n, to.resume);
+    else if (to.resume && this.flow) this.continueSaved();
+    // No game to start a box with: the drawer shuts, and opens again with a pull.
+    else go("play");
+  }
+
+  /** Reset progress (after the confirm): the profile starts over and whatever was in play is let go. */
+  async resetProgress(): Promise<void> {
+    this.game?.dropped();
+    this.drop();
+    await this.profiles.resetProgress();
+    await this.access.refresh();
+  }
+
+  /** Opens a page in a new tab (the test hooks record it instead). */
+  openPage: (url: string) => void = (url) => {
+    try {
+      window.open(url, "_blank", "noopener");
+    } catch (err) {
+      console.warn("could not open the page", err);
+    }
+  };
+
+  /** The store's page for the game (a browser's trial screen). */
+  openStore(): void {
+    this.openPage(STORE_PAGE_URL);
+  }
+
   /** Save soon (something worth keeping changed outside the lifecycle's own triggers). */
   markDirty(now: number): void {
     this.lifecycle.markDirty(now);
   }
 
-  /** First screen. */
+  /**
+   * First screen. A first launch (lesson 1 not finished) goes straight into lesson 1, never Home; any
+   * later launch opens on Home, on the open drawer (the entitlement is worked out as it comes up).
+   * Without lessons to start, Home.
+   */
   start(): void {
+    if (!this.profiles.profile.lessons.l1 && this.game?.startFirst()) return;
     go("home");
   }
 
@@ -80,7 +175,7 @@ export class Shell {
   /** Lay out the box and the panels after the placement (or the box size) changed. */
   layout(): void {
     this.box.setPlacement(placement.matrix());
-    this.panels.layout(placement.pose());
+    this.panels.layout(placement.pose(), placement.matrix());
   }
 
   /** The virtual room shows only without passthrough (VR session or the 2D page). */
