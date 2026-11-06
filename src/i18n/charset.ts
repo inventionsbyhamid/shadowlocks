@@ -8,6 +8,8 @@ export const LATIN_ATLASES = ["fonts/inter-md.json", "fonts/inter-bd.json", "fon
 /** The Japanese font as an atlas for the panels, and as a WOFF2 for canvas lettering. */
 export const JA_ATLAS = "fonts/noto-jp.json";
 export const JA_CANVAS = "fonts/noto-jp.woff2";
+/** The canvas lettering's Latin fonts (bold for the plate, keys and coach line; italic for the story card). */
+export const SERIF_CANVAS = ["fonts/noto-serif-bd.woff2", "fonts/noto-serif-it.woff2"] as const;
 
 const LATIN_LANGS: readonly Lang[] = LANGS.filter((l) => l !== "ja");
 

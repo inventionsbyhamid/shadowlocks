@@ -5,6 +5,8 @@
 #   archivo-xb            Archivo Expanded ExtraBold (OFL 1.1): titles and key legends, MSDF atlas
 #   noto-jp               Noto Sans JP Bold (OFL 1.1): Japanese on the panels (a single-channel SDF atlas: kanji
 #                         need no sharp corners and it is a third the size) and, as noto-jp.woff2, on canvases
+#   noto-serif-bd, -it    Noto Serif Bold and Italic (OFL 1.1), WOFF2: the canvas lettering in the Latin languages
+#                         (plate, keys, coach line, story card), so every device draws and measures the same letters
 # The Latin atlases carry printable ASCII, all of Latin-1 and what the tables use; Japanese is subset to exactly
 # the characters the Japanese table, its dates and numbers, and the Language row use (src/i18n/charset.ts), so a
 # new Japanese line needs this run again (tests/unit/i18n-fonts.test.ts fails until it is).
@@ -38,7 +40,9 @@ export PYTHONPATH=$WORK/py
 curl -fsSL "$SRC/inter/Inter%5Bopsz,wght%5D.ttf" -o "$WORK/Inter.ttf"
 curl -fsSL "$SRC/archivo/Archivo%5Bwdth,wght%5D.ttf" -o "$WORK/Archivo.ttf"
 curl -fsSL "$SRC/notosansjp/NotoSansJP%5Bwght%5D.ttf" -o "$WORK/NotoSansJP.ttf"
-for f in inter archivo notosansjp; do curl -fsSL "$SRC/$f/OFL.txt" -o "$OUT/OFL-$f.txt"; done
+curl -fsSL "$SRC/notoserif/NotoSerif%5Bwdth,wght%5D.ttf" -o "$WORK/NotoSerif.ttf"
+curl -fsSL "$SRC/notoserif/NotoSerif-Italic%5Bwdth,wght%5D.ttf" -o "$WORK/NotoSerif-Italic.ttf"
+for f in inter archivo notosansjp notoserif; do curl -fsSL "$SRC/$f/OFL.txt" -o "$OUT/OFL-$f.txt"; done
 
 npx vite-node --config vitest.config.ts scripts/fonts/charset.ts latin > "$WORK/latin.txt"
 npx vite-node --config vitest.config.ts scripts/fonts/charset.ts ja > "$WORK/ja.txt"
@@ -52,12 +56,15 @@ instance "$WORK/Inter.ttf" "$WORK/inter-md-var.ttf" wght=500 opsz=14
 instance "$WORK/Inter.ttf" "$WORK/inter-bd-var.ttf" wght=700 opsz=14
 instance "$WORK/Archivo.ttf" "$WORK/archivo-xb-var.ttf" wdth=125 wght=800
 instance "$WORK/NotoSansJP.ttf" "$WORK/noto-jp-var.ttf" wght=700
+instance "$WORK/NotoSerif.ttf" "$WORK/noto-serif-bd-var.ttf" wght=700 wdth=100
+instance "$WORK/NotoSerif-Italic.ttf" "$WORK/noto-serif-it-var.ttf" wght=400 wdth=100
 subset() { # in charset out [options]
   python3 -m fontTools.subset "$1" --text-file="$2" --output-file="$3" --no-hinting "${@:4}"
 }
 for f in inter-md inter-bd archivo-xb; do subset "$WORK/$f-var.ttf" "$WORK/latin.txt" "$WORK/$f.ttf" --layout-features=kern; done
 subset "$WORK/noto-jp-var.ttf" "$WORK/ja.txt" "$WORK/noto-jp.ttf" --layout-features=kern
 subset "$WORK/noto-jp-var.ttf" "$WORK/ja.txt" "$OUT/noto-jp.woff2" --flavor=woff2
+for f in noto-serif-bd noto-serif-it; do subset "$WORK/$f-var.ttf" "$WORK/latin.txt" "$OUT/$f.woff2" --flavor=woff2; done
 
 atlas() { # name size field-type max-texture charset
   (cd "$WORK" && npx --yes msdf-bmfont-xml@2.7.0 -f json -o "$1" -s "$2" -r 4 -t "$3" -m "$4" -i "$5" --smart-size "$1.ttf" >/dev/null)

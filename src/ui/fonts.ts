@@ -27,33 +27,52 @@ export function fontFamiliesFor(l: Lang): typeof FONT_FAMILIES {
   return l === "ja" ? JAPANESE_FAMILIES : FONT_FAMILIES;
 }
 
-/** The Japanese font for canvas lettering (plate, keys, coach line, story card), as a CSS family. */
-export const JA_CANVAS_FAMILY = "Shadow Locks JP";
-const JA_CANVAS_URL = `${import.meta.env.BASE_URL}fonts/noto-jp.woff2`;
-let jaCanvas: Promise<boolean> | null = null;
-
 /**
- * Load the Japanese canvas font once (a canvas draws with what is loaded, so Japanese canvases repaint after
- * this). Resolves false where there is no FontFace (unit tests) or the file failed.
+ * The canvas lettering's fonts (plate, keys, coach line, story card), as CSS families: Noto Serif Bold and Italic for
+ * the Latin languages, Noto Sans JP Bold for Japanese. Each face claims a weight range, so the browser never fakes
+ * a bolder or lighter cut of it.
  */
-export function loadJapaneseCanvasFont(): Promise<boolean> {
-  if (!jaCanvas) {
-    const fonts = typeof document !== "undefined" ? document.fonts : undefined;
-    if (typeof FontFace === "undefined" || !fonts) return Promise.resolve(false);
-    const face = new FontFace(JA_CANVAS_FAMILY, `url(${JA_CANVAS_URL})`, { weight: "100 900" });
-    jaCanvas = face.load().then(
-      (f) => {
-        fonts.add(f);
-        return true;
-      },
+export const SERIF_CANVAS_FAMILY = "Shadow Locks Serif";
+export const JA_CANVAS_FAMILY = "Shadow Locks JP";
+const FACES = {
+  serif: [
+    [SERIF_CANVAS_FAMILY, "noto-serif-bd.woff2", { weight: "500 900" }],
+    [SERIF_CANVAS_FAMILY, "noto-serif-it.woff2", { weight: "100 900", style: "italic" }],
+  ],
+  ja: [[JA_CANVAS_FAMILY, "noto-jp.woff2", { weight: "100 900" }]],
+} as const;
+const loading: Partial<Record<keyof typeof FACES, Promise<boolean>>> = {};
+
+function loadFaces(which: keyof typeof FACES): Promise<boolean> {
+  const fonts = typeof document !== "undefined" ? document.fonts : undefined;
+  if (typeof FontFace === "undefined" || !fonts) return Promise.resolve(false);
+  let p = loading[which];
+  if (!p) {
+    p = Promise.all(
+      FACES[which].map(([family, file, desc]) =>
+        new FontFace(family, `url(${import.meta.env.BASE_URL}fonts/${file})`, desc).load().then((f) => fonts.add(f)),
+      ),
+    ).then(
+      () => true,
       (err) => {
-        console.error("Japanese canvas font failed to load", err);
-        jaCanvas = null;
+        console.error(`canvas font ${which} failed to load`, err);
+        delete loading[which];
         return false;
       },
     );
+    loading[which] = p;
   }
-  return jaCanvas;
+  return p;
+}
+
+/**
+ * Load the canvas fonts language `l` draws with, once each (a canvas draws with what is loaded, so canvases repaint
+ * after this resolves). Resolves false where there is no FontFace (unit tests) or a file failed.
+ */
+export function loadCanvasFonts(l: Lang): Promise<boolean> {
+  // The serif always: the plate's latch numerals are Latin in every language.
+  const serif = loadFaces("serif");
+  return l === "ja" ? Promise.all([serif, loadFaces("ja")]).then(([a, b]) => a && b) : serif;
 }
 
 /**

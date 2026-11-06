@@ -5,7 +5,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { LANGS } from "../../src/i18n";
-import { JA_ATLAS, JA_CANVAS, japaneseChars, LATIN_ATLASES, latinChars } from "../../src/i18n/charset";
+import { JA_ATLAS, JA_CANVAS, japaneseChars, LATIN_ATLASES, latinChars, SERIF_CANVAS } from "../../src/i18n/charset";
 import { FONT_FAMILIES, fontFamiliesFor } from "../../src/ui/fonts";
 import { inter } from "../../src/ui/inter-fonts";
 import { woff2CodePoints } from "./helpers/woff2";
@@ -32,6 +32,12 @@ describe("font glyphs", () => {
     const a = atlasChars(JA_ATLAS);
     expect(a.pages).toHaveLength(1);
     const missing = japaneseChars().filter((ch) => !a.chars.has(ch));
+    expect(missing.map(name)).toEqual([]);
+  });
+
+  it.each(SERIF_CANVAS)("%s (canvas lettering) maps every character the Latin languages show", (url) => {
+    const cps = woff2CodePoints(readFileSync(`public/${url}`));
+    const missing = latinChars().filter((ch) => !cps.has(ch.codePointAt(0) ?? -1));
     expect(missing.map(name)).toEqual([]);
   });
 
