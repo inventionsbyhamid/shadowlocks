@@ -35,8 +35,20 @@ const SAMPLES: Array<[string, string]> = [
   ["secret in an assignment", j("CLOUDFLARE_API_TOK", "EN=", "a1".repeat(20), " npx wrangler pages deploy dist")],
   ["secret in an assignment", j("CLOUDFLARE_API_TOK", "EN=", "b2".repeat(20), "  # pages edit")],
   ["secret in an assignment", j("KEYSTORE_PASS", "WORD=", "c3".repeat(7), "!x")],
+  // A short value with punctuation in it, or before a command, a comment or a ;.
+  ["secret in an assignment", j("KEYSTORE_PASS", "WORD=short!x")],
+  ["secret in an assignment", j("storePass", "word=hunter2!x")],
+  ["secret in an assignment", j("keyPass", "word=p@ss")],
+  ["secret in an assignment", j("PASS", "WORD=Tr0ub4dor&3")],
+  ["secret in an assignment", j("PASS", "WORD=abc,def")],
+  ["secret in an assignment", j("NPM_TOK", "EN=ab12 npm publish")],
+  ["secret in an assignment", j("NPM_TOK", "EN=ab12 # the old one")],
+  ["secret in an assignment", j("NPM_TOK", "EN=ab12; npm publish")],
   ["secret in a quoted literal", j("const apiK", "ey = \"x1\";")],
   ["secret in a quoted literal", j("  keyPass", "word: 'q';")],
+  // Punctuation inside the quotes.
+  ["secret in a quoted literal", j("const pass", "word = \"hunter2!\";")],
+  ["secret in a quoted literal", j("  storePass", "word: \"abc!def\",")],
   ["absolute /Users/ path", `built in ${USERS}`],
 ];
 
@@ -115,20 +127,33 @@ describe("prepublish-check.sh", () => {
         "VERIFY='v=$(printf \"Authorization: Bearer %s\" \"$CLOUDFLARE_API_TOK", "EN\")'\n",
         "SECR", "ETS=${NS_ENV:-.secrets/x.env}\n",
         "CLOUDFLARE_API_TOK", "EN=$CLOUDFLARE_API_TOK", "EN npx wrangler pages deploy dist\n",
+        // Only $ continues a tight value's word, so an expansion is never a value.
+        "TOK", "EN=$X\n",
+        "TOK", "EN=${X}\n",
+        "TOK", "EN=$(cat f)\n",
+        "TOK", "EN=\"$X\"\n",
+        "TOK", "EN=abc$X\n",
       ),
-      "src/key.ts": j("const apiK", "ey = process.env.KIE_API_KEY;\nconst t = { tok", "en: \"${name}\" };\n"),
+      "src/key.ts": j(
+        "const apiK", "ey = process.env.KIE_API_KEY;\nconst t = { tok", "en: \"${name}\" };\n",
+        "let apiK", "ey = \"\";\n",
+        "  const tok", "en = localStorage.getItem(\"t\");\n",
+        "  secretS", "ub: \"In play\",\n",
+      ),
       "package-lock.json": j("{\n  \"js-tok", "ens\": \"^4.0.0\",\n  \"b-tok", "ens\": \"4.0.0\"\n}\n"),
     });
     const r = check(d);
     expect(r.out).toMatch(/^clean$/m);
   });
 
-  it("fails a tracked .secrets file and a key file", () => {
-    const d = repo({ ".secrets/cloudflare.env": "X=1\n", "twa/app.keystore": "key" });
+  it("fails a tracked .secrets file, a key file and a properties file", () => {
+    const d = repo({ ".secrets/cloudflare.env": "X=1\n", "twa/app.keystore": "key", "twa/store/key.properties": "x\n" });
     const r = check(d);
     expect(r.status).toBe(1);
     expect(r.out).toContain("FAIL .secrets tracked: .secrets/cloudflare.env");
     expect(r.out).toContain("FAIL key or package file tracked: twa/app.keystore");
+    expect(r.out).toContain("FAIL properties file tracked: twa/store/key.properties");
+    expect(r.out).toContain("FAIL properties file in the history: twa/store/key.properties");
   });
 
   it("allows the pinned support address on the privacy page only, even when it is the commit author's own", () => {

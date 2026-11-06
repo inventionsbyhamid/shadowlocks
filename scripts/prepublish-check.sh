@@ -53,10 +53,15 @@ sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum 
 Q="[\"'\`]"
 # Names that hold secrets, in any case: password, passwd, secret, token, api key.
 SECRET_NAME="([Pp][Aa][Ss][Ss][Ww]([Oo][Rr])?[Dd]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Tt][Oo][Kk][Ee][Nn]|[Aa][Pp][Ii]_?[Kk][Ee][Yy])"
-# A secret-like value: token characters only (base64 and the like), never an expansion ($x, ${x}, $(...)), code or a
-# version range (^4.0.0); a quoted one has at least one letter (so "4.0.0" is not one).
+# A secret-like value: token characters (base64 and the like), never an expansion ($x, ${x}, $(...)).
 TOKEN_CHARS="[A-Za-z0-9/+_.~=-]"
-QUOTED_VALUE="${Q}${TOKEN_CHARS}*[A-Za-z]${TOKEN_CHARS}*${Q}"
+# A quoted one may hold punctuation too, but no space, quote, $, bracket or brace (so no sentence, template, expansion,
+# code or pattern), and has at least one letter (so a version such as 4.0.0 or ^4.0.0 is not one).
+VALUE_CHARS="[A-Za-z0-9/+_.~=!#%&*,:;?@^|-]"
+QUOTED_VALUE="${Q}${VALUE_CHARS}*[A-Za-z]${VALUE_CHARS}*${Q}"
+# A variable or key that holds a secret: upper-case env names with KEY or PASS too (CLOUDFLARE_API_KEY, NPM_PASS), and
+# any name with password, passwd, secret, token or api key in it (storePassword, keyPassword).
+ASSIGNED_NAME="([A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD|PASSWD|PASS)[A-Z0-9_]*|[A-Za-z0-9_.]*${SECRET_NAME}[A-Za-z0-9_]*)"
 NAMES=()
 RES=()
 rule() { NAMES+=("$1"); RES+=("$2"); }
@@ -70,13 +75,16 @@ rule "JSON web token" 'eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}'
 rule "bearer token" '[Bb]earer[[:space:]]+[A-Za-z0-9_.=-]{30,}'
 rule "Meta access token" '(OC|[0-9]{8,20})[|][0-9]{8,20}[|][0-9a-f]{32}|(^|[^0-9])[0-9]{10,20}[|][0-9a-f]{32}'
 rule "Meta app secret" "([Aa][Pp][Pp]_?)?[Ss][Ee][Cc][Rr][Ee][Tt]${Q}?[[:space:]]*[:=][[:space:]]*${Q}?[0-9a-f]{32}"
-# NAME=value at the start of a line (env and properties files, shell): KEYSTORE_PASSWORD=x, storePassword=x,
-# export API_TOKEN=x, a quoted value too. A value of any length that ends the word (end of line, a space before a
-# command or a comment, a ;), or 12 or more token characters whatever follows them. Upper-case env names also catch KEY
-# and PASS (CLOUDFLARE_API_KEY, NPM_PASS). $ is no token character, so an expansion ($X, ${X}, $(...)) never matches.
-rule "secret in an assignment" "^[[:space:]]*(export[[:space:]]+)?([A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD|PASSWD|PASS)[A-Z0-9_]*|[A-Za-z0-9_.]*${SECRET_NAME}[A-Za-z0-9_]*)[[:space:]]*=[[:space:]]*${Q}?(${TOKEN_CHARS}{12,}|${TOKEN_CHARS}+${Q}?([[:space:]#;]|$))"
-# A secret-named key or variable given a quoted token-like value anywhere in a line, any value length (an apiKey or a
-# storePassword set to a quoted string in code or config).
+# A secret-named assignment at the start of a line, optionally exported, the value quoted or not. Two shapes:
+# - Tight, NAME=value (shell, env and properties files): token characters ending at the line's end or at any character
+#   that is neither a token character nor $, so punctuation, a space before a command or comment, or a ; ends it.
+#   Only $ continues the word: an expansion ($X, ${X}, $(...), abc$X) never matches.
+# - Spaced, name = value (code style): 12 or more token characters whatever follows them, or a shorter value ending the
+#   word (end of line, a space before a command or a comment, a ;). A code reassignment of a longer expression can trip
+#   it; HEAD and the history must stay clean anyway.
+rule "secret in an assignment" "^[[:space:]]*(export[[:space:]]+)?${ASSIGNED_NAME}(=${Q}?${TOKEN_CHARS}+([^\$A-Za-z0-9/+_.~=-]|\$)|[[:space:]]*=[[:space:]]*${Q}?(${TOKEN_CHARS}{12,}|${TOKEN_CHARS}+${Q}?([[:space:]#;]|\$)))"
+# A secret-named key or variable given a quoted secret-like value (QUOTED_VALUE: punctuation in, spaces out) anywhere
+# in a line, any value length (an apiKey or a storePassword set to a quoted string in code or config).
 rule "secret in a quoted literal" "[A-Za-z0-9_]*${SECRET_NAME}[A-Za-z0-9_]*${Q}?[[:space:]]*[:=][[:space:]]*${QUOTED_VALUE}"
 rule "absolute /Users/ path" '/[U]sers/[A-Za-z0-9._-]'
 if [ -n "${PREPUBLISH_TEST_RULE:-}" ]; then rule "${PREPUBLISH_TEST_RULE%%$'\t'*}" "${PREPUBLISH_TEST_RULE#*$'\t'}"; fi
@@ -133,6 +141,8 @@ bad_file() {
     */.secrets | */.secrets/*) echo ".secrets" ;;
     */.env | */.env.*) echo "env file" ;;
     *.keystore | *.jks | *.p12 | *.pfx | *.pem | *.key | *.apk | *.aab | */id_rsa* | */id_ed25519* | *.mobileprovision) echo "key or package file" ;;
+    # Android signing passwords live in key.properties, gradle.properties or local.properties; the repo needs none.
+    *.properties) echo "properties file" ;;
     *) return 1 ;;
   esac
 }
@@ -154,12 +164,15 @@ git check-ignore -q --no-index x.keystore || fail ".gitignore does not keep *.ke
 
 # 2. Secrets and local paths in HEAD's files (counted per file, never shown) and in the history, merges included: a
 # commit is flagged when it adds a matching line (removing one leaks nothing; the commit that added it is flagged).
-# Reviewed history findings that are not secrets, as "<full 40-character commit hash> <rule>". Never add a real secret
-# here: rewrite the history instead.
+# Reviewed history findings that are not secrets, as "<full 40-character commit hash> <rule>" for a line the commit
+# adds, or "<hash> <rule> (message)" for its message. Never add a real secret here: rewrite the history instead.
 HISTORY_ALLOW=(
   # A made-up test value ("s3cr3tV4lue" plus x's) in the first version of this check's tests; they now build every
   # sample at run time.
   "96445c5ef8c77ecb7c78a75306fb55672fd5d152 secret in a quoted literal"
+  # Prose: the message lists this check's example names, each set to a one-letter x, written before the assignment
+  # rule ended a value at punctuation.
+  "dd1f70cfb756ba6fdad9ea2f5236713649ca5b07 secret in an assignment (message)"
 )
 history_allowed() { # full commit hash, rule name
   local a
@@ -247,12 +260,15 @@ while IFS= read -r c; do
   done <<<"$diff"
 done <<<"$commits"
 commit=
-out=$(gitq log $REVS --format='@@commit %h%n%B')
+# Full hashes, so a message exception matches exactly one commit; reported by their first 7 characters.
+out=$(gitq log $REVS --format='@@commit %H%n%B')
 while IFS= read -r l; do
   case $l in "@@commit "*) commit=${l#@@commit }; continue ;; esac
-  scan_line "message of $commit" "$l" ""
+  scan_line "message of ${commit:0:7}" "$l" ""
   for i in "${!NAMES[@]}"; do
-    if [[ $l =~ ${RES[$i]} ]]; then fail "${NAMES[$i]}: message of $commit"; fi
+    if [[ $l =~ ${RES[$i]} ]] && ! history_allowed "$commit" "${NAMES[$i]} (message)"; then
+      fail "${NAMES[$i]}: message of ${commit:0:7}"
+    fi
   done
 done <<<"$out"
 
