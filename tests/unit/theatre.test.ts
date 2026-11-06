@@ -145,7 +145,9 @@ describe("theatre lights", () => {
       OneMinusSrcAlphaFactor,
     ]);
     expect(mat.depthWrite).toBe(false);
-    expect(mat.depthTest).toBe(true);
+    // Nor does it test depth: it dims all that drew before it, the studio's floor near the player (inside its 3 m
+    // sphere) included; all that draws after it lies over it.
+    expect(mat.depthTest).toBe(false);
     expect(mat.toneMapped).toBe(false);
     expect(t.veil.frustumCulled).toBe(false);
     expect(t.veil.renderOrder).toBeLessThan(HAND_MASK_ORDER);

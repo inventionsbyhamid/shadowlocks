@@ -172,8 +172,10 @@ export class Theatre {
       blendSrcAlpha: OneFactor,
       blendDstAlpha: OneMinusSrcAlphaFactor,
       opacity: 0,
+      // No depth either way: it dims all that drew before it (the studio, whose floor near the player lies inside its
+      // sphere), and all that draws after it lies over it.
       depthWrite: false,
-      depthTest: true,
+      depthTest: false,
       toneMapped: false,
     });
     this.veil = new Mesh(new SphereGeometry(THEATRE.radiusM, 32, 16), this.mat);
