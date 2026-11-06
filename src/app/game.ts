@@ -28,6 +28,7 @@ import { emit } from "./bus";
 import type { HintLevel } from "./events";
 import { HintMarks } from "./hints";
 import type { Lantern } from "./lantern-system";
+import { withLessons } from "./lesson-boxes";
 import type { Lifecycle, LifecycleSession } from "./lifecycle";
 import type { ProfileStore } from "./profile-store";
 import { go } from "./screens";
@@ -309,7 +310,8 @@ export function attachGame(d: GameDeps): { game: Game; session: BoxSession; view
     },
     scene: shell.box,
     lantern: d.lantern,
-    boxes: createBoxClient(),
+    // Generated boxes from the worker; the lessons' hand-built boxes for lesson specs.
+    boxes: withLessons(createBoxClient()),
     profiles: shell.profiles,
     settings: shell.settings,
     sound: d.sound.game,

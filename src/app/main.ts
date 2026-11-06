@@ -13,12 +13,13 @@ import { COPY } from "../ui/copy";
 import { MenuSystem, useMenus } from "../ui/menu-system";
 import { styleRayCursors } from "../ui/ray-cursor";
 import { emit, on } from "./bus";
-import { disableMultiview, readFieldFlags, showPerfPanel, startBox } from "./field-flags";
+import { disableMultiview, readFieldFlags, showPerfPanel, startBox, startLesson } from "./field-flags";
 import { attachGame } from "./game";
 import { recordHands, recordSeconds } from "./hand-recorder";
 import { attachHands } from "./hand-system";
 import { localInputProfileUrl } from "./input-profiles";
 import { attachLantern } from "./lantern-system";
+import { attachLessons } from "./lessons";
 import { ProfileStore } from "./profile-store";
 import { SettingsStore } from "./settings";
 import { Shell } from "./shell";
@@ -89,10 +90,26 @@ async function main(): Promise<void> {
   // The game (priority -2.8, after the hands): the box session (its finger locks fed by the hands), its
   // celebrations, the plate and the hint lantern.
   const play = attachGame({ world, shell, lantern, sound, hands });
-  hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play });
+  // The lessons (priority -2.7, after the game): the director, the ghost, the coach line; "Show me" on the hint lantern.
+  const lessons = attachLessons({
+    world,
+    scene: shell.box,
+    profiles: shell.profiles,
+    settings: shell.settings,
+    lantern,
+    hands,
+    sound,
+    play,
+    presenting: () => shell.sessionMode !== null,
+  });
+  hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play, lessons });
   shell.start();
-  const box = startBox(location.search);
+  // Where the player starts: a field flag's box or lesson (practice), else a first launch's lesson, else Home. Test
+  // builds can keep Home (the e2e boot does, unless a test asks for the lessons).
+  const box = startBox(location.search), lesson = startLesson(location.search);
   if (box) play.game.playBox(box);
+  else if (lesson) lessons.start(lesson, { practice: true });
+  else if (!(TEST_HOOKS && (window as { __slSkipLessons?: boolean }).__slSkipLessons)) lessons.firstLaunch();
   sound.loadMusicLater();
   video?.installVideoMode(world);
 

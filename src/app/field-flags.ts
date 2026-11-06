@@ -6,6 +6,7 @@
 //                 compare frame times with the default
 //   ?box=N        start straight into box N (resumed if it is the box in progress); the box session then
 //                 plays and saves it as any box, nothing else about progress changes
+//   ?lesson=l1    start straight into lesson 1 (or l2) as practice: nothing about progress changes
 import { CanvasTexture, Mesh, MeshBasicMaterial, PlaneGeometry, Quaternion, SRGBColorSpace, Vector3, type World } from "@iwsdk/core";
 import { BOX_ROOT_NAME } from "../render/placement";
 
@@ -20,6 +21,12 @@ export function readFieldFlags(search: string): FieldFlags {
   const q = new URLSearchParams(search);
   const flag = (name: string, fallback: boolean) => (q.has(name) ? ON.has((q.get(name) ?? "").toLowerCase()) : fallback);
   return { perf: flag("perf", false), multiview: flag("multiview", true) };
+}
+
+/** `?lesson=l1|l2`: the lesson to start in, as practice, or null when the address names none (or a bad one). */
+export function startLesson(search: string): "l1" | "l2" | null {
+  const v = new URLSearchParams(search).get("lesson");
+  return v === "l1" || v === "l2" ? v : null;
 }
 
 /** `?box=N`: the box to start in (a whole number from 1), or null when the address names none (or a bad one). */
