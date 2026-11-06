@@ -39,16 +39,13 @@ export type ExampleKey = "move" | "near-far" | "rings" | "finger";
 export interface MenuData {
   /** What is paused behind the menus. */
   behind(): Behind;
-  /** What the player may play now (the shell resolves it from the edition, the profile and billing). */
-  ent(): Ent;
+  /**
+   * What the player may play now (the shell resolves it from the edition, the profile and billing), or null while
+   * it is still being worked out.
+   */
+  ent(): Ent | null;
   /** Billing can sell here (the installed store app); a browser gets the store link instead. */
   canBuy(): boolean;
   /** Today's day key on this device (YYYY-MM-DD). */
   today(): string;
-}
-
-/** Keys whose state a view sets: `enabled` false moves under the finger but never clicks. */
-export interface KeyStates {
-  disabled: string[];
-  lit: string[];
 }

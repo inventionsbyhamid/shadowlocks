@@ -80,6 +80,33 @@ describe("Access", () => {
     expect(billingFor("owned").fake).toEqual({ available: true, owned: true, buyResult: "bought" });
   });
 
+  it("is pending until it is worked out, and a pending entitlement plays no endless box", async () => {
+    const p = newProfile(T0, "2.0.0");
+    const { billing, fake } = billingFor("app");
+    let now = T0 + DAY;
+    const store = new Access("store", true, billing, () => p, () => now);
+    expect(store.ent).toBeNull();
+    expect(store.canPlayBox).toBe(false);
+    const asked = store.refresh();
+    // Billing answers later: still pending until it does.
+    expect(store.ent).toBeNull();
+    await asked;
+    expect(store.ent).toEqual({ kind: "trial", daysLeft: 6 });
+    expect(store.canPlayBox).toBe(true);
+    now = T0 + 9 * DAY;
+    await store.refresh();
+    expect(store.canPlayBox).toBe(false);
+    fake!.owned = true;
+    await store.refresh();
+    expect(store.canPlayBox).toBe(true);
+    // Without billing in the way (the judge edition, a paywall that is off) it is unlocked at once.
+    const judge = new Access("judge", true, untouchable(), () => p, () => T0);
+    expect(judge.ent).toBeNull();
+    void judge.refresh();
+    expect(judge.ent).toEqual({ kind: "unlocked" });
+    expect(judge.canPlayBox).toBe(true);
+  });
+
   it("resetting progress never gives back trial days", async () => {
     const p = newProfile(T0, "2.0.0");
     p.lastSeenMs = T0 + 6 * DAY;

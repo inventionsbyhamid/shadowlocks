@@ -36,7 +36,6 @@ export const COPY = {
     home: {
       continueSub: "Box No. {n}",
       startSub: "Start Box No. {n}",
-      backToDaily: "Daily Box",
       backToLesson: "Your lesson",
       trialOver: "Trial over",
       dailyLocked: "After Box No. 3",
@@ -93,6 +92,8 @@ export const COPY = {
     next: "Next box",
     hint: "Hint",
     showMe: "Show me",
+    /** Under the plate's name for a practice box (the `?box=N` flag: nothing it does is kept). */
+    practice: "Practice",
     storyOwner: "Off the desk of {owner}.",
     storyLoot: "Inside: {loot}.",
     short: "One piece short.",

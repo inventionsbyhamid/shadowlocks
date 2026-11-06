@@ -38,26 +38,39 @@ export interface ReplayAsked {
 
 export interface GameMenusDeps {
   game: { play(spec: BoxSpec): void; playNext(): void; playDaily(nowMs: number): void };
-  session: { readonly stage: Stage; readonly spec: BoxSpec | null };
+  session: { readonly stage: Stage; readonly spec: BoxSpec | null; rehand?(): Promise<void> };
   lessons: MenuLessons;
+  /** Endless boxes may be played now (the entitlement: false while pending or once a trial is over). */
+  canPlayBox(): boolean;
+  /** An endless box was asked for that the entitlement refuses: the trial screen. */
+  toTrial(): void;
   /** Close the menus: the play screen (the drawer shuts, the box it held runs on). */
   toPlay(): void;
   /** Clear the box from the lap (a progress reset). */
   clearBox(): void;
 }
 
+/** Replays remembered for the test hooks (the latest ones; older ones are let go). */
+export const REPLAYS_KEPT = 16;
+
 export class GameMenus implements MenuGame {
-  /** Every replay asked for, oldest first. */
+  /** The latest replays asked for (at most REPLAYS_KEPT), oldest first. */
   readonly replays: ReplayAsked[] = [];
-  /** A progress reset let the box in play go: nothing waits until the next box starts. */
-  private let = false;
+  /** The box a progress reset let go (the session's spec at the time): it no longer waits behind the menus. */
+  private letGo: BoxSpec | null = null;
 
   constructor(private readonly d: GameMenusDeps) {}
 
+  /** The session's box, unless idle or the one a reset let go (a new box is a new spec). */
+  private live(): BoxSpec | null {
+    const spec = this.d.session.spec;
+    return !spec || this.d.session.stage === "idle" || spec === this.letGo ? null : spec;
+  }
+
   behind(): Behind {
     if (this.d.lessons.running) return { kind: "lesson" };
-    const spec = this.d.session.spec;
-    if (this.let || !spec || this.d.session.stage === "idle") return null;
+    const spec = this.live();
+    if (!spec) return null;
     if (spec.kind === "box") return { kind: "box", n: spec.n };
     if (spec.kind === "daily") return { kind: "daily" };
     return { kind: "lesson" };
@@ -68,23 +81,26 @@ export class GameMenus implements MenuGame {
   }
 
   playBox(n: number, resume: boolean): void {
+    // An endless box, the one behind included: the entitlement first.
+    if (!this.d.canPlayBox()) {
+      this.d.toTrial();
+      return;
+    }
     const b = this.behind();
     if (b && b.kind === "box" && b.n === n) {
       this.back();
       return;
     }
-    this.let = false;
     if (resume) this.d.game.playNext();
     else this.d.game.play({ kind: "box", n });
   }
 
   playDaily(nowMs: number): void {
-    const spec = this.d.session.spec;
-    if (!this.let && this.d.session.stage !== "idle" && spec?.kind === "daily" && spec.day === todayKey(nowMs)) {
+    const spec = this.live();
+    if (spec?.kind === "daily" && spec.day === todayKey(nowMs)) {
       this.back();
       return;
     }
-    this.let = false;
     this.d.game.playDaily(nowMs);
   }
 
@@ -94,6 +110,7 @@ export class GameMenus implements MenuGame {
     if (row.kind === "example") ran = l.replay(row.id);
     else ran = l.replayTip ? l.replayTip(row.id) : l.replay(TIP_EXAMPLE[row.id]);
     this.replays.push({ kind: row.kind, id: row.id, ran });
+    if (this.replays.length > REPLAYS_KEPT) this.replays.shift();
     if (ran) this.d.toPlay();
   }
 
@@ -105,7 +122,13 @@ export class GameMenus implements MenuGame {
   }
 
   dropped(): void {
-    this.let = true;
+    this.letGo = this.d.session.spec;
     this.d.clearBox();
+  }
+
+  /** The Left hand setting changed: the box behind the menus follows it (never one a reset let go). */
+  rehand(): Promise<void> {
+    if (!this.live() || !this.d.session.rehand) return Promise.resolve();
+    return this.d.session.rehand();
   }
 }

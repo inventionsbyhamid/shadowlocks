@@ -133,7 +133,8 @@ export class MenuDrawer {
       this.view.setGlow(1);
       return;
     }
-    if (this.screen !== "play") {
+    // No "pinch here" while it cannot be pulled: a menu is up, or the box is opening or its reward is up.
+    if (this.screen !== "play" || !(this.d.allowed?.() ?? true)) {
       this.view.setGlow(0);
       return;
     }

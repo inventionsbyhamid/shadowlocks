@@ -27,6 +27,11 @@
         background: radial-gradient(ellipse at 50% 38%, #2a2228 0%, #17131a 46%, #0d0b0e 100%);
       }
       body.in-xr #landing { display: none; }
+      /* The installed Quest apps go straight into XR: no box art or name flashing by as a splash, only the status
+         (and the button, should going into XR fail). */
+      body.installed #landing { background: var(--ebony); }
+      body.installed #landing .art, body.installed #landing h1, body.installed #landing .rule,
+      body.installed #tagline, body.installed #facts { display: none; }
       .art { position: relative; width: min(78vw, 340px); aspect-ratio: 32 / 30; }
       .art::before {
         /* The deco sunburst behind the box: 24 soft gold rays. */

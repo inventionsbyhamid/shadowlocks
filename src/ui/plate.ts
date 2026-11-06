@@ -61,6 +61,12 @@ export function wrapTwo(text: string, width: (s: string) => number, max: number)
   return best;
 }
 
+/** What the plate says for a box: its name, and a small cue under it ("Practice" for a `?box` practice box). */
+export function plateText(spec: BoxSpec, practice: boolean): { name: string; cue: string } {
+  const name = spec.kind === "box" ? fill(COPY.game.boxNo, { n: spec.n }) : spec.kind === "daily" ? COPY.game.daily : "";
+  return { name, cue: practice ? COPY.game.practice : "" };
+}
+
 export class Plate {
   /** Cancels the box's scale: everything under it is in metres. */
   readonly group = new Group();
@@ -68,6 +74,8 @@ export class Plate {
   private readonly face: Mesh;
   private readonly label = new LabelCanvas(Math.round(PLATE.w * PX), Math.round(PLATE.h * PX));
   private name = "";
+  /** A small line under the name ("Practice" for a `?box` box), or "". */
+  private cue = "";
   private locks = 0;
   private readonly lit = [false, false, false];
   private scale = 0;
@@ -119,11 +127,13 @@ export class Plate {
     });
   }
 
-  /** A new box: its name, as many latch lights as it has locks, all off, no Next. */
-  setBox(box: Box | null, spec: BoxSpec | null): void {
+  /** A new box: its name (and "Practice" under it for a practice box), as many latch lights as it has locks, all off, no Next. */
+  setBox(box: Box | null, spec: BoxSpec | null, practice = false): void {
     this.group.visible = box !== null;
     if (!box || !spec) return;
-    this.name = spec.kind === "box" ? fill(COPY.game.boxNo, { n: spec.n }) : spec.kind === "daily" ? COPY.game.daily : "";
+    const t = plateText(spec, practice);
+    this.name = t.name;
+    this.cue = t.cue;
     this.locks = box.locks.length;
     this.lit.fill(false);
     this.offerNext(false);
@@ -166,7 +176,7 @@ export class Plate {
   }
 
   private paint(): void {
-    const n = this.locks, lit = this.lit, name = this.name;
+    const n = this.locks, lit = this.lit, name = this.name, cue = this.cue;
     this.label.paint((g, w, h) => {
       brassFace(g, w, h);
       g.fillStyle = "#2a1d0c";
@@ -180,7 +190,12 @@ export class Plate {
         size -= 2;
         g.font = `bold ${size}px ${LABEL_FONT}`;
       }
-      g.fillText(name, L.nameX, h / 2, L.nameMax);
+      // With a cue, the name moves up and the cue sits small under it, in italics.
+      g.fillText(name, L.nameX, cue ? h * 0.4 : h / 2, L.nameMax);
+      if (cue) {
+        g.font = `italic ${Math.round(h * 0.22)}px ${LABEL_FONT}`;
+        g.fillText(cue, L.nameX, h * 0.78, L.nameMax);
+      }
       // The latch lights: a lamp and its numeral each, from the right.
       const r = L.lightR;
       for (let i = 0; i < n; i++) {

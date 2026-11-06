@@ -25,15 +25,17 @@ export interface TrialView {
   disabled: string[];
 }
 
-export function trialView(ent: Ent, canBuy: boolean, state: BuyState): TrialView {
+export function trialView(ent: Ent | null, canBuy: boolean, state: BuyState): TrialView {
   const t = COPY.menus.trial;
-  const owned = ent.kind === "owned" || ent.kind === "unlocked" || state === "bought";
-  const days = ent.kind === "trial" ? (ent.daysLeft === 1 ? t.dayLeft : fill(t.daysLeft, { n: ent.daysLeft })) : ent.kind === "trialOver" ? t.over : "";
+  // Still being worked out: nothing to offer yet (the screen repaints once it is known).
+  const known = ent !== null;
+  const owned = ent?.kind === "owned" || ent?.kind === "unlocked" || state === "bought";
+  const days = ent?.kind === "trial" ? (ent.daysLeft === 1 ? t.dayLeft : fill(t.daysLeft, { n: ent.daysLeft })) : ent?.kind === "trialOver" ? t.over : "";
   return {
     days,
-    over: ent.kind === "trialOver" && !owned,
-    buy: canBuy && !owned,
-    store: !canBuy && !owned,
+    over: ent?.kind === "trialOver" && !owned,
+    buy: known && canBuy && !owned,
+    store: known && !canBuy && !owned,
     status: state === "bought" ? t.bought : state === "failed" ? t.failed : null,
     // One purchase at a time.
     disabled: state === "buying" ? ["trial-buy"] : [],
