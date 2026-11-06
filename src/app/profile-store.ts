@@ -87,6 +87,12 @@ export class ProfileStore {
     return this.save();
   }
 
+  /** Set (or clear) the Daily Box in progress and save. */
+  setDailyCurrent(snapshot: BoxSnapshot | null): Promise<void> {
+    this.profile.daily.current = snapshot;
+    return this.save();
+  }
+
   private markSeen(): void {
     const t = this.env.now();
     if (Number.isFinite(t) && t > this.profile.lastSeenMs) this.profile.lastSeenMs = t;

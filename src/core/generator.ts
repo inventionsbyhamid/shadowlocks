@@ -10,6 +10,7 @@
 import { ENVELOPE } from "./envelope";
 import { area, bbox, circlePts, elongation, hash, inPoly, polyDist, proj, rng32, segDist } from "./geom";
 import { boxParams, dailyParams } from "./params";
+import { isDayKey } from "./profile";
 import { SHAPES, SILHOUETTES } from "./shapes";
 import { BAND, type Coverage, type LockSamples, lockSamples, measure, RING_SIDES, shadowPolys } from "./solve";
 import { LOOT, OWNERS } from "./story";
@@ -199,6 +200,14 @@ export function seedKey(spec: BoxSpec): string {
   if (spec.kind === "box") return "shadow-locks/" + spec.n;
   if (spec.kind === "daily") return "shadow-locks/daily/" + spec.day;
   throw new Error("Lessons are built by hand, not generated: " + spec.id);
+}
+
+/** The spec a seed key names (seedKey's inverse), or null for anything else (a lesson, a damaged save). */
+export function specOfKey(key: string): BoxSpec | null {
+  const box = /^shadow-locks\/([1-9]\d{0,8})$/.exec(key);
+  if (box) return { kind: "box", n: Number(box[1]) };
+  const daily = /^shadow-locks\/daily\/(\d{4}-\d{2}-\d{2})$/.exec(key);
+  return daily && isDayKey(daily[1]) ? { kind: "daily", day: daily[1]! } : null;
 }
 
 type Reason = "spot" | "finger" | "piece" | "ring" | "decoy" | "start";

@@ -46,6 +46,13 @@ export const FINGER_HOLD_MS = 600;
 /** ...where tracking drops shorter than this do not reset it. */
 export const FINGER_GRACE_MS = 100;
 
+/**
+ * A lock opens once the lantern has met its rule this long: a lantern at rest (released, settled, or held still)
+ * passes at once, while a sweep through the spot meets it for a frame or two and opens nothing (at 15 cm/s the
+ * lantern crosses the few millimetres where the rule holds in well under this).
+ */
+export const OPEN_DWELL_MS = 100;
+
 /** Head gaze on a new lock this long moves the focus to it. */
 export const GAZE_DWELL_MS = 400;
 

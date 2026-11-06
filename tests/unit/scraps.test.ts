@@ -251,6 +251,19 @@ describe("Scraps (no renderer)", () => {
     expect(shownOf(s, slotOf(fingerLock.i, fingerLock.missing))).toBe(0);
   });
 
+  it("lights only one lock's sight rings (a hint), and a new box puts them out", () => {
+    const s = new Scraps(null);
+    const b = boxes[4]!;
+    s.setBox(b);
+    const rings = b.elements.filter((e) => e.kind === "ring");
+    const ringed = b.locks.find((l) => l.rings)!;
+    s.setRingGlow(ringed.i, 0.9);
+    rings.forEach((r, k) => expect(s.ringGlowOf(k), `ring ${k}`).toBeCloseTo(r.lock === ringed.i ? 0.9 : 0, 6));
+    expect(rings.filter((r) => r.lock === ringed.i)).toHaveLength(2);
+    s.setBox(boxes[1]!);
+    for (let k = 0; k < s.rings.count; k++) expect(s.ringGlowOf(k)).toBe(0);
+  });
+
   it("resets every slot for a new box (and for none)", () => {
     const s = new Scraps(null);
     s.setBox(fingerBox);
@@ -294,5 +307,8 @@ describe("Scraps (no renderer)", () => {
     const ring = patch(s.rings.material as Material, ShaderLib.standard);
     expect(ring.vertexShader).toContain("vec3 transformed = vec3((aRadii.x + aRadii.y * aTorus.z) * aTorus.xy, aRadii.y * aTorus.w);");
     expect(ring.vertexShader).not.toContain("#include <begin_vertex>");
+    // ...and its glow (a hint) added to the emissive light.
+    expect(ring.vertexShader).toContain("vRingGlow = aGlow;");
+    expect(ring.fragmentShader).toContain("totalEmissiveRadiance += uGlowColor * vRingGlow;");
   });
 });

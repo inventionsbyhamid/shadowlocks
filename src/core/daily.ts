@@ -17,6 +17,14 @@ export function dayKey(nowMs: number, tzOffsetMin: number): string {
   return `${local.getUTCFullYear()}-${pad(local.getUTCMonth() + 1)}-${pad(local.getUTCDate())}`;
 }
 
+/**
+ * Today's day key on this device at `nowMs` (its own time zone, daylight saving included). The game names
+ * days only through this, so one sign convention is used everywhere.
+ */
+export function todayKey(nowMs: number): string {
+  return dayKey(nowMs, new Date(nowMs).getTimezoneOffset());
+}
+
 /** Days since 1970-01-01 for a valid day key. */
 function dayIndex(key: string): number {
   const [y, m, d] = key.split("-").map(Number) as [number, number, number];
