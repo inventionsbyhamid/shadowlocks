@@ -8,6 +8,9 @@ import {
   atFingerLock,
   fingerLocks,
   hands,
+  inside,
+  median,
+  panelLuma,
   Pointer,
   startFingerTrail,
   takeFingerTrail,
@@ -202,6 +205,70 @@ test("hand mask renders before the box", async ({ page, boot }) => {
   await app.step(2);
   const gone = await hands(page);
   expect(gone.mask).toBe(18 * ((gone.left ? 1 : 0) + (gone.right ? 1 : 0)));
+});
+
+test("on the panel: the finger's shadow darkens the gap, and the hand holding the lantern casts none", async ({ page, boot }) => {
+  // The finger: the gap's middle and points out toward its corners, lit while the hand waits outside the box, dark
+  // with the finger in the beam (read within a few frames, long before the hold could complete), lit once it leaves.
+  const { app, lock, hand, into } = await ready(boot, page);
+  const gap = inside(lock.piece);
+  const before = await panelLuma(page, gap);
+  await hand.shift(into);
+  expect((await hands(page)).finger.length).toBe(2);
+  const during = await panelLuma(page, gap);
+  await hand.shift([-into[0], -into[1], -into[2]]);
+  await app.step(3);
+  const after = await panelLuma(page, gap);
+  expect((await fingerLocks(page))[0]!.state).not.toBe("done");
+  expect(median(before)).toBeGreaterThan(40);
+  expect(median(during)).toBeLessThan(0.6 * median(before));
+  expect(median(after)).toBeGreaterThan(0.85 * median(before));
+
+  // The lantern at the middle of the box front, held by the right hand reaching on into the mouth (the lantern stays
+  // at the front, still held, the hand 11 cm deeper, so its shadow would land on the panel). Read a grid over the
+  // panel held, let go (the same hand, the same place), and with the hand gone.
+  const at: V3 = [0, -0.05, 1];
+  await page.evaluate((p) => window.__sl!.placeLantern(p), at);
+  const off = await grab(app, page, hand);
+  await carry(hand, off, await toWorld(page, [at[0], at[1], 0.55]), 400);
+  await app.step(20);
+  let h = await hands(page);
+  expect((await lantern(page)).held).toBe(true);
+  expect(h.right!.minZ).toBeLessThanOrEqual(1);
+  expect(h.right!.outlines).toBe(0);
+  const grid: V3[] = [];
+  for (let i = -4; i <= 4; i++) for (let j = -4; j <= 4; j++) grid.push([i * 0.1, j * 0.1, 0]);
+  const held = await panelLuma(page, grid);
+  await hand.release();
+  await app.step(5);
+  h = await hands(page);
+  expect((await lantern(page)).held).toBe(false);
+  expect(h.right!.outlines).toBeGreaterThan(0);
+  const released = await panelLuma(page, grid);
+  const outlines = h.outlines;
+  await hand.disconnect();
+  await app.step(3);
+  const none = await panelLuma(page, grid);
+  // The points the let-go hand darkens (under 60% of the same point with no hand; points in a scrap's shadow left
+  // out): there are some, they lie in its computed outlines, and every one was lit while it held the lantern.
+  const inPoly = (p: V3, poly: V2[]) => {
+    let c = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i]!, b = poly[j]!;
+      if (a[1] > p[1] !== b[1] > p[1] && p[0] < ((b[0] - a[0]) * (p[1] - a[1])) / (b[1] - a[1]) + a[0]) c = !c;
+    }
+    return c;
+  };
+  const shaded = grid.map((_, i) => i).filter((i) => none[i]! > 30 && released[i]! < 0.6 * none[i]!);
+  const mean = (xs: number[], at: number[]) => at.reduce((s, i) => s + xs[i]!, 0) / Math.max(1, at.length);
+  console.log(
+    `panel: the gap's median luma ${median(before).toFixed(0)} lit, ${median(during).toFixed(0)} with the finger, ` +
+      `${median(after).toFixed(0)} after; the let-go hand darkens ${shaded.length} of ${grid.length} grid points ` +
+      `(mean luma there ${mean(none, shaded).toFixed(0)} with no hand, ${mean(held, shaded).toFixed(0)} held, ${mean(released, shaded).toFixed(0)} let go)`,
+  );
+  expect(shaded.length).toBeGreaterThanOrEqual(5);
+  expect(shaded.filter((i) => outlines.some((o) => inPoly(grid[i]!, o))).length).toBeGreaterThanOrEqual(0.8 * shaded.length);
+  expect(shaded.filter((i) => held[i]! < 0.8 * none[i]!)).toEqual([]);
 });
 
 test("the crystallise hook forms the piece with no hand", async ({ page, boot }) => {

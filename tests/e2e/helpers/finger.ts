@@ -116,6 +116,68 @@ export class Pointer extends Hands {
   }
 }
 
+/**
+ * Step one frame and read the rendered panel's luma (0..255) at box points: projected with the first XR view's camera
+ * into the canvas and read in the same task as the frame (as shadows.spec.ts's probe). For that frame only, what
+ * hangs in the box (scraps, threads, rings, lantern) is hidden and the hand mask writes no depth, so the panel with
+ * its shadows is what is read, even where a hand stands between it and the eye.
+ */
+export function panelLuma(page: Page, pts: V3[]): Promise<number[]> {
+  return page.evaluate((pts) => {
+    const w = window as any;
+    const scene = w.__ns.world.scene, mask = scene.getObjectByName("Hand Mask");
+    const depthWrite = mask.material.depthWrite;
+    mask.material.depthWrite = false;
+    w.__sl.showHanging(false);
+    try {
+      w.__vt.step(1000 / 72);
+      const renderer = w.__ns.world.renderer, canvas = renderer.domElement as HTMLCanvasElement, xr = renderer.xr;
+      const cam = xr.getCamera().cameras[0];
+      const layer = xr.getBaseLayer?.();
+      const W = canvas.width, H = canvas.height;
+      const sx = W / (layer?.framebufferWidth ?? W), sy = H / (layer?.framebufferHeight ?? H);
+      const c2: HTMLCanvasElement = (w.__lumaCanvas ||= document.createElement("canvas"));
+      c2.width = W;
+      c2.height = H;
+      const g = c2.getContext("2d", { willReadFrequently: true })!;
+      g.clearRect(0, 0, W, H);
+      g.drawImage(canvas, 0, 0);
+      const data = g.getImageData(0, 0, W, H).data;
+      const world = w.__ns.scene.toWorld(pts) as [number, number, number][];
+      const V = cam.matrixWorldInverse.elements as number[], P = cam.projectionMatrix.elements as number[], vp = cam.viewport;
+      return world.map(([x, y, z]) => {
+        const vx = V[0]! * x + V[4]! * y + V[8]! * z + V[12]!, vy = V[1]! * x + V[5]! * y + V[9]! * z + V[13]!;
+        const vz = V[2]! * x + V[6]! * y + V[10]! * z + V[14]!;
+        const cx = P[0]! * vx + P[4]! * vy + P[8]! * vz + P[12]!, cy = P[1]! * vx + P[5]! * vy + P[9]! * vz + P[13]!;
+        const cw = P[3]! * vx + P[7]! * vy + P[11]! * vz + P[15]!;
+        const px = Math.min(W - 1, Math.max(0, Math.floor((vp.x + ((cx / cw + 1) / 2) * vp.z) * sx)));
+        const py = Math.min(H - 1, Math.max(0, Math.floor(H - (vp.y + ((cy / cw + 1) / 2) * vp.w) * sy)));
+        const i = (py * W + px) * 4;
+        return 0.2126 * data[i]! + 0.7152 * data[i + 1]! + 0.0722 * data[i + 2]!;
+      });
+    } finally {
+      mask.material.depthWrite = depthWrite;
+      w.__sl.showHanging(true);
+    }
+  }, pts);
+}
+
+export const median = (xs: number[]): number => {
+  const s = [...xs].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)]!;
+};
+
+/** Points inside a convex polygon on the panel: its middle and the way out to each corner (`k` of the way). */
+export function inside(poly: V2[], ks: number[] = [0, 0.35, 0.6]): V3[] {
+  const { mid } = axisOf(poly);
+  const out: V3[] = [];
+  for (const k of ks) {
+    if (k === 0) out.push([mid[0], mid[1], 0]);
+    else for (const p of poly) out.push([mid[0] + (p[0] - mid[0]) * k, mid[1] + (p[1] - mid[1]) * k, 0]);
+  }
+  return out;
+}
+
 /** One frame of the finger lock and the hands, recorded after every step. */
 export interface FingerFrame {
   t: number;
