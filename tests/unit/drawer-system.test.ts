@@ -10,6 +10,7 @@ import type { Vec3 } from "../../src/core/types";
 import type { HandPinch } from "../../src/input/grab-system";
 import type { HandJoints } from "../../src/input/hand-joints";
 import { DRAWER } from "../../src/render/drawer";
+import { DRAWER_X, REWARD_DRAWER } from "../../src/render/fx/box-open";
 
 const pin = (): HandPinch => ({ kind: "controller", tracked: true, pinching: false, edge: null, point: new Vector3(0, 0, 5), anchor: new Vector3(), rot: new Quaternion() });
 const offs: (() => void)[] = [];
@@ -51,6 +52,16 @@ function bench() {
   };
   return { drawer, said, handle, frame, root };
 }
+
+describe("the plinth's two drawers", () => {
+  it("the reward drawer (either side) never overlaps the menu drawer, and both stay inside the plinth", () => {
+    const rewardInner = DRAWER_X - REWARD_DRAWER.w / 2;
+    const rewardOuter = DRAWER_X + REWARD_DRAWER.w / 2;
+    expect(rewardInner).toBeGreaterThanOrEqual(DRAWER.w / 2);
+    // The plinth is 1.1 box units wide.
+    expect(rewardOuter).toBeLessThanOrEqual(0.55);
+  });
+});
 
 describe("MenuDrawer", () => {
   it("springs back from a short pull, opens past 4 cm and raises Home, and shuts when play comes back", () => {
