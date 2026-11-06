@@ -15,21 +15,27 @@ import {
   AdditiveBlending,
   BufferAttribute,
   BufferGeometry,
+  Color,
+  DataTexture,
   DoubleSide,
   DynamicDrawUsage,
   Group,
+  LinearFilter,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  NoColorSpace,
   Points,
   PointsMaterial,
+  RGBAFormat,
+  SRGBColorSpace,
   type Texture,
 } from "@iwsdk/core";
 import type { Box, Lock, V2, V3 } from "../../core/types";
 import type { BoxScene } from "../box-scene";
 import { SCRAP_THICKNESS } from "../scraps";
 import { penumbra } from "../shadow-mesh";
-import { COLORS, MATERIALS } from "../theme";
+import { COLORS, FOIL, MATERIALS } from "../theme";
 import { clamp01, outBack, outCubic, smoothstep } from "./ease";
 import { FlashBudget } from "./flash-budget";
 
@@ -113,6 +119,31 @@ function sparkDirections(): Float32Array {
 }
 const SPARK_DIRS = sparkDirections();
 
+/** The fill's colour over its foil (white: the foil as it is). */
+const FILL_TINT = "#ffffff";
+/** The foil is lifted this far toward gold hot: the gap fills with light, a little brighter than an open lock's foil. */
+const FILL_LIFT = 0.25;
+
+/** The banded gold foil (theme.ts FOIL, in display values as the panel blends it) as a 64 x 1 texture along u. */
+function foilTexture(): DataTexture {
+  const W = 64, data = new Uint8Array(W * 4), hot = new Color().setStyle(COLORS.goldHot, NoColorSpace), a = new Color(), b = new Color();
+  for (let x = 0; x < W; x++) {
+    const t = x / (W - 1);
+    let k = 1;
+    while (k < FOIL.length - 1 && FOIL[k]![0] < t) k++;
+    const [t0, h0] = FOIL[k - 1]!, [t1, h1] = FOIL[k]!;
+    a.setStyle(h0, NoColorSpace).lerp(b.setStyle(h1, NoColorSpace), Math.min(1, Math.max(0, (t - t0) / (t1 - t0))));
+    a.lerp(b.copy(hot), FILL_LIFT);
+    data.set([Math.round(a.r * 255), Math.round(a.g * 255), Math.round(a.b * 255), 255], x * 4);
+  }
+  const tex = new DataTexture(data, W, 1, RGBAFormat);
+  tex.colorSpace = SRGBColorSpace;
+  tex.magFilter = LinearFilter;
+  tex.minFilter = LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 function triNormal(p: Float32Array, i: number, out: Float32Array): void {
   const ax = p[i + 3]! - p[i]!, ay = p[i + 4]! - p[i + 1]!, az = p[i + 5]! - p[i + 2]!;
   const bx = p[i + 6]! - p[i]!, by = p[i + 7]! - p[i + 1]!, bz = p[i + 8]! - p[i + 2]!;
@@ -148,16 +179,27 @@ export class Crystals {
     this.budget = budget ?? new FlashBudget();
     this.ownBudget = !budget;
     this.group.name = "Crystals";
+    const foil = foilTexture();
     // The fill's triangles: a fan from corner 0 (pieces are convex), the same for any corner count.
     const fan = new Uint16Array((MAX_CORNERS - 2) * 3);
     for (let i = 0; i < MAX_CORNERS - 2; i++) fan.set([0, i + 1, i + 2], i * 3);
     for (let s = 0; s < MAX_LOCKS; s++) {
       const fg = new BufferGeometry();
       fg.setAttribute("position", new BufferAttribute(new Float32Array(MAX_CORNERS * 3), 3).setUsage(DynamicDrawUsage));
+      fg.setAttribute("uv", new BufferAttribute(new Float32Array(MAX_CORNERS * 2), 2).setUsage(DynamicDrawUsage));
       fg.setIndex(new BufferAttribute(fan, 1));
+      // Banded gold foil across the gap, as an open lock fills (theme.ts FOIL), lifted toward gold hot.
       const fill = new Mesh(
         fg,
-        new MeshBasicMaterial({ color: COLORS.gold, transparent: true, opacity: 0, depthWrite: false, toneMapped: false, side: DoubleSide }),
+        new MeshBasicMaterial({
+          color: FILL_TINT,
+          map: foil,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          toneMapped: false,
+          side: DoubleSide,
+        }),
       );
       fill.name = "Crystal Fill";
       fill.renderOrder = 5;
@@ -338,15 +380,25 @@ export class Crystals {
     for (let i = 0; i < c; i++) st.shadow.push(st.pool[i]!);
     this.version++;
 
-    // The fill: the outline itself, just in front of the panel.
+    // The fill: the outline itself, just in front of the panel, its foil banded along a diagonal across it.
     const fillAttr = slot.fill.geometry.getAttribute("position") as BufferAttribute;
-    const fp = fillAttr.array as Float32Array;
+    const uvAttr = slot.fill.geometry.getAttribute("uv") as BufferAttribute;
+    const fp = fillAttr.array as Float32Array, fu = uvAttr.array as Float32Array;
+    let ox = 0, oy = 0, reach = 1e-6;
+    for (let i = 0; i < c; i++) {
+      ox += outline[i]![0] / c;
+      oy += outline[i]![1] / c;
+    }
+    for (let i = 0; i < c; i++) reach = Math.max(reach, Math.abs(outline[i]![0] - ox - (outline[i]![1] - oy)));
     for (let i = 0; i < c; i++) {
       fp[i * 3] = outline[i]![0];
       fp[i * 3 + 1] = outline[i]![1];
       fp[i * 3 + 2] = FILL_Z;
+      fu[i * 2] = 0.5 + (outline[i]![0] - ox - (outline[i]![1] - oy)) / (2.2 * reach);
+      fu[i * 2 + 1] = 0.5;
     }
     fillAttr.needsUpdate = true;
+    uvAttr.needsUpdate = true;
     slot.fill.geometry.setDrawRange(0, (c - 2) * 3);
 
     // The piece's front corners: on the rays from the spot through the outline's, at depth z. Counter-clockwise
