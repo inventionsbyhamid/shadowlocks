@@ -1,36 +1,43 @@
-// Menu colours: a provisional walnut and brass set (warm workshop at night) until the look is
-// picked (plan/lookdev; Task 18 applies the pick). Token names stay as other modules read them:
-// `graphiteKey` is the plain key, `putty` the lit or main key, `capOff` a key at the end of its
-// range, `glow` the lantern amber of hovers and the ray cursor. The same values are written in
-// scripts/ui/ui_common.py (generated UIKitML); code uses these for states it switches.
+// Menu colours: Ebony and Gold, the owner's look pick (plan/lookdev/shadow-locks/pick.md): black
+// lacquer panels with a gold-leaf bezel, gold foil primary keys with black legends, black glass keys
+// with a double gold hairline, and a bright gold glow on hover. Token names stay as other modules
+// read them: `graphiteKey` is the plain (black glass) key, `putty` the lit or main (gold foil) key,
+// `capOff` a key at the end of its range, `glow` the hover glow and the ray cursor. The same values
+// are written in scripts/ui/ui_common.py (generated UIKitML); code uses these for states it switches.
 
 export const UI = {
-  /** The panel body (the slab placeholder, drawn flat). */
-  slab: "#2B2018",
+  /** The panel body: black lacquer (the slab mesh and the root). */
+  slab: "#1C191D",
   /** A recessed plate on a panel (readouts, cards). */
-  plate: "#1F1711",
-  text: "#F1E6D2",
-  textDim: "#C9B89E",
-  textFaint: "#8E7D66",
+  plate: "#121016",
+  /** Gold leaf: the bezel and the hairlines. */
+  bezel: "#B08732",
+  text: "#EFE6D2",
+  textDim: "#CDB27A",
+  textFaint: "#9A8A6A",
   /** Dim text on a plain key (subs, toggle notes). */
-  textOnGraphiteDim: "#D9C9AF",
-  /** Legends on light keys. */
-  ink: "#1E1610",
-  inkSoft: "#4E3C2B",
-  /** Lit or main keys: polished brass. */
-  putty: "#D9B26A",
-  /** The call to action: warm amber. */
-  signal: "#E8913A",
-  /** Plain keys: dark walnut. */
-  graphiteKey: "#4A3A2C",
-  /** A stepper key at the end of its range: a darker cap with dimmer marks. */
-  capOff: "#3A2E24",
-  capOffLit: "#4F4237",
-  stepperOff: "#B3A38C",
-  /** Hover glow and the ray cursor: lantern amber. */
-  glow: "#FFB347",
-  ledOn: "#FFB347",
-  ledOff: "#3B2A1C",
+  textOnGraphiteDim: "#CDB27A",
+  /** Legends on gold keys. */
+  ink: "#1C191D",
+  inkSoft: "#5A4520",
+  /** Lit or main keys: gold foil. */
+  putty: "#E2BD62",
+  /** The call to action: bright gold. */
+  signal: "#FFD36A",
+  /** A key that cannot be undone (Reset): oxblood. */
+  danger: "#7A2E28",
+  /** Plain keys: black glass. */
+  graphiteKey: "#2A2529",
+  /** A key at the end of its range, or locked: a darker cap with dimmer marks. */
+  capOff: "#1A171B",
+  capOffLit: "#221E22",
+  stepperOff: "#7D6E52",
+  /** Hover glow and the ray cursor: bright gold. */
+  glow: "#FFD36A",
+  ledOn: "#FFD36A",
+  ledOff: "#3A3236",
+  /** The lessons' mark: the ghost hand's icy blue. */
+  ghost: "#7FDCFF",
 } as const;
 
 /** Relative luminance of a #RRGGBB colour (WCAG 2). */

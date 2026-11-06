@@ -35,4 +35,29 @@ describe("copy", () => {
       expect(s.length).toBeLessThanOrEqual(16);
     }
   });
+
+  it("menus: key lines are short labels, messages are sentences", () => {
+    const m = COPY.menus;
+    // Second lines on keys fit a key: short, no full stop.
+    for (const [k, s] of Object.entries(m.home)) {
+      if (k === "reset") expect(s).toMatch(/^[A-Z].*\.$/);
+      else {
+        expect(s, k).not.toMatch(/\.$/);
+        expect(s.length, k).toBeLessThanOrEqual(18);
+      }
+    }
+    for (const s of Object.values(m.lessons)) {
+      expect(s).not.toMatch(/\.$/);
+      expect(s.length).toBeLessThanOrEqual(16);
+    }
+    expect(m.collection.page).toBe("{from} to {to} of {n}");
+    for (const k of ["over", "bought", "failed"] as const) expect(m.trial[k]).toMatch(/^[A-Z].*\.$/);
+    expect(m.trial.daysLeft).toBe("Your trial: {n} days left");
+    expect(m.trial.unlock).toBe("Unlock the full game");
+  });
+
+  it("the landing page: one button, a tagline sentence", () => {
+    expect(COPY.landing.open).toBe("Open the box");
+    expect(COPY.landing.tagline).toMatch(/^[A-Z].*\.$/);
+  });
 });

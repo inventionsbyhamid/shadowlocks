@@ -1,22 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { defaultSettings } from "../../src/core/profile";
-import { HOME, homeView, paintHome } from "../../src/ui/menus/home";
-import { formatSetting, paintSettings, SETTINGS, settingAction, settingsView, sliderPosition, stepSetting } from "../../src/ui/menus/settings";
+import { defaultSettings, type Settings } from "../../src/core/profile";
+import { formatSetting, paintSettings, RESET, SETTINGS, settingAction, settingsView, sliderPosition, stepSetting } from "../../src/ui/menus/settings";
 import { UI } from "../../src/ui/theme";
-import { expectCleanCopy } from "./helpers/ui";
-
-const recorder = () => {
-  const calls: string[] = [];
-  const ui = {
-    text: (id: string, t: string) => calls.push(`text ${id} ${t}`),
-    show: (id: string, on: boolean) => calls.push(`show ${id} ${on}`),
-    fill: (id: string, c: string) => calls.push(`fill ${id} ${c}`),
-    ink: (id: string, c: string) => calls.push(`ink ${id} ${c}`),
-    edge: () => {},
-    roll: () => {},
-  };
-  return { calls, ui };
-};
+import { expectCleanCopy, recorder } from "./helpers/ui";
 
 describe("settings", () => {
   it("formats each value plainly", () => {
@@ -48,8 +34,21 @@ describe("settings", () => {
     expect(settingAction("toggle-captions", s)).toEqual({ captions: false });
     expect(settingAction("toggle-motion", s)).toEqual({ reducedMotion: true });
     expect(settingAction("toggle-dimming", { ...s, dimming: false })).toEqual({ dimming: true });
+    expect(settingAction("toggle-warmth", s)).toEqual({ warmth: false });
+    expect(settingAction("toggle-hand", s)).toEqual({ handed: "left" });
+    expect(settingAction("toggle-hand", { ...s, handed: "left" })).toEqual({ handed: "right" });
     expect(settingAction("settings-done", s)).toBeNull();
     expect(settingAction("settings-recenter", s)).toBeNull();
+    expect(settingAction("settings-reset", s)).toBeNull();
+  });
+
+  it("has a row for every Settings field", () => {
+    const fields = Object.keys(defaultSettings()).sort();
+    const changed = new Set<string>();
+    for (const id of SETTINGS.keys) for (const k of Object.keys(settingAction(id, defaultSettings()) ?? {})) changed.add(k);
+    expect([...changed].sort()).toEqual(fields);
+    // Reset progress asks first.
+    expect(RESET.keys).toEqual(["reset-keep", "reset-confirm"]);
   });
 
   it("offers every key it paints", () => {
@@ -61,9 +60,12 @@ describe("settings", () => {
       "box-down",
       "box-up",
       "settings-recenter",
+      "settings-reset",
+      "toggle-warmth",
       "toggle-captions",
       "toggle-motion",
       "toggle-dimming",
+      "toggle-hand",
       "settings-done",
     ]);
   });
@@ -74,10 +76,15 @@ describe("settings", () => {
     expect(v.sliders.find((x) => x.key === "musicVol")).toMatchObject({ label: "Music", value: "Off", fill: 0, atMin: true });
     expect(v.sliders.map((x) => x.label)).toEqual(["Music", "Effects", "Box size"]);
     expect(v.toggles).toEqual([
+      { id: "toggle-warmth", label: "Warmth", sub: "Glow, hums", on: true, state: "On" },
       { id: "toggle-captions", label: "Captions", sub: "Text cues", on: true, state: "On" },
       { id: "toggle-motion", label: "Less motion", sub: "No bounce", on: true, state: "On" },
       { id: "toggle-dimming", label: "Dim room", sub: "In play", on: true, state: "On" },
+      { id: "toggle-hand", label: "Left hand", sub: "Mirrored", on: false, state: "Off" },
     ]);
+    const left: Settings = { ...defaultSettings(), handed: "left", warmth: false };
+    expect(settingsView(left).toggles.find((t) => t.id === "toggle-hand")).toMatchObject({ on: true, state: "On" });
+    expect(settingsView(left).toggles.find((t) => t.id === "toggle-warmth")).toMatchObject({ on: false, state: "Off" });
     expectCleanCopy(v);
   });
 
@@ -112,17 +119,5 @@ describe("slider position", () => {
     expect(sliderPosition("effects-up", s)).toBeCloseTo(1, 9);
     expect(sliderPosition("toggle-captions", s)).toBeNull();
     expect(sliderPosition("settings-done", s)).toBeNull();
-  });
-});
-
-describe("home", () => {
-  it("shows the storage notice only when there is one", () => {
-    const a = recorder();
-    paintHome(a.ui, homeView("Progress will not be saved on this device."));
-    expect(a.calls).toEqual(["show home-notice true", "text home-notice-text Progress will not be saved on this device."]);
-    const b = recorder();
-    paintHome(b.ui, homeView(null));
-    expect(b.calls).toEqual(["show home-notice false"]);
-    expect(HOME.keys).toEqual(["home-recenter", "home-settings"]);
   });
 });
