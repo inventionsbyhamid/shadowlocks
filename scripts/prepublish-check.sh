@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Run before the repository goes public: fails when a tracked file, the history of HEAD or a commit
 # message holds a secret-looking value, a key or secret file (.secrets above all), an absolute /Users/
-# path, or an email address other than the commit authors' (the public support address on the
-# privacy page and example.com addresses are allowed too). Prints "clean" when nothing is found.
+# path, or an email address. Allowed: example.com addresses, and the public support address (the one
+# in the privacy page's support link) in public/privacy.html only; every other address fails, the
+# commit authors' own included. Prints "clean" when nothing is found.
 # It never prints a match: a secret shows only as its rule and where it is, an email masked.
 # Usage: scripts/prepublish-check.sh [--all]   (--all: every branch's history, not only HEAD's)
 # Runs on this Mac with git alone (the build server gets no .git).
@@ -15,7 +16,7 @@ REVS=HEAD
 case ${1:-} in
   "") ;;
   --all) REVS=--all ;;
-  *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+  *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
 esac
 
 FOUND=0
@@ -44,21 +45,19 @@ rule "absolute /Users/ path" '/[U]sers/[A-Za-z0-9._-]'
 EMAIL_RE='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
 
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
-# Allowed: the commit authors and committers, the support address on the privacy page, example.com.
-ALLOWED=$'\n'
-while IFS= read -r e; do
-  [ -n "$e" ] && ALLOWED="$ALLOWED$(lower "$e")"$'\n'
-done < <(git log $REVS --format='%ae%n%ce')
+# The public support address: the one in the privacy page's support link at HEAD (published on
+# purpose there, and allowed nowhere else).
+SUPPORT=
+SUPPORT_FILE=public/privacy.html
 SUPPORT_RE='id="support-email" href="mailto:([^"]+)"'
-if page=$(git show HEAD:public/privacy.html 2>/dev/null) && [[ $page =~ $SUPPORT_RE ]]; then
-  ALLOWED="$ALLOWED$(lower "${BASH_REMATCH[1]}")"$'\n'
+if page=$(git show "HEAD:$SUPPORT_FILE" 2>/dev/null) && [[ $page =~ $SUPPORT_RE ]]; then
+  SUPPORT=$(lower "${BASH_REMATCH[1]}")
 fi
-email_ok() {
+email_ok() { # address, the file it is in ("" for a commit message)
   local e
   e=$(lower "$1")
   case $e in *@example.com | *@example.org | *@example.net) return 0 ;; esac
-  case $ALLOWED in *$'\n'"$e"$'\n'*) return 0 ;; esac
-  return 1
+  [ -n "$SUPPORT" ] && [ "$e" = "$SUPPORT" ] && [ "$2" = "$SUPPORT_FILE" ]
 }
 mask() { printf '%s***@%s' "${1:0:1}" "${1#*@}"; }
 # npm registry text, not ours: a package's "deprecated" notice in the lock file may name its
@@ -101,21 +100,21 @@ for i in "${!NAMES[@]}"; do
 done
 
 # 3. Emails in tracked files (the lock file is public registry text: read whole lines there).
-scan_line() { # where, text
+scan_line() { # where, text, the file it is from ("" for a commit message)
   local rest=$2 e
   while [[ $rest =~ $EMAIL_RE ]]; do
     e=${BASH_REMATCH[0]}
-    email_ok "$e" || fail "email $(mask "$e"): $1"
+    email_ok "$e" "$3" || fail "email $(mask "$e"): $1"
     rest=${rest#*"$e"}
   done
 }
 while IFS= read -r l; do
   e=${l##*:}
-  email_ok "$e" || fail "email $(mask "$e"): ${l%:*}"
+  email_ok "$e" "${l%%:*}" || fail "email $(mask "$e"): ${l%:*}"
 done < <(git grep -I -n -o -E -e "$EMAIL_RE" -- . ':!package-lock.json' || true)
 while IFS= read -r l; do
   text=${l#*:}
-  registry_line package-lock.json "$text" || scan_line "package-lock.json:${l%%:*}" "$text"
+  registry_line package-lock.json "$text" || scan_line "package-lock.json:${l%%:*}" "$text" package-lock.json
 done < <(git grep -I -n -E -e "$EMAIL_RE" -- package-lock.json | sed 's/^package-lock\.json://' || true)
 
 # 4. Emails in the history's changed lines, and anything in commit messages.
@@ -125,27 +124,18 @@ while IFS= read -r c; do
     case $l in
       "+++ b/"*) file=${l#+++ b/}; continue ;;
       "+++"* | "---"*) continue ;;
-      "+"* | "-"*) registry_line "$file" "$l" || scan_line "commit $c" "$l" ;;
+      "+"* | "-"*) registry_line "$file" "$l" || scan_line "commit $c" "$l" "$file" ;;
     esac
   done < <(git show --format= -U0 --no-color --no-ext-diff "$c")
 done < <(git log $REVS --format=%h -G"$EMAIL_RE" -- . || true)
 commit=
 while IFS= read -r l; do
   case $l in "@@commit "*) commit=${l#@@commit }; continue ;; esac
-  scan_line "message of $commit" "$l"
+  scan_line "message of $commit" "$l" ""
   for i in "${!NAMES[@]}"; do
     if [[ $l =~ ${RES[$i]} ]]; then fail "${NAMES[$i]}: message of $commit"; fi
   done
 done < <(git log $REVS --format='@@commit %h%n%B')
-
-# A note, not a failure: the commit authors' own addresses are allowed, but say where they appear.
-authors=0
-while IFS= read -r e; do
-  [ -n "$e" ] || continue
-  n=$(git grep -I -h -c -i -F -e "$e" -- . | awk '{ s += $1 } END { print s + 0 }' || true)
-  authors=$((authors + ${n:-0}))
-done < <(git log $REVS --format='%ae' | sort -u)
-[ "$authors" -eq 0 ] || echo "note: a commit author's address appears on $authors tracked lines (allowed)"
 
 if [ "$FOUND" -eq 0 ]; then
   echo clean

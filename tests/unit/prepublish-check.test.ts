@@ -57,13 +57,28 @@ function check(d: string): { status: number | null; out: string } {
 }
 
 describe("prepublish-check.sh", () => {
-  it("says clean for a clean repository, the author's own address and example.com included", () => {
-    const d = repo({ "src/a.ts": `// by ${AUTHOR}, see ${["help", "example.com"].join("@")}\nexport const a = 1;\n` });
+  it("says clean for a clean repository, example.com addresses included", () => {
+    const d = repo({ "src/a.ts": `// see ${["help", "example.com"].join("@")}\nexport const a = 1;\n` });
     const r = check(d);
     expect(r.out).toMatch(/^clean$/m);
-    expect(r.out).toMatch(/note: a commit author's address appears on 1 tracked lines/);
-    expect(r.out).not.toContain(AUTHOR);
     expect(r.status).toBe(0);
+  });
+
+  it("allows the support address on the privacy page only, even when it is the commit author's own", () => {
+    const link = `<a id="support-email" href="mailto:${AUTHOR}">${AUTHOR}</a>\n`;
+    const ok = repo({ "public/privacy.html": link });
+    expect(check(ok).out).toMatch(/^clean$/m);
+
+    const d = repo({ "public/privacy.html": link, "src/a.ts": `// by ${AUTHOR}\n` }, `add the page\n\nask ${AUTHOR}`);
+    const r = check(d);
+    expect(r.status).toBe(1);
+    expect(r.out).toContain("FAIL email d***@test.invalid: src/a.ts:1");
+    expect(r.out).toMatch(/FAIL email d\*\*\*@test\.invalid: commit [0-9a-f]+/);
+    expect(r.out).toMatch(/FAIL email d\*\*\*@test\.invalid: message of [0-9a-f]+/);
+    expect(r.out).not.toMatch(/public\/privacy\.html/);
+    expect(r.out).not.toContain(AUTHOR);
+    // Without the page's link, the author's address is allowed nowhere.
+    expect(check(repo({ "src/b.ts": `// ${AUTHOR}\n` })).out).toContain("FAIL email d***@test.invalid: src/b.ts:1");
   });
 
   it("fails a tracked .secrets file and a key file", () => {
