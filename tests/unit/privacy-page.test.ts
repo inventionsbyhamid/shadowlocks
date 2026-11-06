@@ -17,11 +17,12 @@ describe("privacy page", () => {
     for (const phrase of [
       "collects nothing about you",
       "no account, no analytics, no advertising and no cookies",
-      "storage on your headset",
+      "browser storage on your headset",
+      "hand, head and controller positions",
       "Cloudflare",
       "IP address",
       "We do not see or keep that data",
-      "clear its data",
+      "clear the game's data in your headset's settings: the app's data, and the browser's site data",
       "13 and over",
       "Meta will handle the payment",
     ]) {
@@ -34,6 +35,10 @@ describe("privacy page", () => {
     expect(links).toHaveLength(1);
     expect(links[0]![1]).toBe(links[0]![2]);
     expect(html.match(/mailto:/g)).toHaveLength(1);
+  });
+
+  it("promises no deletion by uninstalling alone (a Quest app's site data lives in the headset's browser)", () => {
+    expect(text).not.toMatch(/[Uu]ninstall/);
   });
 
   it("has no em or en dashes in what readers see", () => {
