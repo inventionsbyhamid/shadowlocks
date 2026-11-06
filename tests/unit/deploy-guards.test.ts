@@ -89,7 +89,33 @@ describe("deploy-pages.sh guards", () => {
 
   it("refuses a bad stand-in limit for load or disk", () => {
     const bin = stub("ssh", "exit 99");
-    expect(deploy(["--both", "--dry-run"], bin, { NS_MAX_LOAD: "x" }).status).toBe(2);
-    expect(deploy(["--both", "--dry-run"], bin, { NS_MIN_FREE_GB: "-1" }).status).toBe(2);
+    for (const [env, why] of [
+      [{ NS_MAX_LOAD: "x" }, /^bad NS_MAX_LOAD: x$/m],
+      [{ NS_MAX_LOAD: " 25" }, /^bad NS_MAX_LOAD: {2}25$/m],
+      [{ NS_MIN_FREE_GB: "-1" }, /^bad NS_MIN_FREE_GB: -1$/m],
+      [{ NS_MIN_FREE_GB: "1e3" }, /^bad NS_MIN_FREE_GB: 1e3$/m],
+    ] as const) {
+      const r = deploy(["--both", "--dry-run"], bin, env);
+      expect(r.status, r.out).toBe(2);
+      expect(r.out).toMatch(why);
+    }
+  });
+
+  it("remote.sh refuses a bad NS_MAX_LOAD before it reaches the server", () => {
+    const log = path.join(tmp(), "ssh.log");
+    const bin = stub("ssh", 'echo call >>"$SSH_LOG"; exit 99');
+    for (const bad of ["x", "", " 25", "25x"]) {
+      const e: NodeJS.ProcessEnv = { ...process.env, NS_MAX_LOAD: bad, SSH_LOG: log, PATH: `${bin}:${process.env.PATH}` };
+      const r = spawnSync("bash", ["scripts/remote.sh", "guard-test", "--", "true"], { encoding: "utf8", env: e, input: "" });
+      if (bad === "") {
+        // Empty means unset: the default limit applies, and the run goes on to the (stand-in) server.
+        expect(r.status, r.stderr).not.toBe(2);
+        continue;
+      }
+      expect(r.status, r.stderr).toBe(2);
+      expect(r.stderr).toContain(`bad NS_MAX_LOAD: ${bad}`);
+    }
+    // Only the empty value went on to call ssh.
+    expect(fs.readFileSync(log, "utf8").split("\n").filter(Boolean).length).toBe(1);
   });
 });

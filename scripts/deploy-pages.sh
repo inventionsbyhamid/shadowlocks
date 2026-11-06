@@ -243,7 +243,10 @@ STAMP=$(sed -n 's/^check-dist: sw.js sha256 \([0-9a-f]\{64\}\)$/\1/p' "$LOG" | t
 for f in index.html sw.js manifest.webmanifest _headers privacy.html .well-known/assetlinks.json icons/icon-512.png; do
   [ -f "$DIST/$f" ] || { echo "refused: dist/$f is missing" >&2; exit 3; }
 done
-if find "$DIST" -type f \( -name '*.keystore' -o -name '*.jks' -o -name '*.p12' -o -name '.env*' \) | grep -q .; then
+# Listed first, then tested: a find | grep -q pipe can fail (grep stops early, find gets SIGPIPE) and read as clean.
+keys=$(find "$DIST" -type f \( -name '*.keystore' -o -name '*.jks' -o -name '*.p12' -o -name '*.pfx' -o -name '*.pem' \
+  -o -name '*.key' -o -name '*.properties' -o -name '.env*' \)) || { echo "refused: could not list dist/" >&2; exit 3; }
+if [ -n "$keys" ]; then
   echo "refused: a key or secret file is in dist/" >&2
   exit 3
 fi
