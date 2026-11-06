@@ -8,9 +8,10 @@
 // measures every lock anyway) and keeps the loops; nothing else here depends on it. Allocation-free per frame.
 import { createSystem, type Object3D, type World } from "@iwsdk/core";
 import { type Coverage, type LockSamples, measure, meets, prepareLock, SKIP_MISSING, shadowBuffers, shadowPolys } from "../core/solve";
-import type { Box, Lock, V2 } from "../core/types";
+import type { Box, Lock, V2, V3 } from "../core/types";
 import { MAX_STEP_MS } from "../feel/constants";
 import { handJoints } from "../input/grab-system";
+import type { HandSide } from "../input/hand-joints";
 import type { BoxScene } from "../render/box-scene";
 import { crystallise } from "../render/fx/crystallise";
 import { HandMask } from "../render/hand-mask";
@@ -82,8 +83,14 @@ export class HandsInBox {
     // Drawn in the panel's shadow mesh when the box updates, later this frame.
     scene.setHandShadows(this.outlines, r.n, this.shadow.depth);
     if (scene.box !== this.shown) this.setBox(scene.box);
+    this.driveFingerLocks(dtMs, holder, L);
+  }
 
-    // Finger locks (the box session's, once it exists).
+  // --- Interim finger-lock driver: the box session takes this over (it measures every lock anyway) and keeps the
+  // --- FingerLockLoops; it then deletes this method, setBox, `locks` and pieceDepth, and nothing else changes.
+
+  /** Each unopened finger lock measured with this frame's finger and held through its loop; done opens it. */
+  private driveFingerLocks(dtMs: number, holder: HandSide | null, L: V3): void {
     const locks = this.locks, box = this.shown;
     if (!box || !locks.length) return;
     const tracked = (holder !== "left" && handJoints.tracked("left")) || (holder !== "right" && handJoints.tracked("right"));
@@ -94,7 +101,7 @@ export class HandsInBox {
       if (ns < 0) ns = shadowPolys(box.elements, L, this.scraps, SKIP_MISSING);
       measure(e.samples, this.scraps, ns, this.finger, this.nFinger, e.coverage);
       e.meets = meets(e.coverage, true);
-      if (e.loop.update(dtMs, e.coverage, tracked) === "done") lantern.feel.setOpen(e.lock.i, true);
+      if (e.loop.update(dtMs, e.coverage, tracked) === "done") this.deps.lantern.feel.setOpen(e.lock.i, true);
     }
   }
 
