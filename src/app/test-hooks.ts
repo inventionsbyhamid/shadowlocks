@@ -8,7 +8,10 @@ import { SKIP_MISSING, shadowBuffers, shadowPolys } from "../core/solve";
 import type { V2, V3, Vec3 } from "../core/types";
 import { BOX_ROOT_NAME, boxToWorld, placement } from "../render/placement";
 import { slotOf } from "../render/scraps";
+import type { BoxSession } from "./box-session";
 import { emit, type FeedbackEvent, onAny } from "./bus";
+import { REUSED_EVENT_TYPES } from "./events";
+import type { Game, GameView } from "./game";
 import { Panels } from "./panels";
 import { currentScreen, go } from "./screens";
 import type { Shell } from "./shell";
@@ -18,7 +21,7 @@ import type { PlayOptions } from "../audio/engine";
 import type { Lantern } from "./lantern-system";
 import type { Sound } from "./sound";
 import { appSystemName, onAppSystem } from "./systems";
-import type { NsApi, NsButton, NsClock, NsPerf, NsScene, NsSound, NsState, SlApi, SlFeelEvent, SlLantern } from "./test-api";
+import type { NsApi, NsButton, NsClock, NsPerf, NsScene, NsSound, NsState, SlApi, SlFeelEvent, SlLantern, SlSession } from "./test-api";
 import { installVirtualClock, type VirtualClock } from "./virtual-clock";
 
 const MAX_EVENTS = 2000;
@@ -28,8 +31,8 @@ const log: FeedbackEvent[] = [];
 /** Start recording bus events; call before anything can emit. */
 export function startEventLog(): void {
   onAny((e) => {
-    // A count-up reuses one event object for its steps: keep a copy.
-    log.push(e.type === "count" ? { ...e } : e);
+    // A count-up reuses one event object for its steps, and so do a lock's warmth and finger hold: keep a copy.
+    log.push(e.type === "count" || REUSED_EVENT_TYPES.has(e.type) ? { ...e } : e);
     // Trimmed in batches: cutting the front of a full log on every event costs the frame that
     // tells it (and so shows up in the timed systems).
     if (log.length > MAX_EVENTS + 500) log.splice(0, log.length - MAX_EVENTS);
@@ -155,7 +158,12 @@ function listen(sound: Sound): { log: NsSound[] } {
   return { log };
 }
 
-export function installTestHooks(world: World, shell: Shell, system: ShellSystem, app: { sound: Sound; lantern: Lantern }): void {
+export function installTestHooks(
+  world: World,
+  shell: Shell,
+  system: ShellSystem,
+  app: { sound: Sound; lantern: Lantern; play: { game: Game; session: BoxSession; view: GameView } },
+): void {
   const w = window as unknown as { __vt?: VirtualClock; __ns?: NsApi; __sl?: SlApi };
   const realNow = w.__vt ? w.__vt.realNow : performance.now.bind(performance);
   const timing = instrument(world, realNow);
@@ -322,9 +330,66 @@ export function installTestHooks(world: World, shell: Shell, system: ShellSystem
   };
 
   const lanternAt: V3 = [0, 0, 0];
+  const { game, session: ses, view } = app.play;
+  const openLocks = (): number[] => (ses.box ? ses.box.locks.filter((l) => ses.isOpen(l.i)).map((l) => l.i) : []);
+  const session: SlSession = {
+    play: (spec) => game.play(spec),
+    continue: () => shell.continueSaved(),
+    state: () => {
+      const b = ses.box;
+      const crystals: { lock: number; z: number }[] = [];
+      for (const l of b?.locks ?? []) if (Number.isFinite(ses.crystalOf(l.i))) crystals.push({ lock: l.i, z: ses.crystalOf(l.i) });
+      const p = shell.profiles.profile;
+      return {
+        stage: ses.stage,
+        key: b?.key ?? null,
+        spec: ses.spec ? { ...ses.spec } : null,
+        locks: (b?.locks ?? []).map((l) => ({
+          i: l.i,
+          center: [l.center[0], l.center[1]] as [number, number],
+          size: l.size,
+          spot: [l.L[0], l.L[1], l.L[2]] as V3,
+          finger: l.finger,
+          rings: l.rings,
+          hidden: l.hidden,
+        })),
+        open: openLocks(),
+        crystals,
+        warmth: (b?.locks ?? []).map((l) => ses.warmth(l.i)),
+        focus: ses.focus,
+        stuck: ses.stuck,
+        hints: ses.hints.count,
+        hintLevel: ses.hints.levels(),
+        elapsedMs: ses.elapsedMs,
+        revealed: ses.revealed,
+        phase: ses.phase,
+        collected: p.collection.length,
+        nextBox: p.nextBox,
+        hintGlow: view.hintLantern.glowing,
+        hintChoices: view.hintLantern.choicesOpen,
+      };
+    },
+    snapshot: () => (ses.box ? ses.snapshot() : null),
+    save: () => shell.lifecycle.flush(performance.now(), true),
+    keys: () => view.keys(),
+    reward: () => {
+      const r = view.reward;
+      if (!r.group.visible) return null;
+      const p = r.position([0, 0, 0]);
+      box.root.updateWorldMatrix(true, false);
+      return { world: v3(boxToWorld(box.root.matrixWorld, p, tmp)), up: r.up, held: r.held };
+    },
+    hint: () => ses.useHint(),
+  };
   w.__sl = {
-    // No box session yet: the game layer fills this in (box key, lantern, open locks, screen).
-    frameState: () => null,
+    session,
+    // What a demo video frame's fingerprint reads: copies, never the session's own arrays.
+    frameState: () => {
+      const b = ses.box;
+      if (!b) return null;
+      const L = box.lantern.getPos([0, 0, 0]);
+      return { boxKey: b.key, lantern: [L[0], L[1], L[2]], openLocks: openLocks(), screen: currentScreen() };
+    },
     lantern: lanternNow,
     placeLantern,
     shadows: () => {

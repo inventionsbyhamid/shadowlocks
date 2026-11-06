@@ -1,7 +1,8 @@
 // Entry point: create the IWSDK world, open the profile, wire the shell, show the Enter button.
 // Boot order: a waiting update takes over first; test hooks (test builds) start logging before
 // anything can emit; the world; asset URL rewrites; field flags; profile and settings; the shell
-// and its systems; sound; then Enter (or straight into XR in the installed Quest app); offline last.
+// and its systems; sound; the game (and a box at once with ?box=N); then Enter (or straight into XR
+// in the installed Quest app); offline last.
 import { AssetManager, World } from "@iwsdk/core";
 import projectOptions from "virtual:iwsdk-project";
 import { attachInput } from "../input/grab-system";
@@ -12,7 +13,8 @@ import { COPY } from "../ui/copy";
 import { MenuSystem, useMenus } from "../ui/menu-system";
 import { styleRayCursors } from "../ui/ray-cursor";
 import { emit, on } from "./bus";
-import { disableMultiview, readFieldFlags, showPerfPanel } from "./field-flags";
+import { disableMultiview, readFieldFlags, showPerfPanel, startBox } from "./field-flags";
+import { attachGame } from "./game";
 import { recordHands, recordSeconds } from "./hand-recorder";
 import { localInputProfileUrl } from "./input-profiles";
 import { attachLantern } from "./lantern-system";
@@ -76,8 +78,12 @@ async function main(): Promise<void> {
   const sound = new Sound({ world, settings, lifecycle: shell.lifecycle, menuButtons: (screen) => shell.panels.buttons(screen), box: shell.box });
   useSound(sound);
   registerAppSystem(world, SoundSystem, { name: "sound" });
-  hooks?.installTestHooks(world, shell, system, { sound, lantern });
+  // The game (priority -2.8, after the lantern): the box session, its celebrations, the plate and the hint lantern.
+  const play = attachGame({ world, shell, lantern, sound });
+  hooks?.installTestHooks(world, shell, system, { sound, lantern, play });
   shell.start();
+  const box = startBox(location.search);
+  if (box) play.game.playBox(box);
   sound.loadMusicLater();
   video?.installVideoMode(world);
 
