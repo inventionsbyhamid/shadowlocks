@@ -221,6 +221,50 @@ export interface SlFeelEvent {
   at: number;
 }
 
+/** One tracked hand in the box this frame. */
+export interface SlHand {
+  /** Shadow outlines it cast this frame (0 while it holds the lantern or is out of the mouth). */
+  outlines: number;
+  /** Its nearest joint to the panel (box z). */
+  minZ: number;
+  /** Its index finger's intermediate, distal and tip joints (box units). */
+  index: [V3, V3, V3];
+}
+
+/** The hands in the box this frame. */
+export interface SlHands {
+  /** Every casting bone's shadow outline (panel, box units), and the finger's (the index finger's last two bones). */
+  outlines: V2[][];
+  finger: V2[][];
+  /** The finger's depth (box z), or null with no finger in the beam. */
+  fingerZ: number | null;
+  /** Capsules the depth mask draws (0 while it is off). */
+  mask: number;
+  /** Each hand, or null when it is not tracked. */
+  left: SlHand | null;
+  right: SlHand | null;
+}
+
+/** A finger lock of the box shown, as its completion loop sees it this frame. */
+export interface SlFingerLock {
+  lock: number;
+  /** Its lantern spot (box units). */
+  spot: V3;
+  /** The missing piece's outline on the panel. */
+  piece: V2[];
+  state: "idle" | "holding" | "done";
+  /** 0..1 toward done. */
+  progress: number;
+  /** This frame's coverage, with the finger, and whether it meets the rule. */
+  coverage: { cover: number; spill: number; spillAll: number; gap: number };
+  meets: boolean;
+  /**
+   * Its crystallised piece: depth, front corners (box units), done forming, frame ms since it started, whether the
+   * brass piece is drawn yet (from 300 ms); null before.
+   */
+  crystal: { z: number; verts: V3[]; formed: boolean; ms: number; shown: boolean } | null;
+}
+
 /** `window.__sl`: Shadow Locks' own test hooks, present only in builds made with VITE_TEST_HOOKS=1. */
 export interface SlApi {
   /** The game's state for a video frame's fingerprint, or null while no box is in play. */
@@ -242,6 +286,12 @@ export interface SlApi {
   /** Feel events since the last clear. */
   feelEvents(): SlFeelEvent[];
   clearFeelEvents(): void;
+  /** The hands in the box this frame: their shadow outlines, the depth mask, each hand's joints that tests aim. */
+  hands(): SlHands;
+  /** The box's finger locks (made on the first frame after a box is shown). */
+  fingerLocks(): SlFingerLock[];
+  /** Start lock `lock`'s crystallise with the piece at depth `fingerZ`; frames carry it (see fingerLocks' crystal). */
+  crystallise(lock: number, fingerZ: number): void;
   /** A lock's warmth (0..1, eased in by the panel) and opening (its gold fill), as the game sets them. */
   setWarmth(lock: number, w: number): void;
   setOpen(lock: number, open?: boolean): void;

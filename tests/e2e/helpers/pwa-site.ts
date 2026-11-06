@@ -42,7 +42,8 @@ export async function buildForTests(repo = process.cwd()): Promise<string> {
   const outDir = path.join(repo, "dist-e2e");
   fs.rmSync(root, { recursive: true, force: true });
   fs.mkdirSync(root, { recursive: true });
-  for (const f of ["index.html", "src", "public"]) fs.cpSync(path.join(repo, f), path.join(root, f), { recursive: true });
+  // package.json too: src/platform/version.ts imports the build's version from it.
+  for (const f of ["index.html", "src", "public", "package.json"]) fs.cpSync(path.join(repo, f), path.join(root, f), { recursive: true });
   const config = JSON.parse(fs.readFileSync(path.join(repo, "iwsdk.config.json"), "utf8"));
   const { environment: _room, ...emulator } = config.dev?.emulator ?? {};
   config.dev = { ...config.dev, emulator: { ...emulator, injectOnBuild: true } };
@@ -60,9 +61,9 @@ export async function buildForTests(repo = process.cwd()): Promise<string> {
 export interface ServeOptions {
   port?: number;
   /**
-   * Send the report-only CSP as an enforced one, to prove switching it on is safe (production
-   * ships it report-only until it is checked on a headset), with `report-uri` pointing at this
-   * server: browsers report violations in workers there too, which no console event shows.
+   * Send the CSP enforced (as production does; a report-only one is enforced too), with `report-uri`
+   * pointing at this server: browsers report violations in workers there too, which no console
+   * event shows.
    */
   enforceCsp?: boolean;
 }
@@ -74,7 +75,7 @@ export async function serve(outDir: string, o: ServeOptions = {}): Promise<PwaSi
   const reports: CspReport[] = [];
   const withHeaders = (res: import("node:http").ServerResponse, p: string) => {
     for (const [k, v] of Object.entries(headersFor(rules, p))) {
-      const enforce = o.enforceCsp && k.toLowerCase() === "content-security-policy-report-only";
+      const enforce = o.enforceCsp && /^content-security-policy(-report-only)?$/i.test(k);
       res.setHeader(enforce ? "Content-Security-Policy" : k, enforce ? `${v}; report-uri ${CSP_REPORT_PATH}` : v);
     }
   };

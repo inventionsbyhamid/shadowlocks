@@ -18,6 +18,7 @@ import { attachDrawer } from "./drawer-system";
 import { detectEdition, installedApp, paywallFor, testOverrides } from "./edition";
 import { disableMultiview, readFieldFlags, showPerfPanel } from "./field-flags";
 import { recordHands, recordSeconds } from "./hand-recorder";
+import { attachHands } from "./hand-system";
 import { localInputProfileUrl } from "./input-profiles";
 import { attachLantern } from "./lantern-system";
 import { ProfileStore } from "./profile-store";
@@ -87,6 +88,13 @@ async function main(): Promise<void> {
   attachInput(world);
   // The lantern (priority -3, right after the hands): held, carried, let go, settled on a spot.
   const lantern = attachLantern(world, shell.box);
+  // The hands in the box (priority -2.9): the real hand in front of the box, the hands' shadows, the finger locks.
+  const hands = attachHands(world, {
+    scene: shell.box,
+    lantern,
+    passthrough: () => shell.sessionMode === "immersive-ar",
+    reducedMotion: () => settings.get().reducedMotion,
+  });
   // The rays' cursor in the game's look (rays press keys too).
   styleRayCursors(world);
   // Sound hears every bus event after everyone else; the box tells it where the locks are.
@@ -105,7 +113,7 @@ async function main(): Promise<void> {
       shell.box.lantern.group.visible = !away;
     },
   });
-  hooks?.installTestHooks(world, shell, system, { sound, lantern, drawer, access, fakeBilling: bill.fake });
+  hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, drawer, access, fakeBilling: bill.fake });
   shell.start();
   sound.loadMusicLater();
   video?.installVideoMode(world);

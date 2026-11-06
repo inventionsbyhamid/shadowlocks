@@ -32,3 +32,28 @@ head_ok() {
   fi
   echo "ok   $path: $code $type"
 }
+
+# body_ok <body> <path> <file>
+#   The body (as `curl -s` prints it) must be the file's text exactly, line ends and a trailing newline
+#   aside: the asset links the Quest apps check at launch must be the ones this build carries. Also
+#   notes placeholders still in the file (the apps will not launch until they are filled in).
+# Prints "ok   <path>: ..." or "FAIL <path>: ..." and returns 0 or 1.
+body_ok() {
+  local body path file want
+  body=$(printf '%s' "$1" | tr -d '\r')
+  path=$2 file=$3
+  [ -f "$file" ] || { echo "FAIL $path: no $file to compare with"; return 1; }
+  want=$(tr -d '\r' < "$file")
+  if [ -z "$body" ]; then
+    echo "FAIL $path: empty body"
+    return 1
+  fi
+  if [ "$body" != "$want" ]; then
+    echo "FAIL $path: the live file is not $file"
+    return 1
+  fi
+  echo "ok   $path: same as $(basename "$file")"
+  case $body in
+    *REPLACE_WITH*) echo "note $path still has placeholders: the Quest apps will not launch until scripts/twa-fill.sh fills them" ;;
+  esac
+}

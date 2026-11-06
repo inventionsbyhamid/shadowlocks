@@ -138,13 +138,48 @@ export const TIMED_FRAMES = 200;
 /** Windows timed one after the other; the cost is judged on the better one. */
 export const WINDOWS = 2;
 /**
- * Our per-frame lantern path, the two systems together (hand-pinch reads the hands; lantern runs the ctx, the grab,
- * the feel and the view): their summed update time per frame, averaged over a window of TIMED_FRAMES frames with that
- * window's single worst frame left out, at 4x CPU throttle on optimised code, is at most this (ms) in the better of
- * WINDOWS windows (a busy shared server can spoil one window with host stalls; the code is the same in both). The
- * mean only: p95 moves in the timer's 0.1 ms steps (times 4) and is reported, not held to a limit.
+ * A per-frame path (the lantern's two systems together, or the hands system) costs at most this (ms a frame) at 4x
+ * CPU throttle on optimised code, by the stall rule (judgeWindows): the mean of a window of TIMED_FRAMES frames
+ * without its host stalls, in the better of WINDOWS windows. The mean only: p95 moves in the timer's 0.1 ms steps
+ * (times 4) and is reported, not held to a limit.
  */
 export const MEAN_BUDGET_MS = 0.5;
+
+// The stall rule, the one place both cost checks take it from. A frame this long (ms, at 4x) is a host stall, not
+// our code: about seven times the whole 3 ms budget of all our systems. This shared server stalls 40-60 ms now and
+// then, one or two in 200 frames of late and often both in one window, which leaving out a window's single worst
+// frame cannot absorb (a check failed at 0.56 ms with a median of 0.15). So stalls are left out of the mean and
+// counted; a window with more than MAX_STALLS of them is no measure at all, and a regression that slow would show in
+// every frame anyway.
+export const STALL_MS = 20;
+export const MAX_STALLS = 5;
+
+/** A window judged by the stall rule: its mean without host stalls and how many there were. */
+export interface StallMean {
+  meanMs: number;
+  stalls: number;
+}
+
+/** A window's frame times (ms) by the stall rule. */
+export function withoutStalls(frames: readonly number[]): StallMean {
+  const kept = frames.filter((ms) => ms < STALL_MS);
+  return { meanMs: kept.reduce((a, b) => a + b, 0) / Math.max(1, kept.length), stalls: frames.length - kept.length };
+}
+
+/** Of WINDOWS windows' frame times, the one the cost is judged on (the lower mean without stalls) and its index. */
+export function judgeWindows(windows: readonly (readonly number[])[]): StallMean & { index: number } {
+  const judged = windows.map(withoutStalls);
+  const index = judged.reduce((best, w, i) => (w.meanMs < judged[best]!.meanMs ? i : best), 0);
+  return { ...judged[index]!, index };
+}
+
+/** The cost check: the judged window has at most MAX_STALLS host stalls and a mean of at most `budgetMs`. */
+export function expectWithinBudget(j: StallMean, budgetMs: number, what: string): void {
+  expect(j.stalls, `${what}: host stalls over ${STALL_MS} ms in the judged window`).toBeLessThanOrEqual(MAX_STALLS);
+  expect(j.meanMs, `${what}: mean ms a frame over ${TIMED_FRAMES} frames without host stalls, the better of ${WINDOWS} windows`).toBeLessThanOrEqual(
+    budgetMs,
+  );
+}
 /** The systems on the path, as the perf hook names them. */
 const PATH_SYSTEMS = ["hand-pinch", "lantern"];
 /** Files on the per-frame lantern path: none of them may allocate while a lantern is held and moved. */
@@ -164,7 +199,7 @@ const OUR_FILES = [
   "/src/core/geom.ts",
 ];
 
-function loadAverage(): number | undefined {
+export function loadAverage(): number | undefined {
   try {
     const v = Number(fs.readFileSync("/proc/loadavg", "utf8").split(" ")[0]);
     return Number.isFinite(v) ? v : undefined;
@@ -180,14 +215,14 @@ interface HeapNode {
   children: HeapNode[];
 }
 
-interface HeapProfile {
+export interface HeapProfile {
   head: HeapNode;
   /** One per sampled allocation: its exact size and where it was made. */
   samples: { size: number; nodeId: number }[];
 }
 
 /** The heap sampler takes one sample per this many bytes allocated, on average. */
-const SAMPLE_BYTES = 64;
+export const SAMPLE_BYTES = 64;
 
 /** Sampled allocations in our files' functions: bytes per frame in all, and by function (file:function:line). */
 export interface Allocations {
@@ -195,11 +230,12 @@ export interface Allocations {
   byFunction: Map<string, number>;
 }
 
-function ourAllocations(profile: HeapProfile, frames: number): Allocations {
+/** Sampled allocations in `files` (the lantern's per-frame files by default) over `frames` frames. */
+export function ourAllocations(profile: HeapProfile, frames: number, files: readonly string[] = OUR_FILES): Allocations {
   const ours = new Map<number, string>();
   const walk = (n: HeapNode) => {
     const url = n.callFrame.url;
-    if (OUR_FILES.some((f) => url.includes(f))) {
+    if (files.some((f) => url.includes(f))) {
       ours.set(n.id, `${url.replace(/^.*\/src\//, "src/").replace(/\?.*$/, "")}:${n.callFrame.functionName}:${n.callFrame.lineNumber + 1}`);
     }
     for (const c of n.children) walk(c);
@@ -225,7 +261,7 @@ export interface FrameStats {
   maxMs: number;
 }
 
-function frameStats(xs: number[]): FrameStats {
+export function frameStats(xs: number[]): FrameStats {
   const s = [...xs].sort((a, b) => a - b);
   const n = s.length;
   const sum = s.reduce((a, b) => a + b, 0);
@@ -242,6 +278,10 @@ function frameStats(xs: number[]): FrameStats {
 export interface CostWindow {
   /** hand-pinch and lantern together, per frame. */
   path: FrameStats;
+  /** The same frames by the stall rule. */
+  pathRule: StallMean;
+  /** Their frame times (ms). */
+  pathFrames: number[];
   /** Each system on its own, over the same frames (reported). */
   pinch: FrameStats;
   lan: FrameStats;
@@ -252,8 +292,9 @@ export interface CostWindow {
 export interface Cost {
   /** The WINDOWS timed windows, in order. */
   windows: CostWindow[];
-  /** The window whose path mean (its worst frame left out) is lower: what the cost is judged on. */
+  /** The window the stall rule judges the path on (judgeWindows): its mean without host stalls is the lower. */
   best: CostWindow;
+  judged: StallMean & { index: number };
   /** Frames per window. */
   frames: number;
   allocs: Allocations;
@@ -294,11 +335,11 @@ export async function measureCost(boot: BootFn, page: Page, testInfo: TestInfo, 
       for (let i = 0; (await app.perf()).frames < TIMED_FRAMES; i++) await carry(hand, off, i % 2 ? near : far, 600);
       const both = await series(PATH_SYSTEMS);
       expect(both).toHaveLength(TIMED_FRAMES);
-      // Each window's mean leaves out its single worst frame: one host stall (40-60 ms on this server) moves a
-      // 200-frame mean by a quarter of a millisecond.
       const loads = [before, loadAverage()].filter((l): l is number => l !== undefined);
       windows.push({
         path: frameStats(both),
+        pathRule: withoutStalls(both),
+        pathFrames: both,
         pinch: frameStats(await series(["hand-pinch"])),
         lan: frameStats(await series(["lantern"])),
         load: loads.length ? Math.max(...loads) : undefined,
@@ -317,7 +358,8 @@ export async function measureCost(boot: BootFn, page: Page, testInfo: TestInfo, 
     const { profile } = (await cdp.send("HeapProfiler.stopSampling")) as unknown as { profile: HeapProfile };
     expect((await lantern(page)).mode).toBe("line");
 
-    const best = windows.reduce((a, b) => (b.path.trimmedMs < a.path.trimmedMs ? b : a));
+    const judged = judgeWindows(windows.map((w) => w.pathFrames));
+    const best = windows[judged.index]!;
     const allocs = ourAllocations(profile, frames);
     const fmt = (s: FrameStats) =>
       `mean ${s.meanMs.toFixed(3)} (${s.trimmedMs.toFixed(3)} without the worst frame), median ${s.medianMs.toFixed(3)}, ` +
@@ -325,11 +367,12 @@ export async function measureCost(boot: BootFn, page: Page, testInfo: TestInfo, 
     const lines = [
       ...windows.flatMap((w, i) => [
         `${label}, window ${i + 1}: hand-pinch + lantern over ${TIMED_FRAMES} frames at 4x CPU throttle: ${fmt(w.path)}; ` +
+          `${w.pathRule.stalls} host stalls over ${STALL_MS} ms, mean ${w.pathRule.meanMs.toFixed(3)} ms without them; ` +
           `server load ${w.load?.toFixed(1) ?? "?"}`,
         `${label}, window ${i + 1}: hand-pinch ${fmt(w.pinch)}; lantern ${fmt(w.lan)}`,
       ]),
-      `${label}: judged on window ${windows.indexOf(best) + 1}, hand-pinch + lantern ${best.path.trimmedMs.toFixed(3)} ms a frame ` +
-        `(mean without its worst frame)`,
+      `${label}: judged on window ${judged.index + 1}, hand-pinch + lantern ${judged.meanMs.toFixed(3)} ms a frame ` +
+        `(mean without host stalls, ${judged.stalls} of them)`,
       `${label}: allocated in our per-frame files, about ${allocs.bytesPerFrame.toFixed(0)} bytes a frame over ${frames} frames ` +
         `(heap sampler, one sample per ${SAMPLE_BYTES} bytes, collected objects included)` +
         (allocs.byFunction.size ? `: ${[...allocs.byFunction].map(([k, b]) => `${k} ${b.toFixed(0)}`).join("; ")}` : ""),
@@ -338,7 +381,7 @@ export async function measureCost(boot: BootFn, page: Page, testInfo: TestInfo, 
       testInfo.annotations.push({ type: "perf", description: d });
       console.log(d);
     }
-    return { windows, best, frames: TIMED_FRAMES, allocs };
+    return { windows, best, judged, frames: TIMED_FRAMES, allocs };
   } finally {
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
   }

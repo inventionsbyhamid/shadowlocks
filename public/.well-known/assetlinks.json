@@ -1,10 +1,26 @@
 [
   {
-    "relation": ["delegate_permission/common.handle_all_urls"],
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
     "target": {
       "namespace": "android_app",
-      "package_name": "REPLACE_WITH_PACKAGE_ID",
-      "sha256_cert_fingerprints": ["REPLACE_WITH_SIGNING_KEY_SHA256"]
+      "package_name": "com.shadowlocks",
+      "sha256_cert_fingerprints": [
+        "A1:5C:C4:74:23:2D:9D:69:49:20:D6:2F:66:D5:98:84:C8:F3:85:D7:84:F6:A2:CE:65:C2:F9:26:9B:62:24:73"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.shadowlocks.judge",
+      "sha256_cert_fingerprints": [
+        "A1:5C:C4:74:23:2D:9D:69:49:20:D6:2F:66:D5:98:84:C8:F3:85:D7:84:F6:A2:CE:65:C2:F9:26:9B:62:24:73"
+      ]
     }
   }
 ]
