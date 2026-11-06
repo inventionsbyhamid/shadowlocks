@@ -41,6 +41,8 @@ IMAGE=node:22-bookworm
 WRANGLER_VOLUME=shadowlocks-deploy-wrangler
 MAX_LOAD=${NS_MAX_LOAD:-25}
 MIN_FREE_GB=${NS_MIN_FREE_GB:-100}
+[[ $MAX_LOAD =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "bad NS_MAX_LOAD: $MAX_LOAD" >&2; exit 2; }
+[[ $MIN_FREE_GB =~ ^[0-9]+$ ]] || { echo "bad NS_MIN_FREE_GB: $MIN_FREE_GB" >&2; exit 2; }
 BUILD_LANE=${NS_DEPLOY_LANE:-deploy}
 PUBLIC_PROJECT=shadowlocks
 JUDGE_PROJECT=shadowlocks-judge
@@ -111,8 +113,11 @@ gate() {
     || { echo "cannot reach $HOST (is the VPN on?)" >&2; exit 3; }
   load=$(printf '%s\n' "$g" | sed -n 1p)
   free=$(printf '%s\n' "$g" | sed -n 2p)
-  if awk -v l="$load" -v m="$MAX_LOAD" 'BEGIN{exit !(l>m)}'; then echo "refused: $HOST load $load > $MAX_LOAD" >&2; exit 3; fi
-  if [ "${free:-0}" -lt "$MIN_FREE_GB" ]; then echo "refused: $HOST free disk ${free:-0} GB < $MIN_FREE_GB GB" >&2; exit 3; fi
+  # A reading that is empty or not a number refuses: it is no answer, so it never passes.
+  [[ $load =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "refused: could not read the load average on $HOST (got '$load')" >&2; exit 3; }
+  [[ $free =~ ^[0-9]+$ ]] || { echo "refused: could not read the free disk on $HOST (got '$free')" >&2; exit 3; }
+  if awk -v l="$load" -v m="$MAX_LOAD" 'BEGIN{exit !(l+0>m+0)}'; then echo "refused: $HOST load $load > $MAX_LOAD" >&2; exit 3; fi
+  if [ "$free" -lt "$MIN_FREE_GB" ]; then echo "refused: $HOST free disk $free GB < $MIN_FREE_GB GB" >&2; exit 3; fi
 }
 
 if [ -n "$VERIFY" ]; then
@@ -197,10 +202,14 @@ fi
 
 COMMIT=$(git -C "$ROOT" rev-parse HEAD)
 SUBJECT=$(git -C "$ROOT" log -1 --format=%s | tr -cd 'A-Za-z0-9 .,:()/_-' | cut -c1-200)
-if [ -n "$(git -C "$ROOT" status --porcelain)" ] && [ "$DIRTY" -eq 0 ]; then
+# A git status that fails says nothing about the tree: refuse, never read it as clean.
+STATUS=$(git -C "$ROOT" status --porcelain) || { echo "refused: git status failed, so the tree's state is unknown" >&2; exit 2; }
+if [ -n "$STATUS" ] && [ "$DIRTY" -eq 0 ]; then
   echo "refused: uncommitted changes (commit them, or pass --allow-dirty)" >&2
   exit 2
 fi
+COMMIT_DIRTY=false
+[ -z "$STATUS" ] || COMMIT_DIRTY=true
 
 if [ "$PLACEHOLDER" -eq 1 ]; then
 # The placeholder: exactly two files, in a folder of their own (no game, no service worker, no asset links).
@@ -209,6 +218,8 @@ trap 'rm -rf "$DIST"' EXIT
 cp "$ROOT/site-placeholder/index.html" "$DIST/index.html"
 cp "$ROOT/public/privacy.html" "$DIST/privacy.html"
 if grep -q REPLACE_WITH "$DIST/privacy.html"; then echo "refused: privacy.html still has a placeholder" >&2; exit 3; fi
+grep -q 'id="support-email" href="mailto:[^"]' "$DIST/privacy.html" \
+  || { echo "refused: privacy.html has no support link" >&2; exit 3; }
 FILES=$(find "$DIST" -type f | wc -l | tr -d ' ')
 [ "$FILES" -eq 2 ] || { echo "refused: the placeholder is not exactly two files" >&2; exit 3; }
 echo "placeholder: index.html and privacy.html"
@@ -253,9 +264,10 @@ if [ "$DRY" -eq 1 ]; then
 fi
 
 # The placeholder never replaces the game: once the public host serves real asset links, the game is live there. When
-# the host cannot be asked, that is no answer: refuse too (--over-game publishes anyway).
+# the host cannot be asked (no network, or an HTTP error such as 403, 429 or 5xx), that is no answer: refuse too
+# (--over-game publishes anyway). The placeholder itself answers this path with its index page and 200, so it passes.
 if [ "$PLACEHOLDER" -eq 1 ] && [ "$OVER_GAME" -eq 0 ]; then
-  links=$(curl -s --max-time 20 "https://$PUBLIC_PROJECT.pages.dev/.well-known/assetlinks.json") \
+  links=$(curl -sf --max-time 20 "https://$PUBLIC_PROJECT.pages.dev/.well-known/assetlinks.json") \
     || { echo "refused: could not read $PUBLIC_PROJECT.pages.dev/.well-known/assetlinks.json to see whether the game is live; --over-game publishes anyway" >&2; exit 2; }
   case $links in
     *delegate_permission*)
@@ -298,7 +310,7 @@ for p in ${PROJECTS[*]}; do
   echo \"publishing to Pages project \$p, branch $BRANCH\"
   if [ $CREATE -eq 1 ]; then $WRANGLER_BIN pages project create \$p --production-branch main; fi
   $WRANGLER_BIN pages deploy /tmp/site --project-name \$p --branch $BRANCH \
-    --commit-hash $COMMIT --commit-message $(printf '%q' "$SUBJECT") --commit-dirty=$([ -n "$(git -C "$ROOT" status --porcelain)" ] && echo true || echo false)
+    --commit-hash $COMMIT --commit-message $(printf '%q' "$SUBJECT") --commit-dirty=$COMMIT_DIRTY
 done"
 NAME="shadowlocks-deploy-$(date -u +%m%d%H%M%S)-$RANDOM"
 # macOS tar would add ._* files (extended attributes) for every file; leave them out.
@@ -321,7 +333,12 @@ if [ "$PLACEHOLDER" -eq 1 ]; then
   body=$(curl -s --max-time 20 "https://$host/privacy" || true)
   want=$(sed -n 's/.*id="support-email" href="mailto:\([^"]*\)".*/\1/p' "$DIST/privacy.html" | head -1)
   case $body in *REPLACE_WITH*) echo "FAIL /privacy: still has a placeholder"; bad=1 ;; esac
-  case $body in *"mailto:$want"*) echo "ok   /privacy: has the support address" ;; *) echo "FAIL /privacy: no support address"; bad=1 ;; esac
+  # No address in the page sent is a failure, never a pattern that matches any mailto.
+  if [ -z "$want" ]; then
+    echo "FAIL /privacy: the page sent has no support link to look for"; bad=1
+  else
+    case $body in *"mailto:$want\""*) echo "ok   /privacy: has the support address" ;; *) echo "FAIL /privacy: no support address"; bad=1 ;; esac
+  fi
   exit $bad
 fi
 
