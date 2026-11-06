@@ -390,6 +390,8 @@ export function installTestHooks(
         nextBox: p.nextBox,
         hintGlow: view.hintLantern.glowing,
         hintChoices: view.hintLantern.choicesOpen,
+        coach: view.coachLine,
+        practice: ses.practice,
       };
     },
     snapshot: () => (ses.box ? ses.snapshot() : null),
@@ -439,6 +441,15 @@ export function installTestHooks(
         mask: h.mask.count,
         left: handNow(h, "left", m),
         right: handNow(h, "right", m),
+        standIn:
+          h.standInBy < 0
+            ? null
+            : {
+                by: h.standInBy === 0 ? "left" : "right",
+                front: [h.shadow.standIn[0]!, h.shadow.standIn[1]!, h.shadow.standIn[2]!] as V3,
+                back: [h.shadow.standIn[3]!, h.shadow.standIn[4]!, h.shadow.standIn[5]!] as V3,
+              },
+        version: h.version,
       };
     },
     // The box session's finger locks (it measures them and runs their holds).

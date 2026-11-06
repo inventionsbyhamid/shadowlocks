@@ -9,7 +9,7 @@ import type { Profile, Settings } from "../core/profile";
 import type { Box, BoxSpec, V3, Vec3 } from "../core/types";
 import type { FeelEvent } from "../feel/lantern-controller";
 import type { FeedbackEvent } from "./bus";
-import type { HintLevel } from "./events";
+import type { CoachLine, HintLevel } from "./events";
 import type { CrystalSink, FingerLoop, FingerSource } from "./session-fingers";
 
 /** What the player did this frame, as SessionView.update reports it. */
@@ -75,6 +75,8 @@ export interface SessionView {
   offerNext(on: boolean): void;
   /** Where the hint lantern is in the world (its sounds play there); false when unknown. */
   hintLanternAt(out: Vec3): boolean;
+  /** The coach line's suggestion (a key of COPY.game), or none. */
+  coach(line: CoachLine | null): void;
   /** Per frame: animations and the box's keys and reward. Returns what the player did (ACT_* bits). */
   update(dtMs: number, stage: Stage): number;
 }
@@ -114,5 +116,6 @@ export const NULL_VIEW: SessionView = {
   rewardTaken: NOOP,
   offerNext: NOOP,
   hintLanternAt: () => false,
+  coach: NOOP,
   update: () => 0,
 };

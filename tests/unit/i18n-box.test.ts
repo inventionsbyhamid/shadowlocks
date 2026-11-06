@@ -6,12 +6,12 @@ import { Group } from "@iwsdk/core";
 import { followLanguage } from "../../src/app/language";
 import { generateBox } from "../../src/core/generator";
 import { defaultSettings } from "../../src/core/profile";
-import { type LanguageSetting, lang, setLang } from "../../src/i18n";
+import { type LanguageSetting, lang, setLang, tableFor } from "../../src/i18n";
 import { breakUnits, fitLabel, labelFont, wrapLabel } from "../../src/render/label";
 import { Reward } from "../../src/render/reward";
 import { captionFor } from "../../src/ui/captions";
 import { HintLantern } from "../../src/ui/hint-lantern";
-import { Plate } from "../../src/ui/plate";
+import { Plate, wrapTwo } from "../../src/ui/plate";
 
 afterEach(() => setLang("en"));
 
@@ -106,6 +106,18 @@ describe("the box's labels follow the language", () => {
     expect(p.next.labelText).toBe("Nächste");
     p.setBox(box, { kind: "daily", day: "2026-11-06" });
     expect(p.title).toBe("Tagesbox");
+  });
+
+  it("the controller coach card splits Japanese into two lines without spaces, by the rules", () => {
+    setLang("ja");
+    const text = tableFor("ja").game.controllerFinger;
+    // A character an em wide, 12 to a line: two lines, neither starting with a closing mark.
+    const lines = wrapTwo(text, (s) => [...s].length, 12);
+    expect(lines).toHaveLength(2);
+    expect(lines.join("")).toBe(text);
+    for (const l of lines) expect(l).not.toMatch(/^[、。ー]/);
+    // The English line still splits between words, balanced.
+    expect(wrapTwo("Or set a controller down and use your finger.", (s) => s.length, 30)).toEqual(["Or set a controller down", "and use your finger."]);
   });
 
   it("the hint lantern's choices", () => {

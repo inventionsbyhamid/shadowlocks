@@ -25,7 +25,9 @@ export type HintLevel = 1 | 2 | 3 | 4;
  * - `reward-taken` {key}: the box's reward went into the collection.
  * - `hint` {lock, level}: a hint was shown for a lock.
  * - `stuck` {on}: the stuck watch lit the hint lantern (on), or the player moved on or took a hint (off).
- * - `focus` {lock}: the lock the head gaze rests on (null: none yet).
+ * - `focus` {lock}: the lock the head gaze rests on (null: none; it clears when that lock opens).
+ * - `coach` {line}: the coach line's suggestion (a key of COPY.game; null: none). "controllerFinger" while a finger
+ *   lock is one piece short and controllers are in use.
  * - `feel` {e}: a lantern feel event (grab, release, line, settle, unsettle, tick), copied.
  */
 export type GameEvent =
@@ -41,7 +43,11 @@ export type GameEvent =
   | { type: "hint"; lock: number; level: HintLevel }
   | { type: "stuck"; on: boolean }
   | { type: "focus"; lock: number | null }
+  | { type: "coach"; line: CoachLine | null }
   | { type: "feel"; e: FeelEvent };
+
+/** The coach line's suggestions the session gives (keys of COPY.game). */
+export type CoachLine = "controllerFinger";
 
 export type GameEventType = GameEvent["type"];
 
@@ -59,6 +65,7 @@ export const GAME_EVENT_TYPES: ReadonlySet<string> = new Set<GameEventType>([
   "hint",
   "stuck",
   "focus",
+  "coach",
   "feel",
 ]);
 
@@ -87,6 +94,8 @@ export const HINT: readonly (readonly Of<"hint">[])[] = per((lock) =>
 );
 /** STUCK[on ? 1 : 0]. */
 export const STUCK: readonly [Of<"stuck">, Of<"stuck">] = Object.freeze([frozen({ type: "stuck", on: false }), frozen({ type: "stuck", on: true })] as const);
+/** COACH[on ? 1 : 0]: the controller tip, or no line. */
+export const COACH: readonly [Of<"coach">, Of<"coach">] = Object.freeze([frozen({ type: "coach", line: null }), frozen({ type: "coach", line: "controllerFinger" })] as const);
 /** FOCUS[lock + 1] (FOCUS[0] is no lock). */
 export const FOCUS: readonly Of<"focus">[] = Object.freeze([frozen({ type: "focus", lock: null }), ...per((lock) => frozen({ type: "focus", lock }))]);
 

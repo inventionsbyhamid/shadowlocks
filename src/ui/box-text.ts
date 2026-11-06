@@ -1,12 +1,13 @@
 // Every piece of lettering the box draws, in every language, measured with the same fits its painters use (the
-// plate's name beside three latch lights, the box's keys, both story sentences for every owner and every loot): the
+// plate's name beside three latch lights, the box's keys, the controller coach card, both story sentences for every
+// owner and every loot): the
 // layout check (tests/e2e/i18n-box.spec.ts) fails on any that does not fit at a readable size. Test builds only.
 import { LANGS, type Lang, storyLoot, storyOwner, tableFor } from "../i18n";
 import { storyLayout } from "../render/reward";
 import { COPY, fill } from "./copy";
 import { HINT_LANTERN } from "./hint-lantern";
 import { keyLabelFit } from "./poke-key";
-import { PLATE, plateNameFit } from "./plate";
+import { coachLayout, PLATE, plateNameFit } from "./plate";
 
 /** One piece of lettering in one language: where it is drawn, its size (px) and whether it had to be squeezed. */
 export interface BoxTextFit {
@@ -31,6 +32,7 @@ export function boxTextFits(g: Measure): BoxTextFit[] {
     // The plate with three latch lights (the least room), box numbers up to three digits, and the Daily Box.
     for (const name of [fill(G.boxNo, { n: 1 }), fill(G.boxNo, { n: 88 }), fill(G.boxNo, { n: 888 }), G.daily]) add("plate", name, plateNameFit(g, name, 3, l));
     add("plate-next", G.next, keyLabelFit(g, G.next, PLATE.key.w, PLATE.key.h, l));
+    add("coach", G.controllerFinger, coachLayout(g, G.controllerFinger, l));
     for (const [id, s] of [
       ["hint-choice", G.hint],
       ["hint-show-me", G.showMe],
