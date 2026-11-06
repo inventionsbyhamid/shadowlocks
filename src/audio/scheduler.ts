@@ -23,6 +23,7 @@ interface Pending {
   pitch: number | undefined;
   gain: number | undefined;
   variant: number | undefined;
+  duckDb: number | undefined;
 }
 
 /**
@@ -38,6 +39,7 @@ export class CueScheduler {
     pitch: undefined,
     gain: undefined,
     variant: undefined,
+    duckDb: undefined,
   }));
   private n = 0;
   private readonly opts: PlayOptions = {};
@@ -62,7 +64,7 @@ export class CueScheduler {
       else {
         const d = c.delayMs ?? 0;
         // A full queue (never in play) hands the sound to the audio clock rather than dropping it.
-        if (d <= DIRECT_MS || this.n === QUEUE) this.play(c.id, c.position, c.pitch, c.gain, c.variant, d);
+        if (d <= DIRECT_MS || this.n === QUEUE) this.play(c.id, c.position, c.pitch, c.gain, c.variant, d, c.duckDb);
         else {
           if (Number.isNaN(t)) t = this.now();
           this.hold(t + d, c);
@@ -78,7 +80,7 @@ export class CueScheduler {
     const q = this.queue;
     while (this.n > 0 && q[0]!.due - t <= LOOKAHEAD_MS) {
       const p = q[0]!;
-      this.play(p.id, p.placed ? p.position : undefined, p.pitch, p.gain, p.variant, p.due - t);
+      this.play(p.id, p.placed ? p.position : undefined, p.pitch, p.gain, p.variant, p.due - t, p.duckDb);
       for (let i = 1; i < this.n; i++) q[i - 1] = q[i]!;
       q[this.n - 1] = p;
       this.n--;
@@ -90,12 +92,21 @@ export class CueScheduler {
     this.n = 0;
   }
 
-  private play(id: SfxId, position: Vec3 | undefined, pitch: number | undefined, gain: number | undefined, variant: number | undefined, delayMs: number): void {
+  private play(
+    id: SfxId,
+    position: Vec3 | undefined,
+    pitch: number | undefined,
+    gain: number | undefined,
+    variant: number | undefined,
+    delayMs: number,
+    duckDb: number | undefined,
+  ): void {
     const o = this.opts;
     o.position = position;
     o.pitch = pitch;
     o.gain = gain;
     o.variant = variant;
+    o.duckDb = duckDb;
     o.delay = delayMs > 0 ? delayMs / 1000 : undefined;
     const h = this.engine.play(id, o);
     this.onHandle?.(id, h);
@@ -123,5 +134,6 @@ export class CueScheduler {
     slot.pitch = c.pitch;
     slot.gain = c.gain;
     slot.variant = c.variant;
+    slot.duckDb = c.duckDb;
   }
 }

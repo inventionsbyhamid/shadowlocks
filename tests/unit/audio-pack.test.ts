@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { AudioEngine } from "../../src/audio/engine";
 import type { AudioManifest } from "../../src/audio/manifest";
+import { EIGHTH_MS, MUSIC_BOX_NOTES } from "../../src/audio/music-box";
 import { loadSoundPack, openSoundPack } from "../../src/audio/pack";
 import { makePlaceholders } from "../../src/audio/placeholder";
 import { FakeAudioContext, asCtx, type FakeSource } from "./helpers/fake-audio";
@@ -138,6 +139,15 @@ describe("the pack in public/audio", () => {
     expect(created()).toBe(1 + Object.keys(real.sfx).length + Object.keys(real.derived).length);
     expect(ctx.sources.every((s) => (s.buffer as unknown as { sampleRate: number }).sampleRate === 48000)).toBe(true);
     expect(warnings).toEqual([]);
+  });
+
+  it("rings every music-box note at least an eighth note, so the music's dips under the box's tune join into one", () => {
+    for (const id of MUSIC_BOX_NOTES) {
+      const own = real.sfx[id], d = real.derived[id];
+      const base = own ?? real.sfx[d!.from]!;
+      const seconds = (base.durations?.[0] ?? 0) / 2 ** ((d?.semitones ?? 0) / 12);
+      expect(seconds, id).toBeGreaterThanOrEqual(EIGHTH_MS / 1000);
+    }
   });
 
   it("has every file the manifest names, and nothing else (no audition page or raw takes)", () => {

@@ -13,6 +13,7 @@ import {
   pitchClassesOf,
   scheduleBoxOpen,
   scheduleLockOpen,
+  TUNE_DUCK_DB,
   tuneFor,
 } from "../../src/audio/music-box";
 import { BASE_SFX_IDS, DERIVED_SFX_IDS } from "../../src/audio/manifest";
@@ -136,6 +137,11 @@ describe("scheduleBoxOpen", () => {
     expect(notes.map((c) => c.id)).toEqual(tune);
     notes.forEach((c, i) => expect(c.atMs).toBeCloseTo(1700 + i * EIGHTH_MS, 6));
     for (let i = 1; i < s.length; i++) expect(s[i]!.atMs).toBeGreaterThanOrEqual(s[i - 1]!.atMs);
+  });
+
+  it("asks the music to dip 4 dB under each of the tune's notes, and under nothing before them", () => {
+    expect(TUNE_DUCK_DB).toBe(4);
+    for (const c of s) expect(c.duckDb).toBe(c.atMs >= 1700 ? TUNE_DUCK_DB : undefined);
   });
 });
 

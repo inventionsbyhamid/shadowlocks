@@ -5,7 +5,7 @@ import { CueMapper, GameSounds, HINT_GLOW_GAIN, type Cue, type SoundPlaces } fro
 import type { LoopHandle, LoopOptions, PlayOptions } from "../../src/audio/engine";
 import { HUM_FADE_MS, HUM_STEP, humsOn } from "../../src/audio/hums";
 import type { MusicState, SfxId } from "../../src/audio/manifest";
-import { EIGHTH_MS, scheduleBoxOpen, tuneFor } from "../../src/audio/music-box";
+import { EIGHTH_MS, scheduleBoxOpen, TUNE_DUCK_DB, tuneFor } from "../../src/audio/music-box";
 import { DIRECT_MS, LOOKAHEAD_MS } from "../../src/audio/scheduler";
 import type { BoxSpec, Vec3 } from "../../src/core/types";
 import { MAX_STEP_MS } from "../../src/feel/constants";
@@ -47,6 +47,7 @@ interface Played {
   position?: Vec3;
   pitch?: number;
   gain?: number;
+  duckDb?: number;
 }
 
 /** Records what the game asks of the audio engine, on a clock the test moves. */
@@ -66,6 +67,7 @@ class FakeEngine {
       ...(o.position ? { position: [o.position[0], o.position[1], o.position[2]] as Vec3 } : {}),
       ...(o.pitch !== undefined ? { pitch: o.pitch } : {}),
       ...(o.gain !== undefined ? { gain: o.gain } : {}),
+      ...(o.duckDb !== undefined ? { duckDb: o.duckDb } : {}),
     });
     return { stop() {} };
   }
@@ -209,6 +211,23 @@ describe("the box opening", () => {
     // The tune runs in eighth notes at 72 BPM.
     const tune = engine.played.filter((p) => p.start >= 2000 + 1700);
     expect(tune[1]!.start - tune[0]!.start).toBeCloseTo(EIGHTH_MS, 6);
+  });
+
+  it("asks the music to dip 4 dB under every note of the box's tune, and under nothing else of the opening", () => {
+    const { engine, game, run } = setup();
+    game.boxOpened("box-7");
+    run(7000);
+    const ducked = engine.played.filter((p) => p.duckDb !== undefined);
+    expect(ducked.map((p) => p.id)).toEqual(tuneFor("box-7"));
+    expect(ducked.every((p) => p.duckDb === TUNE_DUCK_DB && p.start >= 1700 - 1e-6)).toBe(true);
+    expect(TUNE_DUCK_DB).toBe(4);
+    // The same cues when the mapper's are applied at once (the bus path): the tune's carry the dip.
+    const cues = new CueMapper().map([{ type: "box-open", key: "box-7" }]) as Extract<Cue, { kind: "sfx" }>[];
+    expect(cues.filter((c) => c.duckDb === TUNE_DUCK_DB).map((c) => c.delayMs)).toEqual(
+      scheduleBoxOpen("box-7", 0)
+        .filter((s) => s.atMs >= 1700)
+        .map((s) => s.atMs),
+    );
   });
 
   it("rolls six pulses from 0.2 to 0.8 over 600 ms on both hands", () => {

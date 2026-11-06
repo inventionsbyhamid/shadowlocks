@@ -3,7 +3,7 @@ import type { BoxSpec, Vec3 } from "../core/types";
 import type { AudioEngine, PlayHandle, PlayOptions } from "./engine";
 import { Hums, humsOn, type LoopEngine } from "./hums";
 import { isSfxId, type MusicState, type SfxId, type StingId } from "./manifest";
-import { BOX_OPEN_MS, dialTickPitch, LOCK_OPEN_MS, scheduleBoxOpen, scheduleLockOpen } from "./music-box";
+import { BOX_OPEN_MS, dialTickPitch, LOCK_OPEN_MS, type Scheduled, scheduleBoxOpen, scheduleLockOpen } from "./music-box";
 import { CueScheduler } from "./scheduler";
 
 /**
@@ -14,7 +14,8 @@ import { CueScheduler } from "./scheduler";
  *
  * Game events (the names the box session uses):
  * - `lock-open` {lock}: glass tick, brass clunk at +120 ms, the lock's music-box note at +200 ms.
- * - `box-open` {key}: the chord resolves, walls, drawer, and the box's tune from its key (the seed).
+ * - `box-open` {key}: the chord resolves, walls, drawer, and the box's tune from its key (the seed),
+ *   the music dipping 4 dB under the tune (its notes' cues carry `duckDb`).
  * - `ring` {lock, on}: the ring chime when the rings line up (on), nothing when they part.
  * - `crystallise` {lock}, `hint` {lock, gain?}, `lesson-step`: their sounds.
  * - `theatre` {up}: the theatre lights coming up (theatre_up) or going down (theatre_dim), head-locked.
@@ -24,7 +25,7 @@ import { CueScheduler } from "./scheduler";
 export type CueEvent = { type: string; [key: string]: unknown };
 
 export type Cue =
-  | { kind: "sfx"; id: SfxId; position?: Vec3; pitch?: number; gain?: number; variant?: number; delayMs?: number }
+  | { kind: "sfx"; id: SfxId; position?: Vec3; pitch?: number; gain?: number; variant?: number; delayMs?: number; duckDb?: number }
   | { kind: "sting"; id: StingId }
   | { kind: "music"; state: MusicState };
 
@@ -114,14 +115,15 @@ export class CueMapper {
     out.push(position ? { kind: "sfx", id, position, ...extra } : { kind: "sfx", id, ...extra });
   }
 
-  /** A schedule of layers, all at one place (the event's), each `delayMs` after the event. */
-  private layers(out: Cue[], e: CueEvent, schedule: readonly { id: string; atMs: number }[]): void {
+  /** A schedule of layers, all at one place (the event's), each `delayMs` after the event, with its music dip. */
+  private layers(out: Cue[], e: CueEvent, schedule: readonly Scheduled[]): void {
     const position = this.where(e);
     for (const s of schedule) {
       if (!isSfxId(s.id)) continue;
       const cue: Extract<Cue, { kind: "sfx" }> = { kind: "sfx", id: s.id };
       if (position) cue.position = position;
       if (s.atMs > 0) cue.delayMs = s.atMs;
+      if (s.duckDb) cue.duckDb = s.duckDb;
       out.push(cue);
     }
   }
