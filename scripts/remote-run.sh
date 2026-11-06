@@ -4,6 +4,9 @@
 # stderr on fd 4, and sends this text from the local checkout: the lane's copy is never run.
 # Usage: remote-run.sh <name> <lane> <lock or ""> <wait s> <max run s> <need GB> <pulls or ""> <uid:gid>
 #                      <stop script text> <docker run args...>
+#   <lock> is <name> (held exclusively: remote.sh --lock) or <name>:<slots> (held shared, plus one of
+#   <slots> slot locks: remote.sh --lock-shared). Both use the file locks/<name>.lock, so an exclusive
+#   holder (from these scripts or older ones) and shared holders never overlap.
 #   1. Writes its pid to <name>.pgid and starts a watchdog: when the heartbeat (a byte every 15 s)
 #      ends or is silent for 60 s (Ctrl-C, killed client, dropped connection, sleeping laptop) it
 #      runs the stop script outside this group, so no lock waiter or container is left behind.
@@ -11,10 +14,10 @@
 #      lets the client's upload in (remote-upload.sh), and waits for that upload.
 #   3. Takes the lane's write lock: root writes the lane folder only while holding it and while no
 #      container of the lane exists. The run holds it until its container is gone.
-#   4. Hands the lane folder to the container's uid:gid, takes the shared lock if one is named (on
-#      fd 9, held until this script exits), checks the disk still has <need GB> free (the waits may
-#      have been long) and runs the container, stopping it after <max run s> (a hung run gives its
-#      locks back) or once the disk has under KEEP_FREE bytes free.
+#   4. Hands the lane folder to the container's uid:gid, takes the server-wide lock if one is named
+#      (on fd 9, a shared one's slot on fd 6, held until this script exits), checks the disk still
+#      has <need GB> free (the waits may have been long) and runs the container, stopping it after
+#      <max run s> (a hung run gives its locks back) or once the disk has under KEEP_FREE bytes free.
 #   5. Still holding both lane locks, copies the pull targets to pulls/<name>/, a folder no container
 #      sees, for the client to fetch: never through a link, without devices or special files, at
 #      most PULL_MAX bytes per run, and only while KEEP_FREE bytes stay free on the disk.
@@ -48,6 +51,35 @@ finish() {
 # True only when docker answers and lists no container of this lane: an error counts as "not clear".
 lane_clear() { local ids; ids=$(docker ps -aq --filter "label=shadowlocks.lane=$LANE") && [ -z "$ids" ]; }
 
+# Shared hold of lock <name> with <slots> slots: first a free slot (<name>.slot<i>.lock, fd 6), then
+# <name>.lock shared (fd 9), but only once no one waits for it exclusively. flock gives a new shared
+# lock even while an exclusive request waits, so a stream of shared runs could keep a --lock run (or
+# an older script's) out for good: a blocked exclusive request shows in /proc/locks as
+# "-> FLOCK ADVISORY WRITE <pid> <major>:<minor>:<inode>" (device numbers in hex), and while one is
+# there for this file, no new shared hold starts. Polls every 2 s; false (1) after WAIT s in all.
+lock_shared() {
+  # 10#: a leading zero (0600) is decimal, not octal.
+  local name=$1 slots=$2 end=$((SECONDS + 10#$WAIT)) i st dev key
+  while :; do
+    for i in $(seq 1 "$slots"); do
+      exec 6>"$LOCKS/$name.slot$i.lock"
+      flock -n 6 && break 2
+      exec 6>&-
+    done
+    [ "$SECONDS" -lt "$end" ] || return 1
+    sleep 2
+  done
+  exec 9>"$LOCKS/$name.lock"
+  # The file open on fd 9, as /proc/locks names it: the kernel's major and minor of st_dev, in hex.
+  st=$(stat -L -c '%d %i' /dev/fd/9) && [[ $st =~ ^[0-9]+\ [0-9]+$ ]] || return 1
+  dev=${st% *}
+  key=$(printf '%02x:%02x:%s' $(((dev >> 8) & 0xfff)) $(((dev & 0xff) | ((dev >> 12) & 0xfff00))) "${st#* }")
+  until ! grep -qE -- "-> FLOCK +ADVISORY +WRITE +[0-9]+ $key " /proc/locks && flock -n -s 9; do
+    [ "$SECONDS" -lt "$end" ] || return 1
+    sleep 2
+  done
+}
+
 # Pull copies a client never fetched (it died after its run), from any lane.
 find "$PULL_DIR" -mindepth 1 -maxdepth 1 -name 'shadowlocks-*' -mmin +1440 -exec rm -rf {} +
 
@@ -71,13 +103,20 @@ lane_clear || { echo "remote.sh: a container of lane '$LANE' is still there (or 
 # -h and find's default: never through a link.
 find "$DIR" -xdev \( ! -uid "${RUN_USER%:*}" -o ! -gid "${RUN_USER#*:}" \) -exec chown -h "$RUN_USER" {} +
 
-if [ -n "$LOCK" ]; then
-  exec 9>"$LOCKS/$LOCK.lock"
-  if ! flock -w "$WAIT" 9; then
-    echo "remote.sh: waited $WAIT s for the '$LOCK' lock on the build server and gave up (exit 75)" >&2
-    finish 75
-  fi
-fi
+case $LOCK in
+  "") ;;
+  *:*)
+    if ! lock_shared "${LOCK%%:*}" "${LOCK#*:}"; then
+      echo "remote.sh: waited $WAIT s for the '${LOCK%%:*}' lock (shared, in one of ${LOCK#*:} slots) on the build server and gave up (exit 75)" >&2
+      finish 75
+    fi ;;
+  *)
+    exec 9>"$LOCKS/$LOCK.lock"
+    if ! flock -w "$WAIT" 9; then
+      echo "remote.sh: waited $WAIT s for the '$LOCK' lock on the build server and gave up (exit 75)" >&2
+      finish 75
+    fi ;;
+esac
 free=$(df -BG --output=avail "$DIR" 2>/dev/null | tail -1 | tr -dc 0-9)
 if ! [[ $free =~ ^[0-9]+$ ]] || [ "$free" -lt "$NEED_GB" ]; then
   echo "remote.sh: free disk ${free:-unknown} GB < $NEED_GB GB on the build server; not starting (exit 3)" >&2
@@ -89,7 +128,7 @@ fi
 # 2 s until the main path, which waits for the container to go, stops the timer: so a create still
 # in flight is removed too, and so is a container that outlived its docker client. It keeps no lock
 # descriptor, and stopping it (TERM) also ends its sleep.
-( exec 0</dev/null >/dev/null 3<&- 7>&- 8>&- 9>&-
+( exec 0</dev/null >/dev/null 3<&- 6>&- 7>&- 8>&- 9>&-
   s=
   trap '[ -n "${s:-}" ] && kill "$s" 2>/dev/null; exit 0' TERM
   end=$((SECONDS + MAX_RUN))
