@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { disableMultiview, FrameStats, readFieldFlags } from "../../src/app/field-flags";
+import { disableMultiview, FrameStats, readFieldFlags, startBox } from "../../src/app/field-flags";
 import { recordingName, recordSeconds } from "../../src/app/hand-recorder";
 
 describe("field test flags", () => {
@@ -49,6 +49,16 @@ describe("frame stats", () => {
     }
     expect(s.summary().frames).toBe(10);
     expect(s.summary().fps).toBeCloseTo(100, 6);
+  });
+});
+
+describe("start box switch", () => {
+  it("reads ?box=N, a whole number from 1, and nothing else", () => {
+    expect(startBox("")).toBeNull();
+    expect(startBox("?perf=1")).toBeNull();
+    expect(startBox("?box=5")).toBe(5);
+    expect(startBox("?perf=1&box=12")).toBe(12);
+    for (const bad of ["?box", "?box=0", "?box=-2", "?box=1.5", "?box=five", "?box=05"]) expect(startBox(bad), bad).toBeNull();
   });
 });
 

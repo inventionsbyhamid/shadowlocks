@@ -11,6 +11,7 @@ import {
   prepareLock,
   RULE,
   RUNTIME_STEP,
+  ShadowCaster,
   SKIP_MISSING,
   shadowBuffers,
   shadowPolys,
@@ -331,6 +332,35 @@ describe("shadowPolys", () => {
         expect(out[k]!.length).toBe(pts[k]!.length);
         out[k]!.forEach((p, j) => expect(p).toBe(pts[k]![j]));
       }
+    }
+  });
+});
+
+describe("ShadowCaster", () => {
+  it("casts exactly what shadowPolys does (to the bit), into the same views every call, and measures the same", () => {
+    for (const box of boxes.slice(0, 15)) {
+      for (const opts of [undefined, SKIP_MISSING]) {
+        const caster = new ShadowCaster(box.elements, opts);
+        const views = caster.polys.map((p) => p.slice());
+        const ref = shadowBuffers(box.elements, opts);
+        for (const L of [box.start, ...box.locks.map((l) => l.L), [0.01, -0.2, 1.2] as V3]) {
+          const n = caster.cast(L);
+          expect(n).toBe(shadowPolys(box.elements, L, ref, opts));
+          for (let k = 0; k < n; k++) {
+            expect(caster.polys[k]!.length).toBe(ref[k]!.length);
+            caster.polys[k]!.forEach((p, j) => {
+              expect(p).toBe(views[k]![j]);
+              expect([p[0], p[1]]).toEqual([ref[k]![j]![0], ref[k]![j]![1]]);
+            });
+          }
+        }
+      }
+      // measure reads the views as it reads plain arrays.
+      const lock = box.locks[0]!, s = samples.get(lock)!;
+      const caster = new ShadowCaster(box.elements, SKIP_MISSING), ref = shadowBuffers(box.elements, SKIP_MISSING);
+      const a = measure(s, caster.polys, caster.cast(lock.L), [], 0, { cover: 0, spill: 0, spillAll: 0, gap: 0 });
+      const b = measure(s, ref, shadowPolys(box.elements, lock.L, ref, SKIP_MISSING), [], 0, { cover: 0, spill: 0, spillAll: 0, gap: 0 });
+      expect(a).toEqual(b);
     }
   });
 });

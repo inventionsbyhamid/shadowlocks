@@ -277,9 +277,16 @@ function withSlots(slots: Float32Array, glow: Color, lit: boolean, discardHidden
 const TORUS_VERTEX = /* glsl */ `
 attribute vec4 aTorus;
 attribute vec2 aRadii;
+attribute float aGlow;
+varying float vRingGlow;
 `;
 const TORUS_BEGIN = /* glsl */ `
 vec3 transformed = vec3((aRadii.x + aRadii.y * aTorus.z) * aTorus.xy, aRadii.y * aTorus.w);
+vRingGlow = aGlow;
+`;
+const TORUS_FRAGMENT = /* glsl */ `
+uniform vec3 uGlowColor;
+varying float vRingGlow;
 `;
 
 /** A unit torus in the XY plane: each vertex keeps (cos u, sin u, cos v, sin v); the shader sizes it per ring. */
@@ -324,6 +331,9 @@ export class Scraps {
   private readonly buffers: ScrapBuffers;
   private readonly threadBuffers: { position: Float32Array; slot: Float32Array };
   private readonly radii: InstancedBufferAttribute;
+  /** Each ring's glow (0..1, a hint), and the lock each ring belongs to (-1 for none). */
+  private readonly ringGlow: InstancedBufferAttribute;
+  private readonly ringLock = new Int8Array(MAX_RINGS).fill(-1);
   private readonly handles: ScrapHandle[] = [];
   private readonly tmpM = new Matrix4();
   private readonly tmpQ = new Quaternion();
@@ -363,9 +373,16 @@ export class Scraps {
     const rg = torusGeometry();
     this.radii = new InstancedBufferAttribute(new Float32Array(MAX_RINGS * 2), 2);
     rg.setAttribute("aRadii", this.radii);
+    this.ringGlow = new InstancedBufferAttribute(new Float32Array(MAX_RINGS), 1);
+    rg.setAttribute("aGlow", this.ringGlow);
     const ringMat = new MeshStandardMaterial({ color: COLORS.metal, ...MATERIALS.gold, envMap: env });
     ringMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uGlowColor = { value: glow };
       shader.vertexShader = TORUS_VERTEX + shader.vertexShader.replace("#include <begin_vertex>", TORUS_BEGIN);
+      shader.fragmentShader = (TORUS_FRAGMENT + shader.fragmentShader).replace(
+        "#include <emissivemap_fragment>",
+        "#include <emissivemap_fragment>\n  totalEmissiveRadiance += uGlowColor * vRingGlow;",
+      );
     };
     ringMat.customProgramCacheKey = () => "sl-rings";
     this.rings = new InstancedMesh(rg, ringMat, MAX_RINGS);
@@ -391,6 +408,9 @@ export class Scraps {
   setBox(box: Box | null): void {
     this.slots.fill(0);
     for (let s = 0; s < MAX_SLOTS; s++) this.slots[s * 2 + 1] = 1;
+    (this.ringGlow.array as Float32Array).fill(0);
+    this.ringGlow.needsUpdate = true;
+    this.ringLock.fill(-1);
     const g = this.mesh.geometry, tg = this.threads.geometry;
     if (!box) {
       g.setDrawRange(0, 0);
@@ -420,6 +440,7 @@ export class Scraps {
       if (e.kind !== "ring" || r >= MAX_RINGS) continue;
       const [R, tube] = ringRadii(e);
       this.radii.setXY(r, R, tube);
+      this.ringLock[r] = e.lock;
       this.tmpQ.setFromUnitVectors(Z_AXIS, this.tmpN.set(e.nrm[0], e.nrm[1], e.nrm[2]).normalize());
       this.rings.setMatrixAt(r, this.tmpM.compose(this.tmpV.set(e.c[0], e.c[1], e.c[2]), this.tmpQ, this.tmpS));
       r++;
@@ -432,5 +453,22 @@ export class Scraps {
   /** A lock piece's glow and visibility (the same handle every call). */
   handle(lock: number, piece: number): ScrapHandle {
     return this.handles[slotOf(lock, piece)]!;
+  }
+
+  /** The glow (0..1) of lock `lock`'s sight rings (a hint shows where its line is). */
+  setRingGlow(lock: number, v: number): void {
+    const a = this.ringGlow.array as Float32Array;
+    let changed = false;
+    for (let r = 0; r < MAX_RINGS; r++) {
+      if (this.ringLock[r] !== lock || a[r] === v) continue;
+      a[r] = v;
+      changed = true;
+    }
+    if (changed) this.ringGlow.needsUpdate = true;
+  }
+
+  /** Ring `r`'s glow as the shader reads it (tests). */
+  ringGlowOf(r: number): number {
+    return (this.ringGlow.array as Float32Array)[r] ?? 0;
   }
 }

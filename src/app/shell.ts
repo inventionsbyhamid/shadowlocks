@@ -2,6 +2,7 @@
 // handling. Per-frame work lives in ShellSystem; this class reacts to events. The box session
 // (the game) plugs in through `useFlow` and runs boxes the shell restores and saves.
 import { type Object3D, SessionMode, type World } from "@iwsdk/core";
+import { specOfKey } from "../core/generator";
 import type { BoxSnapshot } from "../core/profile";
 import { BoxScene } from "../render/box-scene";
 import { placement } from "../render/placement";
@@ -19,6 +20,8 @@ export const ENTER_TIMEOUT_MS = 120_000;
 export interface GameFlow {
   /** Resume a saved box (Continue): returns the session the lifecycle drives; throws when it cannot be played on. */
   resume(snapshot: BoxSnapshot): LifecycleSession;
+  /** Which save the session's snapshots go to: the numbered box in progress, the Daily Box's, or none. */
+  slot(): "box" | "daily" | null;
 }
 
 export class Shell {
@@ -38,7 +41,7 @@ export class Shell {
     readonly profiles: ProfileStore,
     readonly settings: SettingsStore,
   ) {
-    this.lifecycle = new Lifecycle({ persist: (snap) => void this.profiles.setCurrent(snap) });
+    this.lifecycle = new Lifecycle({ persist: (snap) => this.persist(snap) });
     this.box = new BoxScene(world);
     // Menus emit `press` themselves and call back here for anything beyond the screens.
     this.panels = new Panels(world, {
@@ -154,6 +157,17 @@ export class Shell {
   /** No box in progress: the session and its saves are let go. */
   private drop(): void {
     this.lifecycle.attach(null, performance.now());
+  }
+
+  /**
+   * The lifecycle's save of the box in play, where the game says it goes: a Daily Box's to the daily save, a numbered
+   * box's to the box in progress, a practice box (`?box=N`) nowhere. Without a game, by the save's key. Lessons keep
+   * their own.
+   */
+  private persist(snap: BoxSnapshot | null): void {
+    const kind = this.flow ? this.flow.slot() : snap ? specOfKey(snap.key)?.kind : undefined;
+    if (kind === "daily") void this.profiles.setDailyCurrent(snap);
+    else if (kind === "box") void this.profiles.setCurrent(snap);
   }
 
   private watchPage(): void {

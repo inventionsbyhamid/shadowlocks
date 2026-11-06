@@ -499,6 +499,23 @@ describe("the lantern and the rings", () => {
     expect(engine.played).toHaveLength(0);
   });
 
+  it("a new box takes the lantern from the hand silently; the next release sounds again", () => {
+    const { engine, game } = setup();
+    game.handle({ type: "grab", hand: "right" });
+    game.boxStart(box(2));
+    game.muteRelease();
+    game.handle({ type: "release", hand: "right" });
+    expect(engine.ids()).toEqual(["lantern_pick"]);
+    game.handle({ type: "grab", hand: "right" });
+    game.handle({ type: "release", hand: "right" });
+    expect(engine.ids()).toEqual(["lantern_pick", "lantern_pick", "lantern_set"]);
+    // Muted for a release that never came: the next grab ends it.
+    game.muteRelease();
+    game.handle({ type: "grab", hand: "left" });
+    game.handle({ type: "release", hand: "left" });
+    expect(engine.ids().slice(-2)).toEqual(["lantern_pick", "lantern_set"]);
+  });
+
   it("the rings lining up chime once and double tap 80 ms apart; parting is silent", () => {
     const { engine, game, pulses, run } = setup();
     game.grab("right");

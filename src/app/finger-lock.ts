@@ -3,8 +3,8 @@
 // hand does next, and its crystallise runs once. A hand out of tracking never counts, however well its last pose
 // filled the gap; a drop shorter than the grace pauses the count, a longer one starts it over.
 //
-// The box session owns one loop per finger lock (the hand system runs them until it exists). Allocation-free per
-// frame.
+// The box session owns one loop per finger lock, made through its finger seam (session-fingers.ts), and feeds it the
+// lock's coverage with this frame's finger. Allocation-free per frame.
 import { type Coverage, meets } from "../core/solve";
 import { FINGER_GRACE_MS } from "../feel/constants";
 import { FingerHold, type FingerHoldState } from "../feel/finger-hold";

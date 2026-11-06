@@ -37,6 +37,19 @@ export const COPY = {
     streak: "Streak",
     hint: "Hint",
   },
+  /** The box in play: the plate on the box, the hint lantern's choices, the reward's story line ({names} filled in). */
+  game: {
+    boxNo: "Box No. {n}",
+    daily: "Daily Box",
+    next: "Next box",
+    hint: "Hint",
+    showMe: "Show me",
+    storyOwner: "Off the desk of {owner}.",
+    storyLoot: "Inside: {loot}.",
+    short: "One piece short.",
+    /** The coach line while a finger lock waits and controllers are in use. */
+    controllerFinger: "Or set a controller down and use your finger.",
+  },
   /** The demo video's end card (tests/video/edits.ts); the hosted link joins it once there is one. */
   film: {
     title: "Shadow Locks",
@@ -44,3 +57,8 @@ export const COPY = {
     facts: ["Seated", "Hands only", "Plays offline"],
   },
 } as const;
+
+/** A copy line with its {names} filled in: `fill(COPY.game.boxNo, { n: 3 })` is "Box No. 3". */
+export function fill(template: string, vars: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m));
+}

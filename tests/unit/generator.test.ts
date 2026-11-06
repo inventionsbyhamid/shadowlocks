@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { buildBox, GENERATOR_VERSION, generateBox } from "../../src/core/generator";
+import { buildBox, GENERATOR_VERSION, generateBox, seedKey, specOfKey } from "../../src/core/generator";
 import { SHAPES, SILHOUETTES } from "../../src/core/shapes";
 import { LOOT, OWNERS } from "../../src/core/story";
 import type { Box, BoxSpec, ShapeName } from "../../src/core/types";
@@ -173,6 +173,15 @@ describe("generateBox", () => {
 
   it("leaves lessons to the lesson data", () => {
     expect(() => generateBox({ kind: "lesson", id: "l1" })).toThrow();
+  });
+
+  it("reads a box's spec back from its seed key, and nothing else", () => {
+    for (const spec of [{ kind: "box", n: 1 }, { kind: "box", n: 4321 }, { kind: "daily", day: "2026-11-06" }] as BoxSpec[]) {
+      expect(specOfKey(seedKey(spec))).toEqual(spec);
+    }
+    for (const key of ["", "shadow-locks/0", "shadow-locks/-3", "shadow-locks/1.5", "shadow-locks/daily/2026-02-30", "box/3", "lesson/l1"]) {
+      expect(specOfKey(key), key).toBeNull();
+    }
   });
 });
 
