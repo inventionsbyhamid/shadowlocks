@@ -11,11 +11,10 @@
 // fake clock with fake frames. Per frame it allocates nothing: lock state, shadow buffers and coverage are made once
 // per box, and the events it sends every frame or so are shared or reused (events.ts).
 import { HINT_GLOW_GAIN } from "../audio/cues";
-import { ENVELOPE } from "../core/envelope";
-import { GENERATOR_VERSION, seedKey } from "../core/generator";
+import { GENERATOR_VERSION } from "../core/generator";
 import { mirrorBox } from "../core/mirror";
 import type { BoxSnapshot } from "../core/profile";
-import { type Coverage, type LockSamples, measure, meets, prepareLock, ShadowCaster, SKIP_MISSING, warmth, WARMTH_RANGE } from "../core/solve";
+import { type Coverage, measure, meets, prepareLock, ShadowCaster, SKIP_MISSING, warmth, WARMTH_RANGE } from "../core/solve";
 import type { Box, BoxSpec, Lock, V3, Vec3 } from "../core/types";
 import { LANTERN_MIN_Z, MAX_STEP_MS, OPEN_DWELL_MS } from "../feel/constants";
 import { GazeFocus } from "../feel/gaze-focus";
@@ -26,13 +25,7 @@ import { HintBook } from "./hints";
 import type { Phase } from "./lifecycle";
 import { ACT_HINT, ACT_NEXT, ACT_SHOW_ME, ACT_TAKE, type BoxSessionDeps, NULL_VIEW, type SessionView, type Stage } from "./session-deps";
 import { CRYSTAL_MS, type FingerLoop, FingerLocks } from "./session-fingers";
-import { collect, lockOnPanel, solveBox } from "./session-rules";
-
-// The session's surface in one import (its deps, its stages and the finger seam live beside it).
-export { ACT_HINT, ACT_NEXT, ACT_SHOW_ME, ACT_TAKE, NULL_VIEW } from "./session-deps";
-export type { BoxSessionDeps, HeadRay, SessionLantern, SessionProfiles, SessionScene, SessionSound, SessionView, Stage } from "./session-deps";
-export { CRYSTAL_MS } from "./session-fingers";
-export type { CrystalSink, FingerLoop, FingerLoopState, FingerSource } from "./session-fingers";
+import { collect, hintTargetOf, loadingSnapshot, LockState, lockOnPanel, solveBox } from "./session-rules";
 
 /** From the last lock opening to the box opening: the lock's own celebration reads first. */
 export const LOCK_TO_BOX_MS = 700;
@@ -48,28 +41,6 @@ const WARMTH_EVENT_STEP = 0.05;
 const WARMTH_EASE_MS = 120;
 /** Float slack for times added up frame by frame. */
 const EPS_MS = 1e-6;
-
-/** A lock of the box in play: its samples and this frame's coverage, made once per box. */
-class LockState {
-  readonly cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 0 };
-  open = false;
-  /** A finger lock whose piece has formed: open for good, its celebration once the piece is there. */
-  done = false;
-  meets = false;
-  meetMs = 0;
-  /** Warmth now (unsmoothed), its eased value for the hum, and the last value sent on the bus. */
-  w = 0;
-  smooth = 0;
-  sentW = -1;
-  ring = false;
-  crystalZ = Number.NaN;
-  openInMs = -1;
-
-  constructor(
-    readonly lock: Lock,
-    readonly samples: LockSamples,
-  ) {}
-}
 
 export class BoxSession {
   /** "Show me" on the hint lantern: replays the example the lock needs (wired by the lessons). */
@@ -100,18 +71,21 @@ export class BoxSession {
   private token = 0;
   private pendingSpec: BoxSpec | null = null;
   private pendingSnap: BoxSnapshot | null = null;
+  private practiceNext = false;
+  private practiceNow = false;
+  private lastVersion = -1;
   private readonly view: SessionView;
   private readonly reused = reusedEvents();
   private readonly L: V3 = [0, 0, 0];
   private readonly lastL: V3 = [Number.NaN, Number.NaN, Number.NaN];
-  private lastNF = 0;
   private readonly origin: V3 = [0, 0, 0];
   private readonly dir: V3 = [0, 0, 0];
   private readonly at: Vec3 = [0, 0, 0];
 
   constructor(private readonly deps: BoxSessionDeps) {
     this.view = deps.view ?? NULL_VIEW;
-    this.fingers = new FingerLocks({ fingers: deps.fingers, makeFingerLoop: deps.makeFingerLoop, crystals: deps.crystals, sound: deps.sound, emit: deps.emit });
+    const { fingers, makeFingerLoop, crystals, sound, emit } = deps;
+    this.fingers = new FingerLocks({ fingers, makeFingerLoop, crystals, sound, emit, coach: (on) => this.view.coach(on ? "controllerFinger" : null) });
     deps.lantern.onFeel((e) => this.onFeel(e));
   }
 
@@ -137,9 +111,15 @@ export class BoxSession {
     return s === "playing" || (s === "opening" && !this.boxOpenSent) ? "playing" : "finished";
   }
 
-  /** The box the saves are about: the one loading, else the one in play. */
+  /** The box the saves are about: the one loading, else the one in play; none for a practice box. */
   get saving(): BoxSpec | null {
+    if (this.stageNow === "loading" ? this.practiceNext : this.practice) return null;
     return this.stageNow === "loading" ? this.pendingSpec : this.currentSpec;
+  }
+
+  /** The box in play is a practice box (`?box=N`): it never touches the player's progress. */
+  get practice(): boolean {
+    return this.practiceNow;
   }
 
   /** Play time on this box so far (ms); hidden time never counts. */
@@ -187,14 +167,17 @@ export class BoxSession {
 
   /**
    * Play `spec`, from `snap` when it is that box's save under this generator version (else afresh). Resolves once the
-   * box is in the scene; a later start supersedes one still loading.
+   * box is in the scene; a later start supersedes one still loading. A `practice` box (the `?box=N` flag) is played
+   * as any box but never touches the player's progress: nothing saved, solved or collected.
    */
-  async start(spec: BoxSpec, snap?: BoxSnapshot | null): Promise<void> {
+  async start(spec: BoxSpec, snap?: BoxSnapshot | null, o: { practice?: boolean } = {}): Promise<void> {
     const token = ++this.token;
     const before = this.stageNow;
     this.stageNow = "loading";
+    this.fingers.quiet();
     this.pendingSpec = spec;
     this.pendingSnap = snap ?? null;
+    this.practiceNext = o.practice === true;
     let box: Box;
     try {
       box = await this.deps.boxes.get(spec);
@@ -208,14 +191,21 @@ export class BoxSession {
     this.apply(box, spec, keep);
   }
 
-  /** The offered next box (the plate's Next): the next numbered box. */
+  /**
+   * The offered next box (the plate's Next): the player's next numbered box, resumed when it is the box in progress
+   * (after a Daily Box it can be). After a practice box, the box after it, as practice too.
+   */
   next(): Promise<void> {
     if (this.stageNow !== "offered") return Promise.resolve();
-    return this.start({ kind: "box", n: this.deps.profiles.profile.nextBox });
+    const spec = this.currentSpec, p = this.deps.profiles.profile;
+    if (this.practiceNow && spec?.kind === "box") return this.start({ kind: "box", n: spec.n + 1 }, null, { practice: true });
+    return this.start({ kind: "box", n: p.nextBox }, p.current);
   }
 
+  /** Out of view: play stops (and the fingertip hum with it) until resume. */
   pause(_now: number): void {
     this.paused = true;
+    this.fingers.quiet();
   }
 
   /** Back in view: the first frame counts nothing (the gap before it was hidden time). */
@@ -254,14 +244,7 @@ export class BoxSession {
   /** The box as it would be saved now. */
   snapshot(_now?: number): BoxSnapshot {
     const box = this.current;
-    if (!box || this.stageNow === "loading") {
-      // A box still being built: its save as it was (a resumed box), else a fresh one at the start.
-      const s = this.pendingSnap;
-      if (s) return { ...s, lantern: [s.lantern[0], s.lantern[1], s.lantern[2]], open: [...s.open], crystal: s.crystal.map((c) => ({ ...c })), hintLevel: { ...s.hintLevel } };
-      const spec = this.pendingSpec, x = ENVELOPE.START[0] * (this.deps.settings.get().handed === "left" ? -1 : 1);
-      const key = spec && spec.kind !== "lesson" ? seedKey(spec) : "";
-      return { key, gen: GENERATOR_VERSION, lantern: [x, ENVELOPE.START[1], ENVELOPE.START[2]], open: [], crystal: [], elapsedMs: 0, hints: 0, hintLevel: {} };
-    }
+    if (!box || this.stageNow === "loading") return loadingSnapshot(this.pendingSpec, this.pendingSnap, this.deps.settings.get().handed === "left");
     const p = this.deps.scene.lantern.getPos([0, 0, 0]);
     const open: number[] = [];
     const crystal: { lock: number; z: number }[] = [];
@@ -293,12 +276,13 @@ export class BoxSession {
     return lock < 0 ? null : this.nextHint(lock);
   }
 
-  /** The reward goes into the collection (dropped toward the player, or by itself after 8 s). False when there is none to take. */
+  /**
+   * The reward is taken (dropped toward the player, or by itself after 8 s): the moment it goes into the collection
+   * for the player (it was recorded when the box opened). False when there is none to take.
+   */
   takeReward(): boolean {
     if (this.stageNow !== "reward" || !this.current) return false;
     const box = this.current, d = this.deps;
-    collect(d.profiles.profile, box, d.wallNow(), this.elapsed, this.book.count);
-    void d.profiles.save();
     d.emit({ type: "reward-taken", key: box.key });
     this.stageNow = "offered";
     this.view.rewardTaken();
@@ -328,7 +312,8 @@ export class BoxSession {
     this.saveMs = 0;
     this.best = 0;
     this.lastL[0] = Number.NaN;
-    this.lastNF = 0;
+    this.lastVersion = -1;
+    this.practiceNow = this.practiceNext;
     d.scene.setBox(box);
     if (snap) {
       const p = snap.lantern;
@@ -391,12 +376,13 @@ export class BoxSession {
   private measureLocks(dt: number): boolean {
     const d = this.deps, fingers = this.fingers;
     const L = d.scene.lantern.getPos(this.L), last = this.lastL;
-    const nF = fingers.count;
-    const moved = L[0] !== last[0] || L[1] !== last[1] || L[2] !== last[2] || nF > 0 || this.lastNF > 0;
+    // Measure only when the lantern moved or the finger's shadow changed (a still finger in the beam measures nothing).
+    const nF = fingers.count, v = fingers.version;
+    const moved = L[0] !== last[0] || L[1] !== last[1] || L[2] !== last[2] || v !== this.lastVersion;
     last[0] = L[0];
     last[1] = L[1];
     last[2] = L[2];
-    this.lastNF = nF;
+    this.lastVersion = v;
     const warmOn = d.settings.get().warmth;
     let ns = -1, best = 0, opened = false;
     fingers.begin();
@@ -440,7 +426,8 @@ export class BoxSession {
       this.showWarmth(s, warmOn ? s.w : 0, dt);
     }
     this.best = best;
-    fingers.end();
+    // The last lock ends play (the hum and the coach stopped with it).
+    if (this.stageNow === "playing") fingers.end();
     return opened;
   }
 
@@ -483,6 +470,8 @@ export class BoxSession {
     d.lantern.feel.setOpen(i, true);
     this.view.clearHint(i);
     this.view.lockOpened(i, order, restored);
+    // An open lock holds no focus: the focus clears (and gaze looks past open locks).
+    if (this.focused === i) this.clearFocus();
     if (restored) return;
     this.sendWarmth(s, 0);
     d.emit(LOCK_OPEN[i]![order - 1]!);
@@ -491,7 +480,16 @@ export class BoxSession {
     if (order === this.locks.length) {
       this.stageNow = "opening";
       this.seqMs = 0;
+      this.fingers.quiet();
     }
+  }
+
+  private clearFocus(): void {
+    this.focused = null;
+    this.gazeFocus = new GazeFocus();
+    this.deps.emit(FOCUS[0]!);
+    this.deps.sound.focus(null);
+    this.view.focus(null);
   }
 
   /** Ring events only when a lock's rings line up or part; locks without rings (and open ones) say nothing. */
@@ -534,17 +532,8 @@ export class BoxSession {
     this.view.focus(f);
   }
 
-  /** The lock a hint is for: the one in focus if it is still closed, else the warmest closed one, else -1. */
   private hintTarget(): number {
-    const f = this.focused;
-    if (f !== null && this.locks[f] && !this.locks[f]!.done) return f;
-    let best = -1, w = -1;
-    for (const s of this.locks) {
-      if (s.done || s.w <= w) continue;
-      w = s.w;
-      best = s.lock.i;
-    }
-    return best;
+    return hintTargetOf(this.locks, this.focused);
   }
 
   /** From the last lock to the reward: the box opens, the reward rises, and one nobody takes is collected. */
@@ -568,9 +557,13 @@ export class BoxSession {
     d.emit({ type: "box-open", key: box.key });
     d.sound.boxOpened(box.key);
     this.view.boxOpened();
-    // Solved: the profile moves on now (the reward goes into the collection when it is taken).
-    solveBox(p, this.currentSpec!);
-    void d.profiles.save();
+    // Solved: the profile moves on and the reward is in the collection now, with the time and hints final (taking it
+    // is the moment the player sees; a reload before that loses nothing). A practice box changes nothing.
+    if (!this.practiceNow) {
+      solveBox(p, this.currentSpec!);
+      collect(p, box, d.wallNow(), this.elapsed, this.book.count);
+      void d.profiles.save();
+    }
     d.boxes.prefetch({ kind: "box", n: p.nextBox });
   }
 

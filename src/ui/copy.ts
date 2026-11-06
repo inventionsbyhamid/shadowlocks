@@ -96,6 +96,8 @@ export const COPY = {
     storyOwner: "Off the desk of {owner}.",
     storyLoot: "Inside: {loot}.",
     short: "One piece short.",
+    /** The coach line while a finger lock waits and controllers are in use. */
+    controllerFinger: "Or set a controller down and use your finger.",
   },
   /** The demo video's end card (tests/video/edits.ts); the hosted link joins it once there is one. */
   film: {

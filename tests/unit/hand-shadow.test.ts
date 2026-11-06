@@ -25,6 +25,7 @@ import {
   MOUTH_Z,
   OUTLINE_CORNERS,
   PALM_RADIUS_CM,
+  STAND_IN,
 } from "../../src/render/hand-shadow";
 import { boxMatrix, fakeJoints, type JointMap, moved, pointingHand } from "./helpers/hands";
 
@@ -235,6 +236,53 @@ describe("HandShadow", () => {
     // No finger in the beam: none.
     const r3 = hs.update(feed({}), null, m, lock.L, out, finger);
     expect(hs.fingerDepthOver(finger, r3.nFinger, gap)).toBeNaN();
+  });
+
+  it("a held controller's stand-in is a fingertip capsule cast as the finger, at its depth, from the box mouth only", () => {
+    for (const cm of [18, 24, 30]) {
+      const { feed, m } = fakeJoints(boxMatrix(cm));
+      const hs = new HandShadow();
+      const [out, finger] = buffers();
+      // No hand in tracking; the controller's stand-in across the mouth at mid-depth, a finger's length long.
+      hs.update(feed({}), null, m, L, out, finger);
+      const len = STAND_IN.lengthCm / cm, A: V3 = [0.1, 0.05, 0.5], B: V3 = [0.1 + len, 0.05, 0.5];
+      hs.standIn.set([...A, ...B]);
+      const r = hs.castStandIn(1, m, L, out, finger);
+      expect([r.n, r.nFinger]).toEqual([1, 1]);
+      expect(finger[0]).toBe(out[0]);
+      expect(out[0]).toHaveLength(OUTLINE_CORNERS);
+      expect(r.fingerZ).toBeCloseTo(0.5, 9);
+      expect(hs.depth[0]).toBeCloseTo(0.5, 6);
+      expect([hs.fingerHand[0], hs.cast[1], hs.handFingerZ[1]]).toEqual([1, 1, r.fingerZ]);
+      // Every corner on the rim of a 0.9 cm fingertip seen from the lantern; counter-clockwise and convex.
+      const a = proj(A, L), b = proj(B, L), want = (FINGER_RADIUS_CM / cm) * (L[2] / (L[2] - 0.5));
+      for (const p of out[0]!) expect(segDist(p, a, b)).toBeCloseTo(want, 8);
+      expect(area2(out[0]!)).toBeGreaterThan(0);
+      expect(convex(out[0]!)).toBe(true);
+      // The finger over the gap is the stand-in: the piece forms at its depth.
+      expect(hs.fingerDepthOver(finger, r.nFinger, [[(a[0] + b[0]) / 2, a[1]]])).toBeCloseTo(0.5, 9);
+    }
+    const { feed, m } = fakeJoints();
+    const hs = new HandShadow();
+    const [out, finger] = buffers();
+    const castWith = (a: V3, b: V3) => {
+      hs.update(feed({}), null, m, L, out, finger);
+      hs.standIn.set([...a, ...b]);
+      return hs.castStandIn(0, m, L, out, finger);
+    };
+    // Out of the mouth (in front of it, or beside the box): nothing.
+    expect(castWith([0, 0, 1.05], [0, 0, 1.2])).toMatchObject({ n: 0, nFinger: 0 });
+    expect(castWith([0.7, 0, 0.5], [0.85, 0, 0.5])).toMatchObject({ n: 0, nFinger: 0 });
+    // Its front just in: it casts. Through the panel: cut at it (the depth of the part in front).
+    expect(castWith([0, 0, MOUTH_Z - 0.01], [0, 0, 1.2])).toMatchObject({ n: 1, nFinger: 1 });
+    const cut = castWith([0, 0, -0.1], [0, 0, 0.3]);
+    expect(cut.nFinger).toBe(1);
+    expect(cut.fingerZ).toBeCloseTo(0.15, 9);
+    // A free hand's finger in the beam is the finger: the stand-in adds nothing.
+    const r = hs.update(feed({ right: inMouth() }), null, m, L, out, finger);
+    const n = r.n, nf = r.nFinger;
+    hs.standIn.set([0.1, 0.05, 0.5, 0.2, 0.05, 0.5]);
+    expect(hs.castStandIn(0, m, L, out, finger)).toMatchObject({ n, nFinger: nf });
   });
 
   it("a bone reaching toward the lantern makes a tapered, convex outline and is held before its shadow runs off", () => {

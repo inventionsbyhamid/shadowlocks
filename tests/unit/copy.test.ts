@@ -23,7 +23,8 @@ describe("copy", () => {
       expect(s).not.toMatch(/\.$/);
       expect(s.length).toBeLessThanOrEqual(12);
     }
-    for (const s of [COPY.game.storyOwner, COPY.game.storyLoot, COPY.game.short]) expect(s).toMatch(/^[A-Z].*\.$/);
+    for (const s of [COPY.game.storyOwner, COPY.game.storyLoot, COPY.game.short, COPY.game.controllerFinger]) expect(s).toMatch(/^[A-Z].*\.$/);
+    expect(COPY.game.controllerFinger).toBe("Or set a controller down and use your finger.");
     expect(fill(COPY.game.boxNo, { n: 12 })).toBe("Box No. 12");
     expect(fill(COPY.game.storyOwner, { owner: "the Clockmaker" })).toBe("Off the desk of the Clockmaker.");
     expect(fill("{a} {b}", { a: 1 })).toBe("1 {b}");
