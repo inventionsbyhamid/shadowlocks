@@ -464,7 +464,17 @@ describe("LessonsDirector: lesson 2", () => {
   it("moves on from the puppets after a while even without a hand in the beam, the ghost showing how", () => {
     r.d.start("l2");
     let ghost = false;
-    r.run(PUPPET_MAX_MS - 100, () => (ghost ||= r.d.frame.hand.opacity > 0));
+    r.run(PUPPET_MAX_MS - 100, () => {
+      const h = r.d.frame.hand;
+      if (h.opacity <= 0) return;
+      ghost = true;
+      // The ghost hand enters through the box mouth, and a human-sized hand (19 cm from wrist to fingertip) stays
+      // under the lid even in the smallest box (18 cm: 1.06 box units).
+      expect(h.anchor).toBe("wrist");
+      expect(h.at[2]).toBeLessThanOrEqual(1);
+      expect(h.at[1] + h.fingers[1] * (0.19 / 0.18)).toBeLessThan(0.45);
+      expect(h.at[2] + h.fingers[2] * (0.19 / 0.18)).toBeGreaterThan(0);
+    });
     expect(ghost).toBe(true);
     expect(r.d.step).toBe(0);
     r.run(200);

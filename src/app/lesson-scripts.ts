@@ -440,9 +440,11 @@ export function puppetLoop(side: number): HandKey[] {
   ];
 }
 /**
- * Where the puppet hand's wrist sits: low in the box mouth, in the beam, its fingers up and leaning a little toward
- * the panel, so a whole hand (about 0.8 box units at the default size) stays inside the box.
+ * Where the puppet hand's wrist sits: low in the box mouth, the hand entering through it with its fingers 45 degrees
+ * up into the box, so a human-sized hand (19 cm) stays under the lid even in the smallest box (18 cm: its fingertips
+ * end about 3 cm below the lid). Its palm faces the panel and the floor, square to the lantern's light, so its
+ * shadow is a whole hand.
  */
-export const PUPPET_AT: V3 = [0.1, -0.38, 0.92];
-export const PUPPET_FINGERS: V3 = unit([0, 1, -0.15]);
-export const PUPPET_PALM: V3 = [0, 0, -1];
+export const PUPPET_AT: V3 = [0.1, -0.42, 0.95];
+export const PUPPET_FINGERS: V3 = unit([0, 1, -1]);
+export const PUPPET_PALM: V3 = unit([0, -1, -1]);
