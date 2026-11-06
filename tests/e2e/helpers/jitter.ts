@@ -17,7 +17,7 @@ import path from "node:path";
 import type { Page, TestInfo } from "@playwright/test";
 import type { SlFingerLock, SlLantern, SlLock, SlSessionState } from "../../../src/app/test-api";
 import type { BoxSpec, V2, V3, Vec3 } from "../../../src/core/types";
-import { axisOf, onRay, Pointer } from "./finger";
+import { axisOf, ControllerFinger, onRay, Pointer } from "./finger";
 import { addRunNote, DT, XrApp } from "./xr-app";
 
 // --- The jitter ---------------------------------------------------------------------------------------------------
@@ -497,14 +497,6 @@ function pageBot(cfg: { src: string; jitter: JitterOptions | null; device: strin
   }
 }
 
-/** The world rotation (quaternion) that turns -z (a controller's forward) onto unit `d`. */
-function forwardTo(d: Readonly<Vec3>): { x: number; y: number; z: number; w: number } {
-  // a = (0, 0, -1): a x d = (d.y, -d.x, 0), a . d = -d.z.
-  let x = d[1], y = -d[0], z = 0, w = 1 - d[2];
-  if (w < 1e-6) [x, y, z, w] = [0, 1, 0, 0];
-  const n = Math.hypot(x, y, z, w);
-  return { x: x / n, y: y / n, z: z / n, w: w / n };
-}
 
 /**
  * The careful player, driving the right hand (or the right controller) frame by frame through withJitter. Positions it
@@ -548,6 +540,9 @@ export class Bot {
     } else {
       await app.queue("set_input_mode", { mode: "controller" });
       await app.queue("set_connected", { device: bot.device, connected: true });
+      // The other controller rests in the lap, beside and below the box: it never reaches the beam.
+      const [lap] = await bot.world([[-2.5, -2, 3]]);
+      await app.queue("set_transform", { device: "controller-left", position: { x: lap![0], y: lap![1], z: lap![2] } });
     }
     await app.settle();
     bot.cmPerUnit = (await app.state()).box.sizeM * 100;
@@ -780,7 +775,7 @@ export class Bot {
       return r;
     }
     const fl = (await this.page.evaluate(() => window.__sl!.fingerLocks())).find((f) => f.lock === lock.i)!;
-    const out = this.input === "hands" ? await this.fingerByHand(fl, r) : await this.fingerByController(fl, r);
+    const out = await this.fingerHold(fl, r);
     r.open = out === "open";
     if (out !== "open" && out !== "shut") r.blocked = out;
     r.ms = (await this.app.now()) - t0;
@@ -795,30 +790,52 @@ export class Bot {
     return { mid: onRay(fl.spot, mid as V2, this.fingerDepth), dir: [sign * Math.cos(angle), sign * Math.sin(angle), 0] };
   }
 
-  /** The right index finger laid in the gap (as a player aims by its shadow), then held there with the jitter. */
-  private async fingerByHand(fl: SlFingerLock, r: LockResult): Promise<"open" | "shut"> {
+  /**
+   * The finger laid in the gap, as a player aims it by its shadow (the lay itself is not shaken), then held there with
+   * the jitter until the lock opens: the right index finger (Pointer), or the right controller's stand-in finger
+   * (ControllerFinger: a fingertip-sized capsule along its aim, just past its front). "open", "shut", or why it could
+   * not be tried.
+   */
+  private async fingerHold(fl: SlFingerLock, r: LockResult): Promise<string> {
     const { mid, dir } = this.gapLine(fl);
-    let open = false;
-    while (!open && r.lays < FINGER_LAYS) {
-      r.lays++;
-      // Aiming is done by eye on the shadow: the lay itself is not shaken; the hold is.
+    const hands = this.input === "hands";
+    let open = false, blocked = "";
+    while (!open && !blocked && r.lays < FINGER_LAYS) {
       await this.waitFor((w) => !w.__bot.jit.lost, null, 1000);
       await this.page.evaluate(() => ((window as any).__bot.driving = false));
-      const p = new Pointer(this.app, "right");
-      const laid = await p.lay(mid, dir);
-      const turned = p as unknown as { fingers: Vec3; palm: Vec3 };
+      let laid: { off: number; angle: number }, at: Vec3, orient: unknown;
+      if (hands) {
+        const p = new Pointer(this.app, "right");
+        laid = await p.lay(mid, dir);
+        const t = p as unknown as { fingers: Vec3; palm: Vec3 };
+        at = p.tip;
+        orient = { fingers: { x: t.fingers[0], y: t.fingers[1], z: t.fingers[2] }, palm: { x: t.palm[0], y: t.palm[1], z: t.palm[2] } };
+      } else {
+        const c = new ControllerFinger(this.app, "right");
+        try {
+          laid = await c.lay(mid, dir);
+        } catch (e) {
+          if (!/casts no stand-in/.test(String(e))) throw e;
+          blocked = "no controller fingertip: the game casts no stand-in finger for the controller in the box";
+          await this.page.evaluate(() => ((window as any).__bot.driving = true));
+          break;
+        }
+        at = c.pos;
+        orient = c.q;
+      }
+      r.lays++;
       await this.page.evaluate(
-        ({ tip, o, lock }) => {
+        ({ at, orient, anchor, lock }) => {
           const b = (window as any).__bot;
           b.stop();
-          b.anchor = "index-tip";
-          b.orient = { fingers: { x: o.f[0], y: o.f[1], z: o.f[2] }, palm: { x: o.p[0], y: o.p[1], z: o.p[2] } };
-          b.pos = tip;
+          b.anchor = anchor;
+          b.orient = orient;
+          b.pos = at;
           b.sel = 0;
           b.hold = { lock, frames: 0, meets: 0, noFinger: 0, progress: 0, gap: 0, gapMin: Infinity, spillAll: 0, coverMin: Infinity };
           b.driving = true;
         },
-        { tip: p.tip, o: { f: turned.fingers, p: turned.palm }, lock: fl.lock },
+        { at, orient, anchor: hands ? "index-tip" : null, lock: fl.lock },
       );
       open = await this.waitFor((w, i) => w.__sl.session.state().open.includes(i), fl.lock, FINGER_WAIT_MS);
       const h = await this.page.evaluate(() => {
@@ -839,62 +856,26 @@ export class Bot {
         coverMin: h.coverMin!,
       });
     }
-    // Out of the box along its depth, then the open hand again, ready for the lantern.
+    // Out of the box along its depth, then (a hand) the open hand again, ready for the lantern.
     const [inBox, outBox] = await this.world([
       [0, 0, this.fingerDepth],
       [0, 0, 1.7],
     ]);
     await this.go([{ to: add(await this.hand(), sub(outBox!, inBox!)), cmps: AWAY_CMPS }], "the finger leaving the box");
-    await this.page.evaluate(() => {
+    await this.page.evaluate((hands) => {
       const b = (window as any).__bot;
       b.orient = undefined;
-      b.anchor = "grasp";
-      b.once = "auto";
-    });
-    await this.waitFor((w) => !w.__bot.jit.lost, null, 1000);
-    await this.app.queue("set_hand_pose", { device: this.device, poseId: "default" });
-    await this.hold(60);
-    return open ? "open" : "shut";
-  }
-
-  /**
-   * The right controller's tip in the gap (with controllers the tip casts the fingertip), aimed by the shadow it casts and
-   * held there with the jitter. "no controller fingertip" when the game casts nothing for it.
-   */
-  private async fingerByController(fl: SlFingerLock, r: LockResult): Promise<"open" | "shut" | string> {
-    const { mid, dir } = this.gapLine(fl);
-    const [mw, aw] = await this.world([mid, add(mid, dir, 0.1) as V3]);
-    const d = sub(aw!, mw!), n = Math.hypot(d[0], d[1], d[2]);
-    const fwd: Vec3 = [d[0] / n, d[1] / n, d[2] / n];
-    await this.go([{ to: add(mw!, [0, 0.03, 0.08]), cmps: AWAY_CMPS }], "the controller to the box");
-    await this.page.evaluate((q) => ((window as any).__bot.orient = q), forwardTo(fwd));
-    await this.go([{ to: mw!, cmps: REACH_SLOW_CMPS }], "the controller tip into the gap");
-    await this.hold(100);
-    const casts = () => this.page.evaluate(() => window.__sl!.hands().finger.length);
-    let open = false, cast = (await casts()) > 0;
-    if (cast) {
-      // Aim by the shadow: move the tip until its shadow's middle sits on the gap's (panel to depth z: (Lz - z) / Lz).
-      for (let i = 0; i < 3; i++) {
-        const polys = await this.page.evaluate(() => window.__sl!.hands().finger);
-        let sx = 0, sy = 0, k = 0;
-        for (const poly of polys) for (const q of poly) (sx += q[0], sy += q[1], k++);
-        if (!k) break;
-        const { mid: g } = axisOf(fl.piece);
-        const f = (fl.spot[2] - this.fingerDepth) / fl.spot[2];
-        const [a, b] = await this.world([mid, [mid[0] + (g[0] - sx / k) * f, mid[1] + (g[1] - sy / k) * f, mid[2]]]);
-        await this.go([{ to: add(await this.hand(), sub(b!, a!)), cmps: 5 }], "aiming the controller tip");
+      if (hands) {
+        b.anchor = "grasp";
+        b.once = "auto";
       }
-      r.lays++;
-      open = await this.waitFor((w, i) => w.__sl.session.state().open.includes(i), fl.lock, FINGER_WAIT_MS);
+    }, hands);
+    if (hands) {
+      await this.waitFor((w) => !w.__bot.jit.lost, null, 1000);
+      await this.app.queue("set_hand_pose", { device: this.device, poseId: "default" });
+      await this.hold(60);
     }
-    const [inBox, outBox] = await this.world([
-      [0, 0, this.fingerDepth],
-      [0, 0, 1.7],
-    ]);
-    await this.go([{ to: add(await this.hand(), sub(outBox!, inBox!)), cmps: AWAY_CMPS }], "the controller leaving the box");
-    await this.page.evaluate(() => ((window as any).__bot.orient = undefined));
-    if (!cast) return "no controller fingertip: the game casts no fingertip shadow for the controller's tip";
-    return open ? "open" : "shut";
+    return blocked || (open ? "open" : "shut");
   }
 
   // ---------------------------------------------------------------------------------------------- a box
