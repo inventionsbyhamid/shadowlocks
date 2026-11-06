@@ -42,7 +42,8 @@ export async function buildForTests(repo = process.cwd()): Promise<string> {
   const outDir = path.join(repo, "dist-e2e");
   fs.rmSync(root, { recursive: true, force: true });
   fs.mkdirSync(root, { recursive: true });
-  for (const f of ["index.html", "src", "public"]) fs.cpSync(path.join(repo, f), path.join(root, f), { recursive: true });
+  // package.json too: src/platform/version.ts imports the build's version from it.
+  for (const f of ["index.html", "src", "public", "package.json"]) fs.cpSync(path.join(repo, f), path.join(root, f), { recursive: true });
   const config = JSON.parse(fs.readFileSync(path.join(repo, "iwsdk.config.json"), "utf8"));
   const { environment: _room, ...emulator } = config.dev?.emulator ?? {};
   config.dev = { ...config.dev, emulator: { ...emulator, injectOnBuild: true } };
