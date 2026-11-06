@@ -123,6 +123,93 @@ export class Pointer extends Hands {
   }
 }
 
+/** A turn as IWER takes it. */
+export interface Quat {
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+}
+
+/** `q` turned further by the smallest rotation that takes unit `from` onto unit `to` (applied after q, in world). */
+export function turnQuat(q: Quat, from: P3, to: P3): Quat {
+  const c = cross(from, to), d = dot(from, to);
+  let r = [c[0], c[1], c[2], 1 + d];
+  if (1 + d < 1e-9) {
+    const k = unit(cross(from, Math.abs(from[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0]));
+    r = [k[0], k[1], k[2], 0];
+  }
+  const n = Math.hypot(r[0]!, r[1]!, r[2]!, r[3]!), x = r[0]! / n, y = r[1]! / n, z = r[2]! / n, w = r[3]! / n;
+  return {
+    x: w * q.x + x * q.w + y * q.z - z * q.y,
+    y: w * q.y - x * q.z + y * q.w + z * q.x,
+    z: w * q.z + x * q.y - y * q.x + z * q.w,
+    w: w * q.w - x * q.x - y * q.y - z * q.z,
+  };
+}
+
+/**
+ * An IWER controller whose stand-in finger (src/app/hand-system.ts: a fingertip-sized capsule along its aim, just past
+ * its front, cast while no free hand's finger is in the beam) is laid along a line in the box, as Pointer lays a
+ * finger: turned and moved until the stand-in's ends, read back through __sl.hands, run along it.
+ */
+export class ControllerFinger {
+  /** The pose IWER was last given (world). */
+  pos: Vec3 = [0, 0, 0];
+  q: Quat = { x: 0, y: 0, z: 0, w: 1 };
+
+  constructor(
+    private readonly app: XrApp,
+    readonly side: "left" | "right" = "right",
+  ) {}
+
+  get device(): string {
+    return `controller-${this.side}`;
+  }
+
+  /** Put the controller at `pos` (world), turned by `q`. */
+  async place(pos: P3, q: Quat = this.q): Promise<void> {
+    this.pos = [pos[0], pos[1], pos[2]];
+    this.q = { ...q };
+    await this.app.queue("set_transform", { device: this.device, position: xyz(pos), orientation: this.q });
+    await this.app.settle(10_000, 2);
+  }
+
+  /** The stand-in finger's ends this frame (box units, front then back), or null while this controller casts none. */
+  async ends(): Promise<[V3, V3] | null> {
+    const s = (await hands(this.app.page)).standIn;
+    return s && s.by === this.side ? [s.front, s.back] : null;
+  }
+
+  /**
+   * Lay the stand-in along the line through `mid` in direction `dir` (box units, front-ward), centred on `mid`.
+   * Returns how far off it ended (box units): its middle from `mid`, and its angle (radians).
+   */
+  async lay(mid: P3, dir: P3): Promise<{ off: number; angle: number }> {
+    const page = this.app.page;
+    const [mW, aheadW] = await worldOf(page, [mid, add(mid, dir)]);
+    const dW = unit(sub(aheadW!, mW!));
+    // Aimed along the line (the controller aims along its -z) from its middle; then corrected from what it casts.
+    let q = turnQuat({ x: 0, y: 0, z: 0, w: 1 }, [0, 0, -1], dW);
+    let pos: Vec3 = mW!;
+    for (let i = 0; i < 5; i++) {
+      await this.place(pos, q);
+      const e = await this.ends();
+      if (!e) throw new Error(`${this.device} casts no stand-in finger (out of the box mouth?)`);
+      const [fW, bW] = await worldOf(page, e);
+      const now = unit(sub(fW!, bW!)), c = add(fW!, sub(bW!, fW!), 0.5);
+      // Turned about the controller, then moved so the stand-in's middle is on the line's.
+      q = turnQuat(q, now, dW);
+      pos = add(pos, sub(mW!, add(pos, turn(sub(c, pos), now, dW))));
+    }
+    await this.place(pos, q);
+    const e = await this.ends();
+    if (!e) throw new Error(`${this.device} casts no stand-in finger`);
+    const [F, B] = e, m: Vec3 = [(F[0] + B[0]) / 2, (F[1] + B[1]) / 2, (F[2] + B[2]) / 2];
+    return { off: len(sub(m, mid)), angle: Math.acos(Math.min(1, dot(unit(sub(F, B)), unit(dir)))) };
+  }
+}
+
 /**
  * Step one frame and read the rendered panel's luma (0..255) at box points: projected with the first XR view's camera
  * into the canvas and read in the same task as the frame (as shadows.spec.ts's probe). For that frame only, what

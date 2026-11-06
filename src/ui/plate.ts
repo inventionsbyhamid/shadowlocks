@@ -6,7 +6,7 @@
 import { Group, Mesh, type Object3D, PlaneGeometry } from "@iwsdk/core";
 import type { Box, BoxSpec } from "../core/types";
 import { KEY_EVENT } from "../render/finger-key";
-import { brassFace, LABEL_FONT, LabelCanvas, labelMaterial } from "../render/label";
+import { brassFace, LABEL_FONT, LabelCanvas, labelMaterial, roundRect } from "../render/label";
 import { COPY, fill } from "./copy";
 import type { Tips } from "./key-view";
 import { PokeKey } from "./poke-key";
@@ -21,6 +21,8 @@ export const PLATE = {
   h: 0.034,
   /** The Next key (m): above the plate, wide enough for its label at full size. */
   key: { w: 0.1, h: 0.044, above: 0.012 },
+  /** The coach line's card (m): above the plate during play, about as wide as it, two lines of 13 mm lettering. */
+  coach: { w: 0.2, h: 0.05, above: 0.012 },
 } as const;
 
 const ROMAN = ["I", "II", "III"];
@@ -40,6 +42,25 @@ export function plateLayout(w: number, h: number, n: number): { nameX: number; n
   return { nameX, nameMax: end - nameX, lightX, lightR };
 }
 
+/**
+ * `text` in one line if it fits `max` (as `width` measures it), else in two broken between words where the longer
+ * line is shortest.
+ */
+export function wrapTwo(text: string, width: (s: string) => number, max: number): string[] {
+  if (width(text) <= max) return [text];
+  const words = text.split(" ");
+  let best: string[] = [text], bestW = Number.POSITIVE_INFINITY;
+  for (let k = 1; k < words.length; k++) {
+    const a = words.slice(0, k).join(" "), b = words.slice(k).join(" ");
+    const w = Math.max(width(a), width(b));
+    if (w < bestW) {
+      bestW = w;
+      best = [a, b];
+    }
+  }
+  return best;
+}
+
 export class Plate {
   /** Cancels the box's scale: everything under it is in metres. */
   readonly group = new Group();
@@ -52,6 +73,9 @@ export class Plate {
   private scale = 0;
   /** The Next key's press was accepted (the press gate); its action comes when the finger lets go. */
   private armed = false;
+  private readonly coachCard: Mesh;
+  private readonly coachLabel = new LabelCanvas(Math.round(PLATE.coach.w * PX), Math.round(PLATE.coach.h * PX));
+  private coachText = "";
 
   constructor(private readonly root: Object3D) {
     this.group.name = "Plate";
@@ -62,9 +86,38 @@ export class Plate {
     this.face.position.y = PLATE.h / 2;
     this.next.group.position.set(0, PLATE.h + PLATE.key.above + PLATE.key.h / 2, 0.002);
     this.next.show(false);
-    this.group.add(this.face, this.next.group);
+    const C = PLATE.coach;
+    // Painted faces upload premultiplied (label.ts): drawn through labelMaterial, as the plate's own face is.
+    this.coachCard = new Mesh(new PlaneGeometry(C.w, C.h), labelMaterial(this.coachLabel.texture));
+    this.coachCard.name = "Coach Line";
+    this.coachCard.position.set(0, PLATE.h + C.above + C.h / 2, 0.002);
+    this.coachCard.visible = false;
+    this.group.add(this.face, this.next.group, this.coachCard);
     this.group.visible = false;
     root.add(this.group);
+  }
+
+  /**
+   * The coach line above the plate (during play, where the Next key stands after a box), or none. Task 15's coach line
+   * takes over the `coach` event when it lands.
+   */
+  coach(text: string | null): void {
+    this.coachCard.visible = text !== null;
+    if (text === null || text === this.coachText) return;
+    this.coachText = text;
+    this.coachLabel.paint((g, w, h) => {
+      roundRect(g, 4, 4, w - 8, h - 8, h * 0.14);
+      g.fillStyle = "rgba(20, 16, 22, 0.86)";
+      g.fill();
+      g.fillStyle = "#f6e7c4";
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      g.font = `italic ${Math.round(h * 0.26)}px ${LABEL_FONT}`;
+      // Two lines at most, broken between words (a longer line condenses to fit).
+      const max = w * 0.9, lines = wrapTwo(text, (s) => g.measureText(s).width, max);
+      const step = h * 0.34, top = h / 2 - ((lines.length - 1) * step) / 2;
+      lines.forEach((l, i) => g.fillText(l, w / 2, top + i * step, max));
+    });
   }
 
   /** A new box: its name, as many latch lights as it has locks, all off, no Next. */

@@ -20,12 +20,13 @@ import { Reward, type RewardHands } from "../render/reward";
 import { type FrameTips, frameTips } from "../ui/fingertips";
 import { HINT_ASK, HintLantern } from "../ui/hint-lantern";
 import { NO_TIPS } from "../ui/key-view";
+import { COPY } from "../ui/copy";
 import { Plate } from "../ui/plate";
 import { BoxSession } from "./box-session";
 import { FingerLockLoop } from "./finger-lock";
 import type { FingerSource } from "./session-fingers";
 import { emit } from "./bus";
-import type { HintLevel } from "./events";
+import type { CoachLine, HintLevel } from "./events";
 import { HintMarks } from "./hints";
 import type { Lantern } from "./lantern-system";
 import type { Lifecycle, LifecycleSession } from "./lifecycle";
@@ -59,6 +60,8 @@ export class GameView implements SessionView {
   private box: Box | null = null;
   private readonly lanternAt: V3 = [0, 0, 0];
   private readonly drawer: V3 = [0, 0, 0];
+  /** The coach line shown now (for the test hooks), or null. */
+  coachLine: CoachLine | null = null;
 
   constructor(private readonly d: GameViewDeps) {
     const scene = d.scene, root = scene.root;
@@ -141,6 +144,11 @@ export class GameView implements SessionView {
     return this.hintLantern.worldPos(out);
   }
 
+  coach(line: CoachLine | null): void {
+    this.coachLine = line;
+    this.plate.coach(line ? COPY.game[line] : null);
+  }
+
   update(dtMs: number, stage: Stage): number {
     const dt = dtMs / 1000, reduced = this.d.settings.get().reducedMotion;
     this.lockFx.update(dt, reduced);
@@ -221,10 +229,10 @@ export class Game implements GameFlow {
   ) {}
 
   /** Play `spec` now (from `snap` when it is that box's save): the play screen, the lifecycle saving it. */
-  play(spec: BoxSpec, snap: BoxSnapshot | null = null): void {
+  play(spec: BoxSpec, snap: BoxSnapshot | null = null, practice = false): void {
     if (this.shell.lifecycle.session !== this.session) this.shell.lifecycle.attach(this.session, performance.now());
     go("play");
-    this.run(spec, snap);
+    this.run(spec, snap, practice);
   }
 
   /** Continue: the numbered box in progress, else the next one. */
@@ -241,12 +249,11 @@ export class Game implements GameFlow {
     this.play(spec, cur && cur.key === seedKey(spec) ? cur : null);
   }
 
-  /** The `?box=N` field flag: box N, resumed when it is the box in progress. */
+  /** The `?box=N` field flag: box N as practice. */
   playBox(n: number): void {
-    const spec: BoxSpec = { kind: "box", n };
-    const cur = this.shell.profiles.profile.current;
-    if (cur && cur.key === seedKey(spec)) this.shell.continueSaved();
-    else this.play(spec);
+    // A practice box: played from the start, never saved, never solved into the player's progress. The box in
+    // progress, the next box, the collection and the streak stay as they were.
+    this.play({ kind: "box", n }, null, true);
   }
 
   /** GameFlow: resume a saved box (Continue). Throws for a save that names no box. */
@@ -263,8 +270,8 @@ export class Game implements GameFlow {
     return s && (s.kind === "box" || s.kind === "daily") ? s.kind : null;
   }
 
-  private run(spec: BoxSpec, snap: BoxSnapshot | null): void {
-    this.session.start(spec, snap).catch((err) => {
+  private run(spec: BoxSpec, snap: BoxSnapshot | null, practice = false): void {
+    this.session.start(spec, snap, { practice }).catch((err) => {
       console.error("the box could not be built", err);
       // A save that cannot be played on is let go, so it is not offered again.
       if (snap && spec.kind === "box") void this.shell.profiles.setCurrent(null);

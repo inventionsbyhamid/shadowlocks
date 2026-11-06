@@ -1,24 +1,14 @@
 // The box session on a fake clock and fake frames: no renderer, no XR. The scene, lantern, sound and
 // view are recording fakes; boxes come from the real generator, and the solve rule is the real one.
 import { describe, expect, it } from "vitest";
-import {
-  ACT_HINT,
-  ACT_NEXT,
-  ACT_TAKE,
-  BoxSession,
-  type BoxSessionDeps,
-  CRYSTAL_MS,
-  type FingerLoop,
-  LOCK_TO_BOX_MS,
-  REWARD_AUTO_MS,
-  REWARD_UP_MS,
-  type SessionView,
-} from "../../src/app/box-session";
+import { BoxSession, LOCK_TO_BOX_MS, REWARD_AUTO_MS, REWARD_UP_MS } from "../../src/app/box-session";
+import { ACT_HINT, ACT_NEXT, ACT_TAKE, type BoxSessionDeps, type SessionView } from "../../src/app/session-deps";
+import { CRYSTAL_MS, type FingerLoop } from "../../src/app/session-fingers";
 import type { FeedbackEvent } from "../../src/app/bus";
 import { GENERATOR_VERSION, generateBox } from "../../src/core/generator";
 import { type BoxSnapshot, defaultSettings, newProfile, type Profile } from "../../src/core/profile";
 import { meets } from "../../src/core/solve";
-import type { Box, BoxSpec, Lock, V2, V3 } from "../../src/core/types";
+import type { Box, BoxSpec, Lock, V2, V3, Vec3 } from "../../src/core/types";
 import { GAZE_DWELL_MS, OPEN_DWELL_MS, STUCK_MS } from "../../src/feel/constants";
 import { FingerHold } from "../../src/feel/finger-hold";
 import type { FeelEvent } from "../../src/feel/lantern-controller";
@@ -55,7 +45,17 @@ interface Harness {
   feelOpen: Set<number>;
   aligned: Set<number>;
   pos: V3;
-  finger: { finger: V2[][]; nFinger: number; fingerZ: number; tracked: boolean; depthOver(gap: readonly V2[]): number };
+  finger: {
+    finger: V2[][];
+    nFinger: number;
+    fingerZ: number;
+    tracked: boolean;
+    version: number;
+    controllers: boolean;
+    depthOver(gap: readonly V2[]): number;
+    tip(out: Vec3): boolean;
+  };
+  fingerCalls: { progress: number | null; at: Vec3 | null }[];
   head: { hit: V3 | null };
   view: { acts: number; calls: string[] };
   saves: () => number;
@@ -144,7 +144,7 @@ function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "ri
     dialTick: rec("dialTick"),
     settle: rec("settle"),
     ring: rec("ring"),
-    finger: () => {},
+    finger: (progress: number | null, _hold?: number, at?: Vec3) => fingerCalls.push({ progress, at: at ? [at[0], at[1], at[2]] : null }),
     crystallise: rec("crystallise"),
     lockOpened: rec("lockOpened"),
     boxOpened: rec("boxOpened"),
@@ -168,6 +168,7 @@ function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "ri
     rewardTaken: vrec("rewardTaken"),
     offerNext: vrec("offerNext"),
     hintLanternAt: () => false,
+    coach: vrec("coach"),
     update: () => {
       const a = view.acts;
       view.acts = 0;
@@ -175,15 +176,26 @@ function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "ri
     },
   };
   // One hand: the finger over the gap is the one finger there is (HandsInBox picks the hand whose finger covers it).
+  // The test bumps `version` whenever it changes the finger, as the hand system does when the shadow changed.
   const finger = {
     finger: [] as V2[][],
     nFinger: 0,
     fingerZ: Number.NaN,
     tracked: false,
+    version: 0,
+    controllers: false,
     depthOver(gap: readonly V2[]) {
       return gap.length > 0 && this.nFinger > 0 ? this.fingerZ : Number.NaN;
     },
+    tip(out: Vec3) {
+      if (this.nFinger === 0) return false;
+      out[0] = 0.1;
+      out[1] = 1.0;
+      out[2] = -0.5;
+      return true;
+    },
   };
+  const fingerCalls: { progress: number | null; at: Vec3 | null }[] = [];
   const head = { hit: null as V3 | null };
   let wall = Date.UTC(2026, 10, 6, 12);
   const deps: BoxSessionDeps = {
@@ -231,6 +243,7 @@ function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "ri
     aligned,
     pos,
     finger,
+    fingerCalls,
     head,
     view,
     saves: () => saves,
@@ -266,16 +279,21 @@ function openPlainLocks(h: Harness): void {
   }
 }
 
+/** A finger whose shadow is `poly` at depth `z` (none: the finger leaves), as the hand system reports a change. */
+function setFinger(h: Harness, poly: V2[] | null, z = 0.45): void {
+  h.finger.finger = poly ? [poly] : [];
+  h.finger.nFinger = poly ? 1 : 0;
+  h.finger.fingerZ = poly ? z : Number.NaN;
+  h.finger.tracked = true;
+  h.finger.version++;
+}
+
 /** Open a finger lock: the lantern on its spot and a finger whose shadow is exactly the missing piece. */
 function openFingerLock(h: Harness, l: Lock): void {
   h.place(l.L);
-  h.finger.finger = [l.target[l.missing]!];
-  h.finger.nFinger = 1;
-  h.finger.fingerZ = 0.45;
-  h.finger.tracked = true;
+  setFinger(h, l.target[l.missing]!);
   h.until(() => h.session.isOpen(l.i), 3000);
-  h.finger.nFinger = 0;
-  h.finger.fingerZ = Number.NaN;
+  setFinger(h, null);
 }
 
 describe("box session", () => {
@@ -359,16 +377,15 @@ describe("box session", () => {
     h.frames(3);
     // The scraps in place, the gap empty: one piece short.
     expect(h.types("short")).toEqual([{ type: "short", lock: fl.i }]);
-    h.finger.finger = [fl.target[fl.missing]!];
-    h.finger.nFinger = 1;
-    h.finger.fingerZ = 0.45;
-    h.finger.tracked = true;
+    setFinger(h, fl.target[fl.missing]!);
     h.until(() => h.types("crystallise").length > 0, 2000);
     expect(h.calls.filter((c) => c.startsWith("crystals.crystallise"))).toHaveLength(1);
     expect(h.calls).toContain(`crystallise ${fl.i}`);
     expect(h.session.isOpen(fl.i)).toBe(false);
+    // The fingertip hum plays at the fingertip.
+    expect(h.fingerCalls.at(-1)).toEqual({ progress: expect.any(Number), at: [0.1, 1.0, -0.5] });
     const t0 = h.now();
-    h.finger.nFinger = 0;
+    setFinger(h, null);
     h.until(() => h.session.isOpen(fl.i), 2000);
     expect(h.now() - t0).toBeGreaterThanOrEqual(CRYSTAL_MS - DT);
     expect(h.types("finger").length).toBeGreaterThan(0);
@@ -459,7 +476,7 @@ describe("box session", () => {
     expect(off.types("warmth").every((e) => (e as { w: number }).w === 0)).toBe(true);
   });
 
-  it("a taken reward adds one collection item", async () => {
+  it("an opened box adds one collection item, before the reward is taken", async () => {
     const h = harness();
     await h.session.start(BOX(1));
     const box = h.session.box!;
@@ -467,22 +484,27 @@ describe("box session", () => {
     openPlainLocks(h);
     const elapsed = h.session.elapsedMs;
     expect(h.session.stage).toBe("opening");
+    expect(h.profile.collection).toEqual([]);
+    const saves = h.saves();
     h.until(() => h.types("box-open").length > 0, LOCK_TO_BOX_MS + 100);
     expect(h.types("box-open")).toEqual([{ type: "box-open", key: box.key }]);
     expect(h.calls).toContain(`boxOpened ${JSON.stringify(box.key)}`);
-    // Solved: the next box is box 2 and nothing is in progress; the reward is not taken yet.
+    // Solved and saved: the next box is box 2, nothing is in progress, and the reward is in the collection with the
+    // time and hints final (a reload before the take loses nothing). It cannot be taken until it is up.
     expect(h.profile.nextBox).toBe(2);
     expect(h.profile.current).toBeNull();
-    expect(h.profile.collection).toEqual([]);
+    expect(h.saves()).toBe(saves + 1);
+    expect(h.profile.collection).toHaveLength(1);
+    expect(h.profile.collection[0]).toMatchObject({ key: box.key, owner: box.owner, loot: box.loot, shapes: [box.locks[0]!.shape], hints: 1 });
+    expect(h.profile.collection[0]!.timeMs).toBeCloseTo(elapsed, 6);
     expect(h.session.takeReward()).toBe(false);
     h.until(() => h.session.stage === "reward", REWARD_UP_MS + 100);
-    // Dropped toward the player.
+    // Dropped toward the player: the moment the player sees, nothing more to record.
     h.view.acts = ACT_TAKE;
     h.frames(1);
     expect(h.session.stage).toBe("offered");
     expect(h.profile.collection).toHaveLength(1);
-    expect(h.profile.collection[0]).toMatchObject({ key: box.key, owner: box.owner, loot: box.loot, shapes: [box.locks[0]!.shape], hints: 1 });
-    expect(h.profile.collection[0]!.timeMs).toBeCloseTo(elapsed, 6);
+    expect(h.saves()).toBe(saves + 1);
     expect(h.types("reward-taken")).toEqual([{ type: "reward-taken", key: box.key }]);
     expect(h.view.calls).toContain("offerNext true");
     expect(h.session.takeReward()).toBe(false);
@@ -497,7 +519,7 @@ describe("box session", () => {
     expect(h.session.stage).toBe("playing");
   });
 
-  it("a reward nobody takes is collected after 8 s", async () => {
+  it("a reward nobody takes is taken by itself after 8 s", async () => {
     const h = harness();
     await h.session.start(BOX(1));
     openPlainLocks(h);
@@ -615,5 +637,166 @@ describe("box session", () => {
     expect(h.pos[0]).toBeLessThan(0);
     openPlainLocks(h);
     expect(h.session.isOpen(0)).toBe(true);
+  });
+
+  it("a practice box never touches the player's progress, and its Next is the next practice box", async () => {
+    const profile = newProfile(0, "test");
+    profile.nextBox = 7;
+    const box7: BoxSnapshot = { key: generateBox(BOX(7)).key, gen: GENERATOR_VERSION, lantern: [0, -0.3, 1.3], open: [0], crystal: [], elapsedMs: 4000, hints: 1, hintLevel: { 0: 1 } };
+    profile.current = box7;
+    const before = JSON.stringify(profile);
+    const h = harness({ profile });
+    await h.session.start(BOX(3), null, { practice: true });
+    expect(h.session.practice).toBe(true);
+    expect(h.session.saving).toBeNull();
+    openPlainLocks(h);
+    for (const l of h.session.box!.locks) if (l.finger) openFingerLock(h, l);
+    h.until(() => h.session.stage === "reward", LOCK_TO_BOX_MS + REWARD_UP_MS + 100);
+    expect(h.types("box-open")).toHaveLength(1);
+    h.view.acts = ACT_TAKE;
+    h.frames(1);
+    expect(h.session.stage).toBe("offered");
+    // Solved, taken: the box in progress, the next box and the collection are as they were, and nothing was saved.
+    expect(JSON.stringify(profile)).toBe(before);
+    expect(h.saves()).toBe(0);
+    h.view.acts = ACT_NEXT;
+    h.frames(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.session.box?.key).toBe(generateBox(BOX(4)).key);
+    expect(h.session.practice).toBe(true);
+    expect(h.session.saving).toBeNull();
+    // A real box after it saves again.
+    await h.session.start(BOX(7), profile.current);
+    expect(h.session.practice).toBe(false);
+    expect(h.session.saving).toEqual(BOX(7));
+    expect(h.session.isOpen(0)).toBe(true);
+  });
+
+  it("Next after a Daily Box resumes the box in progress", async () => {
+    const profile = newProfile(0, "test");
+    profile.nextBox = 2;
+    const a = harness({ profile });
+    await a.session.start(BOX(2));
+    a.place(a.session.box!.locks[0]!.L);
+    a.until(() => a.session.isOpen(0), 1000);
+    profile.current = a.session.snapshot();
+    const h = harness({ profile });
+    await h.session.start({ kind: "daily", day: "2026-11-06" });
+    openPlainLocks(h);
+    for (const l of h.session.box!.locks) if (l.finger) openFingerLock(h, l);
+    h.until(() => h.session.stage === "reward", LOCK_TO_BOX_MS + REWARD_UP_MS + 100);
+    h.view.acts = ACT_TAKE;
+    h.frames(1);
+    h.view.acts = ACT_NEXT;
+    h.frames(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.session.box?.key).toBe(generateBox(BOX(2)).key);
+    expect(h.session.isOpen(0)).toBe(true);
+  });
+
+  it("the fingertip hum stops whenever play does: the last lock, a new box, out of view", async () => {
+    const h = harness();
+    await h.session.start(BOX(3));
+    const box = h.session.box!;
+    const fl = box.locks.find((l) => l.finger)!;
+    const plain = box.locks.find((l) => !l.finger)!;
+    openFingerLock(h, fl);
+    h.frames(1);
+    expect(h.fingerCalls.at(-1)!.progress).toBeNull();
+    // A finger back in the beam hums; the last lock opening ends play, and the hum, for good.
+    setFinger(h, fl.target[fl.missing]!);
+    h.frames(2);
+    expect(h.fingerCalls.at(-1)!.progress).not.toBeNull();
+    h.place(plain.L);
+    h.until(() => h.session.stage === "opening", 1000);
+    expect(h.fingerCalls.at(-1)!.progress).toBeNull();
+    const n = h.fingerCalls.length;
+    h.frames(30);
+    expect(h.fingerCalls.length).toBe(n);
+    // Out of view, and a new box.
+    const g = harness();
+    await g.session.start(BOX(3));
+    setFinger(g, [
+      [0, 0],
+      [0.05, 0],
+      [0.05, 0.05],
+    ]);
+    g.frames(2);
+    expect(g.fingerCalls.at(-1)!.progress).not.toBeNull();
+    g.session.pause(g.now());
+    expect(g.fingerCalls.at(-1)!.progress).toBeNull();
+    g.session.resume(g.now());
+    g.frames(2);
+    expect(g.fingerCalls.at(-1)!.progress).not.toBeNull();
+    await g.session.start(BOX(4));
+    expect(g.fingerCalls.at(-1)!.progress).toBeNull();
+  });
+
+  it("the focus clears when the lock in focus opens, and an open lock is never focused", async () => {
+    const h = harness();
+    await h.session.start(BOX(2));
+    const a = h.session.box!.locks[0]!;
+    h.head.hit = [a.center[0], a.center[1], 0];
+    h.until(() => h.session.focus === 0, 1000);
+    h.place(a.L);
+    h.until(() => h.session.isOpen(0), 1000);
+    expect(h.session.focus).toBeNull();
+    expect(h.types("focus")).toEqual([
+      { type: "focus", lock: 0 },
+      { type: "focus", lock: null },
+    ]);
+    expect(h.calls.filter((c) => c.startsWith("focus"))).toEqual(["focus 0", "focus null"]);
+    // Still looking at it: no focus comes back.
+    h.frames(Math.ceil((2 * GAZE_DWELL_MS) / DT));
+    expect(h.session.focus).toBeNull();
+    expect(h.types("focus")).toHaveLength(2);
+  });
+
+  it("a still finger measures nothing: the locks are measured again only when its shadow changes", async () => {
+    const h = harness();
+    await h.session.start(BOX(3));
+    const fl = h.session.box!.locks.find((l) => l.finger)!;
+    const cov = h.session.fingerLock(fl.i)!.coverage;
+    h.place(fl.L);
+    h.frames(2);
+    const empty = cov.gap;
+    setFinger(h, fl.target[fl.missing]!);
+    h.frames(1);
+    const filled = cov.gap;
+    expect(filled).toBeGreaterThan(empty);
+    // The shadow changes without the counter moving: nothing is measured (the lantern is still too).
+    h.finger.finger = [];
+    h.finger.nFinger = 0;
+    h.frames(2);
+    expect(cov.gap).toBe(filled);
+    // The counter moves: measured again.
+    h.finger.version++;
+    h.frames(1);
+    expect(cov.gap).toBe(empty);
+  });
+
+  it("with controllers in use, a finger lock one piece short shows the coach line until its gap is filled", async () => {
+    const h = harness();
+    h.finger.controllers = true;
+    await h.session.start(BOX(3));
+    const fl = h.session.box!.locks.find((l) => l.finger)!;
+    h.frames(3);
+    expect(h.types("coach")).toEqual([]);
+    h.place(fl.L);
+    h.frames(3);
+    expect(h.types("coach")).toEqual([{ type: "coach", line: "controllerFinger" }]);
+    expect(h.view.calls).toContain("coach controllerFinger");
+    openFingerLock(h, fl);
+    expect(h.types("coach")).toEqual([
+      { type: "coach", line: "controllerFinger" },
+      { type: "coach", line: null },
+    ]);
+    // Without controllers, no line.
+    const g = harness();
+    await g.session.start(BOX(3));
+    g.place(fl.L);
+    g.frames(3);
+    expect(g.types("short")).toHaveLength(1);
+    expect(g.types("coach")).toEqual([]);
   });
 });

@@ -201,15 +201,29 @@ function inMouth(box: Float64Array): boolean {
   return false;
 }
 
+/**
+ * A held controller's stand-in finger (no free hand's finger in the beam): a fingertip-sized capsule along the
+ * controller's aim, from this far past its front back a finger's length (an index finger's last two bones).
+ */
+export const STAND_IN = { pastCm: 2, lengthCm: 4.5 } as const;
+
+/** True when the box point (x, y, z) is in the box mouth (MOUTH_Z deep, within MOUTH_XY of the middle). */
+function pointInMouth(x: number, y: number, z: number): boolean {
+  return z <= MOUTH_Z && x <= MOUTH_XY && x >= -MOUTH_XY && y <= MOUTH_XY && y >= -MOUTH_XY;
+}
+
 export class HandShadow {
   /** Each outline's depth this frame, by output index: its bone's mean box z as cast (for the penumbra). */
-  readonly depth = new Float32Array(MAX_HAND_OUTLINES);
+  readonly depth = new Float32Array(MAX_HAND_OUTLINES + 1);
   /** Outlines each hand cast this frame: left, then right. */
   readonly cast = new Int32Array(2);
   /** Each hand's finger depth this frame (its finger bones' mean box z as cast), NaN with no finger in the beam. */
   readonly handFingerZ = new Float64Array([Number.NaN, Number.NaN]);
   /** Which hand (0 left, 1 right) cast each finger outline, by its index in outFinger. */
-  readonly fingerHand = new Int8Array(MAX_FINGER_OUTLINES);
+  readonly fingerHand = new Int8Array(MAX_FINGER_OUTLINES + 1);
+  /** A stand-in finger's two ends (box units: front x, y, z, then back x, y, z), as castStandIn reads them. */
+  readonly standIn = new Float64Array(6);
+  private readonly standInOutline: V2[] = Array.from({ length: OUTLINE_CORNERS }, (): V2 => [0, 0]);
   /** One outline per bone slot (hand * BONES_PER_HAND + bone), handed out by reference. */
   private readonly outlines: V2[][] = Array.from({ length: MAX_HAND_OUTLINES }, () =>
     Array.from({ length: OUTLINE_CORNERS }, (): V2 => [0, 0]),
@@ -293,6 +307,46 @@ export class HandShadow {
     r.n = n;
     r.nFinger = nf;
     r.fingerZ = zCount ? zSum / zCount : Number.NaN;
+    return r;
+  }
+
+  /**
+   * After update, with no hand's finger in the beam: a held controller's stand-in finger (hand `h`) cast from L like a
+   * finger bone (radius FINGER_RADIUS_CM, cut at the panel, held to MAX_MAGNIFICATION) between `standIn`'s ends, into
+   * out[n] and outFinger[nFinger] of the same result, when either end is in the box mouth. Returns the result (the same
+   * object update returned), unchanged when the stand-in is out of the mouth. Allocation-free.
+   */
+  castStandIn(h: 0 | 1, m: Matrix4, L: Readonly<V3>, out: V2[][], outFinger: V2[][]): HandShadowResult {
+    const r = this.result, s = this.standIn;
+    const Lx = L[0], Ly = L[1], Lz = L[2];
+    const ax = s[0]!, ay = s[1]!, az = s[2]!, bx = s[3]!, by = s[4]!, bz = s[5]!;
+    if (!(Lz > 0) || r.nFinger > 0 || !(pointInMouth(ax, ay, az) || pointInMouth(bx, by, bz))) return r;
+    if (az < 0 && bz < 0) return r;
+    const e = m.elements;
+    const rFinger = FINGER_RADIUS_CM / 100 / Math.sqrt(e[0]! * e[0]! + e[1]! * e[1]! + e[2]! * e[2]!);
+    const zMax = Lz * (1 - 1 / MAX_MAGNIFICATION);
+    const dx = bx - ax, dy = by - ay, dz = bz - az;
+    const t0 = az < 0 ? -az / dz : 0, t1 = bz < 0 ? -az / dz : 1;
+    const pax = ax + dx * t0, pay = ay + dy * t0, paz = Math.min(az + dz * t0, zMax);
+    const pbx = ax + dx * t1, pby = ay + dy * t1, pbz = Math.min(az + dz * t1, zMax);
+    const ka = Lz / (Lz - paz), kb = Lz / (Lz - pbz), cc = this.circles, poly = this.standInOutline;
+    cc[0] = Lx + (pax - Lx) * ka;
+    cc[1] = Ly + (pay - Ly) * ka;
+    cc[2] = rFinger * ka;
+    cc[3] = Lx + (pbx - Lx) * kb;
+    cc[4] = Ly + (pby - Ly) * kb;
+    cc[5] = rFinger * kb;
+    capsuleOutline(cc, poly);
+    const z = (paz + pbz) / 2;
+    out[r.n] = poly;
+    this.depth[r.n] = z;
+    r.n++;
+    this.cast[h] = this.cast[h]! + 1;
+    this.fingerHand[0] = h;
+    outFinger[0] = poly;
+    r.nFinger = 1;
+    this.handFingerZ[h] = z;
+    r.fingerZ = z;
     return r;
   }
 

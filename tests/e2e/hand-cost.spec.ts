@@ -1,10 +1,11 @@
 // e2e: exclusive (times real milliseconds: scripts/e2e.sh runs this spec alone on the server)
 // What the hands in the box cost a frame once the engine has optimised them: the "hands" system (the depth mask and
 // both hands' shadow outlines from the lantern) at 4x CPU throttle, and what the hands' path allocates, box 3's finger
-// lock included (the box session measures it with the finger every frame and runs its hold, in the "game" system,
-// timed over the same frames and reported). Both hands in the beam, the right one's finger sliding along just beside
-// the gap, so the lock never opens and keeps measuring: the most the path does in a frame. The box's update
-// ("shell"), which casts the hands' 36 outlines into the panel's shadow mesh every frame, is timed and reported too.
+// lock included (the box session measures it with the finger whenever the finger's shadow changed and runs its hold,
+// in the "game" system, timed over the same frames and judged by the same stall rule against GAME_BUDGET_MS). Both
+// hands in the beam, the right one's finger sliding along just beside the gap, so its shadow changes every frame and
+// the lock never opens and keeps measuring: the most the path does in a frame. The box's update ("shell"), which
+// casts the hands' 36 outlines into the panel's shadow mesh every frame, is timed and reported too.
 //
 // V8 is told to optimise after a few calls (as lantern-cost.spec.ts does), so a short test sees steady-state code.
 // The path makes no objects, arrays or closures per frame; optimised code still boxes floats at calls it did not
@@ -29,6 +30,12 @@ import {
 } from "./helpers/lantern";
 import { expect, test } from "./helpers/test";
 
+/**
+ * The box session's frame with a finger in the beam ("game": box 3's two locks measured with the finger, its hold,
+ * gaze, rings), mean ms at 4x CPU throttle under the stall rule: what it measured plus half again (0.413 ms judged,
+ * server load 11.6), within the 0.8 ms cap.
+ */
+const GAME_BUDGET_MS = 0.62;
 /** Bytes a frame allocated in the hands' per-frame files, at most (optimised; boxed floats only). */
 const ALLOC_BUDGET = 150;
 /** Bytes a frame any one function of the new modules may allocate. */
@@ -137,6 +144,7 @@ test("the hands in the box cost well under 0.5 ms a frame at 4x CPU throttle and
       rule: withoutStalls(w.hands),
     }));
     const judged = judgeWindows(windows.map((w) => w.hands));
+    const judgedGame = judgeWindows(windows.map((w) => w.game));
     const allocs = ourAllocations(profile, frames, FILES);
     const mesh = ourAllocations(profile, frames, MESH_FILES);
     const fmt = (x: (typeof stats)[number]["hands"]) =>
@@ -151,6 +159,8 @@ test("the hands in the box cost well under 0.5 ms a frame at 4x CPU throttle and
           `server load ${w.load?.toFixed(1) ?? "?"}`,
       ),
       `hands cost: judged on window ${judged.index + 1}: ${judged.meanMs.toFixed(3)} ms a frame without host stalls (${judged.stalls} of them)`,
+      `hands cost: game (a finger in the beam) judged on window ${judgedGame.index + 1}: ${judgedGame.meanMs.toFixed(3)} ms a frame ` +
+        `without host stalls (${judgedGame.stalls} of them), budget ${GAME_BUDGET_MS} ms`,
       `hands cost: ${h.outlines.length} outlines, ${h.mask} mask capsules; allocated in the hands' per-frame files, about ` +
         `${allocs.bytesPerFrame.toFixed(0)} bytes a frame over ${frames} frames` +
         (allocs.byFunction.size ? `: ${[...allocs.byFunction].map(([k, v]) => `${k} ${v.toFixed(0)}`).join("; ")}` : ""),
@@ -162,6 +172,7 @@ test("the hands in the box cost well under 0.5 ms a frame at 4x CPU throttle and
       console.log(d);
     }
     expectWithinBudget(judged, MEAN_BUDGET_MS, "hands");
+    expectWithinBudget(judgedGame, GAME_BUDGET_MS, "game");
     expect(allocs.bytesPerFrame).toBeLessThan(ALLOC_BUDGET);
     expect(mesh.bytesPerFrame).toBeLessThan(MESH_BUDGET);
     const over = [...allocs.byFunction]

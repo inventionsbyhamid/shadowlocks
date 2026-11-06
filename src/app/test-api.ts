@@ -238,6 +238,10 @@ export interface SlSessionState {
   /** The hint lantern glows; its choices are open. */
   hintGlow: boolean;
   hintChoices: boolean;
+  /** The coach line shown (a key of COPY.game), or null. */
+  coach: string | null;
+  /** A practice box (`?box=N`): it never touches the player's progress. */
+  practice: boolean;
 }
 
 /** A key on the box (the plate's Next, the hint lantern and its choices): world centre, facing, size (m), live. */
@@ -288,6 +292,10 @@ export interface SlHands {
   /** Each hand, or null when it is not tracked. */
   left: SlHand | null;
   right: SlHand | null;
+  /** A held controller's stand-in finger this frame: its hand and its ends (box units, front then back), or null. */
+  standIn: { by: "left" | "right"; front: V3; back: V3 } | null;
+  /** The finger shadow's change counter (it moves only when the shadow changed). */
+  version: number;
 }
 
 /** A finger lock of the box shown, as its completion loop sees it this frame. */
