@@ -298,12 +298,30 @@ test("finger shots: the finger in the beam, gold filling the gap, the piece left
   await app.step(10);
   await app.captureHeadset("finger-in-beam-headset", look);
   await app.stepUntil((_ns, w) => w.__sl.fingerLocks()[0].state === "done", { maxMs: 2_000, batch: 1, label: "lock open" });
-  await app.step(Math.round(250 / DT));
-  await app.captureHeadset("finger-gold-fill-headset", look);
-  await app.step(Math.round(250 / DT));
-  await app.captureHeadset("finger-piece-forming-headset", look);
+  // The crystallise's own clock (frame ms since it started) times the shots. A headset capture steps three frames
+  // (about 42 ms) and the last one, after the shot, restores the view: the shot is one frame before what reads after.
+  const crystal = async () => (await fingerLocks(page))[0]!.crystal!;
+  const shot = async (name: string, atMs: number) => {
+    await app.stepUntil((_ns, w, ms) => w.__sl.fingerLocks()[0].crystal.ms >= ms, { arg: atMs - 3 * DT, maxMs: 2_000, batch: 1, label: name });
+    const before = await crystal();
+    await app.captureHeadset(name, look);
+    const after = await crystal();
+    const at = after.formed ? "formed" : `${(after.ms - DT).toFixed(0)} ms in`;
+    console.log(`${name}: crystallise ${before.ms.toFixed(0)} ms in before the capture; shot ${at}, piece ${after.shown ? "shown" : "not yet shown"}`);
+    return after;
+  };
+  // The gold fill, 200 ms in: no piece yet (it forms from 300 ms).
+  const fill = await shot("finger-gold-fill-headset", 200);
+  expect(fill.ms - DT).toBeLessThan(250);
+  expect(fill.shown).toBe(false);
+  // The piece forming, 500 ms in, the fill handing its gold over.
+  const forming = await shot("finger-piece-forming-headset", 500);
+  expect(forming.shown).toBe(true);
+  expect(forming.formed).toBe(false);
   await hand.shift([-into[0], -into[1], -into[2]]);
-  await app.step(Math.ceil(400 / DT));
+  await app.stepUntil((_ns, w) => w.__sl.fingerLocks()[0].crystal.formed, { maxMs: 2_000, batch: 1, label: "formed" });
+  await app.step(10);
   await app.captureHeadset("finger-piece-left-headset", look);
+  expect((await crystal()).formed).toBe(true);
   await app.capture("finger-piece-wide");
 });

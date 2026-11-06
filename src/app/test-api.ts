@@ -235,8 +235,11 @@ export interface SlFingerLock {
   /** This frame's coverage, with the finger, and whether it meets the rule. */
   coverage: { cover: number; spill: number; spillAll: number; gap: number };
   meets: boolean;
-  /** Its crystallised piece: depth, front corners (box units), done forming; null before. */
-  crystal: { z: number; verts: V3[]; formed: boolean } | null;
+  /**
+   * Its crystallised piece: depth, front corners (box units), done forming, frame ms since it started, whether the
+   * brass piece is drawn yet (from 300 ms); null before.
+   */
+  crystal: { z: number; verts: V3[]; formed: boolean; ms: number; shown: boolean } | null;
 }
 
 /** `window.__sl`: Shadow Locks' own test hooks, present only in builds made with VITE_TEST_HOOKS=1. */

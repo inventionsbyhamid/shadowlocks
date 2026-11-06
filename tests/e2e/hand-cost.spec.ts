@@ -46,8 +46,19 @@ const FILES = [
   "/src/feel/finger-hold.ts",
   "/src/core/solve.ts",
   "/src/core/geom.ts",
+  // The box's update, which casts the hands' outlines into the shadow mesh every frame.
+  "/src/render/box-scene.ts",
+  "/src/render/shadow-mesh.ts",
+  "/src/render/fx/crystallise.ts",
 ];
-const NEW_MODULES = ["src/render/hand-shadow.ts", "src/render/hand-mask.ts", "src/app/hand-system.ts", "src/app/finger-lock.ts"];
+const NEW_MODULES = [
+  "src/render/hand-shadow.ts",
+  "src/render/hand-mask.ts",
+  "src/app/hand-system.ts",
+  "src/app/finger-lock.ts",
+  "src/render/box-scene.ts",
+  "src/render/fx/crystallise.ts",
+];
 
 test.use({
   launchOptions: { args: [...CHROME_ARGS, "--js-flags=--invocation-count-for-maglev=5 --invocation-count-for-turbofan=30"] },
