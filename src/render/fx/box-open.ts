@@ -4,7 +4,9 @@
 // lantern, where the reward rises (render/reward.ts). Timed with the sound's box opening (scheduleBoxOpen): walls at
 // +0.7 s, drawer at +1.3 s, the reward with the tune at +1.7 s. Reduced motion: the light fades in place (no sweep, no
 // growth); the walls and drawer still move, slowly. Lives in the box root (box units); `reset` closes everything for
-// the next box. While running: five draw calls (burst, sweep, three panes; the merged glass hides) plus the drawer.
+// the next box. While running: five draw calls (burst, sweep, three panes; the box's side glass and smoked lid hide)
+// plus the drawer. The hinged lid wears the smoked lid's look and fades as it lifts, so it never stands upright
+// behind the plate as a dark pane.
 // Per frame it allocates nothing.
 import {
   AdditiveBlending,
@@ -20,7 +22,7 @@ import {
 } from "@iwsdk/core";
 import type { V3 } from "../../core/types";
 import { COLORS } from "../theme";
-import { clamp01, inOutCubic, outCubic } from "./ease";
+import { clamp01, inOutCubic, outCubic, smoothstep } from "./ease";
 import type { FlashBudget } from "./flash-budget";
 import { sunburstGeometry } from "./lock-open";
 
@@ -44,6 +46,8 @@ export const BOX_OPEN_FX = {
   drawerOut: 0.55,
   /** Reduced motion: the walls and drawer take this much longer. */
   reducedSlow: 1.5,
+  /** The lid fades out between these shares of its swing (gone well before it stands upright behind the plate). */
+  lidFade: [0.15, 0.7] as const,
   /** Half strength when the flash budget refuses. */
   refused: 0.5,
 } as const;
@@ -67,6 +71,9 @@ export class BoxOpenFx {
   private readonly lid = new Group();
   private readonly drawer: Mesh;
   private readonly glass: Object3D | null;
+  private readonly lidGlass: Object3D | null;
+  private readonly lidMat: Material;
+  private readonly lidOpacity: number;
   private t = 1e9;
   private strength = 1;
   private side = 1;
@@ -99,11 +106,17 @@ export class BoxOpenFx {
     this.sweep.name = "Box Sweep";
     this.sweep.position.set(0, 0, 0.012);
     this.sweep.renderOrder = 3;
-    // The panes share the box glass's material (one program); the merged glass hides while they show.
+    // The walls share the side glass's material (one program); the box's own glass and lid hide while they show. The
+    // hinged lid takes the smoked lid's look on a copy of its material, so it can fade as it lifts: swung open it
+    // would stand behind the plate as a large dark pane.
     this.glass = root.getObjectByName("Box Glass") ?? null;
+    this.lidGlass = root.getObjectByName("Box Lid") ?? null;
     const glassMat = ((this.glass as Mesh | null)?.material as Material | undefined) ?? new MeshBasicMaterial({ color: COLORS.glass, transparent: true, opacity: 0.11 });
-    const pane = (name: string, rx: number, ry: number) => {
-      const m = new Mesh(new PlaneGeometry(PANE, PANE), glassMat);
+    const lidMat = ((this.lidGlass as Mesh | null)?.material as Material | undefined)?.clone() ?? glassMat.clone();
+    this.lidMat = lidMat;
+    this.lidOpacity = lidMat.opacity;
+    const pane = (name: string, rx: number, ry: number, mat: Material) => {
+      const m = new Mesh(new PlaneGeometry(PANE, PANE), mat);
       m.name = name;
       m.position.set(0, 0, 0.5);
       m.rotation.set(rx, ry, 0);
@@ -111,11 +124,11 @@ export class BoxOpenFx {
       return m;
     };
     this.left.position.set(-0.5, 0, 0);
-    this.left.add(pane("Box Wall Left", 0, Math.PI / 2));
+    this.left.add(pane("Box Wall Left", 0, Math.PI / 2, glassMat));
     this.right.position.set(0.5, 0, 0);
-    this.right.add(pane("Box Wall Right", 0, -Math.PI / 2));
+    this.right.add(pane("Box Wall Right", 0, -Math.PI / 2, glassMat));
     this.lid.position.set(0, LID_Y, 0);
-    this.lid.add(pane("Box Lid", Math.PI / 2, 0));
+    this.lid.add(pane("Box Lid Open", Math.PI / 2, 0, lidMat));
     const trim = root.getObjectByName("Box Trim") as Mesh | undefined;
     const brass = (trim?.material as Material | undefined) ?? new MeshBasicMaterial({ color: COLORS.metal });
     this.drawer = new Mesh(new BoxGeometry(DRAWER.w, DRAWER.h, DRAWER.d), brass);
@@ -130,9 +143,12 @@ export class BoxOpenFx {
     this.t = 1e9;
     this.group.visible = false;
     if (this.glass) this.glass.visible = true;
+    if (this.lidGlass) this.lidGlass.visible = true;
     this.left.rotation.y = 0;
     this.right.rotation.y = 0;
     this.lid.rotation.x = 0;
+    this.lid.visible = true;
+    this.lidMat.opacity = this.lidOpacity;
   }
 
   /** The box opens; the drawer comes out on side `side` (+1 right, -1 left). */
@@ -142,6 +158,7 @@ export class BoxOpenFx {
     this.t = 0;
     this.group.visible = true;
     if (this.glass) this.glass.visible = false;
+    if (this.lidGlass) this.lidGlass.visible = false;
     this.apply(false);
   }
 
@@ -181,10 +198,14 @@ export class BoxOpenFx {
     this.sweep.scale.set(r, r, 1);
     // The walls and lid swing out at their back edges; the drawer slides toward the player.
     const slow = reduced ? F.reducedSlow : 1;
-    const w = inOutCubic(clamp01((t - F.wallsAtS) / (F.wallsS * slow))) * F.wallAngle;
+    const swing = inOutCubic(clamp01((t - F.wallsAtS) / (F.wallsS * slow))), w = swing * F.wallAngle;
     this.left.rotation.y = -w;
     this.right.rotation.y = w;
     this.lid.rotation.x = -w;
+    // The lid lifts away: it fades as it swings, gone before it would stand upright behind the plate.
+    const lidFade = 1 - smoothstep(F.lidFade[0], F.lidFade[1], swing);
+    this.lidMat.opacity = this.lidOpacity * lidFade;
+    this.lid.visible = lidFade > 0;
     const d = outCubic(clamp01((t - F.drawerAtS) / (F.drawerS * slow)));
     this.drawer.visible = t >= F.drawerAtS;
     this.drawer.position.set(this.side * DRAWER_X, DRAWER.y, DRAWER.z + F.drawerOut * d);
