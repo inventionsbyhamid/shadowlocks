@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import { generateBox } from "../../src/core/generator";
+import { ownedFiles } from "../video/store-setup";
 import {
   ART,
   artHtml,
@@ -19,6 +20,7 @@ import {
   SCREENSHOT_SIZE,
   textSafe,
   TITLE,
+  TITLE_CLEARANCE,
   TITLE_FONT_FILE,
   titleBound,
   toPixels,
@@ -80,7 +82,8 @@ describe("store art", () => {
       expect(box!.right, where).toBeLessThanOrEqual(0.98);
       expect(box!.top, where).toBeGreaterThanOrEqual(0.02);
       expect(box!.bottom, where).toBeLessThanOrEqual(0.98);
-      const margin = 0.03 * Math.min(a.width, a.height);
+      expect(TITLE_CLEARANCE).toBeGreaterThanOrEqual(0.06);
+      const margin = TITLE_CLEARANCE * Math.min(a.width, a.height);
       expect(clearOf(toPixels(titleBound(a.title!), a.width, a.height), toPixels(box!, a.width, a.height), margin), where).toBeNull();
     }
   });
@@ -115,6 +118,14 @@ describe("store art", () => {
     const html = artHtml(icon, { plate: "data:image/png;base64,AA", fontDataUrl: "x", silhouette: shape });
     expect(html).toContain("<polygon");
     expect(html).not.toContain(TITLE);
+  });
+
+  it("owns only the files it makes, so it never removes a hand-placed one", () => {
+    const owned = ownedFiles();
+    expect(owned).toEqual(expect.arrayContaining([...ART.map((a) => a.file), "overview.png", "store-art.json"]));
+    expect(owned.filter((f) => f.startsWith("screenshot-"))).toHaveLength(SCREENSHOT_COUNT);
+    for (const f of owned) expect(f).toMatch(/^[A-Za-z0-9._-]+$/);
+    expect(owned).not.toContain("headset-capture-1.png");
   });
 
   it("refuses text in the top or bottom 20% or against a side", () => {

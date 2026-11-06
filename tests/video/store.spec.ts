@@ -38,6 +38,7 @@ import {
   SCREENSHOT_SIZE,
   screenshotFile,
   textSafe,
+  TITLE_CLEARANCE,
   TITLE_FONT_FILE,
   toPixels,
 } from "./lib/store-art";
@@ -98,11 +99,18 @@ async function aim(page: Page, eye: Vec3, at: Vec3, vfovDeg: number): Promise<vo
 }
 
 /**
+ * The theatre lights dim the room by drawing a dark layer in the app over it (about 65% opaque in play, per the look
+ * pick): a real screenshot needs at least this much of the app layer's opacity over the room (the top band of the
+ * frame, above the box). Without the theatre the app layer is clear there.
+ */
+const THEATRE_MIN_ALPHA = 0.4;
+
+/**
  * Wait for async work, draw `frames` frames (the last one captured in the same task, so no preserved drawing buffer is
  * needed) and return it as a PNG data URL: the room and the app, or (room off) the app alone with its transparent
- * background.
+ * background. `dimAlpha`: the app layer's mean opacity over the top 15% of the frame (the room above the box).
  */
-async function grabFrame(page: Page, room: boolean, frames = 3): Promise<string> {
+async function grabFrame(page: Page, room: boolean, frames = 3): Promise<{ url: string; dimAlpha: number }> {
   return page.evaluate(
     async (o) => {
       const w = window as any;
@@ -112,10 +120,19 @@ async function grabFrame(page: Page, room: boolean, frames = 3): Promise<string>
         w.__nsVideo?.styleHands(true);
         w.__vt.step(o.dt);
       }
+      const app = w.__ns.world.renderer.domElement as HTMLCanvasElement;
+      const small = document.createElement("canvas");
+      small.width = 160;
+      small.height = 90;
+      const s = small.getContext("2d")!;
+      s.drawImage(app, 0, 0, 160, 90);
+      const band = s.getImageData(0, 0, 160, 14).data;
+      let alpha = 0;
+      for (let i = 3; i < band.length; i += 4) alpha += band[i]!;
+      const dimAlpha = alpha / (band.length / 4) / 255;
       let url: string;
       if (o.room) url = w.__nsCapture("image/png") as string;
       else {
-        const app = w.__ns.world.renderer.domElement as HTMLCanvasElement;
         const c = document.createElement("canvas");
         c.width = app.width;
         c.height = app.height;
@@ -123,7 +140,7 @@ async function grabFrame(page: Page, room: boolean, frames = 3): Promise<string>
         url = c.toDataURL("image/png");
       }
       w.__nsVideoSkip = true;
-      return url;
+      return { url, dimAlpha };
     },
     { room, frames, dt: DT },
   );
@@ -151,6 +168,8 @@ interface PlateInfo {
 async function renderPlate(page: Page, boot: BootFn, p: Plate): Promise<PlateInfo> {
   const { app } = await bootAt(page, boot, p.width, p.height);
   await page.evaluate(stopRoomRender);
+  // The covers keep their own dark backdrop: no theatre layer over the box (the setting players have too).
+  await page.evaluate(() => (window as any).__ns.ui.setSettings({ dimming: false }));
   const lantern = await stage(app, page, p.scene);
   let eyeW: Vec3, atW: Vec3, vfov: number, eyeBox: readonly [number, number, number];
   let boxRect: Rect | null = null;
@@ -172,7 +191,7 @@ async function renderPlate(page: Page, boot: BootFn, p: Plate): Promise<PlateInf
     boxRect = boundsOf(world.map((q) => project(q, eyeW, atW, vfov, p.width, p.height)));
   }
   await aim(page, eyeW, atW, vfov);
-  const url = await grabFrame(page, false);
+  const { url } = await grabFrame(page, false);
   writeDataUrl(path.join(PLATES_DIR, `${p.name}.png`), url);
   const cornerAlpha = await page.evaluate(async (u) => {
     const img = new Image();
@@ -306,7 +325,14 @@ for (const [i, shot] of SCREENSHOTS.entries()) {
     const ctx = await bootAt(page, boot, width, height, shot.url);
     const cam = await shot.setup({ app: ctx.app, page, left: ctx.left, right: ctx.right });
     await aim(page, cam.eye, cam.at, cam.vfovDeg);
-    writeDataUrl(path.join(RAW, screenshotFile(i + 1)), await grabFrame(page, true, 4));
+    const { url, dimAlpha } = await grabFrame(page, true, 4);
+    // Store screenshots show the game as played: the room dimmed by the theatre lights, the box glowing.
+    if (dimAlpha < THEATRE_MIN_ALPHA) {
+      throw new Error(
+        `screenshot ${i + 1}: the room is not dimmed (the app layer is ${(dimAlpha * 100).toFixed(0)}% opaque over it, want at least ${THEATRE_MIN_ALPHA * 100}%): render screenshots from a build with the theatre lights`,
+      );
+    }
+    writeDataUrl(path.join(RAW, screenshotFile(i + 1)), url);
   });
 }
 
@@ -368,7 +394,7 @@ test("art: covers, icon and logo cut from the plates, with the title; screenshot
         const safe = textSafe(title, a.width, a.height);
         if (safe) problems.push(`${a.file}: ${safe}`);
         if (info?.boxRect) {
-          const clear = clearOf(title, toPixels(info.boxRect, a.width, a.height), 0.03 * Math.min(a.width, a.height));
+          const clear = clearOf(title, toPixels(info.boxRect, a.width, a.height), TITLE_CLEARANCE * Math.min(a.width, a.height));
           if (clear) problems.push(`${a.file}: ${clear}`);
         }
       }

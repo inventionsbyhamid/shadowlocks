@@ -95,7 +95,7 @@ export const BOX_EXTENT = { min: [-0.62, -0.8, -0.06] as V3, max: [0.62, 0.62, 1
 // checks every view: the box and lantern inside the frame, the title clear of them.
 // The hero's title is centred (VRC.Quest.Asset.4, recommended), so the box stands to its right: the eye slides left of
 // the box and looks almost straight ahead, which keeps the box seen nearly head-on.
-const HERO_VIEW: BoxView = { eye: [-1.75, 0.3, 5.6], at: [-1.85, -0.1, 0.5], vfovDeg: 23 };
+const HERO_VIEW: BoxView = { eye: [-1.85, 0.3, 5.6], at: [-1.95, -0.1, 0.5], vfovDeg: 23 };
 const MINI_VIEW: BoxView = { eye: [-1.75, 0.3, 6.0], at: [-1.85, -0.1, 0.5], vfovDeg: 24 };
 // Title on the left, box on the right.
 const LANDSCAPE_VIEW: BoxView = { eye: [-0.95, 0.3, 4.8], at: [-1.0, -0.16, 0.5], vfovDeg: 30 };
@@ -120,7 +120,7 @@ export const SCREENSHOT_COUNT = 5;
 
 const LEFT_TITLE = (size: number): TitlePlacement => ({ x: 0.255, y: 0.5, size, align: "center", maxWidth: 0.36 });
 /** Centred in the frame, narrow enough to leave the box on the right clear. */
-const CENTRE_TITLE = (size: number): TitlePlacement => ({ x: 0.5, y: 0.5, size, align: "center", maxWidth: 0.3 });
+const CENTRE_TITLE = (size: number): TitlePlacement => ({ x: 0.5, y: 0.5, size, align: "center", maxWidth: 0.28 });
 
 export const ART: Art[] = [
   { file: "hero-cover-3000x900.png", width: 3000, height: 900, plate: "hero", title: CENTRE_TITLE(0.2), alpha: false },
@@ -152,6 +152,9 @@ export function textSafe(r: Rect, width: number, height: number): string | null 
   if (r.left < 0.04 * width || r.right > 0.96 * width) return "text runs into a side margin";
   return null;
 }
+
+/** Clear space between a cover's title and the box: this fraction of the cover's short side (art direction, round 2). */
+export const TITLE_CLEARANCE = 0.06;
 
 /** The title keeps `margin` (same units) of clear space from the box: their rectangles must not come closer. */
 export function clearOf(title: Rect, box: Rect, margin: number): string | null {
