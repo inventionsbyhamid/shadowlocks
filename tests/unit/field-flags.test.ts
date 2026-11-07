@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { disableMultiview, FrameStats, readFieldFlags, startBox, startLesson } from "../../src/app/field-flags";
+import { disableMultiview, FrameStats, frameRateFlag, readFieldFlags, startBox, startLesson } from "../../src/app/field-flags";
 import { recordingName, recordSeconds } from "../../src/app/hand-recorder";
 
 describe("field test flags", () => {
@@ -10,6 +10,14 @@ describe("field test flags", () => {
     expect(readFieldFlags("?perf=0&multiview=0")).toEqual({ perf: false, multiview: false });
     expect(readFieldFlags("?multiview=off&perf=ON")).toEqual({ perf: true, multiview: false });
     expect(readFieldFlags("?multiview=1")).toEqual({ perf: false, multiview: true });
+  });
+
+  it("?hz= names a Quest Browser frame rate to ask for, and nothing else", () => {
+    expect(frameRateFlag("")).toBeNull();
+    expect(frameRateFlag("?hz=90")).toBe(90);
+    expect(frameRateFlag("?perf=1&hz=72")).toBe(72);
+    expect(frameRateFlag("?hz=120")).toBe(120);
+    for (const bad of ["?hz=60", "?hz=", "?hz=90.5", "?hz=fast", "?hz=-90"]) expect(frameRateFlag(bad), bad).toBeNull();
   });
 
   it("multiview off hides only the multiview extension", () => {

@@ -14,6 +14,7 @@ import type { Behind } from "../ui/menus/types";
 import type { Access } from "./access";
 import { on } from "./bus";
 import { STORE_PAGE_URL } from "./edition";
+import { frameRateFlag } from "./field-flags";
 import { detectHeadset, type Headset, targetFrameRate } from "./headset";
 import { Lifecycle, type LifecycleSession, type XrVisibility } from "./lifecycle";
 import { Panels } from "./panels";
@@ -355,17 +356,19 @@ export class Shell {
   }
 
   /**
-   * Ask for the headset's frame rate where it offers it (90 Hz, or 72 Hz on Quest 2 and Quest Pro: headset.ts) and full
-   * foveation where it supports it; never fail over it.
+   * Ask for the headset's frame rate where it offers it (90 Hz, or 72 Hz on Quest 2 and Quest Pro: headset.ts; `?hz=`
+   * names another) and full foveation where it supports it; never fail over it.
    */
   private tuneSession(s: XRSession): void {
     this.headset = detectHeadset(navigator.userAgent, this.world.renderer.getContext());
     this.frameRateAsked = null;
     try {
-      const rate = targetFrameRate(this.headset.class, s.supportedFrameRates);
+      const rate = targetFrameRate(this.headset.class, s.supportedFrameRates, frameRateFlag(location.search));
       if (rate !== null && s.updateTargetFrameRate) {
-        s.updateTargetFrameRate(rate).catch(() => {});
         this.frameRateAsked = rate;
+        s.updateTargetFrameRate(rate).catch(() => {
+          if (this.frameRateAsked === rate) this.frameRateAsked = null;
+        });
       }
     } catch {
       // not supported
