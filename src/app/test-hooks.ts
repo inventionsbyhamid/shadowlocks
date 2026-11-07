@@ -53,6 +53,11 @@ function instrument(world: World, realNow: () => number) {
   const samples: number[] = [];
   let current = 0;
   let last = 0;
+  // The most draw calls and triangles any one frame rendered since the last reset: read as each update starts, when
+  // the renderer's counts still hold the frame just drawn (the first update after a reset reads a frame before it).
+  let callsMax = 0;
+  let trianglesMax = 0;
+  let countFrom = false;
   // Per system: this frame's time and a ring of the last PERF_WINDOW frames (allocation free per frame).
   const per: { name: string; now: number; ring: Float64Array; n: number }[] = [];
   onAppSystem((sys) => {
@@ -69,6 +74,12 @@ function instrument(world: World, realNow: () => number) {
   });
   const update = world.update.bind(world);
   world.update = (d: number, t: number) => {
+    const drawn = world.renderer.info.render;
+    if (countFrom) {
+      if (drawn.calls > callsMax) callsMax = drawn.calls;
+      if (drawn.triangles > trianglesMax) trianglesMax = drawn.triangles;
+    }
+    countFrom = true;
     current = 0;
     for (const p of per) p.now = 0;
     update(d, t);
@@ -107,6 +118,8 @@ function instrument(world: World, realNow: () => number) {
       return {
         calls: info.calls,
         triangles: info.triangles,
+        callsMax: Math.max(callsMax, info.calls),
+        trianglesMax: Math.max(trianglesMax, info.triangles),
         frameMs: last,
         frameMsAvg: all.avg,
         frameMsP95: all.p95,
@@ -118,6 +131,9 @@ function instrument(world: World, realNow: () => number) {
     reset() {
       samples.length = 0;
       last = 0;
+      callsMax = 0;
+      trianglesMax = 0;
+      countFrom = false;
       for (const p of per) p.n = 0;
     },
     /** The named systems' update time per frame, summed, oldest frame first (the same window as perf()). */

@@ -1,6 +1,7 @@
 // e2e: exclusive (times real milliseconds at 4x throttle: scripts/e2e.sh runs this spec alone on the server)
-// The performance budget for a box in play (the plan's rule): box 15 with the lantern carried back and forth in the
-// right hand and the left hand's fingers in the beam, casting. At most 50 draw calls and 100k triangles; our JS (every
+// The performance budget for a box in play (the plan's rule): box 15, played through the box session, with the
+// lantern carried back and forth in the right hand and the left hand's fingers in the beam, casting. At most 50 draw
+// calls and 100k triangles in any one frame (every frame counted); our JS (every
 // app system the perf hook times: hands, lantern, the game, shell with the box and the theatre, menus, sound) at most
 // 3 ms a frame at p95 with the CPU throttled 4x; and no objects, arrays or closures made per frame. Then box 15
 // opened through the box session, its last lock's sunburst and sparkle running into the box's opening and the
@@ -26,7 +27,6 @@ import {
   lantern,
   loadAverage,
   ourAllocations,
-  play,
   STALL_MS,
   TIMED_FRAMES,
   toWorld,
@@ -57,9 +57,17 @@ test("box 15 in play, the lantern moving and a hand in the beam: draw calls, tri
   page,
   boot,
 }, testInfo) => {
-  const app = await play(boot, page);
-  await page.evaluate(() => window.__ns!.scene.show({ n: 15 }));
-  await app.step(2);
+  // Box 15 played through the box session, so its frame ("game") and its view (plate, hint lantern, marks) are
+  // timed and drawn as in play.
+  const app = await boot();
+  await page.evaluate(() => window.__sl!.session.play({ kind: "box", n: 15 }));
+  await app.stepUntil(
+    (_ns, w) => {
+      const s = w.__sl.session.state();
+      return s?.stage === "playing" && s.revealed;
+    },
+    { maxMs: 10_000, label: "box 15 in play" },
+  );
   // The lantern in front of the box's middle, picked up by the right hand and carried between two points in front of
   // the mouth (inside the comfort envelope).
   const right = new Hands(app, "right");
@@ -85,20 +93,15 @@ test("box 15 in play, the lantern moving and a hand in the beam: draw calls, tri
     for (let w = 0; w < WINDOWS; w++) {
       const load0 = loadAverage();
       await page.evaluate(() => window.__ns!.resetPerf());
-      let calls = 0, triangles = 0;
-      for (let i = 0; (await app.perf()).frames < TIMED_FRAMES; i++) {
-        await sweep(i);
-        const p = await app.perf();
-        calls = Math.max(calls, p.calls);
-        triangles = Math.max(triangles, p.triangles);
-      }
+      for (let i = 0; (await app.perf()).frames < TIMED_FRAMES; i++) await sweep(i);
       const frames = (await page.evaluate((s) => window.__ns!.perfFrames(s), SYSTEMS)).slice(-TIMED_FRAMES);
+      // Draw calls and triangles: the most in any one frame of the window, every frame counted.
       const perf = await app.perf();
       const loads = [load0, loadAverage()].filter((l): l is number => l !== undefined);
       windows.push({
         frames,
-        calls,
-        triangles,
+        calls: perf.callsMax,
+        triangles: perf.trianglesMax,
         load: loads.length ? Math.max(...loads) : undefined,
         systems: Object.fromEntries(Object.entries(perf.systems).map(([k, v]) => [k, v.p95Ms])),
       });
@@ -114,6 +117,8 @@ test("box 15 in play, the lantern moving and a hand in the beam: draw calls, tri
     for (let i = 0; i < 4; i++) await sweep(i);
     const nFrames = (await page.evaluate(() => (window as unknown as { __vt: { frames: number } }).__vt.frames)) - f0;
     const { profile } = (await cdp.send("HeapProfiler.stopSampling")) as unknown as { profile: HeapProfile };
+    // Measured in play: the session ran the box all along (the carry opened none of its locks).
+    const st = (await page.evaluate(() => window.__sl!.session.state()))!;
     const all = ourAllocations(profile, nFrames, ["/src/"]);
     const game = [...all.byFunction].filter(([k]) => !TEST_ONLY.some((t) => k.startsWith(t)));
     const bytes = game.reduce((s, [, v]) => s + v, 0);
@@ -128,7 +133,8 @@ test("box 15 in play, the lantern moving and a hand in the beam: draw calls, tri
           `max ${stats[i]!.maxMs.toFixed(2)} ms (${stats[i]!.rule.stalls} host stalls over ${STALL_MS} ms); server load ${w.load?.toFixed(1) ?? "?"}; ` +
           `p95 by system: ${Object.entries(w.systems).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")}`,
       ),
-      `perf-budget: judged on window ${best + 1}: p95 ${stats[best]!.p95Ms.toFixed(2)} ms a frame`,
+      `perf-budget: judged on window ${best + 1}: p95 ${stats[best]!.p95Ms.toFixed(2)} ms a frame; box 15 through the box ` +
+        `session, stage ${st.stage}, ${st.open.length} locks open`,
       `perf-budget: our per-frame code allocated about ${bytes.toFixed(0)} bytes a frame over ${nFrames} frames` +
         (game.length ? `: ${game.sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k} ${v.toFixed(0)}`).join("; ")}` : ""),
     ];
@@ -136,6 +142,8 @@ test("box 15 in play, the lantern moving and a hand in the beam: draw calls, tri
       testInfo.annotations.push({ type: "perf", description: d });
       console.log(d);
     }
+    expect(st.stage).toBe("playing");
+    expect(st.open).toEqual([]);
     for (const w of windows) {
       expect(w.calls).toBeLessThanOrEqual(MAX_CALLS);
       expect(w.triangles).toBeLessThanOrEqual(MAX_TRIANGLES);
