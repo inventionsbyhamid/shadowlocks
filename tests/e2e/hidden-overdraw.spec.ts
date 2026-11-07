@@ -57,6 +57,7 @@ test("the hidden-overdraw trims change no pixel and shade less lacquer: Home, Se
   const app = await boot();
   // The project's Quest 3 profile keeps the standard path: 90 Hz asked for (the older Quests' 72 Hz is theirs only).
   expect(await page.evaluate(() => window.__ns!.headset())).toMatchObject({ class: "standard", frameRate: 90 });
+  await app.stepUntil((_ns, w) => (w.__ns.world as { session?: XRSession }).session?.frameRate === 90, { maxMs: 2_000, label: "the session at 90 Hz" });
   await app.stepUntil((ns) => !ns.ui.busy(), { maxMs: 5_000, label: "home at rest" });
   await app.step(36);
   const home = await compare(page, "home");

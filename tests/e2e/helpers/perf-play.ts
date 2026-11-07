@@ -2,6 +2,7 @@
 // perf-budget-quest2.spec.ts on Quest 2's): box 15 played through the box session, the lantern carried back and forth
 // in the right hand and the left hand's fingers in the beam, casting; then windows of frames timed with the CPU
 // throttled.
+import fs from "node:fs";
 import type { Page } from "@playwright/test";
 import { hands, Pointer, worldOf } from "./finger";
 import { Hands } from "./hands";
@@ -16,6 +17,10 @@ export const PLAY_SYSTEMS = ["hand-pinch", "hands", "lantern", "game", "menus", 
 export interface PlayWindow {
   /** Our systems' update time a frame (real ms), the window's frames in order. */
   frames: number[];
+  /** Each of PLAY_SYSTEMS' own time, the same frames. */
+  bySystem: Record<string, number[]>;
+  /** The periods the kernel paused the test container meanwhile (containerThrottles), or null when unknown. */
+  throttled: number | null;
   /** Every system's update a frame, IWSDK's (input, UI) and ours (real ms). */
   update: number[];
   /**
@@ -63,17 +68,46 @@ export async function box15InPlay(app: XrApp, page: Page): Promise<(i: number) =
   return sweep;
 }
 
-/** WINDOWS windows of TIMED_FRAMES frames one after the other, sweeping, with the CPU throttled `rate` times. */
-export async function timedWindows(app: XrApp, page: Page, sweep: (i: number) => Promise<void>, rate: number): Promise<PlayWindow[]> {
+/**
+ * How many 100 ms periods the kernel has paused this test container for using more CPU than its quota (the cgroup's
+ * `nr_throttled`; helpers/stall-rule.ts, judgeSystemWindowsP95), or null where the counter cannot be read.
+ */
+export function containerThrottles(): number | null {
+  for (const f of ["/sys/fs/cgroup/cpu.stat", "/sys/fs/cgroup/cpu/cpu.stat"]) {
+    try {
+      const m = /^nr_throttled (\d+)$/m.exec(fs.readFileSync(f, "utf8"));
+      if (m) return Number(m[1]);
+    } catch {
+      // the next place
+    }
+  }
+  return null;
+}
+
+/** `count` windows (WINDOWS by default) of TIMED_FRAMES frames one after the other, sweeping, the CPU throttled `rate` times. */
+export async function timedWindows(
+  app: XrApp,
+  page: Page,
+  sweep: (i: number) => Promise<void>,
+  rate: number,
+  count = WINDOWS,
+): Promise<PlayWindow[]> {
   const cdp = await page.context().newCDPSession(page);
   const windows: PlayWindow[] = [];
   try {
     await cdp.send("Emulation.setCPUThrottlingRate", { rate });
-    for (let w = 0; w < WINDOWS; w++) {
+    for (let w = 0; w < count; w++) {
       const load0 = loadAverage();
       await page.evaluate(() => window.__ns!.resetPerf());
+      const throttled0 = containerThrottles();
       for (let i = 0; (await app.perf()).frames < TIMED_FRAMES; i++) await sweep(i);
+      const throttled1 = containerThrottles();
       const frames = (await page.evaluate((s) => window.__ns!.perfFrames(s), PLAY_SYSTEMS)).slice(-TIMED_FRAMES);
+      // Each of our systems' own time, the same frames (where a stall fell).
+      const bySystem = await page.evaluate(
+        ({ names, n }) => Object.fromEntries(names.map((k) => [k, window.__ns!.perfFrames([k]).slice(-n)])),
+        { names: PLAY_SYSTEMS, n: TIMED_FRAMES },
+      );
       const whole = await page.evaluate(() => window.__ns!.perfWhole());
       const from = Math.max(0, whole.update.length - TIMED_FRAMES);
       // Draw calls and triangles: the most in any one frame of the window, every frame counted.
@@ -81,6 +115,8 @@ export async function timedWindows(app: XrApp, page: Page, sweep: (i: number) =>
       const loads = [load0, loadAverage()].filter((l): l is number => l !== undefined);
       windows.push({
         frames,
+        bySystem,
+        throttled: throttled0 !== null && throttled1 !== null ? throttled1 - throttled0 : null,
         update: whole.update.slice(from),
         render: whole.render.slice(from),
         calls: perf.callsMax,
@@ -91,6 +127,7 @@ export async function timedWindows(app: XrApp, page: Page, sweep: (i: number) =>
     }
   } finally {
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+    await cdp.detach();
   }
   return windows;
 }
