@@ -15,6 +15,10 @@
 //
 // Pure geometry on the one joint read a frame (HandJoints, world space) through the box's matrix. Every outline is
 // preallocated per bone slot and handed out by reference: nothing is allocated per frame.
+//
+// A HandShadow casts tracked hands' bones (HAND_BONES at FINGER_RADIUS_CM and PALM_RADIUS_CM) unless it is given a
+// bone table of its own (ShadowBones): the lessons' ghost hand casts its own slimmer, tapered bones that way, so its
+// shadow matches the hand drawn.
 import type { Matrix4 } from "@iwsdk/core";
 import { inPoly } from "../core/geom";
 import type { V2, V3 } from "../core/types";
@@ -84,8 +88,33 @@ const INDEX_JOINTS = Int32Array.from(
   ["index-finger-phalanx-intermediate", "index-finger-phalanx-distal", "index-finger-tip"] as XRHandJoint[],
   jointIndex,
 );
-/** Finger outlines both hands can cast in a frame. */
-const MAX_FINGER_OUTLINES = 2 * HAND_BONES.filter((b) => b.finger).length;
+/**
+ * The bones a HandShadow casts, as it reads them: per bone its two joints (indices into a hand's joint table), its
+ * radius in metres at each end (the shadow of a tapered capsule is the hull of two circles), and whether it is one of
+ * the finger's bones (outFinger).
+ */
+export interface ShadowBones {
+  readonly a: Int32Array;
+  readonly b: Int32Array;
+  readonly ra: Float64Array;
+  readonly rb: Float64Array;
+  readonly finger: Uint8Array;
+}
+
+/** A tracked hand's bones: HAND_BONES, a finger's at FINGER_RADIUS_CM and the palm's at PALM_RADIUS_CM. */
+export const TRACKED_BONES: ShadowBones = {
+  a: BONE_A,
+  b: BONE_B,
+  ra: Float64Array.from(HAND_BONES, (b) => (b.palm ? PALM_RADIUS_CM : FINGER_RADIUS_CM) / 100),
+  rb: Float64Array.from(HAND_BONES, (b) => (b.palm ? PALM_RADIUS_CM : FINGER_RADIUS_CM) / 100),
+  finger: Uint8Array.from(HAND_BONES, (b) => (b.finger ? 1 : 0)),
+};
+
+/** The joints a bone table uses (indices into a hand's joint table, ascending). */
+function usedJoints(bones: ShadowBones): Int32Array {
+  const used = new Set<number>([...bones.a, ...bones.b]);
+  return Int32Array.from([...used].sort((x, y) => x - y));
+}
 
 /** Corners of a circle outline (the cos and sin of each corner's angle). */
 const CIRCLE_COS = Float64Array.from({ length: OUTLINE_CORNERS }, (_, i) => Math.cos((2 * Math.PI * i) / OUTLINE_CORNERS));
@@ -162,14 +191,14 @@ export interface HandShadowResult {
 /**
  * Read the joints any bone uses of one tracked hand into `out` (x, y, z each, HAND_JOINTS order): world metres, or
  * box units through the box matrix `m` (worldToBox's sum, written out so no float crosses a call). Joints no bone
- * uses are left as they were. False when the hand is not tracked.
+ * uses (of HAND_BONES, or the joints `used` lists) are left as they were. False when the hand is not tracked.
  */
-export function readHand(joints: HandJoints, side: HandSide, m: Matrix4 | null, out: Float64Array): boolean {
+export function readHand(joints: HandJoints, side: HandSide, m: Matrix4 | null, out: Float64Array, used: Int32Array = USED_INDEX): boolean {
   const w = joints.positions(side);
   if (!w) return false;
   if (!m) {
-    for (let k = 0; k < USED_INDEX.length; k++) {
-      const o = USED_INDEX[k]! * 3;
+    for (let k = 0; k < used.length; k++) {
+      const o = used[k]! * 3;
       out[o] = w[o]!;
       out[o + 1] = w[o + 1]!;
       out[o + 2] = w[o + 2]!;
@@ -181,8 +210,8 @@ export function readHand(joints: HandJoints, side: HandSide, m: Matrix4 | null, 
   const e = m.elements;
   const e0 = e[0]!, e1 = e[1]!, e2 = e[2]!, e4 = e[4]!, e5 = e[5]!, e6 = e[6]!, e8 = e[8]!, e9 = e[9]!, e10 = e[10]!;
   const tx = e[12]!, ty = e[13]!, tz = e[14]!, s2 = e0 * e0 + e1 * e1 + e2 * e2;
-  for (let k = 0; k < USED_INDEX.length; k++) {
-    const o = USED_INDEX[k]! * 3;
+  for (let k = 0; k < used.length; k++) {
+    const o = used[k]! * 3;
     const dx = w[o]! - tx, dy = w[o + 1]! - ty, dz = w[o + 2]! - tz;
     out[o] = (e0 * dx + e1 * dy + e2 * dz) / s2;
     out[o + 1] = (e4 * dx + e5 * dy + e6 * dz) / s2;
@@ -214,24 +243,40 @@ function pointInMouth(x: number, y: number, z: number): boolean {
 
 export class HandShadow {
   /** Each outline's depth this frame, by output index: its bone's mean box z as cast (for the penumbra). */
-  readonly depth = new Float32Array(MAX_HAND_OUTLINES + 1);
+  readonly depth: Float32Array;
   /** Outlines each hand cast this frame: left, then right. */
   readonly cast = new Int32Array(2);
   /** Each hand's finger depth this frame (its finger bones' mean box z as cast), NaN with no finger in the beam. */
   readonly handFingerZ = new Float64Array([Number.NaN, Number.NaN]);
   /** Which hand (0 left, 1 right) cast each finger outline, by its index in outFinger. */
-  readonly fingerHand = new Int8Array(MAX_FINGER_OUTLINES + 1);
+  readonly fingerHand: Int8Array;
   /** A stand-in finger's two ends (box units: front x, y, z, then back x, y, z), as castStandIn reads them. */
   readonly standIn = new Float64Array(6);
   private readonly standInOutline: V2[] = Array.from({ length: OUTLINE_CORNERS }, (): V2 => [0, 0]);
-  /** One outline per bone slot (hand * BONES_PER_HAND + bone), handed out by reference. */
-  private readonly outlines: V2[][] = Array.from({ length: MAX_HAND_OUTLINES }, () =>
-    Array.from({ length: OUTLINE_CORNERS }, (): V2 => [0, 0]),
-  );
+  /** One outline per bone slot (hand * bones + bone), handed out by reference. */
+  private readonly outlines: V2[][];
   private readonly box = new Float64Array(JOINT_COUNT * 3);
   /** One bone's two shadow circles for capsuleOutline. */
   private readonly circles = new Float64Array(6);
   private readonly result: HandShadowResult = { n: 0, nFinger: 0, fingerZ: Number.NaN };
+  /** The joints the bones use, read once a frame per hand. */
+  private readonly used: Int32Array;
+
+  /** Casts `bones` (a tracked hand's by default). */
+  constructor(private readonly bones: ShadowBones = TRACKED_BONES) {
+    const n = bones.a.length;
+    this.used = bones === TRACKED_BONES ? USED_INDEX : usedJoints(bones);
+    this.outlines = Array.from({ length: 2 * n }, () => Array.from({ length: OUTLINE_CORNERS }, (): V2 => [0, 0]));
+    this.depth = new Float32Array(2 * n + 1);
+    let fingers = 0;
+    for (let i = 0; i < n; i++) fingers += bones.finger[i]!;
+    this.fingerHand = new Int8Array(2 * fingers + 1);
+  }
+
+  /** Outlines both hands can cast in a frame: twice the bones. */
+  get maxOutlines(): number {
+    return this.outlines.length;
+  }
 
   /**
    * This frame's hand shadows with the lantern at `L` (box units): every casting bone's outline into out[0..n), the
@@ -257,16 +302,15 @@ export class HandShadow {
       const e = m.elements;
       // Metres per box unit: the matrix is a turn and one uniform scale.
       const scale = Math.sqrt(e[0]! * e[0]! + e[1]! * e[1]! + e[2]! * e[2]!);
-      const rFinger = FINGER_RADIUS_CM / 100 / scale, rPalm = PALM_RADIUS_CM / 100 / scale;
       const zMax = Lz * (1 - 1 / MAX_MAGNIFICATION);
-      const box = this.box, cc = this.circles;
+      const box = this.box, cc = this.circles, bones = this.bones, nb = bones.a.length;
       for (let h = 0; h < 2; h++) {
         const side = SIDES[h]!;
-        if (side === holder || !readHand(joints, side, m, box) || !inMouth(box)) continue;
+        if (side === holder || !readHand(joints, side, m, box, this.used) || !inMouth(box)) continue;
         const n0 = n;
         let hzSum = 0, hzCount = 0;
-        for (let i = 0; i < BONES_PER_HAND; i++) {
-          const ia = BONE_A[i]! * 3, ib = BONE_B[i]! * 3;
+        for (let i = 0; i < nb; i++) {
+          const ia = bones.a[i]! * 3, ib = bones.b[i]! * 3;
           const ax = box[ia]!, ay = box[ia + 1]!, az = box[ia + 2]!;
           const bx = box[ib]!, by = box[ib + 1]!, bz = box[ib + 2]!;
           if (!(az <= MOUTH_Z || bz <= MOUTH_Z)) continue;
@@ -278,19 +322,20 @@ export class HandShadow {
           const pax = ax + dx * t0, pay = ay + dy * t0, paz = Math.min(az + dz * t0, zMax);
           const pbx = ax + dx * t1, pby = ay + dy * t1, pbz = Math.min(az + dz * t1, zMax);
           const ka = Lz / (Lz - paz), kb = Lz / (Lz - pbz);
-          const r = HAND_BONES[i]!.palm ? rPalm : rFinger;
-          const poly = this.outlines[h * BONES_PER_HAND + i]!;
+          // Each end's radius in box units (a tapered bone cut at the panel keeps its taper).
+          const ra = bones.ra[i]! / scale, rb = bones.rb[i]! / scale;
+          const poly = this.outlines[h * nb + i]!;
           cc[0] = Lx + (pax - Lx) * ka;
           cc[1] = Ly + (pay - Ly) * ka;
-          cc[2] = r * ka;
+          cc[2] = (ra + (rb - ra) * t0) * ka;
           cc[3] = Lx + (pbx - Lx) * kb;
           cc[4] = Ly + (pby - Ly) * kb;
-          cc[5] = r * kb;
+          cc[5] = (ra + (rb - ra) * t1) * kb;
           capsuleOutline(cc, poly);
           out[n] = poly;
           this.depth[n] = (paz + pbz) / 2;
           n++;
-          if (HAND_BONES[i]!.finger) {
+          if (bones.finger[i]) {
             this.fingerHand[nf] = h;
             outFinger[nf++] = poly;
             hzSum += paz + pbz;

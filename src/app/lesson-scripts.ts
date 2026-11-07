@@ -14,8 +14,11 @@ import { COPY } from "../ui/copy";
 import { tipLock } from "./tips";
 
 export type ExampleId = "move" | "near-far" | "rings" | "finger";
-/** The ghost hand's poses (src/lessons/poses.json). */
-export type PoseName = "open" | "pinch" | "point" | "relaxed";
+/**
+ * The ghost hand's poses (src/lessons/poses.json, and render/ghost-hand.ts's "hold" and "ready": a lantern held by
+ * its loop, and the hand open to take it, the other fingers tucked in both).
+ */
+export type PoseName = "open" | "pinch" | "point" | "relaxed" | "hold" | "ready";
 /** The point of the ghost hand placed at `at`: the pinch point, the index fingertip or the wrist. */
 export type HandAnchor = "grasp" | "tip" | "wrist";
 
@@ -183,11 +186,27 @@ const onRay = (L: V3, x: number, y: number, z: number): V3 => {
   return [L[0] + (x - L[0]) * k, L[1] + (y - L[1]) * k, z];
 };
 
-/** The ghost holds the lantern pinched from above, fingers into the box and toward its middle, palm down. */
-export const graspFingers = (side: number): V3 => unit([-0.3 * side, -0.2, -1]);
+/**
+ * Where the ghost holds a lantern, above its light (box units): the middle of its handle loop (the real lantern's and
+ * the ghost lantern's, render/ghost-hand.ts GHOST_LANTERN_GRIP), pinched between thumb and index.
+ */
+export const LANTERN_GRIP_Y = 0.155;
+/** The pinch point for a lantern whose light is at p. */
+export const gripOf = (p: Readonly<V3>): V3 => [p[0], p[1] + LANTERN_GRIP_Y, p[2]];
+/**
+ * The ghost holds the lantern by its loop from the dominant side as a seated player would, the hand at the lantern's
+ * height: fingers into the box, toward its middle and a little up; the palm toward the middle and turned 30 degrees
+ * down (the thumb's side up, the back of the hand toward the eye). So the hand stays low, under the sight lines from
+ * the eye to the panel (tests/unit/ghost-at-work.test.ts), and the eye sees the lantern hang from the pinch.
+ */
+export const graspFingers = (side: number): V3 => unit([-0.25 * side, 0.2, -1]);
+export const graspPalm = (side: number): V3 => unit([-side, -Math.tan(Math.PI / 6), 0]);
 export const PALM_DOWN: V3 = [0, -1, 0];
-/** Where the ghost hand comes from and goes back to: out past the box mouth on the dominant side, nearer the eye. */
-const handFrom = (p: V3, side: number): V3 => add(p, 0.2 * side, 0.08, 0.28);
+/**
+ * Where the ghost hand comes from and goes back to: out past the box mouth on the dominant side, nearer the eye and a
+ * little lower (under the sight lines to the panel).
+ */
+const handFrom = (p: V3, side: number): V3 => add(p, 0.22 * side, -0.04, 0.28);
 
 /** A beat: the ghost lantern moves to `to` over `ms`, the line changing as it starts. */
 interface Beat {
@@ -210,11 +229,12 @@ function lanternScript(
 ): Script {
   const C = COPY.lessons;
   const park0 = PARK_MS, show = park0 + 400, grab = show + 400;
-  const from = handFrom(A, side);
+  // The hand's keys are its pinch on the lantern's loop; the lamp's, its light.
+  const from = handFrom(gripOf(A), side);
   const hand: HandKey[] = [
-    { t: show, at: from, pose: "open", op: 0 },
-    { t: show + 400, at: from, pose: "open", op: 1 },
-    { t: grab + 800, at: A, pose: "pinch", op: 1 },
+    { t: show, at: from, pose: "ready", op: 0 },
+    { t: show + 400, at: from, pose: "ready", op: 1 },
+    { t: grab + 800, at: gripOf(A), pose: "hold", op: 1 },
   ];
   const lamp: LampKey[] = [
     { t: park0, at: A, op: 0 },
@@ -228,16 +248,16 @@ function lanternScript(
     starts.push(t);
     if (b.line) lines.push({ t, line: b.line });
     t += b.ms;
-    hand.push({ t, at: b.to, pose: "pinch", op: 1 });
+    hand.push({ t, at: gripOf(b.to), pose: "hold", op: 1 });
     lamp.push({ t, at: b.to, op: 1 });
   }
-  const T = beats[beats.length - 1]!.to, click = t;
+  const T = beats[beats.length - 1]!.to, click = t, held = gripOf(T);
   // Hold, let go, and leave; the lamp stays lit while the scraps swing home under it.
   const swing0 = click + 1200, swing1 = swing0 + (twin ? SWING_MS : 0), lift0 = swing1;
   hand.push(
-    { t: click + 800, at: T, pose: "pinch", op: 1 },
-    { t: click + 1200, at: T, pose: "open", op: 1 },
-    { t: click + 1700, at: handFrom(T, side), pose: "open", op: 0 },
+    { t: click + 800, at: held, pose: "hold", op: 1 },
+    { t: click + 1200, at: held, pose: "ready", op: 1 },
+    { t: click + 1700, at: handFrom(held, side), pose: "ready", op: 0 },
   );
   lamp.push({ t: lift0, at: T, op: 1 }, { t: lift0 + 400, at: T, op: 0 });
   lines.push({ t: lift0, line: C.yourTurn });
@@ -253,7 +273,7 @@ function lanternScript(
     end,
     anchor: "grasp",
     fingers: graspFingers(side),
-    palm: PALM_DOWN,
+    palm: graspPalm(side),
     hand,
     lamp,
     lines,
@@ -600,21 +620,23 @@ function sweepTip(box: Box, lock: number, side: "left" | "right"): TipScript {
     pts = sweepPoints([L[0], top + SWEEP_CLEAR + 0.1, L[2]], s);
   }
   const [A, B, C] = pts;
-  const from = sweepFrom(A, s), away = sweepFrom(C, s);
+  // The hand pinches the lantern's loop, above its light.
+  const gA = gripOf(A), gB = gripOf(B), gC = gripOf(C);
+  const from = sweepFrom(gA, s), away = sweepFrom(gC, s);
   return {
     end: TIP_DEMO_MS,
     anchor: "grasp",
     fingers: graspFingers(s),
-    palm: PALM_DOWN,
+    palm: graspPalm(s),
     side,
     hand: [
-      { t: 0, at: from, pose: "open", op: 0 },
-      { t: 500, at: from, pose: "open", op: 1 },
-      { t: 1100, at: A, pose: "pinch", op: 1 },
-      { t: 2700, at: B, pose: "pinch", op: 1 },
-      { t: 4100, at: C, pose: "pinch", op: 1 },
-      { t: 4600, at: C, pose: "open", op: 1 },
-      { t: 5300, at: away, pose: "open", op: 0 },
+      { t: 0, at: from, pose: "ready", op: 0 },
+      { t: 500, at: from, pose: "ready", op: 1 },
+      { t: 1100, at: gA, pose: "hold", op: 1 },
+      { t: 2700, at: gB, pose: "hold", op: 1 },
+      { t: 4100, at: gC, pose: "hold", op: 1 },
+      { t: 4600, at: gC, pose: "ready", op: 1 },
+      { t: 5300, at: away, pose: "ready", op: 0 },
     ],
     lamp: [
       { t: 0, at: A, op: 0 },
@@ -642,18 +664,18 @@ export function buildTipScript(tip: TipId, box: Box, left: boolean): TipScript |
 
 const o3 = (x: number, y: number, z: number): V3 => [x, y, z];
 
-/** Reach for the lantern, pinch it, let go, go back; around the lantern. */
+/** Reach for the lantern, pinch its loop, let go, go back; around the lantern's light. */
 export function reachLoop(side: number): HandKey[] {
-  const off = handFrom([0, 0, 0], side);
+  const g = o3(0, LANTERN_GRIP_Y, 0), off = handFrom(g, side);
   return [
-    { t: 0, at: off, pose: "open", op: 0 },
-    { t: 200, at: off, pose: "open", op: 1 },
-    { t: 1100, at: o3(0, 0, 0), pose: "open", op: 1 },
-    { t: 1500, at: o3(0, 0, 0), pose: "pinch", op: 1 },
-    { t: 2100, at: o3(0, 0, 0), pose: "pinch", op: 1 },
-    { t: 2400, at: o3(0, 0, 0), pose: "open", op: 1 },
-    { t: 3200, at: off, pose: "open", op: 0 },
-    { t: 3800, at: off, pose: "open", op: 0 },
+    { t: 0, at: off, pose: "ready", op: 0 },
+    { t: 200, at: off, pose: "ready", op: 1 },
+    { t: 1100, at: g, pose: "ready", op: 1 },
+    { t: 1500, at: g, pose: "hold", op: 1 },
+    { t: 2100, at: g, pose: "hold", op: 1 },
+    { t: 2400, at: g, pose: "ready", op: 1 },
+    { t: 3200, at: off, pose: "ready", op: 0 },
+    { t: 3800, at: off, pose: "ready", op: 0 },
   ];
 }
 
