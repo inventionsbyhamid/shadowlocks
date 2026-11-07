@@ -91,6 +91,28 @@ verify() { # host, the asset links file the site must serve
   check /icons/icon-512-maskable.png 200 image/png
   # The store listing's privacy policy URL (Pages serves privacy.html at /privacy).
   check /privacy 200 text/html
+  # Link cards and search: the card image on this host, the one the served page names (on --both the judge host's page
+  # names the public host's), robots.txt and the sitemap.
+  check /og-image.jpg 200 image/jpeg
+  local og
+  og=$(curl -s --max-time 20 "https://$host/" | sed -n 's/.*<meta property="og:image" content="\([^"]*\)".*/\1/p' | head -1 || true)
+  case $og in
+    https://*) head_ok "$(curl -s -o /dev/null -D - --max-time 20 "$og" || true)" "og:image $og" 200 image/ || bad=1 ;;
+    *) echo "FAIL og:image: the page names no https image (got '$og')"; bad=1 ;;
+  esac
+  check /robots.txt 200 text/plain
+  check /sitemap.xml 200 "application/xml|text/xml"
+  local robots
+  robots=$(curl -s --max-time 20 "https://$host/robots.txt" || true)
+  case $robots in
+    *"Sitemap: https://$PUBLIC_PROJECT.pages.dev/sitemap.xml"*) ;;
+    *) echo "note /robots.txt is not this build's (no Sitemap line): the host serves its own" ;;
+  esac
+  # A preview alias (<branch>.<project>.pages.dev) must stay out of search results: Pages sends this header on every
+  # preview deployment by default (developers.cloudflare.com/pages/configuration/preview-deployments).
+  case $host in
+    *.*.pages.dev) check / 200 text/html "x-robots-tag: noindex" ;;
+  esac
   check /.well-known/assetlinks.json 200 application/json
   body_ok "$(curl -s --max-time 20 "https://$host/.well-known/assetlinks.json" || true)" /.well-known/assetlinks.json "$links" || bad=1
   # A missing URL gets the 404 page, not index.html with 200.
@@ -206,7 +228,9 @@ LIST=$(printf "'%s', " "${PROJECTS[@]}")
 LIST=${LIST%, }
 if [ "$PRINT_PLAN" -eq 1 ]; then
   if [ "$PLACEHOLDER" -eq 1 ]; then mode=placeholder; elif [ "$BRANCH" != main ]; then mode=preview; else mode=game; fi
-  echo "plan: mode=$mode projects=$(IFS=,; echo "${PROJECTS[*]}") branch=$BRANCH dry-run=$([ "$DRY" -eq 1 ] && echo yes || echo no)"
+  # The placeholder is not built, so it has no link card image.
+  image=; [ "$mode" = placeholder ] || image=" card-image=$SITE_ORIGIN/og-image.jpg"
+  echo "plan: mode=$mode projects=$(IFS=,; echo "${PROJECTS[*]}") branch=$BRANCH dry-run=$([ "$DRY" -eq 1 ] && echo yes || echo no)$image"
   exit 0
 fi
 

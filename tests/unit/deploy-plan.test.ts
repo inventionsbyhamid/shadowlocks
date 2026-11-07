@@ -20,11 +20,17 @@ const ok = (args: string[], now: number = DEADLINE - 1) => {
 
 describe("deploy-pages.sh plans", () => {
   it("--both: one build to the public and the judge host", () => {
-    expect(ok(["--both"])).toBe("plan: mode=game projects=shadowlocks,shadowlocks-judge branch=main dry-run=no");
+    // Both hosts get the same files in one run, so the public host's card image works on both.
+    expect(ok(["--both"])).toBe(
+      "plan: mode=game projects=shadowlocks,shadowlocks-judge branch=main dry-run=no card-image=https://shadowlocks.pages.dev/og-image.jpg",
+    );
   });
 
   it("--preview: the public project's preview branch only", () => {
-    expect(ok(["--preview"])).toBe("plan: mode=preview projects=shadowlocks branch=preview dry-run=no");
+    // The preview names its own card image, so its card works before production has the image.
+    expect(ok(["--preview"])).toBe(
+      "plan: mode=preview projects=shadowlocks branch=preview dry-run=no card-image=https://preview.shadowlocks.pages.dev/og-image.jpg",
+    );
   });
 
   it("--placeholder: the public project's live site only", () => {
@@ -32,9 +38,17 @@ describe("deploy-pages.sh plans", () => {
   });
 
   it("--project: each project once, in order, on any branch", () => {
-    expect(ok(["--project", "shadowlocks", "--project", "shadowlocks"])).toBe("plan: mode=game projects=shadowlocks branch=main dry-run=no");
+    expect(ok(["--project", "shadowlocks", "--project", "shadowlocks"])).toBe(
+      "plan: mode=game projects=shadowlocks branch=main dry-run=no card-image=https://shadowlocks.pages.dev/og-image.jpg",
+    );
     expect(ok(["--project", "shadowlocks-judge", "--project", "shadowlocks"])).toContain("projects=shadowlocks-judge,shadowlocks");
-    expect(ok(["--project", "shadowlocks", "--branch", "try-1"])).toBe("plan: mode=preview projects=shadowlocks branch=try-1 dry-run=no");
+    expect(ok(["--project", "shadowlocks", "--branch", "try-1"])).toBe(
+      "plan: mode=preview projects=shadowlocks branch=try-1 dry-run=no card-image=https://try-1.shadowlocks.pages.dev/og-image.jpg",
+    );
+    // One host: the card image is on it (Pages lowercases a branch and turns _ into -).
+    expect(ok(["--project", "shadowlocks-judge"])).toContain(" card-image=https://shadowlocks-judge.pages.dev/og-image.jpg");
+    expect(ok(["--project", "shadowlocks", "--branch", "Try_2"])).toContain(" card-image=https://try-2.shadowlocks.pages.dev/og-image.jpg");
+    expect(ok(["--project", "shadowlocks-judge", "--project", "shadowlocks"])).toContain(" card-image=https://shadowlocks.pages.dev/og-image.jpg");
     expect(ok(["--both", "--dry-run"])).toContain("dry-run=yes");
   });
 
