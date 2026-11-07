@@ -162,7 +162,10 @@ export function frameGeometry(keepHidden = false): BufferGeometry {
   for (const x of [-H, H]) parts.push(grainBar(1 - BAR, "y", [x, 0, 1]));
   // The back slab and the plinth: grain across. The slab's flat front face lies behind the panel and the back ring
   // from every side, so it is left out: drawn, it was the frame's most expensive shading (the lacquer) under the
-  // panel, which then covered it (the panel writes no depth, so it cannot hide what is behind it).
+  // panel, which then covered it (the panel writes no depth, so it cannot hide what is behind it). One trace of it
+  // is left: between the back ring's rear face (z -0.025) and where the face was (z -0.0275) there is a slot 0.0025
+  // deep, open at the box's outer edge. From far to the side, at the back plane's depth, a pixel or two can show
+  // through it where black lacquer was; a seated player in front of the box never sees it from there.
   const back = slab(1 + BAR, 1 + BAR, 0.035, 0.012).translate(0, 0, -0.045);
   parts.push(grained(keepHidden ? back : withoutFront(back), "x"));
   parts.push(grained(slab(PLINTH.w, PLINTH.h, PLINTH.d, 0.02).translate(0, PLINTH.y, PLINTH.z), "x"));
