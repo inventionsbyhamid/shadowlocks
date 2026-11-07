@@ -1,11 +1,11 @@
 // The frame's lacquer grain (the owner's pick: lacquer #1c191d with grain #2a2529): fine, faintly wavy streaks along
 // each bar, as the lookdev's ebony had from its wood map: light ones toward the grain tone, dark ones below the
 // lacquer, and the base layer's sheen following them (on a gloss black the grain reads in the reflections more than
-// in the colour). The frame has no UVs (merged extrusions), so each part
-// carries the direction its grain runs as a vertex attribute (`grain`, a unit axis; zero for none) and the lacquer's
-// own shader draws the streaks: no texture, no extra draw call, a few noise lookups a fragment on the frame. The
-// streaks fade out where they would get finer than a pixel, so the frame never shimmers in the headset. A part with
-// no grain attribute (the lantern's foot shares the lacquer) reads none (defaultAttributeValues) and stays plain.
+// in the colour). The frame has no UVs (merged extrusions), so each part carries the direction its grain runs as a
+// vertex attribute (`grain`, a unit axis; zero for none) and the lacquer's own shader draws the streaks: no texture,
+// no extra draw call, a few noise lookups a fragment on the frame. The streaks fade out as they near a pixel's width,
+// so the frame never shimmers in the headset. Every mesh drawn with this lacquer carries the attribute: the lantern's
+// foot a zero one (`grained(g, null)`), so it stays plain without leaning on the GL's default attribute values.
 import { BufferAttribute, type BufferGeometry, Color, type MeshPhysicalMaterial } from "@iwsdk/core";
 import { COLORS } from "./theme";
 
@@ -18,9 +18,10 @@ export const LACQUER_GRAIN = {
   dark: 0.55,
   /**
    * The base layer's roughness changes this much across the streaks (light ones glossier, dark ones duller), so the
-   * grain shows in the lacquer's sheen; the clearcoat above stays mirror smooth.
+   * grain shows a little in the lacquer's sheen; small, so the speculars never shimmer at grazing angles. The
+   * clearcoat above stays mirror smooth.
    */
-  roughness: 0.18,
+  roughness: 0.08,
 } as const;
 
 /** `g` with its grain running along `axis` (null: no grain), as the `grain` attribute mergeParts can keep. */
@@ -43,14 +44,16 @@ float grainNoise(float x) {
   return mix(grainHash(i), grainHash(i + 1.0), f);
 }
 // The grain here, -1 (a dark streak) to 1 (a light one), in soft-edged bands: streaks along the axis, wavering slowly
-// along it, fading to 0 where they get finer than a pixel.
+// along it, fading to 0 as they near a pixel's width.
 float lacquerGrain(vec3 p, vec3 axis) {
-  if (dot(axis, axis) < 0.5) return 0.0;
   float along = dot(p, axis);
   vec3 q = p - axis * along;
   float w = (q.x + q.y + q.z) * ${LACQUER_GRAIN.streaksPerUnit.toFixed(1)} + grainNoise(along * 6.0) * 2.0 + grainNoise(along * 23.0) * 0.5;
+  // The derivative before any branch: derivatives are undefined in non-uniform control flow.
+  float fine = 1.0 - smoothstep(0.25, 0.75, fwidth(w));
+  if (dot(axis, axis) < 0.5) return 0.0;
   float s = smoothstep(0.25, 0.75, grainNoise(w)) * 2.0 - 1.0;
-  return s * clamp(1.0 - fwidth(w) * 0.7, 0.0, 1.0);
+  return s * fine;
 }
 vec3 lacquerTone(vec3 base, float k) {
   return k > 0.0 ? mix(base, grainColor, k * ${LACQUER_GRAIN.strength.toFixed(2)}) : base * (1.0 + k * ${(1 - LACQUER_GRAIN.dark).toFixed(2)});
@@ -60,8 +63,6 @@ vec3 lacquerTone(vec3 base, float k) {
 /** `m` (the frame's lacquer) drawing its grain. Call once, when the material is made. */
 export function withGrain(m: MeshPhysicalMaterial): MeshPhysicalMaterial {
   const grainColor = new Color(COLORS.frameGrain);
-  // Parts without a grain attribute read zero: no grain.
-  (m as unknown as { defaultAttributeValues: Record<string, number[]> }).defaultAttributeValues = { grain: [0, 0, 0] };
   m.onBeforeCompile = (s) => {
     s.uniforms.grainColor = { value: grainColor };
     s.vertexShader = s.vertexShader

@@ -1,9 +1,10 @@
 // The frame's lacquer grain (the owner's pick: lacquer #1c191d with grain #2a2529): fine streaks along each bar,
 // drawn in the lacquer's own shader (no texture, no extra draw call), and none on parts without a grain direction.
 import { describe, expect, it } from "vitest";
-import { BoxGeometry, Color, MeshPhysicalMaterial } from "@iwsdk/core";
+import { BoxGeometry, Color, type Mesh, MeshPhysicalMaterial, MeshStandardMaterial } from "@iwsdk/core";
 import { frameGeometry } from "../../src/render/box-scene";
 import { grained, LACQUER_GRAIN, withGrain } from "../../src/render/lacquer";
+import { LanternView } from "../../src/render/lantern-view";
 import { mergeParts } from "../../src/render/merge";
 import { COLORS } from "../../src/render/theme";
 
@@ -51,18 +52,40 @@ describe("the lacquer's grain", () => {
     // The sheen: the base layer's roughness follows the streaks (the clearcoat's does not).
     expect(shader.fragmentShader).toMatch(/#include <roughnessmap_fragment>\s*roughnessFactor = clamp\(roughnessFactor - grainK \* /);
     expect(shader.fragmentShader).not.toContain("clearcoatRoughness");
-    // It fades out where its streaks get finer than a pixel (no shimmer in the headset).
-    expect(shader.fragmentShader).toContain("fwidth(");
+    // It fades out as its streaks near a pixel's width (no shimmer in the headset), the derivative taken before any
+    // branch (derivatives are undefined in non-uniform control flow).
+    const f = shader.fragmentShader;
+    expect(f).toContain("float fine = 1.0 - smoothstep(0.25, 0.75, fwidth(w));");
+    const body = f.slice(f.indexOf("float lacquerGrain("));
+    expect(body.indexOf("fwidth(w)")).toBeGreaterThan(0);
+    expect(body.indexOf("fwidth(w)")).toBeLessThan(body.indexOf("return 0.0;"));
     expect((shader.uniforms.grainColor!.value as Color).getHex()).toBe(new Color(COLORS.frameGrain).getHex());
     expect(COLORS.frameGrain).toBe("#2a2529");
-    // A part with no grain attribute (the lantern's foot shares this lacquer) reads no direction: plain lacquer.
-    expect((m as unknown as { defaultAttributeValues: Record<string, number[]> }).defaultAttributeValues.grain).toEqual([0, 0, 0]);
+    // No reliance on the GL's default attribute values: every lacquer part carries its own grain attribute.
+    expect((m as unknown as { defaultAttributeValues?: unknown }).defaultAttributeValues).toBeUndefined();
     expect(m.customProgramCacheKey()).toBe("sl-lacquer-grain");
     // Subtle: streaks a few millimetres apart at the box's size, never brighter than the grain tone, never black, the
     // sheen moved a little.
     expect(LACQUER_GRAIN.strength).toBeLessThanOrEqual(1);
     expect(LACQUER_GRAIN.dark).toBeGreaterThanOrEqual(0.4);
-    expect(LACQUER_GRAIN.roughness).toBeLessThanOrEqual(0.25);
+    // The sheen moves little, so the speculars never shimmer at grazing angles.
+    expect(LACQUER_GRAIN.roughness).toBeLessThanOrEqual(0.08);
     expect(LACQUER_GRAIN.streaksPerUnit).toBeGreaterThan(30);
+  });
+
+  it("the lantern's foot, which shares the lacquer, carries a zero grain: plain lacquer, explicitly", () => {
+    const lacquer = withGrain(new MeshPhysicalMaterial({ color: COLORS.frame }));
+    const lantern = new LanternView({ lacquer, gold: new MeshStandardMaterial() });
+    let parts = 0;
+    lantern.group.traverse((o) => {
+      const m = o as Mesh;
+      if (!m.isMesh || m.material !== lacquer) return;
+      parts++;
+      const g = m.geometry.getAttribute("grain");
+      expect(g, m.name).toBeDefined();
+      expect(g.count).toBe(m.geometry.getAttribute("position").count);
+      expect(Array.from(g.array as Float32Array).every((v) => v === 0)).toBe(true);
+    });
+    expect(parts).toBeGreaterThan(0);
   });
 });
