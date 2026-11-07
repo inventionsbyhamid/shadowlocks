@@ -308,6 +308,9 @@ export class Shell {
       const s = xr.getSession();
       if (!s) return;
       this.xrSession = s;
+      // One line a session, for field checks (chrome://inspect on a phone): how the session says it is seen and used.
+      const mode = (s as XRSession & { interactionMode?: string }).interactionMode ?? "none";
+      console.info(`XR session: blend ${s.environmentBlendMode ?? "none"}, interactionMode ${mode}`);
       const update = () => this.lifecycle.setXrVisibility(s.visibilityState as XrVisibility, performance.now());
       s.addEventListener("visibilitychange", update);
       update();

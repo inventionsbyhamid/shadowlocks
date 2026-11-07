@@ -93,24 +93,70 @@ export function pitchFromQuaternion(x: number, y: number, z: number, w: number):
   return Math.atan2(fy, Math.hypot(fx, fz));
 }
 
-/**
- * A phone in AR: the box's middle stands this far (m) from the camera along its view, so the whole box is in the
- * picture when it appears (the seated lap is below a phone's narrower view).
- */
-export const IN_VIEW_M = 0.65;
 /** A phone pointed steeper than this, down or up (degrees), places the box as if it were not: upright, still ahead. */
 export const IN_VIEW_PITCH_DEG = { down: 60, up: 10 } as const;
 
 /**
- * Where the panel centre goes so the box's middle (half a box in front of the panel, along the box's own tilted axis)
- * is IN_VIEW_M along a camera pitched `pitch` radians: how far ahead (flattened) and below the camera, for placeBox.
+ * What of the box a phone's view must show, from the box's middle (box units; the middle is half a box in front of the
+ * panel): the frame and its posts across and up, the plinth under it (bottom at -0.645, back at -0.06; box-scene's
+ * PLINTH) and the drawer's handle in front of the plinth (HANDLE_AT, z 1.072, and its bar's radius).
  */
-export function inViewOffsets(pitch: number, sizeM: number, tiltDeg = TILT_DEG): { forwardM: number; belowM: number } {
-  const p = Math.min(IN_VIEW_PITCH_DEG.up * DEG, Math.max(-IN_VIEW_PITCH_DEG.down * DEG, pitch));
+export const BOX_EXTENT = { x: 0.56, up: 0.56, down: 0.65, back: 0.56, front: 0.59 } as const;
+/** The box fills at most this share of a phone's view each way from its middle: a margin all round. */
+export const IN_VIEW_FILL = 0.88;
+/**
+ * A phone's view as the tangents of its half-angles across and up, when the session gives none: the narrow side of a
+ * 20:9 screen (about 33 degrees) both ways, so it fits in portrait and in landscape.
+ */
+export const PHONE_VIEW = { tanH: Math.tan(16.5 * DEG), tanV: Math.tan(16.5 * DEG) } as const;
+/** The box's middle never stands nearer the phone than this, nor farther (m). */
+export const IN_VIEW_RANGE_M = { near: 0.4, far: 1.6 } as const;
+
+/** A view's half-angle tangents: across (x) and up and down (y). */
+export interface ViewTangents {
+  tanH: number;
+  tanV: number;
+}
+
+const clampPitch = (pitch: number) => Math.min(IN_VIEW_PITCH_DEG.up * DEG, Math.max(-IN_VIEW_PITCH_DEG.down * DEG, pitch));
+
+/**
+ * How far along a phone camera's view (m) the box's middle must stand for the whole box (BOX_EXTENT: plinth and
+ * drawer handle too) to show within IN_VIEW_FILL of a view with half-angle tangents `view`, the camera pitched `pitch`
+ * radians, the box `sizeM` m, facing the camera and leaning back `tiltDeg`. Every corner of the box's extent must be
+ * inside the view: a corner `cz` nearer the camera, `cx` across and `cy` up from the middle (camera axes) needs the
+ * middle at least cz + |cx| / (fill * tanH) and cz + |cy| / (fill * tanV) away.
+ */
+export function inViewDistance(pitch: number, sizeM: number, view: ViewTangents = PHONE_VIEW, tiltDeg = TILT_DEG): number {
+  const p = clampPitch(pitch), t = tiltDeg * DEG, E = BOX_EXTENT, k = IN_VIEW_FILL;
+  const tanH = view.tanH > 0 ? view.tanH : PHONE_VIEW.tanH, tanV = view.tanV > 0 ? view.tanV : PHONE_VIEW.tanV;
+  // In the heading's frame (x right, y up, z toward the viewer): the box's up axis leans back, its out axis tips up;
+  // the camera's up and back axes turn with its pitch.
+  const yy = Math.cos(t), yz = -Math.sin(t), zy = Math.sin(t), zz = Math.cos(t);
+  const uy = Math.cos(p), uz = Math.sin(p), by = -Math.sin(p), bz = Math.cos(p);
+  let need = 0;
+  for (const bx of [-E.x, E.x]) {
+    for (const ty of [-E.down, E.up]) {
+      for (const tz of [-E.back, E.front]) {
+        const vy = (ty * yy + tz * zy) * sizeM, vz = (ty * yz + tz * zz) * sizeM, vx = bx * sizeM;
+        const cy = vy * uy + vz * uz, cz = vy * by + vz * bz;
+        need = Math.max(need, cz + Math.abs(vx) / (k * tanH), cz + Math.abs(cy) / (k * tanV));
+      }
+    }
+  }
+  return Math.min(IN_VIEW_RANGE_M.far, Math.max(IN_VIEW_RANGE_M.near, need));
+}
+
+/**
+ * Where the panel centre goes so the box's middle (half a box in front of the panel, along the box's own tilted axis)
+ * is `distanceM` along a camera pitched `pitch` radians: how far ahead (flattened) and below the camera, for placeBox.
+ */
+export function inViewOffsets(pitch: number, sizeM: number, distanceM: number, tiltDeg = TILT_DEG): { forwardM: number; belowM: number } {
+  const p = clampPitch(pitch);
   const t = tiltDeg * DEG, half = sizeM / 2;
   return {
-    forwardM: IN_VIEW_M * Math.cos(p) + half * Math.cos(t),
-    belowM: -IN_VIEW_M * Math.sin(p) + half * Math.sin(t),
+    forwardM: distanceM * Math.cos(p) + half * Math.cos(t),
+    belowM: -distanceM * Math.sin(p) + half * Math.sin(t),
   };
 }
 
@@ -141,6 +187,8 @@ export class Placement {
   /** The panel centre ahead of and below the eyes: the lap's, or a phone's view's (startInView). */
   private forwardM = BOX_FORWARD_M;
   private belowM = BOX_BELOW_HEAD_M;
+  /** Placed in a phone's view: how far its middle stands along the camera's view (m); NaN for the lap. */
+  inViewM = Number.NaN;
   private readonly m = new Matrix4();
   private readonly current: BoxPose = { position: [0, 0, 0], yaw: 0 };
 
@@ -169,16 +217,19 @@ export class Placement {
     this.eye.yaw = head.yaw;
     this.forwardM = BOX_FORWARD_M;
     this.belowM = BOX_BELOW_HEAD_M;
+    this.inViewM = Number.NaN;
     this.source = "head";
     this.apply();
   }
 
   /**
-   * Place the box in a phone's view (session start, Recenter): its middle IN_VIEW_M along the camera's view, `pitch`
-   * radians up or down, upright and facing it. A size change after keeps the panel where it is, as for the lap.
+   * Place the box in a phone's view (session start, Recenter): its middle along the camera's view, `pitch` radians up
+   * or down, as far as the whole box needs to show in a view with half-angle tangents `view` (the camera's own
+   * projection; inViewDistance), upright and facing it. A size change after keeps the panel where it is, as for the lap.
    */
-  startInView(head: HeadPose, pitch: number): void {
-    const o = inViewOffsets(pitch, this.sizeM);
+  startInView(head: HeadPose, pitch: number, view: ViewTangents = PHONE_VIEW): void {
+    this.inViewM = inViewDistance(pitch, this.sizeM, view);
+    const o = inViewOffsets(pitch, this.sizeM, this.inViewM);
     this.eye.pos.set(head.position[0], head.position[1], head.position[2]);
     this.eye.yaw = head.yaw;
     this.forwardM = o.forwardM;
