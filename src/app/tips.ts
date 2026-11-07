@@ -15,10 +15,17 @@ const ORDER: readonly BoxTip[] = ["decoys", "ringless", "hidden"];
 /** The coach line for each tip. */
 export const TIP_LINES: Readonly<Record<TipId, string>> = { ...COPY.lessons.tips, drawer: COPY.lessons.drawer };
 
-/** The lock a tip is about (the first without rings, the first hidden), or -1 (decoys belong to no lock). */
+/**
+ * The lock a tip is about (the first without rings, the first hidden), or -1 (decoys belong to no lock). Read every
+ * frame while a tip shows: plain loops, no closures.
+ */
 export function tipLock(tip: TipId, box: Box): number {
-  if (tip === "ringless") return box.locks.find((l) => !l.rings)?.i ?? -1;
-  if (tip === "hidden") return box.locks.find((l) => l.hidden)?.i ?? -1;
+  if (tip !== "ringless" && tip !== "hidden") return -1;
+  const locks = box.locks;
+  for (let k = 0; k < locks.length; k++) {
+    const l = locks[k]!;
+    if (tip === "ringless" ? !l.rings : l.hidden) return l.i;
+  }
   return -1;
 }
 
@@ -39,7 +46,10 @@ export function tipFor(box: Box, seen: readonly TipId[]): TipId | null {
 /** The player has done what the tip asks: any lock opened past the decoys, or the tip's own lock opened. */
 export function tipDone(tip: TipId, box: Box, isOpen: (lock: number) => boolean): boolean {
   if (tip === "drawer") return false;
-  if (tip === "decoys") return box.locks.some((l) => isOpen(l.i));
+  if (tip === "decoys") {
+    for (let k = 0; k < box.locks.length; k++) if (isOpen(box.locks[k]!.i)) return true;
+    return false;
+  }
   const lock = tipLock(tip, box);
   return lock >= 0 && isOpen(lock);
 }
