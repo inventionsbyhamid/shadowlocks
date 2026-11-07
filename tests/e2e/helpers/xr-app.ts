@@ -247,7 +247,13 @@ export class XrApp {
   async capture(name: string): Promise<string> {
     const dataUrl = await this.page.evaluate((dt) => {
       const w = window as any;
-      w.__vt.step(dt);
+      // The room is drawn in this frame only (page-scripts roomOnCaptureOnly).
+      w.__nsRoomFrame = true;
+      try {
+        w.__vt.step(dt);
+      } finally {
+        w.__nsRoomFrame = false;
+      }
       return w.__nsCapture("image/png") as string;
     }, DT);
     fs.mkdirSync(SHOTS_DIR, { recursive: true });
