@@ -10,16 +10,19 @@ import { go, type Screen } from "../../app/screens";
 import type { SettingsStore } from "../../app/settings";
 import { DRAWER_PANEL_ANCHOR } from "../../render/drawer";
 import type { BoxPose } from "../../render/placement";
-import { COPY } from "../copy";
+import { batch } from "@preact/signals-core";
+import { copy, type Lang, lang, localNotice, onLangChange } from "../../i18n";
 import { type FrameTips, frameTips } from "../fingertips";
 import { KeyView, NO_TIPS } from "../key-view";
 import { MOTION } from "../motion";
 import { PanelSlabs } from "../panel-slab";
 import { PanelView } from "../panel-ui";
 import { UI } from "../theme";
+import { COPY } from "../copy";
 import { PanelMotion } from "../transitions";
 import { COLLECTION, collectionView, paintCollection } from "./collection";
 import { type ContinueTo, continueTo, HOME, homeView, paintHome } from "./home";
+import { paintLabels } from "./labels";
 import { LESSONS, type LessonRow, lessonRowOf, lessonsView, paintLessons } from "./lessons";
 import { paintSettings, RESET, SETTINGS, settingAction, settingsView, sliderPosition, TOGGLES, toggleOn } from "./settings";
 import { type BuyState, paintTrial, TRIAL, trialView } from "./trial";
@@ -76,6 +79,8 @@ interface LivePanel {
   view: PanelView;
   motion: PanelMotion;
   keys: KeyView[];
+  /** The language whose fonts the panel draws with (it follows the language shown when it is next painted). */
+  lang: Lang;
 }
 
 const anchor = new Vector3();
@@ -97,7 +102,10 @@ export class Menus {
   /** The Collection page shown (0: newest). */
   private page = 0;
   private buyState: BuyState = "idle";
-  /** A one-off line for the next Home ("Progress reset."). */
+  /**
+   * The line Home shows on this visit, in English (shown in the language up): the storage notice or a one-off line
+   * ("Progress reset."). It stays through repaints (a new language, a font arriving) and goes when Home is left.
+   */
   private note: string | null = null;
 
   constructor(
@@ -123,6 +131,8 @@ export class Menus {
       }
       asset.visible = false;
       const view = new PanelView(asset, spec);
+      const shown = lang();
+      view.setLanguage(shown);
       // Numbers counting up: their ticks and landings are sounds. One event object, refilled for
       // every step (a count-up steps on many frames); listeners keep a copy if they need one.
       view.onRoll = (id, k, done) => {
@@ -138,7 +148,7 @@ export class Menus {
         if (!el) continue;
         keys.push(new KeyView(id, spec.screen, el, view.el(`${id}-cap`), view.el(`${id}-glow`), hooks));
       }
-      const p: LivePanel = { spec, asset, view, motion: new PanelMotion(), keys };
+      const p: LivePanel = { spec, asset, view, motion: new PanelMotion(), keys, lang: shown };
       this.live.push(p);
       this.byScreen.set(spec.screen, p);
     }
@@ -149,6 +159,9 @@ export class Menus {
     on("notice", () => {
       if (this.screen === "home") this.paint("home");
     });
+    // A new language: the screen up is painted again in it, fonts and words together (the others take theirs
+    // when they open). Once per change, never per frame.
+    onLangChange(() => this.refresh());
   }
 
   /** The screen changed: the old panel leaves, the new one is painted and springs in. */
@@ -156,6 +169,8 @@ export class Menus {
     const from = this.screen;
     if (from === to) return;
     this.screen = to;
+    // Home's line was for that visit.
+    if (from === "home") this.note = null;
     if (to === "collection" && from === "home") this.page = 0;
     if (to === "trial" && this.buyState !== "buying") this.buyState = "idle";
     if (this.layoutWaiting) this.placePanels();
@@ -342,6 +357,21 @@ export class Menus {
     return this.byScreen.get(screen)?.asset ?? null;
   }
 
+  /** What PanelView last wrote on an element of a screen's panel (the layout check). */
+  wroteOf(screen: Screen, id: string): string | null {
+    return this.byScreen.get(screen)?.view.wrote(id) ?? null;
+  }
+
+  /**
+   * Write `text` on an element of a screen's panel (tests: the layout check's negative controls): through PanelView,
+   * or `raw`, straight onto the element as the generator's own text sits there.
+   */
+  forceText(screen: Screen, id: string, text: string, raw = false): void {
+    const view = this.byScreen.get(screen)?.view;
+    if (raw) view?.el(id)?.setProperties({ text });
+    else view?.text(id, text);
+  }
+
   /** Text an element of the current screen shows (tests). */
   textOf(id: string): string | null {
     return this.byScreen.get(this.screen)?.view.textOf(id) ?? null;
@@ -389,18 +419,33 @@ export class Menus {
   private paint(screen: Screen): void {
     const p = this.byScreen.get(screen);
     if (!p) return;
+    // A panel takes a new language's fonts only as it is painted in that language, and both change in one batch:
+    // UIKit lays it out once, never with one language's words in another's font.
+    batch(() => this.paintPanel(p, screen));
+  }
+
+  private paintPanel(p: LivePanel, screen: Screen): void {
+    const l = lang();
+    if (p.lang !== l) {
+      p.view.setLanguage(l);
+      p.lang = l;
+    }
     const profile = this.deps.profiles.profile;
     const data = this.deps.data;
+    // The fixed words first, in the language shown (PanelView writes only what changed).
+    paintLabels(p.view, screen, copy());
     switch (screen) {
       case "home": {
-        // The storage notice shows once: it stays on this Home and is gone the next time.
+        // The storage notice shows once: it stays on this Home, painted again or not, and is gone the next time.
         const pending = this.deps.profiles.pendingNotice;
-        const notice = pending ?? this.note;
+        if (pending !== null) {
+          this.note = pending;
+          this.deps.profiles.markNoticeShown();
+        }
+        const notice = this.note === null ? null : localNotice(this.note);
         const v = homeView(profile, { behind: data.behind(), ent: data.ent(), today: data.today(), notice });
         paintHome(p.view, v);
         this.keyStates(p, v.disabled);
-        if (pending !== null) this.deps.profiles.markNoticeShown();
-        else this.note = null;
         break;
       }
       case "lessons":

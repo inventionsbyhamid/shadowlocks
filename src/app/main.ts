@@ -7,10 +7,10 @@ import { AssetManager, World } from "@iwsdk/core";
 import projectOptions from "virtual:iwsdk-project";
 import { PAYWALL_ON } from "../core/entitlement";
 import { attachInput } from "../input/grab-system";
-import { installOffline, showBriefly, takeOverAtBoot } from "../platform/offline";
+import { installOffline, takeOverAtBoot } from "../platform/offline";
 import { openStore } from "../platform/store";
 import { APP_VERSION } from "../platform/version";
-import { COPY } from "../ui/copy";
+import { copy } from "../i18n";
 import { MenuSystem, useMenus } from "../ui/menu-system";
 import { styleRayCursors } from "../ui/ray-cursor";
 import { Access, billingFor } from "./access";
@@ -22,6 +22,8 @@ import { attachGame } from "./game";
 import { recordHands, recordSeconds } from "./hand-recorder";
 import { attachHands } from "./hand-system";
 import { localInputProfileUrl } from "./input-profiles";
+import { followLanguage } from "./language";
+import { ENTER_FAILED, Landing, LOADING, NO_XR, noticeLine, startLanguage } from "./landing";
 import { attachLantern } from "./lantern-system";
 import { attachLessons } from "./lessons";
 import { GameMenus } from "./menu-game";
@@ -41,28 +43,22 @@ const VIDEO = import.meta.env.VITE_VIDEO === "1";
 async function main(): Promise<void> {
   // A newer version installed during an earlier visit takes over now, before anything starts.
   if (!import.meta.env.DEV && (await takeOverAtBoot())) return;
-  const status = document.getElementById("status");
   const enter = document.getElementById("enter") as HTMLButtonElement | null;
-  const say = (text: string) => {
-    if (status) status.textContent = text;
-  };
   // The landing page (box art, the name, "Open the box") is for the hosted link: the installed
-  // Quest apps skip it and go straight into XR.
+  // Quest apps skip it and go straight into XR. Its words, the page's lang and its meta description are in the
+  // headset's language from the start, and follow the Language setting once the profile is open.
   // No landing art in the installed apps (it would flash by as a splash before XR): only the status, and the
   // button should going into XR fail.
   document.body.classList.toggle("installed", !showLanding(window));
-  if (enter) enter.textContent = COPY.landing.open;
-  for (const [id, text] of [["tagline", COPY.landing.tagline], ["facts", COPY.landing.facts]] as const) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = text;
-  }
+  startLanguage(document);
+  const page = new Landing(document);
 
   const hooks = TEST_HOOKS ? await import("./test-hooks") : null;
   const video = VIDEO ? await import("../video/video-mode") : null;
   hooks?.startEventLog();
   on("notice", (e) => {
     console.info(`notice: ${e.text}`);
-    say(e.text);
+    page.say(noticeLine(e.text));
   });
 
   const world = await World.create(document.getElementById("scene-container") as HTMLDivElement, projectOptions);
@@ -76,10 +72,13 @@ async function main(): Promise<void> {
   if (!flags.multiview) disableMultiview(world.renderer);
   if (flags.perf) showPerfPanel(world);
   const recordFor = recordSeconds(location.search);
-  if (recordFor) recordHands(world, recordFor, say).catch((err) => console.error("hand recording unavailable", err));
+  // The recorder (a field tool) writes its own English progress lines.
+  if (recordFor) recordHands(world, recordFor, (text) => page.say(() => text)).catch((err) => console.error("hand recording unavailable", err));
   // The wall clock enters the profile here only (first launch, latest time seen): core code takes times as arguments.
   const store = await ProfileStore.open(video ? video.videoStore() : await openStore(), emit, { now: () => Date.now(), build: APP_VERSION });
   const settings = new SettingsStore(store);
+  // The language before anything paints text: the saved one, or the headset's.
+  followLanguage(settings);
   // The edition from the host (a test build may force the store edition, the paywall and fake
   // billing from the address); with the paywall off, as in all of v1, billing is never asked.
   const over = testOverrides(location.search, TEST_HOOKS);
@@ -186,7 +185,6 @@ async function main(): Promise<void> {
   video?.installVideoMode(world);
 
   if (navigator.xr && world.xrEnabled) {
-    const failed = COPY.page.enterFailed;
     // Test builds may shorten the wait (?enterTimeoutMs=500) to check the retry path.
     const testTimeout = TEST_HOOKS ? Number(new URLSearchParams(location.search).get("enterTimeoutMs")) : 0;
     const tryEnter = async () => {
@@ -196,31 +194,32 @@ async function main(): Promise<void> {
         enter.disabled = false;
         enter.hidden = false;
       }
-      if (!ok) say(failed);
-      else if (status?.textContent === failed) say("");
+      // By which line is up, not its words: the language may have changed since the failure showed.
+      if (!ok) page.say(ENTER_FAILED);
+      else page.clear(ENTER_FAILED);
     };
     enter?.addEventListener("click", () => {
       sound.unlock();
       void tryEnter();
     });
     world.renderer.xr.addEventListener("sessionstart", () => {
-      if (status?.textContent === failed) say("");
+      page.clear(ENTER_FAILED);
       document.body.classList.add("in-xr");
     });
     world.renderer.xr.addEventListener("sessionend", () => document.body.classList.remove("in-xr"));
-    if (status && status.textContent === "Loading") say("");
+    page.clear(LOADING);
     // Installed Quest app (the TWA exposes the Digital Goods API): go straight into XR with no
     // gesture; Enter shows if that fails. Audio then starts on the first pinch (startAudio retries).
     if (installedApp(window)) void tryEnter();
     else if (enter) enter.hidden = false;
   } else {
-    say(COPY.page.noXr);
+    page.say(NO_XR);
   }
   // Production builds precache everything for offline play, after the first screen is up.
   if (!import.meta.env.DEV) {
     installOffline(import.meta.url, (text) => {
       console.info(`notice: ${text}`);
-      showBriefly(status, text);
+      page.sayBriefly(noticeLine(text));
     });
   }
 }
@@ -228,5 +227,5 @@ async function main(): Promise<void> {
 main().catch((err) => {
   console.error("startup failed", err);
   const status = document.getElementById("status");
-  if (status) status.textContent = COPY.page.startupFailed;
+  if (status) status.textContent = copy().page.startupFailed;
 });

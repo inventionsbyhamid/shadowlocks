@@ -2,6 +2,7 @@
 // progress, lessons, tips, the collection, the daily streak and settings. The loader checks, clamps or
 // defaults every field on its own, so a damaged or older save never stops the game from starting and one
 // bad field never costs the rest. Times are wall-clock ms since the epoch, always passed in.
+import { type LanguageSetting, languageSettingFrom } from "../i18n/langs";
 import type { ShapeName, V3 } from "./types";
 
 export interface Settings {
@@ -16,6 +17,8 @@ export interface Settings {
   /** Dim the room around the box while playing. */
   dimming: boolean;
   handed: "right" | "left";
+  /** The game's language: "auto" follows the headset (saves from before this setting load as "auto"). */
+  language: LanguageSetting;
 }
 
 /** A box in progress as saved: enough to put the lantern, open locks and finger pieces back. */
@@ -107,6 +110,7 @@ export function defaultSettings(): Settings {
     captions: true,
     dimming: true,
     handed: "right",
+    language: "auto",
   };
 }
 
@@ -207,6 +211,7 @@ export function settingsFrom(raw: unknown): Settings {
     captions: bool(s.captions, d.captions),
     dimming: bool(s.dimming, d.dimming),
     handed: s.handed === "left" ? "left" : "right",
+    language: languageSettingFrom(s.language),
   };
 }
 

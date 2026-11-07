@@ -50,4 +50,18 @@ describe("settings", () => {
     expect(st.get().boxSizeCm).toBe(24);
     expect(st.get().handed).toBe("right");
   });
+
+  it("saves the language and tells subscribers; a language the game does not speak is auto", async () => {
+    const m = memStore();
+    const ps = await ProfileStore.open(m.store, () => {}, ENV);
+    const st = new SettingsStore(ps);
+    expect(st.get().language).toBe("auto");
+    const seen: string[] = [];
+    st.subscribe((s) => seen.push(s.language));
+    await st.set({ language: "ja" });
+    expect(m.saves.at(-1)?.settings.language).toBe("ja");
+    await st.set({ language: "klingon" as unknown as "ja" });
+    expect(st.get().language).toBe("auto");
+    expect(seen).toEqual(["ja", "auto"]);
+  });
 });

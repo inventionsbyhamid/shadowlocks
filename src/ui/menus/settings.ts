@@ -1,20 +1,24 @@
-// Settings: every field of the profile's Settings. Three stepped sliders (music, effects, box size:
-// minus and plus keys around an LED meter), five latching toggles (warmth, captions, less motion,
-// dim room, left hand), Recenter, Reset progress (it asks first, on its own panel) and Done. Every
-// change applies live and is saved through the settings store, inside the profile's ranges.
+// Settings: every field of the profile's Settings. The Language key (Automatic, then each language in
+// its own name, and round), three stepped sliders (music, effects, box size: minus and plus keys around
+// an LED meter), five latching toggles (warmth, captions, less motion, dim room, left hand), Recenter,
+// Reset progress (it asks first, on its own panel) and Done. Every change applies live and is saved
+// through the settings store, inside the profile's ranges. Words come from the language shown.
 import { BOX_SIZE_CM, type Settings } from "../../core/profile";
-import { COPY } from "../copy";
+import { type Copy, copy, formatCm, formatPercent, lang } from "../../i18n";
 import { UI } from "../theme";
+import { type LanguageRowView, languageRow, stepLanguage } from "./language";
 import type { MenuSpec, PanelUi } from "./types";
 
 export type SliderKey = "musicVol" | "sfxVol" | "boxSizeCm";
 export type ToggleKey = "warmth" | "captions" | "reducedMotion" | "dimming" | "handed";
 
+type Words = (c: Copy) => string;
+
 interface SliderDef {
   key: SliderKey;
   /** Button id prefix: `<prefix>-down`, `<prefix>-up`. */
   prefix: string;
-  label: string;
+  label: Words;
   min: number;
   max: number;
   step: number;
@@ -22,19 +26,22 @@ interface SliderDef {
 
 /** Ranges match the profile loader (src/core/profile.ts `migrate`). */
 export const SLIDERS: readonly SliderDef[] = [
-  { key: "musicVol", prefix: "music", label: COPY.settings.music, min: 0, max: 1, step: 0.1 },
-  { key: "sfxVol", prefix: "effects", label: COPY.settings.effects, min: 0, max: 1, step: 0.1 },
-  { key: "boxSizeCm", prefix: "box", label: COPY.settings.boxSize, min: BOX_SIZE_CM.min, max: BOX_SIZE_CM.max, step: 2 },
+  { key: "musicVol", prefix: "music", label: (c) => c.settings.music, min: 0, max: 1, step: 0.1 },
+  { key: "sfxVol", prefix: "effects", label: (c) => c.settings.effects, min: 0, max: 1, step: 0.1 },
+  { key: "boxSizeCm", prefix: "box", label: (c) => c.settings.boxSize, min: BOX_SIZE_CM.min, max: BOX_SIZE_CM.max, step: 2 },
 ];
 
 /** The toggles, in panel order. "Left hand" is on for a left-handed player (the box mirrors). */
-export const TOGGLES: readonly { id: string; key: ToggleKey; label: string; sub: string }[] = [
-  { id: "toggle-warmth", key: "warmth", label: COPY.settings.warmth, sub: COPY.settings.warmthSub },
-  { id: "toggle-captions", key: "captions", label: COPY.settings.captions, sub: COPY.settings.captionsSub },
-  { id: "toggle-motion", key: "reducedMotion", label: COPY.settings.motion, sub: COPY.settings.motionSub },
-  { id: "toggle-dimming", key: "dimming", label: COPY.settings.dimming, sub: COPY.settings.dimmingSub },
-  { id: "toggle-hand", key: "handed", label: COPY.settings.hand, sub: COPY.settings.handSub },
+export const TOGGLES: readonly { id: string; key: ToggleKey; label: Words; sub: Words }[] = [
+  { id: "toggle-warmth", key: "warmth", label: (c) => c.settings.warmth, sub: (c) => c.settings.warmthSub },
+  { id: "toggle-captions", key: "captions", label: (c) => c.settings.captions, sub: (c) => c.settings.captionsSub },
+  { id: "toggle-motion", key: "reducedMotion", label: (c) => c.settings.motion, sub: (c) => c.settings.motionSub },
+  { id: "toggle-dimming", key: "dimming", label: (c) => c.settings.dimming, sub: (c) => c.settings.dimmingSub },
+  { id: "toggle-hand", key: "handed", label: (c) => c.settings.hand, sub: (c) => c.settings.handSub },
 ];
+
+/** The Language key: each poke steps to the next setting. */
+export const LANGUAGE_KEY = "settings-language";
 
 /** A toggle's state in the settings. */
 export function toggleOn(s: Readonly<Settings>, key: ToggleKey): boolean {
@@ -55,6 +62,7 @@ export const SETTINGS: MenuSpec = {
   node: "settings-panel",
   screen: "settings",
   keys: [
+    LANGUAGE_KEY,
     ...SLIDERS.flatMap((s) => [`${s.prefix}-down`, `${s.prefix}-up`]),
     "settings-recenter",
     "settings-reset",
@@ -65,12 +73,13 @@ export const SETTINGS: MenuSpec = {
 
 const def = (key: SliderKey): SliderDef => SLIDERS.find((s) => s.key === key) as SliderDef;
 
+/** A slider's value the language's way: "24 cm", "70%" ("70 %" in French), or the word for a volume at zero. */
 export function formatSetting(key: SliderKey, v: number): string {
   switch (key) {
     case "boxSizeCm":
-      return `${Math.round(v)} cm`;
+      return formatCm(Math.round(v));
     default:
-      return v <= 0.001 ? COPY.settings.off : `${Math.round(v * 100)}%`;
+      return v <= 0.001 ? copy().settings.muted : formatPercent(v);
   }
 }
 
@@ -88,6 +97,7 @@ export function stepSetting(s: Readonly<Settings>, key: SliderKey, dir: 1 | -1):
 
 /** The change a settings key asks for, or null for keys that only navigate or act. */
 export function settingAction(id: string, s: Readonly<Settings>): Partial<Settings> | null {
+  if (id === LANGUAGE_KEY) return { language: stepLanguage(s.language, 1) };
   for (const d of SLIDERS) {
     if (id === `${d.prefix}-up`) return stepSetting(s, d.key, 1);
     if (id === `${d.prefix}-down`) return stepSetting(s, d.key, -1);
@@ -119,6 +129,8 @@ export interface SliderView {
 }
 
 export interface SettingsView {
+  /** The Language key: "Automatic" (with the language it picked) or a language in its own name. */
+  language: LanguageRowView;
   sliders: SliderView[];
   toggles: { id: string; label: string; sub: string; on: boolean; state: string }[];
   /** Stepper keys at the end of their range: they move under the finger but never click. */
@@ -126,14 +138,16 @@ export interface SettingsView {
 }
 
 export function settingsView(s: Readonly<Settings>): SettingsView {
+  const c = copy();
   return {
+    language: languageRow(s.language, lang(), c),
     sliders: SLIDERS.map((d) => {
       const v = s[d.key];
       const fill = Math.min(1, Math.max(0, (v - d.min) / (d.max - d.min)));
       return {
         key: d.key,
         prefix: d.prefix,
-        label: d.label,
+        label: d.label(c),
         value: formatSetting(d.key, v),
         fill,
         atMin: v <= d.min + 1e-6,
@@ -142,7 +156,7 @@ export function settingsView(s: Readonly<Settings>): SettingsView {
     }),
     toggles: TOGGLES.map((t) => {
       const on = toggleOn(s, t.key);
-      return { id: t.id, label: t.label, sub: t.sub, on, state: on ? COPY.settings.on : COPY.settings.off };
+      return { id: t.id, label: t.label(c), sub: t.sub(c), on, state: on ? c.settings.on : c.settings.off };
     }),
     disabled: SLIDERS.flatMap((d) => {
       const v = s[d.key];
@@ -155,6 +169,9 @@ export function settingsView(s: Readonly<Settings>): SettingsView {
 }
 
 export function paintSettings(ui: PanelUi, v: SettingsView): void {
+  ui.text(`${LANGUAGE_KEY}-value`, v.language.value);
+  ui.show(`${LANGUAGE_KEY}-sub`, v.language.sub !== "");
+  if (v.language.sub !== "") ui.text(`${LANGUAGE_KEY}-sub`, v.language.sub);
   for (const sl of v.sliders) {
     ui.text(`${sl.prefix}-value`, sl.value);
     const lit = Math.round(sl.fill * METER_SEGMENTS);

@@ -2,7 +2,8 @@
 // desk it came off, what was inside), with Newer and Older to page. Pure view model and painting.
 import { specOfKey } from "../../core/generator";
 import type { CollectionItem } from "../../core/profile";
-import { COPY, fill } from "../copy";
+import { copy, count, formatDay, storyLoot, storyOwner } from "../../i18n";
+import { fill } from "../copy";
 import type { MenuSpec, PanelUi } from "./types";
 
 /** Cards on one page. */
@@ -20,12 +21,12 @@ export function boxNumberOf(key: string): number | null {
   return spec?.kind === "box" ? spec.n : null;
 }
 
-/** A reward's title from its box key: "Box No. 3", or "Daily Box 2026-11-02" for a daily. */
+/** A reward's title from its box key: "Box No. 3", or "Daily Box Nov 2" for a daily (its day in the language shown). */
 export function titleOf(key: string): string {
-  const c = COPY.menus.collection;
+  const c = copy().menus.collection;
   const spec = specOfKey(key);
   if (spec?.kind === "box") return fill(c.box, { n: spec.n });
-  if (spec?.kind === "daily") return fill(c.daily, { day: spec.day });
+  if (spec?.kind === "daily") return fill(c.daily, { day: formatDay(spec.day) });
   return key;
 }
 
@@ -51,7 +52,7 @@ export interface CollectionView {
 
 /** Page `page` (0 = newest) of the collection. */
 export function collectionView(items: readonly CollectionItem[], page: number): CollectionView {
-  const c = COPY.menus.collection;
+  const t = copy(), c = t.menus.collection;
   const n = items.length;
   const pages = Math.max(1, Math.ceil(n / CARDS));
   const index = Math.min(pages - 1, Math.max(0, Math.floor(page)));
@@ -61,7 +62,12 @@ export function collectionView(items: readonly CollectionItem[], page: number): 
   for (let k = from; k < Math.min(n, from + CARDS); k++) {
     const it = items[n - 1 - k] as CollectionItem;
     // The same story lines the reward card carries as it rises out of the box.
-    cards.push({ title: titleOf(it.key), owner: fill(COPY.game.storyOwner, { owner: it.owner }), loot: fill(COPY.game.storyLoot, { loot: it.loot }) });
+    // A saved reward keeps its English words: they are told in the language shown.
+    cards.push({
+      title: titleOf(it.key),
+      owner: fill(t.game.storyOwner, { owner: storyOwner(it.owner, t) }),
+      loot: fill(t.game.storyLoot, { loot: storyLoot(it.loot, t) }),
+    });
   }
   const newer = index > 0;
   const older = index < pages - 1;
@@ -69,7 +75,7 @@ export function collectionView(items: readonly CollectionItem[], page: number): 
   if (!newer) disabled.push("coll-newer");
   if (!older) disabled.push("coll-older");
   return {
-    count: n === 0 ? c.none : n === 1 ? c.one : fill(c.many, { n }),
+    count: n === 0 ? c.none : count(n, c.rewards),
     cards,
     empty: n === 0,
     pager: pages > 1,

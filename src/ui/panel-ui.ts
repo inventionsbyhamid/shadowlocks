@@ -2,8 +2,10 @@
 // and count-up numbers. Values that move every frame go through signals, so a frame only assigns
 // numbers or constant strings (no allocation in our code).
 import { type Object3D, type Signal, signal, type UIKitMLAsset } from "@iwsdk/core";
+import type { Lang } from "../i18n";
+import { breakUnits } from "../render/label";
 import { CountUp } from "./count-up";
-import { applyArchivo, FONT_FAMILIES } from "./fonts";
+import { applyArchivo, applyNames, FONT_FAMILIES, fontFamiliesFor } from "./fonts";
 import type { MenuSpec, PanelUi } from "./menus/types";
 import { MOTION } from "./motion";
 
@@ -20,6 +22,15 @@ interface Roll {
   id: string;
   text: Signal<string>;
   counter: CountUp;
+}
+
+/**
+ * Japanese text with a plain space at every place a line may break (the Japanese atlas draws it with no width). A
+ * space already there is one the reader sees (between a number and its unit, "24 cm", or inside a Latin name), so
+ * it becomes a no-break space first: it keeps its width and never breaks.
+ */
+export function japaneseBreaks(s: string): string {
+  return breakUnits(s.replace(/ /g, " ")).join(" ");
 }
 
 /** Told when a count-up shows its next value (`k` of the way, 0..1) and when it lands (`done`). */
@@ -43,6 +54,19 @@ export class PanelView implements PanelUi {
     this.root = asset.document.rootElement as unknown as UiEl;
     this.root.setProperties({ opacity: this.opacity, fontFamilies: FONT_FAMILIES });
     applyArchivo(this.root);
+    applyNames(this.root);
+  }
+
+  /** Japanese text gets a place to break between characters (see `text`). */
+  private japanese = false;
+
+  /** Draw in language `l`: its fonts for every family (Japanese draws all of them with the Japanese font). */
+  setLanguage(l: Lang): void {
+    const japanese = l === "ja";
+    // Words that read the same either way ("24 cm") are written differently in Japanese: write every text again.
+    if (japanese !== this.japanese) for (const k of this.given.keys()) if (k.startsWith("t:")) this.given.delete(k);
+    this.japanese = japanese;
+    this.root.setProperties({ fontFamilies: fontFamiliesFor(l) });
   }
 
   el(id: string): UiEl | null {
@@ -55,8 +79,21 @@ export class PanelView implements PanelUi {
     return e;
   }
 
+  /**
+   * Set an element's text. UIKit breaks lines only at a plain space; Japanese has none, so in Japanese a plain
+   * space (drawn with no width by the Japanese atlas) goes wherever a line may break by the kinsoku rules: never
+   * before a closing mark or small kana, never after an opening mark, never inside a Latin word.
+   */
   text(id: string, s: string): void {
-    if (this.changed("t", id, s)) this.el(id)?.setProperties({ text: s });
+    if (!this.changed("t", id, s)) return;
+    const shown = this.japanese ? japaneseBreaks(s) : s;
+    this.written.set(id, shown);
+    this.el(id)?.setProperties({ text: shown });
+  }
+
+  /** What `text` last put on an element (the layout check: on a Japanese panel only these may hold plain spaces). */
+  wrote(id: string): string | null {
+    return this.written.get(id) ?? null;
   }
 
   show(id: string, on: boolean): void {
@@ -82,6 +119,7 @@ export class PanelView implements PanelUi {
 
   /** What each element was last given, per property: a paint writes only what changed (no relayout for nothing). */
   private readonly given = new Map<string, string>();
+  private readonly written = new Map<string, string>();
 
   private changed(kind: string, id: string, value: string): boolean {
     const k = `${kind}:${id}`;

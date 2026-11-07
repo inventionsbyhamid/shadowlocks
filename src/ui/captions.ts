@@ -4,24 +4,27 @@
 // with a manifest caption it is asked to play, even muted ones (`AudioEngine` option `onCaption`);
 // only the sounds whose meaning a player might miss get one (`captionFor`), in the game's own words.
 // Two at most; each fades in and out over 300 ms, and one pushed out by a newer one fades out first.
-// Pure: the game's caption strip draws them.
-import { COPY } from "./copy";
+// Pure: the game's caption strip draws them. Words come from the language shown when the sound plays.
+import { copy } from "../i18n";
+
+type CaptionKey = "lockOpen" | "boxOpens" | "hint" | "ringsLine";
 
 /**
  * The sounds that carry meaning a player might miss: a lock opens (one caption for its three
  * layers), the box opens, a hint appears, the rings line up. Every other sound shows the same
  * thing where the player looks, so it has no caption (no flicker of words several times a second).
  */
-const CAPTIONED: ReadonlyMap<string, string> = new Map([
-  ["brass_clunk", COPY.captions.lockOpen],
-  ["walls_hinge", COPY.captions.boxOpens],
-  ["hint_reveal", COPY.captions.hint],
-  ["ring_chime", COPY.captions.ringsLine],
-]);
+const CAPTIONED: ReadonlyMap<string, CaptionKey> = new Map([
+  ["brass_clunk", "lockOpen"],
+  ["walls_hinge", "boxOpens"],
+  ["hint_reveal", "hint"],
+  ["ring_chime", "ringsLine"],
+] as const);
 
-/** The caption sound `soundId` shows, or null for none. */
+/** The caption sound `soundId` shows, in the language shown now, or null for none. */
 export function captionFor(soundId: string): string | null {
-  return CAPTIONED.get(soundId) ?? null;
+  const key = CAPTIONED.get(soundId);
+  return key ? copy().captions[key] : null;
 }
 
 export const CAPTIONS = {

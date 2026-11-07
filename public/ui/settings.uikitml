@@ -53,17 +53,21 @@
   .cells { flex-direction: row; gap: 12; }
   .cell { flex-grow: 1; flex-basis: 0; flex-direction: row; align-items: center; gap: 8; height: 44; }
   .readout { flex-grow: 1; flex-basis: 0; height: 44; flex-direction: column; justify-content: center; gap: 5; padding-left: 8; padding-right: 8; }
-  .readout-top { flex-direction: row; justify-content: space-between; align-items: center; }
+  .readout-top { flex-direction: row; justify-content: space-between; align-items: center; gap: 3; }
   .readout-label { font-size: 10; font-weight: bold; color: #CDB27A; }
-  .readout-value { font-size: 11.5; font-weight: bold; color: #FFD36A; }
+  .readout-value { font-size: 11.5; font-weight: bold; color: #FFD36A; flex-shrink: 0; }
   .meter { flex-direction: row; gap: 1.2; }
   .seg { flex-grow: 1; height: 4; border-radius: 0.6; background-color: #3A3236; }
   .keys2 { flex-grow: 1; flex-basis: 0; flex-direction: row; gap: 12; }
+  .slot-toggle { height: 48; }
   .toggle-cap { padding-left: 9; padding-right: 9; }
   .toggle-row { flex-direction: row; align-items: center; gap: 4; }
   .toggle-led { width: 6; height: 6; border-radius: 3; background-color: #3A3236; }
   .toggle-state { font-size: 10.5; font-weight: bold; flex-shrink: 0; }
   .toggle-sub { flex-shrink: 0; }
+  .lang-cap { flex-direction: row; align-items: center; justify-content: space-between; }
+  .lang-values { flex-direction: row; align-items: center; gap: 8; }
+  .lang-value { font-size: 11.5; font-weight: bold; color: #FFD36A; }
 </style>
 <div id="settings-root" class="root">
   <div class="crest">
@@ -71,8 +75,20 @@
     <div class="crest-mid"></div>
   </div>
   <div class="head">
-    <div class="title">Settings</div>
-    <div class="meta">Changes apply right away</div>
+    <div id="settings-title" class="title">Settings</div>
+    <div id="settings-note" class="meta">Changes apply right away</div>
+  </div>
+  <div class="row">
+    <div id="settings-language-slot" class="slot slot-sm">
+      <div id="settings-language-glow" class="glow"></div>
+      <div id="settings-language" class="key key-graphite">
+        <div id="settings-language-cap" class="cap cap-graphite lang-cap">
+          <div class="hair"></div>
+          <div id="settings-language-label" class="label-sm">Language</div>
+          <div class="lang-values"><div id="settings-language-value" class="lang-value">Automatic</div><div id="settings-language-sub" class="sub ink-dim lang-name">English</div></div>
+        </div>
+      </div>
+    </div>
   </div>
   <div class="cells">
     <div class="cell">
@@ -87,7 +103,7 @@
     </div>
         <div class="readout plate">
           <div class="readout-top">
-            <div class="readout-label">Music</div>
+            <div id="music-label" class="readout-label">Music</div>
             <div id="music-value" class="readout-value">70%</div>
           </div>
           <div class="meter"><div id="music-seg-0" class="seg"></div><div id="music-seg-1" class="seg"></div><div id="music-seg-2" class="seg"></div><div id="music-seg-3" class="seg"></div><div id="music-seg-4" class="seg"></div><div id="music-seg-5" class="seg"></div><div id="music-seg-6" class="seg"></div><div id="music-seg-7" class="seg"></div><div id="music-seg-8" class="seg"></div><div id="music-seg-9" class="seg"></div></div>
@@ -114,7 +130,7 @@
     </div>
         <div class="readout plate">
           <div class="readout-top">
-            <div class="readout-label">Effects</div>
+            <div id="effects-label" class="readout-label">Effects</div>
             <div id="effects-value" class="readout-value">90%</div>
           </div>
           <div class="meter"><div id="effects-seg-0" class="seg"></div><div id="effects-seg-1" class="seg"></div><div id="effects-seg-2" class="seg"></div><div id="effects-seg-3" class="seg"></div><div id="effects-seg-4" class="seg"></div><div id="effects-seg-5" class="seg"></div><div id="effects-seg-6" class="seg"></div><div id="effects-seg-7" class="seg"></div><div id="effects-seg-8" class="seg"></div><div id="effects-seg-9" class="seg"></div></div>
@@ -143,7 +159,7 @@
     </div>
         <div class="readout plate">
           <div class="readout-top">
-            <div class="readout-label">Box size</div>
+            <div id="box-label" class="readout-label">Box size</div>
             <div id="box-value" class="readout-value">24 cm</div>
           </div>
           <div class="meter"><div id="box-seg-0" class="seg"></div><div id="box-seg-1" class="seg"></div><div id="box-seg-2" class="seg"></div><div id="box-seg-3" class="seg"></div><div id="box-seg-4" class="seg"></div><div id="box-seg-5" class="seg"></div><div id="box-seg-6" class="seg"></div><div id="box-seg-7" class="seg"></div><div id="box-seg-8" class="seg"></div><div id="box-seg-9" class="seg"></div></div>
@@ -181,7 +197,7 @@
     </div>
   </div>
   <div class="row">
-    <div id="toggle-warmth-slot" class="slot slot-sm">
+    <div id="toggle-warmth-slot" class="slot slot-toggle">
       <div id="toggle-warmth-glow" class="glow"></div>
       <div id="toggle-warmth" class="key key-graphite">
         <div id="toggle-warmth-cap" class="cap cap-graphite toggle-cap">
@@ -191,7 +207,7 @@
         </div>
       </div>
     </div>
-    <div id="toggle-captions-slot" class="slot slot-sm">
+    <div id="toggle-captions-slot" class="slot slot-toggle">
       <div id="toggle-captions-glow" class="glow"></div>
       <div id="toggle-captions" class="key key-graphite">
         <div id="toggle-captions-cap" class="cap cap-graphite toggle-cap">
@@ -201,7 +217,7 @@
         </div>
       </div>
     </div>
-    <div id="toggle-motion-slot" class="slot slot-sm">
+    <div id="toggle-motion-slot" class="slot slot-toggle">
       <div id="toggle-motion-glow" class="glow"></div>
       <div id="toggle-motion" class="key key-graphite">
         <div id="toggle-motion-cap" class="cap cap-graphite toggle-cap">
@@ -213,7 +229,7 @@
     </div>
   </div>
   <div class="row">
-    <div id="toggle-dimming-slot" class="slot slot-sm">
+    <div id="toggle-dimming-slot" class="slot slot-toggle">
       <div id="toggle-dimming-glow" class="glow"></div>
       <div id="toggle-dimming" class="key key-graphite">
         <div id="toggle-dimming-cap" class="cap cap-graphite toggle-cap">
@@ -223,7 +239,7 @@
         </div>
       </div>
     </div>
-    <div id="toggle-hand-slot" class="slot slot-sm">
+    <div id="toggle-hand-slot" class="slot slot-toggle">
       <div id="toggle-hand-glow" class="glow"></div>
       <div id="toggle-hand" class="key key-graphite">
         <div id="toggle-hand-cap" class="cap cap-graphite toggle-cap">
@@ -233,7 +249,7 @@
         </div>
       </div>
     </div>
-    <div id="settings-done-slot" class="slot slot-sm">
+    <div id="settings-done-slot" class="slot slot-toggle">
       <div id="settings-done-glow" class="glow"></div>
       <div id="settings-done" class="key key-putty">
         <div id="settings-done-cap" class="cap cap-putty cap-center">

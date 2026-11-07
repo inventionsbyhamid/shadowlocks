@@ -10,7 +10,7 @@ import { brassFace, roundRect } from "../render/label";
 import { radialTexture } from "../render/lantern-view";
 import { LIGHT_BLEND } from "../render/light-blend";
 import { COLORS } from "../render/theme";
-import { COPY } from "./copy";
+import { copy } from "../i18n";
 import type { Tips } from "./key-view";
 import { PokeKey } from "./poke-key";
 
@@ -36,8 +36,8 @@ export class HintLantern {
   /** Cancels the box's scale: everything under it is in metres. */
   readonly group = new Group();
   readonly lantern = new PokeKey("hint-lantern", HINT_LANTERN.key, HINT_LANTERN.key, "");
-  readonly hint = new PokeKey("hint-choice", HINT_LANTERN.choice.w, HINT_LANTERN.choice.h, COPY.game.hint);
-  readonly showMe = new PokeKey("hint-show-me", HINT_LANTERN.choice.w, HINT_LANTERN.choice.h, COPY.game.showMe);
+  readonly hint = new PokeKey("hint-choice", HINT_LANTERN.choice.w, HINT_LANTERN.choice.h, copy().game.hint);
+  readonly showMe = new PokeKey("hint-show-me", HINT_LANTERN.choice.w, HINT_LANTERN.choice.h, copy().game.showMe);
   private readonly glow: Sprite;
   private readonly glowMat: SpriteMaterial;
   private glowOn = false;
@@ -97,6 +97,18 @@ export class HintLantern {
     this.group.visible = false;
     root.add(this.group);
     this.setSide(-1);
+  }
+
+  /** The language changed (or its font arrived): the choices' labels again. */
+  relabel(): void {
+    const g = copy().game;
+    for (const [k, t] of [
+      [this.hint, g.hint],
+      [this.showMe, g.showMe],
+    ] as const) {
+      if (t === k.labelText) k.refresh();
+      else k.setText(t);
+    }
   }
 
   /** Show it (a box in play) on side `side` (-1 left, +1 right), or hide it. Choices away, no glow. */
