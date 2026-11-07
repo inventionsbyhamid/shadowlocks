@@ -109,8 +109,18 @@ describe("service worker options", () => {
     expect(files.length).toBeGreaterThan(0);
     for (const f of files) expect(PRECACHE_EXTENSIONS, f).toContain(path.extname(f).slice(1));
     expect(files).toContain("ui/home.uikitml");
-    // The text fonts: atlas pages (WebP) and the Japanese canvas font (WOFF2), offline like the rest.
-    for (const f of ["fonts/archivo-xb.webp", "fonts/inter-md.webp", "fonts/inter-bd.webp", "fonts/noto-jp.webp", "fonts/noto-jp.woff2"]) {
+    // The text fonts: atlas pages (WebP), the Japanese canvas font and the landing page's brand faces (WOFF2),
+    // offline like the rest.
+    for (const f of [
+      "fonts/josefin-bd.webp",
+      "fonts/limelight.webp",
+      "fonts/inter-md.webp",
+      "fonts/inter-bd.webp",
+      "fonts/noto-jp.webp",
+      "fonts/noto-jp.woff2",
+      "fonts/josefin-bd.woff2",
+      "fonts/limelight.woff2",
+    ]) {
       expect(files).toContain(f);
     }
     // The sound pack: the music bed, and the hums, which are FLAC (they loop without a tick).

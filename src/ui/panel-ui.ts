@@ -5,7 +5,7 @@ import { type Object3D, type Signal, signal, type UIKitMLAsset } from "@iwsdk/co
 import type { Lang } from "../i18n";
 import { breakUnits } from "../render/label";
 import { CountUp } from "./count-up";
-import { applyArchivo, applyNames, FONT_FAMILIES, fontFamiliesFor } from "./fonts";
+import { applyBrandFonts, applyNames, FONT_FAMILIES, fontFamiliesFor } from "./fonts";
 import type { MenuSpec, PanelUi } from "./menus/types";
 import { MOTION } from "./motion";
 
@@ -53,7 +53,7 @@ export class PanelView implements PanelUi {
   ) {
     this.root = asset.document.rootElement as unknown as UiEl;
     this.root.setProperties({ opacity: this.opacity, fontFamilies: FONT_FAMILIES });
-    applyArchivo(this.root);
+    applyBrandFonts(this.root, "en");
     applyNames(this.root);
   }
 
@@ -64,7 +64,11 @@ export class PanelView implements PanelUi {
   setLanguage(l: Lang): void {
     const japanese = l === "ja";
     // Words that read the same either way ("24 cm") are written differently in Japanese: write every text again.
-    if (japanese !== this.japanese) for (const k of this.given.keys()) if (k.startsWith("t:")) this.given.delete(k);
+    if (japanese !== this.japanese) {
+      for (const k of this.given.keys()) if (k.startsWith("t:")) this.given.delete(k);
+      // The interface face is tracked; the Japanese font standing in for it is not.
+      applyBrandFonts(this.root, l);
+    }
     this.japanese = japanese;
     this.root.setProperties({ fontFamilies: fontFamiliesFor(l) });
   }

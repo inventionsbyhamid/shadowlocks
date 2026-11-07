@@ -5,15 +5,17 @@ with the files.
 
 ## Fonts
 
-All four are licensed under the SIL Open Font License, Version 1.1. They are taken from the google/fonts
+All five are licensed under the SIL Open Font License, Version 1.1. They are taken from the google/fonts
 repository at commit `6c1dbe27dcf7d817d4b62cec033ba77fa8e2a5ec`, cut to one weight and to the characters the game
 shows, and turned into text atlases by `scripts/fonts/build-fonts.sh`. Those are modified versions under the
-licence. They keep their own font names, never a Reserved Font Name.
+licence. They never use a Reserved Font Name: Limelight and Josefin Sans reserve theirs, so our copies of them are
+renamed Shadow Locks Display and Shadow Locks Sans.
 
 | Font | Copyright | Files | Licence text |
 |---|---|---|---|
 | Inter (Medium, Bold) | Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter) | `public/fonts/inter-md.*`, `public/fonts/inter-bd.*` | `public/fonts/OFL-inter.txt` |
-| Archivo (Expanded ExtraBold) | Copyright 2020 The Archivo Project Authors (https://github.com/Omnibus-Type/Archivo) | `public/fonts/archivo-xb.*` | `public/fonts/OFL-archivo.txt` |
+| Josefin Sans (Bold), renamed Shadow Locks Sans | Copyright 2010 The Josefin Sans Project Authors (https://github.com/ThomasJockin/JosefinSansFont-master), with Reserved Font Name "Josefin Sans" | `public/fonts/josefin-bd.*` | `public/fonts/OFL-josefinsans.txt` |
+| Limelight (Regular), renamed Shadow Locks Display | Copyright (c) 2011 by Sorkin Type Co (www.sorkintype.com), with Reserved Font Name "Limelight" | `public/fonts/limelight.*` | `public/fonts/OFL-limelight.txt` |
 | Noto Sans JP (Bold) | Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source' | `public/fonts/noto-jp.*` | `public/fonts/OFL-notosansjp.txt` |
 | Noto Serif (Bold, Italic) | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic) | `public/fonts/noto-serif-bd.woff2`, `public/fonts/noto-serif-it.woff2` | `public/fonts/OFL-notoserif.txt` |
 
