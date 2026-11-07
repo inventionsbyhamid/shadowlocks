@@ -23,7 +23,7 @@ import type { Box, V2, V3 } from "../core/types";
 import type { HandJoints, HandSide } from "../input/hand-joints";
 import type { BoxScene } from "../render/box-scene";
 import { crystallise } from "../render/fx/crystallise";
-import { GhostHand, GhostLantern } from "../render/ghost-hand";
+import { type GhostHand, type GhostLantern, GhostRig } from "../render/ghost-hand";
 import { HandShadow, MAX_HAND_OUTLINES } from "../render/hand-shadow";
 import { radialTexture } from "../render/lantern-view";
 import { boxToWorld } from "../render/placement";
@@ -66,8 +66,10 @@ export interface LessonOnScreen {
 }
 
 export class LessonView {
-  readonly ghost: GhostHand;
-  readonly lamp: GhostLantern;
+  /** The ghost hand and lantern: one capsule mesh in the world (one draw call). */
+  readonly rig = new GhostRig();
+  readonly ghost: GhostHand = this.rig.hand;
+  readonly lamp: GhostLantern = this.rig.lamp;
   readonly coach: CoachLine;
   readonly coachView: CoachLineView;
   private readonly cradle: Mesh;
@@ -101,12 +103,9 @@ export class LessonView {
 
   constructor(private readonly d: LessonViewDeps) {
     const { scene, world } = d;
-    this.ghost = new GhostHand("right");
     this.ghost.opacity = 0;
-    world.scene.add(this.ghost.object);
-    this.lamp = new GhostLantern();
     this.lamp.opacity = 0;
-    scene.root.add(this.lamp.object);
+    world.scene.add(this.rig.mesh);
     this.coachView = new CoachLineView();
     this.coachView.object.position.set(LESSON_LOOK.coachAt[0], LESSON_LOOK.coachAt[1], LESSON_LOOK.coachAt[2]);
     this.coachView.object.rotation.x = LESSON_LOOK.coachTilt;
@@ -154,6 +153,8 @@ export class LessonView {
       this.glowLock = -1;
       this.solvedLock = -1;
     } else if (!ours && this.layoutBox) {
+      // The box still shown gets its scraps back in the player's layout (a box no longer shown is let go as it is).
+      if (box === this.layoutBox) this.layout?.reset(this.sink);
       this.layoutBox = null;
       this.layout = null;
       this.plan = null;
@@ -168,6 +169,7 @@ export class LessonView {
     // The ghost lantern and hand.
     this.lamp.setPos(f.lamp.at);
     this.lamp.opacity = ours ? f.lamp.opacity : 0;
+    if (this.lamp.opacity > 0) this.lamp.sync(m as Matrix4);
     // The ghost hand only while a lesson or replay is on screen (a menu over the lesson puts it away).
     const h = f.hand, ho = on.lesson !== null ? h.opacity : 0;
     if (ho > 0) {
@@ -186,8 +188,10 @@ export class LessonView {
     }
     scene.setGhostShadows(this.ghostOutlines, n, this.ghostShadow.depth);
 
-    // The player's lantern to its cradle and back.
-    this.park(f, side, reduced, tMs);
+    // The player's lantern to its cradle and back, once the lesson's box is shown (a replay's box may still be on its
+    // way); without it, a lantern in its cradle is let go where it stands.
+    if (ours) this.park(f, side, reduced, tMs);
+    else this.unpark(tMs);
 
     // The near scrap's glow, the twin lit when solved, the ghost finger's piece, the click.
     if (this.glowLock >= 0 && (f.glowLock !== this.glowLock || f.glowPiece !== this.glowPiece)) {
@@ -244,12 +248,19 @@ export class LessonView {
     this.lamp.opacity = 0;
     this.d.scene.setGhostShadows(this.ghostOutlines, 0, this.ghostShadow.depth);
     this.d.scene.setLightFrom(null);
+    this.unpark(tMs);
+    this.coach.show(null);
+  }
+
+  /** No cradle: a lantern in it is let go where it stands, its glow back. */
+  private unpark(tMs: number): void {
     if (this.parked) {
       this.parked = false;
       this.d.lantern.freeze(false, tMs);
     }
+    this.lastPark = 0;
     this.cradle.visible = false;
-    this.coach.show(null);
+    this.d.scene.lantern.setQuiet(false);
   }
 
   /** The lantern flies into its cradle as `park` rises and out (to `lift`, else back where it was) as it falls. */
@@ -288,6 +299,8 @@ export class LessonView {
       lantern.freeze(false, tMs);
     }
     this.lastPark = p;
+    // In the cradle the lantern waits quiet (no glow): the example's ghost lantern does the lighting.
+    this.d.scene.lantern.setQuiet(p > 0);
     this.cradle.visible = p > 0;
     this.cradle.position.set(cx, cy - 0.075, cz);
     (this.cradle.material as MeshBasicMaterial).opacity = Math.min(1, p * 3);
