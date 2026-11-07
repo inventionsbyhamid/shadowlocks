@@ -140,10 +140,15 @@ export class LanternView {
         .replace("#include <common>", "#include <common>\nuniform sampler2D ringMap;\nuniform vec3 ringColor;\nuniform vec2 ring;")
         .replace(
           "#include <map_fragment>",
-          "#include <map_fragment>\n" +
-            "float ringA = ring.y > 0.0 ? texture2D( ringMap, 0.5 + ( vMapUv - 0.5 ) * ring.x ).a * ring.y : 0.0;\n" +
-            // Both lights as colour, alpha 1: the light blend adds the colour as it is and leaves the page's alpha.
-            "diffuseColor = vec4( diffuseColor.rgb * diffuseColor.a + ringColor * ringA, 1.0 );",
+          "#include <map_fragment>\nfloat ringA = ring.y > 0.0 ? texture2D( ringMap, 0.5 + ( vMapUv - 0.5 ) * ring.x ).a * ring.y : 0.0;",
+        )
+        // Added as the two light sprites were: each term in output colour (the XR target takes sRGB-encoded colour,
+        // and the encoding is steep near black, so encoding the sum would brighten the faint halo several times).
+        // Alpha 1: the light blend adds the colour as it is and leaves the page's alpha.
+        .replace(
+          "#include <colorspace_fragment>",
+          "#include <colorspace_fragment>\n" +
+            "gl_FragColor = vec4( gl_FragColor.rgb * gl_FragColor.a + linearToOutputTexel( vec4( ringColor, 1.0 ) ).rgb * ringA, 1.0 );",
         );
     };
     glowMat.customProgramCacheKey = () => "sl-lantern-glow";

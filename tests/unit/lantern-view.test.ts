@@ -4,7 +4,17 @@
 // each lit shader for the number of visible lights, so hiding the lantern's light made every lit material compile
 // again the first time the box showed lit after a menu). The two are independent.
 import { describe, expect, it } from "vitest";
-import { Group, type Light, type Mesh, type MeshStandardMaterial, MeshBasicMaterial, type Object3D, Vector3 } from "@iwsdk/core";
+import {
+  Group,
+  type Light,
+  type Mesh,
+  type MeshStandardMaterial,
+  MeshBasicMaterial,
+  type Object3D,
+  ShaderLib,
+  type SpriteMaterial,
+  Vector3,
+} from "@iwsdk/core";
 import { LanternView } from "../../src/render/lantern-view";
 import { LANTERN_GLOW } from "../../src/render/theme";
 
@@ -68,6 +78,28 @@ describe("LanternView", () => {
     expect(seen.at(-1)!.ring).toBe(0);
     expect(Math.max(...seen.map((s) => s.scale))).toBeGreaterThanOrEqual(2 * LANTERN_GLOW.rippleRadius * 0.99);
     expect(seen.at(-1)!.scale).toBeCloseTo(rest, 9);
+  });
+
+  it("the glow and its ring add as the two light sprites did: each term in output colour, added after the encoding", () => {
+    // The light blend adds what the shader puts out, and the XR target takes sRGB-encoded colour: two sprites added
+    // enc(lamp)·alpha and enc(gold)·ring. Adding lamp·alpha + gold·ring before the encoding (one enc of the sum)
+    // made the halo's faint outer half several times brighter.
+    const v = new LanternView(mats());
+    const m = (named(v, "Lantern Glow") as unknown as { material: SpriteMaterial }).material;
+    const shader = { uniforms: {} as Record<string, unknown>, vertexShader: ShaderLib.sprite.vertexShader, fragmentShader: ShaderLib.sprite.fragmentShader };
+    m.onBeforeCompile(shader as never, undefined as never);
+    const f = shader.fragmentShader;
+    // The glow itself goes through three's sprite path untouched (as the hint and ghost lanterns' glows do).
+    expect(f).toContain("vec4 diffuseColor = vec4( diffuse, opacity );");
+    expect(f).not.toMatch(/\n\s*diffuseColor = /);
+    // The ring's coverage is read after the map (it needs the sprite's uv) and added after the encoding, with its
+    // own colour encoded the same way; alpha 1, so the blend adds the colour as it is and leaves the page's alpha.
+    const ringAt = f.indexOf("float ringA = ");
+    expect(ringAt).toBeGreaterThan(f.indexOf("#include <map_fragment>"));
+    const add = "gl_FragColor = vec4( gl_FragColor.rgb * gl_FragColor.a + linearToOutputTexel( vec4( ringColor, 1.0 ) ).rgb * ringA, 1.0 );";
+    expect(f).toContain(add);
+    expect(f.indexOf(add)).toBeGreaterThan(f.indexOf("#include <colorspace_fragment>"));
+    expect(Object.keys(shader.uniforms).sort()).toEqual(["ring", "ringColor", "ringMap"]);
   });
 
   it("goes quiet while it waits in a lesson's cradle: no glow or ripple, its body still drawn", () => {

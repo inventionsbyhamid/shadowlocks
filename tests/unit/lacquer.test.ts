@@ -145,7 +145,9 @@ describe("the lacquer's grain", () => {
     for (const t of ["#include <color_fragment>", "#include <metalnessmap_fragment>", "vec3 totalEmissiveRadiance = emissive;"]) {
       expect(ShaderLib.standard.fragmentShader, t).toContain(t);
     }
-    for (const t of ["#include <common>", "#include <map_fragment>"]) expect(ShaderLib.sprite.fragmentShader, t).toContain(t);
+    for (const t of ["#include <common>", "#include <map_fragment>", "#include <colorspace_fragment>"]) {
+      expect(ShaderLib.sprite.fragmentShader, t).toContain(t);
+    }
   });
 
   it("whatever draws with the frame's lacquer carries a grain attribute; the lantern no longer does (its body has its own)", () => {
