@@ -77,6 +77,7 @@ export const ES: Copy = {
   panels: {
     back: "Volver",
     home: {
+      title: "Shadow Locks",
       tagline: "Una caja rompecabezas de luz",
       continue: "Continuar",
       lessons: "Lecciones",
@@ -224,5 +225,6 @@ export const ES: Copy = {
     tagline: "Una caja rompecabezas de luz y sombra.",
     facts: "Sin levantarte. Solo con las manos. Funciona sin conexión.",
     loading: "Cargando",
+    description: "Una caja rompecabezas de luz y sombra para Meta Quest. Sin levantarte, solo con las manos y sin conexión.",
   },
 };

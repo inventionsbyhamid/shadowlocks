@@ -33,7 +33,7 @@ home = HEADER + head("""
 """) + f"""<div id="home-root" class="root">
   {CREST}
   <div class="head">
-    <div class="title">Shadow Locks</div>
+    <div id="home-title" class="title">Shadow Locks</div>
     <div class="meta-row">
       <div class="led"></div>
       <div id="home-tagline" class="meta">A puzzle box of light</div>

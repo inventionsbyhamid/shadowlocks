@@ -121,7 +121,7 @@ describe("the tables", () => {
   });
 
   it("Japanese writes a space a reader sees as a no-break space (a plain one marks where a panel line may break)", () => {
-    for (const [k, s] of leaves(tableFor("ja"))) if (k !== "film.title") expect(s, `ja ${k}`).not.toMatch(/ /);
+    for (const [k, s] of leaves(tableFor("ja"))) expect(s, `ja ${k}`).not.toMatch(/ /);
   });
 
   it("Japanese uses Japanese punctuation (no ASCII . , : ? ! in Japanese text)", () => {

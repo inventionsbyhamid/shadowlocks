@@ -85,6 +85,8 @@ export const COPY = {
   panels: {
     back: "Back",
     home: {
+      /** The game's name, the same in every language (Japanese writes its space as a no-break space). */
+      title: "Shadow Locks",
       tagline: "A puzzle box of light",
       continue: "Continue",
       lessons: "Lessons",
@@ -223,6 +225,8 @@ export const COPY = {
     tagline: "A puzzle box of light and shadow.",
     facts: "Seated. Hands only. Plays offline.",
     loading: "Loading",
+    /** The page's meta description (index.html has it in English; the page sets it in the language shown). */
+    description: "A puzzle box of light and shadow for Meta Quest. Seated, hands only, plays offline.",
   },
   /** The lessons: the coach line, the lessons' and examples' names, and the tips. */
   lessons: {

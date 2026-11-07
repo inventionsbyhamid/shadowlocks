@@ -1,6 +1,6 @@
 // Every word on the menu panels is painted in the language shown: each text in the generated UIKitML is either a
-// fixed label the menus paint from the label map, or painted by its screen's view from its state. Only the game's
-// name stays as it is. A new text in the generator without either fails here.
+// fixed label the menus paint from the label map (the game's name too), or painted by its screen's view from its
+// state. A new text in the generator without either fails here.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Screen } from "../../src/app/screens";
@@ -37,7 +37,8 @@ function texts(screen: string): { id: string | null; words: string }[] {
 describe("menu labels", () => {
   it.each(SCREENS)("every text on the %s panel is painted in the language shown", (screen) => {
     const known = new Set([...(PANEL_LABELS[screen] ?? []).map(([id]) => id), ...PAINTED[screen]]);
-    const left = texts(screen).filter((t) => t.words !== "Shadow Locks" && !(t.id && known.has(t.id)));
+    // No exemptions: even the game's name goes through PanelView (a Japanese panel draws a plain space as nothing).
+    const left = texts(screen).filter((t) => !(t.id && known.has(t.id)));
     expect(left.map((t) => `${t.id ?? "(no id)"}: ${t.words}`)).toEqual([]);
   });
 

@@ -76,6 +76,7 @@ export const PT_BR: Copy = {
   panels: {
     back: "Voltar",
     home: {
+      title: "Shadow Locks",
       tagline: "Uma caixa de enigmas de luz",
       continue: "Continuar",
       lessons: "Lições",
@@ -223,5 +224,6 @@ export const PT_BR: Copy = {
     tagline: "Uma caixa de enigmas de luz e sombra.",
     facts: "Sem se levantar. Só com as mãos. Funciona offline.",
     loading: "Carregando",
+    description: "Uma caixa de enigmas de luz e sombra para Meta Quest. Sem se levantar, só com as mãos, funciona offline.",
   },
 };

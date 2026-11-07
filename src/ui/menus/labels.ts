@@ -11,6 +11,8 @@ type Label = readonly [id: string, words: (c: Copy) => string];
 
 export const PANEL_LABELS: Readonly<Partial<Record<Screen, readonly Label[]>>> = {
   home: [
+    // The name too: on a Japanese panel PanelView keeps its space from being a zero-width place to break.
+    ["home-title", (c) => c.panels.home.title],
     ["home-tagline", (c) => c.panels.home.tagline],
     ["home-continue-label", (c) => c.panels.home.continue],
     ["home-daily-label", (c) => c.game.daily],

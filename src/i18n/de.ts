@@ -75,6 +75,7 @@ export const DE: Copy = {
   panels: {
     back: "Zurück",
     home: {
+      title: "Shadow Locks",
       tagline: "Eine Rätselbox aus Licht",
       continue: "Weiter",
       lessons: "Lektionen",
@@ -222,5 +223,6 @@ export const DE: Copy = {
     tagline: "Eine Rätselbox aus Licht und Schatten.",
     facts: "Im Sitzen. Nur mit den Händen. Offline spielbar.",
     loading: "Wird geladen",
+    description: "Eine Rätselbox aus Licht und Schatten für Meta Quest. Im Sitzen, nur mit den Händen, offline spielbar.",
   },
 };

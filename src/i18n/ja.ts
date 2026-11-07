@@ -78,6 +78,7 @@ export const JA: Copy = {
   panels: {
     back: "もどる",
     home: {
+      title: `Shadow${NB}Locks`,
       tagline: "光のパズルボックス",
       continue: "つづける",
       lessons: "レッスン",
@@ -216,7 +217,7 @@ export const JA: Copy = {
     ],
   },
   film: {
-    title: "Shadow Locks",
+    title: `Shadow${NB}Locks`,
     tagline: "その手と、ひとつの光。影はすべて錠になる。",
     facts: ["座ったまま", "手だけで遊べる", "オフライン対応"],
   },
@@ -225,5 +226,6 @@ export const JA: Copy = {
     tagline: "光と影のパズルボックス。",
     facts: "座ったまま。手だけで。オフラインでも遊べる。",
     loading: "読み込み中",
+    description: `Meta${NB}Questで遊べる、光と影のパズルボックス。座ったまま、手だけで遊べて、オフライン対応。`,
   },
 };

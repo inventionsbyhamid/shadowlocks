@@ -137,8 +137,8 @@ export function formatDay(dayKey: string, l: Lang = current): string {
 const NOTICES: readonly ((c: Copy) => string)[] = [(c) => c.notice.notSaved, (c) => c.notice.updated, (c) => c.menus.home.reset];
 
 /** A notice raised in English, in the language shown when it is put on screen (any other text as given). */
-export function localNotice(text: string): string {
-  for (const words of NOTICES) if (words(COPY) === text) return words(table);
+export function localNotice(text: string, l: Lang = current): string {
+  for (const words of NOTICES) if (words(COPY) === text) return words(TABLES[l]);
   return text;
 }
 
