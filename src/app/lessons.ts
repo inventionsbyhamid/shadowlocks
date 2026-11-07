@@ -157,11 +157,12 @@ export class Lessons implements MenuLessons {
 
   /**
    * A lesson left half done waits to go on (a later launch opens on Home, where Continue reads "Your lesson"): its
-   * step is saved and it is not done, and it is not in the lap now.
+   * step is saved and it is not done, and it is not in the lap now. Not lesson 2 the moment its drawer is pulled: Home
+   * comes up in that frame, before the lesson has finished and let go of its step.
    */
   get waiting(): boolean {
     const l = this.d.profiles.profile.lessons, s = l.step;
-    return !this.running && s !== null && !l[s.id];
+    return !this.running && !this.drawerOpen && s !== null && !l[s.id];
   }
 
   /** Go on with the lesson left half done, at the start of its saved step (Continue); false when none waits. */

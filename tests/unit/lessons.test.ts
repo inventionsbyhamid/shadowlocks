@@ -211,7 +211,8 @@ describe("Lessons", () => {
     b.run(FORM_MS + 100);
     expect(b.lessons.running).toBe(true);
     emit({ type: "drawer", hand: "right" });
-    expect(b.lessons.running).toBe(false);
+    // Home comes up in this very frame, before the lesson finishes: it must not wait behind it as half done.
+    expect([b.lessons.running, b.lessons.waiting]).toEqual([false, false]);
     go("home");
     b.run(32);
     expect(b.lessons.director.done).toBe(true);
