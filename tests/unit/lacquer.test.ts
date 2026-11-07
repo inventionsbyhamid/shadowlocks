@@ -1,7 +1,7 @@
 // The frame's lacquer grain (the owner's pick: lacquer #1c191d with grain #2a2529): fine streaks along each bar,
 // drawn in the lacquer's own shader (no texture, no extra draw call), and none on parts without a grain direction.
 import { describe, expect, it } from "vitest";
-import { BoxGeometry, Color, Group, type Mesh, MeshPhysicalMaterial, MeshStandardMaterial } from "@iwsdk/core";
+import { BoxGeometry, Color, Group, type Mesh, MeshPhysicalMaterial, MeshStandardMaterial, ShaderLib } from "@iwsdk/core";
 import { frameGeometry } from "../../src/render/box-scene";
 import { DrawerView } from "../../src/render/drawer";
 import { grained, LACQUER_GRAIN, withGrain } from "../../src/render/lacquer";
@@ -113,7 +113,7 @@ describe("the lacquer's grain", () => {
       vertexShader: "#include <common>\nvoid main() {\n#include <begin_vertex>\n}",
       fragmentShader:
         "#include <common>\nvoid main() {\nvec3 totalEmissiveRadiance = emissive;\n#include <color_fragment>\n" +
-        "#include <roughnessmap_fragment>\n#include <metalnessmap_fragment>\n}",
+        "#include <roughnessmap_fragment>\n#include <metalnessmap_fragment>\n#include <lights_physical_fragment>\n}",
     };
     m.onBeforeCompile(shader as never, undefined as never);
     const f = shader.fragmentShader;
@@ -121,22 +121,53 @@ describe("the lacquer's grain", () => {
     expect(f).toContain("roughnessFactor = clamp(roughnessFactor - grainK");
     expect(f).toContain("totalEmissiveRadiance = emissive * smoothstep( 0.18, 0.6, vColor.r );");
     expect(f).toMatch(/#include <metalnessmap_fragment>\s*metalnessFactor \*= smoothstep\( 0\.18, 0\.6, vColor\.r \);/);
+    // The clearcoat only on the lacquer (the parts with a grain direction): not on the velvet lining, nor the gold.
+    expect(f).toMatch(/#include <lights_physical_fragment>\s*#ifdef USE_CLEARCOAT\s*material\.clearcoat \*= step\( 0\.5, dot\( vGrainAxis, vGrainAxis \) \);/);
     expect(shader.vertexShader).toContain("attribute vec3 grain;");
   });
 
-  it("the lantern's foot, which shares the lacquer, carries a zero grain: plain lacquer, explicitly", () => {
+  it("every line the lacquer and the drawer splice after is in three's own physical shader", () => {
+    // onBeforeCompile sees ShaderLib's source with its #include lines unresolved: a target that is not there (a line
+    // inside a chunk, a renamed chunk) is a replace that silently never happens, as the drawer's metal mask once was.
+    const frag = ShaderLib.physical.fragmentShader, vert = ShaderLib.physical.vertexShader;
+    for (const t of ["#include <common>", "#include <begin_vertex>"]) expect(vert, t).toContain(t);
+    for (const t of [
+      "#include <common>",
+      "#include <color_fragment>",
+      "#include <roughnessmap_fragment>",
+      "#include <metalnessmap_fragment>",
+      "#include <lights_physical_fragment>",
+      "vec3 totalEmissiveRadiance = emissive;",
+    ]) {
+      expect(frag, t).toContain(t);
+    }
+    // The lantern's body (standard: the same source) and its glow sprite (the ripple's ring after the map).
+    for (const t of [
+      "#include <color_fragment>",
+      "#include <metalnessmap_fragment>",
+      "vec3 totalEmissiveRadiance = emissive;",
+      "#include <tonemapping_fragment>",
+      "#include <colorspace_fragment>",
+    ]) {
+      expect(ShaderLib.standard.fragmentShader, t).toContain(t);
+    }
+    for (const t of ["#include <common>", "#include <map_fragment>", "#include <colorspace_fragment>"]) {
+      expect(ShaderLib.sprite.fragmentShader, t).toContain(t);
+    }
+  });
+
+  it("whatever draws with the frame's lacquer carries a grain attribute; the lantern no longer does (its body has its own)", () => {
     const lacquer = withGrain(new MeshPhysicalMaterial({ color: COLORS.frame }));
     const lantern = new LanternView({ lacquer, gold: new MeshStandardMaterial() });
-    let parts = 0;
+    let meshes = 0;
     lantern.group.traverse((o) => {
       const m = o as Mesh;
-      if (!m.isMesh || m.material !== lacquer) return;
-      parts++;
-      const g = m.geometry.getAttribute("grain");
-      expect(g, m.name).toBeDefined();
-      expect(g.count).toBe(m.geometry.getAttribute("position").count);
-      expect(Array.from(g.array as Float32Array).every((v) => v === 0)).toBe(true);
+      if (!m.isMesh) return;
+      meshes++;
+      // The lacquer reads a grain direction from every mesh it draws (no GL default attribute state is relied on).
+      if (m.material === lacquer) expect(m.geometry.getAttribute("grain"), m.name).toBeDefined();
+      expect(m.material).not.toBe(lacquer);
     });
-    expect(parts).toBeGreaterThan(0);
+    expect(meshes).toBe(1);
   });
 });

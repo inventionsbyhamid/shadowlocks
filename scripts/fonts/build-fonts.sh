@@ -2,18 +2,21 @@
 # Builds the fonts the game draws text with, for every language it speaks, into dist/fonts-build/ (then copied to
 # public/fonts/ by hand):
 #   inter-md, inter-bd    Inter Medium and Bold (OFL 1.1): the panels' body text, as UIKit MSDF atlases
-#   archivo-xb            Archivo Expanded ExtraBold (OFL 1.1): titles and key legends, MSDF atlas
-#   noto-jp               Noto Sans JP Bold (OFL 1.1): Japanese on the panels (a single-channel SDF atlas: kanji
+#   noto-jp              Noto Sans JP Bold (OFL 1.1): Japanese on the panels (a single-channel SDF atlas: kanji
 #                         need no sharp corners and it is a third the size) and, as noto-jp.woff2, on canvases
 #   noto-serif-bd, -it    Noto Serif Bold and Italic (OFL 1.1), WOFF2: the canvas lettering in the Latin languages
 #                         (plate, keys, coach line, story card), so every device draws and measures the same letters
+#   limelight             Limelight (OFL 1.1, renamed Shadow Locks Display), the look pick's display face: the
+#                         menus' wordmark and numerals (MSDF atlas, printable ASCII) and the landing page's (WOFF2)
+#   josefin-bd            Josefin Sans Bold (OFL 1.1, renamed Shadow Locks Sans), the look pick's interface face:
+#                         the menus' titles and key legends (MSDF atlas) and the landing page's button and facts (WOFF2)
 # The Latin atlases carry printable ASCII, all of Latin-1 and what the tables use; Japanese is subset to exactly
 # the characters the Japanese table, its dates and numbers, and the Language row use (src/i18n/charset.ts), so a
 # new Japanese line needs this run again (tests/unit/i18n-fonts.test.ts fails until it is).
 # Runs on the build server (network for the fonts and tools; Python without pip, so fontTools comes as a wheel):
 #   scripts/remote.sh i18n --pull dist -- bash scripts/fonts/build-fonts.sh
 #
-# Adding a font (the brand faces, say), OFL or alike only:
+# Adding a font, OFL or alike only (a font with a Reserved Font Name is renamed first, as the brand faces are):
 #   1. Fetch it into $WORK from a pinned source (the google/fonts commit below, or a release URL checked by sha256)
 #      and its licence into $OUT/OFL-<name>.txt; make one static instance with `instance` if it is variable.
 #   2. For canvas lettering: `subset <ttf> "$WORK/latin.txt" "$OUT/<name>.woff2" --flavor=woff2`, then a row in
@@ -51,14 +54,19 @@ wheel https://files.pythonhosted.org/packages/b3/e7/ca2993c7682d8629b62630ebf0d1
 export PYTHONPATH=$WORK/py
 
 curl -fsSL "$SRC/inter/Inter%5Bopsz,wght%5D.ttf" -o "$WORK/Inter.ttf"
-curl -fsSL "$SRC/archivo/Archivo%5Bwdth,wght%5D.ttf" -o "$WORK/Archivo.ttf"
 curl -fsSL "$SRC/notosansjp/NotoSansJP%5Bwght%5D.ttf" -o "$WORK/NotoSansJP.ttf"
 curl -fsSL "$SRC/notoserif/NotoSerif%5Bwdth,wght%5D.ttf" -o "$WORK/NotoSerif.ttf"
 curl -fsSL "$SRC/notoserif/NotoSerif-Italic%5Bwdth,wght%5D.ttf" -o "$WORK/NotoSerif-Italic.ttf"
-for f in inter archivo notosansjp notoserif; do curl -fsSL "$SRC/$f/OFL.txt" -o "$OUT/OFL-$f.txt"; done
+# The brand faces (the owner's look pick): Limelight for the wordmark and numerals, Josefin Sans Bold for the
+# interface's legends.
+curl -fsSL "$SRC/limelight/Limelight-Regular.ttf" -o "$WORK/limelight-var.ttf"
+curl -fsSL "$SRC/josefinsans/JosefinSans%5Bwght%5D.ttf" -o "$WORK/JosefinSans.ttf"
+for f in inter notosansjp notoserif limelight josefinsans; do curl -fsSL "$SRC/$f/OFL.txt" -o "$OUT/OFL-$f.txt"; done
 
 npx vite-node --config vitest.config.ts scripts/fonts/charset.ts latin > "$WORK/latin.txt"
 npx vite-node --config vitest.config.ts scripts/fonts/charset.ts ja > "$WORK/ja.txt"
+# Limelight sets only the wordmark and numerals (names and digits, the same in every language): printable ASCII.
+python3 -c 'print("".join(chr(c) for c in range(32, 127)), end="")' > "$WORK/ascii.txt"
 echo "charsets: latin $(python3 -c 'import sys; print(len(open(sys.argv[1], encoding="utf8").read()))' "$WORK/latin.txt"), ja $(python3 -c 'import sys; print(len(open(sys.argv[1], encoding="utf8").read()))' "$WORK/ja.txt")"
 
 # One static instance of each variable font, then only the characters it needs.
@@ -67,14 +75,39 @@ instance() { # in out axis=value...
 }
 instance "$WORK/Inter.ttf" "$WORK/inter-md-var.ttf" wght=500 opsz=14
 instance "$WORK/Inter.ttf" "$WORK/inter-bd-var.ttf" wght=700 opsz=14
-instance "$WORK/Archivo.ttf" "$WORK/archivo-xb-var.ttf" wdth=125 wght=800
 instance "$WORK/NotoSansJP.ttf" "$WORK/noto-jp-var.ttf" wght=700
 instance "$WORK/NotoSerif.ttf" "$WORK/noto-serif-bd-var.ttf" wght=700 wdth=100
 instance "$WORK/NotoSerif-Italic.ttf" "$WORK/noto-serif-it-var.ttf" wght=400 wdth=100
+instance "$WORK/JosefinSans.ttf" "$WORK/josefin-bd-var.ttf" wght=700
+# Limelight and Josefin Sans reserve their names (OFL-limelight.txt, OFL-josefinsans.txt): a cut-down copy is a
+# Modified Version and must not be called by them, so ours are renamed before anything is cut from them (the
+# copyright, version and licence entries stay).
+rename() { # ttf family style
+  python3 -c '
+import sys
+from fontTools.ttLib import TTFont
+path, family, style = sys.argv[1:4]
+font = TTFont(path)
+full = family if style == "Regular" else f"{family} {style}"
+ps = family.replace(" ", "") + "-" + style
+new = {1: family, 2: style, 3: "%s;%.3f" % (ps, font["head"].fontRevision), 4: full, 6: ps, 16: family, 17: style}
+names = font["name"]
+for r in names.names:
+    if r.nameID in new: r.string = new[r.nameID]
+names.names = [r for r in names.names if r.nameID not in (18, 21, 22, 25)]
+font.save(path)
+' "$1" "$2" "$3"
+}
+rename "$WORK/limelight-var.ttf" "Shadow Locks Display" Regular
+rename "$WORK/josefin-bd-var.ttf" "Shadow Locks Sans" Bold
 subset() { # in charset out [options]
   python3 -m fontTools.subset "$1" --text-file="$2" --output-file="$3" --no-hinting "${@:4}"
 }
-for f in inter-md inter-bd archivo-xb; do subset "$WORK/$f-var.ttf" "$WORK/latin.txt" "$WORK/$f.ttf" --layout-features=kern; done
+for f in inter-md inter-bd josefin-bd; do subset "$WORK/$f-var.ttf" "$WORK/latin.txt" "$WORK/$f.ttf" --layout-features=kern; done
+subset "$WORK/limelight-var.ttf" "$WORK/ascii.txt" "$WORK/limelight.ttf" --layout-features=kern
+# The brand faces for the landing page's CSS too.
+subset "$WORK/limelight-var.ttf" "$WORK/ascii.txt" "$OUT/limelight.woff2" --flavor=woff2
+subset "$WORK/josefin-bd-var.ttf" "$WORK/latin.txt" "$OUT/josefin-bd.woff2" --flavor=woff2
 subset "$WORK/noto-jp-var.ttf" "$WORK/ja.txt" "$WORK/noto-jp.ttf" --layout-features=kern
 subset "$WORK/noto-jp-var.ttf" "$WORK/ja.txt" "$OUT/noto-jp.woff2" --flavor=woff2
 for f in noto-serif-bd noto-serif-it; do subset "$WORK/$f-var.ttf" "$WORK/latin.txt" "$OUT/$f.woff2" --flavor=woff2; done
@@ -84,7 +117,8 @@ atlas() { # name size field-type max-texture charset
 }
 atlas inter-md 44 msdf 1024,1024 latin.txt
 atlas inter-bd 44 msdf 1024,1024 latin.txt
-atlas archivo-xb 48 msdf 1024,1024 latin.txt
+atlas limelight 48 msdf 1024,1024 ascii.txt
+atlas josefin-bd 44 msdf 1024,1024 latin.txt
 atlas noto-jp 40 sdf 2048,2048 ja.txt
-node scripts/fonts/finish-atlas.mjs "$WORK" "$OUT" inter-md:latin.txt inter-bd:latin.txt archivo-xb:latin.txt noto-jp:ja.txt:zws
+node scripts/fonts/finish-atlas.mjs "$WORK" "$OUT" inter-md:latin.txt inter-bd:latin.txt limelight:ascii.txt josefin-bd:latin.txt noto-jp:ja.txt:zws
 ls -l "$OUT"

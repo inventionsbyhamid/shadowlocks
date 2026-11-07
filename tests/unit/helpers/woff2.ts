@@ -1,8 +1,10 @@
-// Reads the code points a WOFF2 font maps (its cmap), for the font glyph tests. Just enough of the format: the
-// header, the table directory, the one Brotli stream, and cmap formats 4 and 12 (cmap is never transformed).
+// Reads the code points a WOFF2 font maps (its cmap) and its names (its name table), for the font tests. Just
+// enough of the format: the header, the table directory, the one Brotli stream, cmap formats 4 and 12, and the name
+// table's records (neither table is ever transformed).
 import { brotliDecompressSync } from "node:zlib";
 
 const KNOWN_CMAP = 0;
+const KNOWN_NAME = 5;
 const GLYF = 10;
 const LOCA = 11;
 
@@ -16,14 +18,14 @@ function base128(b: Buffer, at: { i: number }): number {
   throw new Error("bad UIntBase128");
 }
 
-/** The code points (with a glyph other than .notdef) a WOFF2 font's cmap maps. */
-export function woff2CodePoints(file: Buffer): Set<number> {
+/** One untransformed table of a WOFF2 font, by its index in the format's known tags. */
+function woff2Table(file: Buffer, knownTag: number, name: string): Buffer {
   if (file.readUInt32BE(0) !== 0x774f4632) throw new Error("not a WOFF2 file");
   const numTables = file.readUInt16BE(12);
   const compressed = file.readUInt32BE(20);
   const at = { i: 48 };
   let offset = 0;
-  let cmap: { offset: number; length: number } | null = null;
+  let table: { offset: number; length: number } | null = null;
   for (let t = 0; t < numTables; t++) {
     const flags = file[at.i++] as number;
     const known = flags & 0x3f;
@@ -32,12 +34,32 @@ export function woff2CodePoints(file: Buffer): Set<number> {
     const orig = base128(file, at);
     const transformed = known === GLYF || known === LOCA ? version !== 3 : version !== 0;
     const length = transformed ? base128(file, at) : orig;
-    if (known === KNOWN_CMAP) cmap = { offset, length };
+    if (known === knownTag) table = { offset, length };
     offset += length;
   }
-  if (!cmap) throw new Error("no cmap");
+  if (!table) throw new Error(`no ${name}`);
   const data = brotliDecompressSync(file.subarray(at.i, at.i + compressed));
-  return cmapCodePoints(data.subarray(cmap.offset, cmap.offset + cmap.length));
+  return data.subarray(table.offset, table.offset + table.length);
+}
+
+/** The code points (with a glyph other than .notdef) a WOFF2 font's cmap maps. */
+export function woff2CodePoints(file: Buffer): Set<number> {
+  return cmapCodePoints(woff2Table(file, KNOWN_CMAP, "cmap"));
+}
+
+/** A WOFF2 font's names by name ID (every platform's record: Windows ones are UTF-16, Mac Roman ones read as Latin-1). */
+export function woff2Names(file: Buffer): Map<number, string[]> {
+  const n = woff2Table(file, KNOWN_NAME, "name");
+  const count = n.readUInt16BE(2), strings = n.readUInt16BE(4);
+  const out = new Map<number, string[]>();
+  for (let r = 0; r < count; r++) {
+    const p = 6 + r * 12;
+    const platform = n.readUInt16BE(p), id = n.readUInt16BE(p + 6), len = n.readUInt16BE(p + 8), off = n.readUInt16BE(p + 10);
+    const raw = n.subarray(strings + off, strings + off + len);
+    const s = platform === 1 ? raw.toString("latin1") : Buffer.from(raw).swap16().toString("utf16le");
+    out.set(id, [...(out.get(id) ?? []), s]);
+  }
+  return out;
 }
 
 function cmapCodePoints(c: Buffer): Set<number> {

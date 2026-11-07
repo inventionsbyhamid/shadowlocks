@@ -7,9 +7,9 @@
 // paints a canvas texture on a plane sized in metres (it cancels the box's scale when parented to the box root).
 // The chip letters in the shipped fonts of the language shown and wraps by measured width, so Japanese (no spaces)
 // breaks between characters by the kinsoku rules; the lessons hand it lines already in that language (`localLine`).
-import { CanvasTexture, LinearFilter, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace } from "@iwsdk/core";
+import { CanvasTexture, LinearFilter, Mesh, type MeshBasicMaterial, PlaneGeometry, SRGBColorSpace } from "@iwsdk/core";
 import type { Lang } from "../i18n";
-import { breakUnits, labelFont, type Measure, wrapLabel } from "../render/label";
+import { breakUnits, labelFont, labelMaterial, type Measure, wrapLabel } from "../render/label";
 
 export const COACH = {
   /** The old line fades out over this long (ms), the new one in over this long. */
@@ -232,7 +232,10 @@ export class CoachLineView implements CoachPainter {
     this.texture.colorSpace = SRGBColorSpace;
     this.texture.minFilter = LinearFilter;
     this.texture.generateMipmaps = false;
-    this.material = new MeshBasicMaterial({ map: this.texture, transparent: true, depthWrite: false, toneMapped: false, opacity: 0 });
+    // Premultiplied, as every painted face (render/label.ts): the canvas's transparent black round the chip must not
+    // filter a dark rim into its edge over passthrough.
+    this.texture.premultiplyAlpha = true;
+    this.material = labelMaterial(this.texture, { depthWrite: false, opacity: 0 });
     this.object = new Mesh(new PlaneGeometry(C.planeMm[0] / 1000, C.planeMm[1] / 1000), this.material);
     this.object.name = "Coach Line";
     this.object.renderOrder = C.renderOrder;
@@ -270,9 +273,10 @@ export class CoachLineView implements CoachPainter {
     this.texture.needsUpdate = true;
   }
 
-  /** 0 draws nothing. */
+  /** 0 draws nothing. Premultiplied, the colour fades with the alpha (the blend adds the texel's colour as it is). */
   set opacity(v: number) {
     this.material.opacity = v;
+    this.material.color.setScalar(v);
     this.object.visible = v > 0;
   }
 

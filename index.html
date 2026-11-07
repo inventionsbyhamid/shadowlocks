@@ -56,6 +56,10 @@
       }
     </script>
     <style>
+      /* The look pick's faces, from our own origin (scripts/fonts; renamed copies of Limelight and Josefin Sans Bold,
+         THIRD_PARTY_NOTICES.md). The page shows in the fallbacks until they arrive. */
+      @font-face { font-family: "Shadow Locks Display"; src: url("fonts/limelight.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+      @font-face { font-family: "Shadow Locks Sans"; src: url("fonts/josefin-bd.woff2") format("woff2"); font-weight: 700; font-display: swap; }
       :root {
         --ebony: #141115;
         --lacquer: #1c191d;
@@ -92,8 +96,8 @@
       @keyframes breathe { 0%, 100% { opacity: 0.82; } 50% { opacity: 1; } }
       @media (prefers-reduced-motion: reduce) { .glow { animation: none; } }
       h1 {
-        margin: 6px 0 0; font: 400 clamp(30px, 8.5vw, 46px) / 1.05 "Didot", "Bodoni 72", "Playfair Display", Georgia, "Times New Roman", serif;
-        letter-spacing: 0.2em; text-transform: uppercase; padding-left: 0.2em;
+        margin: 6px 0 0; font: 400 clamp(28px, 8vw, 44px) / 1.1 "Shadow Locks Display", "Didot", "Bodoni 72", Georgia, serif;
+        letter-spacing: 0.12em; text-transform: uppercase; padding-left: 0.12em;
         background: linear-gradient(180deg, #fff3cf 0%, var(--gold-hot) 38%, var(--gold) 62%, var(--gold-deep) 100%);
         -webkit-background-clip: text; background-clip: text; color: transparent;
       }
@@ -101,10 +105,10 @@
         linear-gradient(var(--leaf), var(--leaf)) center / 100% 1px no-repeat,
         linear-gradient(45deg, transparent 35%, var(--gold) 35% 65%, transparent 65%) center / 9px 9px no-repeat; }
       .tagline { margin: 0; font-size: 17px; color: var(--ivory); }
-      .facts { margin: 0; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+      .facts { margin: 0; font: 700 13px "Shadow Locks Sans", system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
       #enter {
         margin-top: 10px; min-width: 220px; min-height: 52px; padding: 14px 40px; border: 0; cursor: pointer;
-        font: 700 17px system-ui, sans-serif; letter-spacing: 0.12em; text-transform: uppercase; color: var(--lacquer);
+        font: 700 17px "Shadow Locks Sans", system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: var(--lacquer);
         background: linear-gradient(180deg, #ffe08c 0%, var(--gold-hot) 30%, var(--gold) 70%, #c79a3e 100%);
         clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
         filter: drop-shadow(0 0 0 transparent); transition: filter 160ms ease, transform 120ms ease;

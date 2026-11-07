@@ -136,7 +136,12 @@ export class DrawerView {
     this.material.onBeforeCompile = (s) => {
       s.fragmentShader = s.fragmentShader
         .replace("vec3 totalEmissiveRadiance = emissive;", "vec3 totalEmissiveRadiance = emissive * smoothstep( 0.18, 0.6, vColor.r );")
-        .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor *= smoothstep( 0.18, 0.6, vColor.r );");
+        .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor *= smoothstep( 0.18, 0.6, vColor.r );")
+        // The clearcoat on the lacquer only (the parts with a grain direction): the velvet lining and the gold go bare.
+        .replace(
+          "#include <lights_physical_fragment>",
+          "#include <lights_physical_fragment>\n#ifdef USE_CLEARCOAT\nmaterial.clearcoat *= step( 0.5, dot( vGrainAxis, vGrainAxis ) );\n#endif",
+        );
       grainShader(s);
     };
     this.material.customProgramCacheKey = () => "sl-drawer-lacquer";

@@ -118,11 +118,11 @@ test("the box session costs well under 0.5 ms a frame at 4x CPU throttle and all
       const st = frameStats(w.frames), rule = withoutStalls(w.frames);
       return (
         `session cost, window ${i + 1}: "game" over ${TIMED_FRAMES} frames at 4x CPU throttle: mean ${st.meanMs.toFixed(3)} ms, ` +
-        `median ${st.medianMs.toFixed(3)}, p95 ${st.p95Ms.toFixed(2)}, max ${st.maxMs.toFixed(2)}; ${rule.stalls} host stalls over ` +
+        `median ${st.medianMs.toFixed(3)}, p95 ${st.p95Ms.toFixed(2)}, max ${st.maxMs.toFixed(2)}; ${rule.stalls} stalls (host or ours) over ` +
         `${STALL_MS} ms, mean ${rule.meanMs.toFixed(3)} ms without them; server load ${w.load?.toFixed(1) ?? "?"}`
       );
     }),
-    `session cost: judged on window ${judged.index + 1}: ${judged.meanMs.toFixed(3)} ms a frame without host stalls (${judged.stalls} of them)`,
+    `session cost: judged on window ${judged.index + 1}: ${judged.meanMs.toFixed(3)} ms a frame without stalls (host or ours; ${judged.stalls} of them)`,
     `session cost: allocated in the session's per-frame files, about ${allocs.bytesPerFrame.toFixed(0)} bytes a frame over ${frames} frames${list(allocs.byFunction)}`,
     `session cost (reported only): the box scene's own shadow path allocated about ${scene.bytesPerFrame.toFixed(0)} bytes a frame${list(scene.byFunction)}`,
   ];

@@ -8,8 +8,8 @@
 // reward's rise: at most 100 draw calls and 100k triangles in its busiest frame.
 //
 // Time is real CPU time on a shared server, judged by the stall rule the other cost checks use
-// (helpers/stall-rule.ts): WINDOWS windows of TIMED_FRAMES frames one after the other; host stalls (frames over
-// STALL_MS) left out and counted, at most MAX_STALLS in the judged window; the better window's p95 without them held
+// (helpers/stall-rule.ts): WINDOWS windows of TIMED_FRAMES frames one after the other; stalls, the host's or ours
+// (frames over STALL_MS), left out and counted, at most MAX_STALLS in the judged window; the better window's p95 without them held
 // to the budget. Left in, a few stalls push the window's slow-but-ordinary frames down onto the 95th place: the same
 // code measured 2.10 and 3.20 ms in two windows with 1 and 4 stalls.
 //
@@ -33,6 +33,8 @@ import {
   ourAllocations,
   p95WithoutStalls,
   STALL_MS,
+  startTrail,
+  takeTrail,
   TIMED_FRAMES,
   toWorld,
   WINDOWS,
@@ -134,11 +136,11 @@ test("box 15 in play, the lantern moving and a hand in the beam: draw calls, tri
         (w, i) =>
           `perf-budget, window ${i + 1}: ${w.calls} draw calls, ${w.triangles} triangles at most; our JS over ${TIMED_FRAMES} frames at 4x: ` +
           `mean ${stats[i]!.meanMs.toFixed(3)}, median ${stats[i]!.medianMs.toFixed(3)}, p95 ${stats[i]!.p95Ms.toFixed(2)}, ` +
-          `max ${stats[i]!.maxMs.toFixed(2)} ms (${stats[i]!.rule.stalls} host stalls over ${STALL_MS} ms; p95 ` +
+          `max ${stats[i]!.maxMs.toFixed(2)} ms (${stats[i]!.rule.stalls} stalls (host or ours) over ${STALL_MS} ms; p95 ` +
           `${stats[i]!.rule.p95Ms.toFixed(2)} without them); server load ${w.load?.toFixed(1) ?? "?"}; ` +
           `p95 by system: ${Object.entries(w.systems).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")}`,
       ),
-      `perf-budget: judged on window ${judged.index + 1}: p95 ${judged.p95Ms.toFixed(2)} ms a frame without host stalls ` +
+      `perf-budget: judged on window ${judged.index + 1}: p95 ${judged.p95Ms.toFixed(2)} ms a frame without stalls ` +
         `(${judged.stalls} of them); box 15 through the box session, stage ${st.stage}, ${st.open.length} locks open`,
       `perf-budget: our per-frame code allocated about ${bytes.toFixed(0)} bytes a frame over ${nFrames} frames` +
         (game.length ? `: ${game.sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k} ${v.toFixed(0)}`).join("; ")}` : ""),
@@ -284,4 +286,62 @@ test("box 15 opening: its busiest frame stays within 100 draw calls and 100k tri
   expect(await app.events("box-open")).toHaveLength(1);
   expect(peak.calls).toBeLessThanOrEqual(MAX_PEAK_CALLS);
   expect(peak.triangles).toBeLessThanOrEqual(MAX_TRIANGLES);
+});
+
+test("box 15 in play with the tip on the coach line and a settle ripple: the busiest frame within the play cap", async ({
+  page,
+  boot,
+}, testInfo) => {
+  // Visual mode: drawn as on the headset (tests/e2e/lantern.spec.ts takes the settle ripple's shot).
+  const app = await boot({ mode: "visual" });
+  await page.evaluate(() => window.__sl!.session.play({ kind: "box", n: 15 }));
+  await app.stepUntil(
+    (_ns, w) => {
+      const s = w.__sl.session.state();
+      return s?.stage === "playing" && s.revealed;
+    },
+    { maxMs: 10_000, label: "box 15 in play" },
+  );
+  // A fresh profile's first tip shows on the coach line at box 15 (the earliest not yet seen).
+  await app.stepUntil((_ns, w) => w.__sl.lessons.state().coach.opacity > 0.9, { maxMs: 10_000, label: "the tip on the coach line" });
+  // The lantern carried slowly onto the finger lock's spot: it settles there and ripples (the finger lock needs a
+  // finger, so it stays shut: no lock-opening light in these frames).
+  const [f] = await fingerLocks(page);
+  expect(f).toBeDefined();
+  const right = new Hands(app, "right");
+  await page.evaluate((L) => window.__sl!.placeLantern([L[0], L[1] - 0.12, L[2] + 0.1]), f!.spot);
+  await app.step(3);
+  const off = await grab(app, page, right);
+  await page.evaluate(() => window.__ns!.resetPerf());
+  // The settle (and its half-second ripple) can come anywhere on the way in: every frame is sampled, and the perf
+  // hook's busiest frame covers them all.
+  await startTrail(page);
+  await carry(right, off, await toWorld(page, f!.spot), 3000);
+  await app.stepUntil((_ns, w) => w.__sl.lantern().mode === "settled", { maxMs: 3_000, label: "settled on the spot" });
+  await app.step(45);
+  const trail = await takeTrail(page);
+  const rippled = trail.filter((x) => x.ripple).length;
+  const chip = (await page.evaluate(() => window.__sl!.lessons.state().coach.opacity)) as number;
+  const p = await app.perf();
+  // What draws now (one call each, both views counted by the renderer): for the record.
+  const drawn = await page.evaluate(() => {
+    const names: Record<string, number> = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window.__ns!.world as any).scene.traverseVisible((o: any) => {
+      if (o.isMesh || o.isSprite || o.isLine || o.isPoints) names[o.name || "(unnamed)"] = (names[o.name || "(unnamed)"] ?? 0) + 1;
+    });
+    return Object.entries(names)
+      .sort()
+      .map(([k, v]) => (v > 1 ? `${k} x${v}` : k))
+      .join(", ");
+  });
+  const line =
+    `perf-budget, tip and settle ripple: busiest frame ${p.callsMax} draw calls (both views), ${p.trianglesMax} triangles; ` +
+    `ripple in ${rippled} of ${trail.length} frames, coach chip ${chip.toFixed(2)}; drawn now: ${drawn}`;
+  testInfo.annotations.push({ type: "perf", description: line });
+  console.log(line);
+  expect(rippled, "frames with the settle ripple").toBeGreaterThan(0);
+  expect(chip).toBeGreaterThan(0.9);
+  expect((await page.evaluate(() => window.__sl!.session.state()))!.open).toEqual([]);
+  expect(p.callsMax).toBeLessThanOrEqual(MAX_CALLS);
 });

@@ -1,11 +1,21 @@
 // Every character a language shows is in every font it is drawn with: the Latin languages in the panels' Inter
-// (medium and bold) and Archivo atlases, Japanese in the Japanese atlas (panels) and the Japanese WOFF2 (canvas
-// lettering). The Language row draws every language's name, and "Automatic" in every language, with the Japanese
-// font, so those are in it too. A missing glyph shows as a box on the headset; here it fails.
+// (medium and bold) and interface face atlases, the wordmark and box numbers in the display face's, Japanese in the
+// Japanese atlas (panels) and the Japanese WOFF2 (canvas lettering). The Language row draws every language's name,
+// and "Automatic" in every language, with the Japanese font, so those are in it too. A missing glyph shows as a box
+// on the headset; here it fails.
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { LANGS } from "../../src/i18n";
-import { JA_ATLAS, JA_CANVAS, japaneseChars, LATIN_ATLASES, latinChars, SERIF_CANVAS } from "../../src/i18n/charset";
+import {
+  DISPLAY_ATLAS,
+  displayChars,
+  JA_ATLAS,
+  JA_CANVAS,
+  japaneseChars,
+  LATIN_ATLASES,
+  latinChars,
+  SERIF_CANVAS,
+} from "../../src/i18n/charset";
 import { FONT_FAMILIES, fontFamiliesFor } from "../../src/ui/fonts";
 import { inter } from "../../src/ui/inter-fonts";
 import { woff2CodePoints } from "./helpers/woff2";
@@ -25,6 +35,14 @@ describe("font glyphs", () => {
     const a = atlasChars(url);
     expect(a.pages).toHaveLength(1);
     const missing = latinChars().filter((ch) => !a.chars.has(ch));
+    expect(missing.map(name)).toEqual([]);
+  });
+
+  it("the display face's atlas has the wordmark in every Latin language and every digit", () => {
+    const a = atlasChars(DISPLAY_ATLAS);
+    expect(a.pages).toHaveLength(1);
+    expect(displayChars()).toEqual(expect.arrayContaining([..."0123456789", "S", "L"]));
+    const missing = displayChars().filter((ch) => !a.chars.has(ch));
     expect(missing.map(name)).toEqual([]);
   });
 
@@ -54,7 +72,7 @@ describe("font glyphs", () => {
     for (const f of Object.values(inter)) expect(existsSync(`public/${f.replace(/^.*?fonts\//, "fonts/")}`), f).toBe(true);
     expect(new Set(files(fontFamiliesFor("ja")))).toEqual(new Set([JA_ATLAS]));
     expect(fontFamiliesFor("de")).toBe(FONT_FAMILIES);
-    expect(new Set(files(FONT_FAMILIES))).toEqual(new Set([...LATIN_ATLASES, JA_ATLAS]));
+    expect(new Set(files(FONT_FAMILIES))).toEqual(new Set([...LATIN_ATLASES, DISPLAY_ATLAS, JA_ATLAS]));
     expect(FONT_FAMILIES.names.bold).toMatch(/noto-jp\.json$/);
   });
 

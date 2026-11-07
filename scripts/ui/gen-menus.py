@@ -29,11 +29,12 @@ home = HEADER + head("""
   .home-cta-cap { justify-content: flex-end; padding-bottom: 12; gap: 4; }
   .home-cta-label { font-size: 15; font-weight: extra-bold; }
   .home-cta-no { position-type: absolute; position-left: 12; position-top: 6; font-size: 46; font-weight: extra-bold; color: #1C191D; }
+  .wordmark { font-size: 20; font-weight: normal; }
   #home-trial-row { display: none; }
 """) + f"""<div id="home-root" class="root">
   {CREST}
   <div class="head">
-    <div id="home-title" class="title">Shadow Locks</div>
+    <div id="home-title" class="title wordmark">Shadow Locks</div>
     <div class="meta-row">
       <div class="led"></div>
       <div id="home-tagline" class="meta">A puzzle box of light</div>

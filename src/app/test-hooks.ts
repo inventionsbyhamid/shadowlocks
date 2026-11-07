@@ -423,7 +423,14 @@ export function installTestHooks(
 
   const lanternNow = (): SlLantern => {
     const c = lan.ctrl;
-    return { pos: [c.pos[0], c.pos[1], c.pos[2]], held: c.held, mode: c.mode, holder: lan.grab.holder, glow: lan.grab.brightness };
+    return {
+      pos: [c.pos[0], c.pos[1], c.pos[2]],
+      held: c.held,
+      mode: c.mode,
+      holder: lan.grab.holder,
+      glow: lan.grab.brightness,
+      ripple: shell.box.lantern.ringOpacity,
+    };
   };
 
   const lanternAt: V3 = [0, 0, 0];

@@ -3,8 +3,18 @@
 // (tests/unit/i18n-fonts.test.ts). Not imported by the game.
 import { formatCm, formatDay, formatNumber, formatPercent, LANG_NAMES, LANGS, type Lang, tableFor } from "./index";
 
-/** The panels' Latin fonts (UIKit MSDF atlases under public/). */
-export const LATIN_ATLASES = ["fonts/inter-md.json", "fonts/inter-bd.json", "fonts/archivo-xb.json"] as const;
+/** The panels' Latin fonts (UIKit MSDF atlases under public/): Inter Medium and Bold, and the interface face. */
+export const LATIN_ATLASES = ["fonts/inter-md.json", "fonts/inter-bd.json", "fonts/josefin-bd.json"] as const;
+/**
+ * The panels' display face (the wordmark and the Continue key's box number), printable ASCII only: it sets only the
+ * game's name and digits, the same in every Latin language (Japanese draws them with the Japanese font).
+ */
+export const DISPLAY_ATLAS = "fonts/limelight.json";
+
+/** Every character the display face sets: the wordmark in each Latin language and the digits of a box number. */
+export function displayChars(): string[] {
+  return charsOf([...LATIN_LANGS.map((l) => tableFor(l).panels.home.title), "0123456789"]);
+}
 /** The Japanese font as an atlas for the panels, and as a WOFF2 for canvas lettering. */
 export const JA_ATLAS = "fonts/noto-jp.json";
 export const JA_CANVAS = "fonts/noto-jp.woff2";
