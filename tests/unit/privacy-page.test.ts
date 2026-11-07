@@ -53,7 +53,9 @@ describe("privacy page", () => {
     expect(html).not.toMatch(/\bsrc=/i);
     expect(html).not.toMatch(/url\(/i);
     expect(html).not.toMatch(/<link[^>]+rel="stylesheet"/i);
-    for (const m of html.matchAll(/<link[^>]+href="([^"]+)"/g)) expect(m[1], "link href").toMatch(/^\.\//);
+    // The canonical link names the public URL for search engines; it loads nothing.
+    for (const m of html.matchAll(/<link(?![^>]*rel="canonical")[^>]+href="([^"]+)"/g)) expect(m[1], "link href").toMatch(/^\.\//);
+    expect(html).toContain('<link rel="canonical" href="https://shadowlocks.pages.dev/privacy" />');
   });
 
   it("is precached with the rest of the site, so it opens offline too", () => {

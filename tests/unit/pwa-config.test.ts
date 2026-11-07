@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { APP_NAME, CACHE_ID, PRECACHE_EXTENSIONS, pwaOptions, SHORT_NAME, THEME_COLOR, webManifest, type PrecacheEntry } from "../../src/platform/pwa-config";
+import { APP_NAME, CACHE_ID, PRECACHE_EXTENSIONS, pwaOptions, SCRAPER_FILES, SHORT_NAME, THEME_COLOR, webManifest, type PrecacheEntry } from "../../src/platform/pwa-config";
 import { SW_FILE } from "../../src/platform/offline";
 
 const PUBLIC = path.resolve("public");
@@ -104,7 +104,7 @@ describe("service worker options", () => {
 
   it("precaches every kind of file the public folder ships", () => {
     expect(wb.globPatterns).toEqual([`**/*.{${PRECACHE_EXTENSIONS.join(",")}}`]);
-    const skipped = /^(?:_headers|_redirects|404\.html|\.well-known\/.*|.*\.md)$/;
+    const skipped = /^(?:_headers|_redirects|404\.html|og-image\.jpg|robots\.txt|sitemap\.xml|\.well-known\/.*|.*\.md)$/;
     const files = publicFiles().filter((f) => !skipped.test(f));
     expect(files.length).toBeGreaterThan(0);
     for (const f of files) expect(PRECACHE_EXTENSIONS, f).toContain(path.extname(f).slice(1));
@@ -128,6 +128,12 @@ describe("service worker options", () => {
   it("keeps the host's files, asset links and the 404 page out of the precache", () => {
     // The worker never serves 404.html (unknown pages get index.html), so precaching it is waste.
     expect(wb.globIgnores).toEqual(expect.arrayContaining(["**/_headers", "**/_redirects", "**/.well-known/**", "404.html"]));
+  });
+
+  it("keeps what only link scrapers and search engines fetch out of the precache", () => {
+    expect(SCRAPER_FILES).toEqual(["og-image.jpg", "robots.txt", "sitemap.xml"]);
+    expect(wb.globIgnores).toEqual(expect.arrayContaining(SCRAPER_FILES));
+    for (const f of SCRAPER_FILES) expect(fs.existsSync(path.join(PUBLIC, f)), f).toBe(true);
   });
 
   it("lets the big bundle and music tracks in (the default 2 MiB limit would drop them)", () => {
