@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { BrowserContext, Page, TestInfo } from "@playwright/test";
 import { installVirtualClock } from "../../../src/app/virtual-clock";
-import { installCapture, loadRoom, relaxIwer, setHeadset, stopRoomRender, type XYZ } from "./page-scripts";
+import { installCapture, loadRoom, relaxIwer, roomOnCaptureOnly, setHeadset, stopRoomRender, type XYZ } from "./page-scripts";
 import { type BootMode, XrApp } from "./xr-app";
 
 export type Room =
@@ -20,7 +20,7 @@ export const DEFAULT_ROOM: Room = "home_office";
 export const VIEWPORTS: Record<BootMode, { width: number; height: number }> = {
   /** Fast: tiny view, room not drawn. For gesture-to-state tests. */
   logic: { width: 320, height: 180 },
-  /** Screenshots: 720p with the room drawn. */
+  /** Screenshots: 720p, the room drawn in captured frames (roomOnCaptureOnly). */
   visual: { width: 1280, height: 720 },
 };
 
@@ -127,6 +127,7 @@ export async function boot(page: Page, o: BootOptions = {}): Promise<XrApp> {
   await page.evaluate(relaxIwer);
   if (o.room && o.room !== DEFAULT_ROOM) await page.evaluate(loadRoom, o.room);
   if (mode === "logic") await page.evaluate(stopRoomRender);
+  else await page.evaluate(roomOnCaptureOnly);
   const head = o.head === undefined ? SEATED : o.head;
   if (head) await page.evaluate(setHeadset, head);
   if (o.enterXR === false) {

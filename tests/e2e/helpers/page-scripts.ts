@@ -45,6 +45,26 @@ export function stopRoomRender(): void {
   if (sem.environmentCanvas) sem.environmentCanvas.style.display = "none";
 }
 
+/**
+ * Visual mode: draw the synthetic room only in frames a capture asks for (`window.__nsRoomFrame`, set by
+ * XrApp.capture around its frame step). The room is only ever seen in captures, and drawing it every frame made a
+ * 1280x720 frame cost 0.5 to 2 s on the build server's software GL, against about 20 ms without it. IWER still calls
+ * the real render first thing in the captured frame, with that frame's time and head pose, so captures are the same
+ * images as before; game logic never reads the room's pixels (logic mode never draws it at all). Video renders
+ * (VITE_VIDEO builds, which set `window.__nsVideo` before `window.__ns` is ready) capture every frame and keep the
+ * room drawn in each.
+ */
+export function roomOnCaptureOnly(): void {
+  const w = window as any;
+  const sem = w.IWER_DEVICE?.sem;
+  if (!sem || w.__nsVideo || w.__nsRoomOnCapture) return;
+  const render = sem.render.bind(sem);
+  sem.render = (now: number) => {
+    if (w.__nsRoomFrame) render(now);
+  };
+  w.__nsRoomOnCapture = true;
+}
+
 /** Load one of IWER's synthetic rooms (before entering XR). */
 export function loadRoom(room: string): Promise<void> {
   return (window as any).IWER_DEVICE.sem.loadDefaultEnvironment(room);
@@ -88,7 +108,7 @@ export function swayHead(): void {
 /**
  * Installs `window.__nsCapture()`: draws the room canvas (unless the room is off) and the app canvas
  * into one 2D canvas and returns a data URL. Call it in the same task as the frame step that rendered,
- * so no preserveDrawingBuffer is needed.
+ * so no preserveDrawingBuffer is needed, and set `window.__nsRoomFrame` around that step (roomOnCaptureOnly).
  */
 export function installCapture(): void {
   const w = window as any;
