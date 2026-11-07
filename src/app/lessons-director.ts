@@ -23,10 +23,10 @@ import {
   type ExampleId,
   type GhostHandFrame,
   graspFingers,
+  graspPalm,
   handAt,
   type HandKey,
   lampAt,
-  PALM_DOWN,
   PUPPET_AT,
   PUPPET_FINGERS,
   PUPPET_PALM,
@@ -203,7 +203,7 @@ export class LessonsDirector {
   private ghost = 0;
   private ghostKind: "reach" | "puppet" | null = null;
   private loopMs = 0;
-  private loops: { reach: HandKey[]; puppet: HandKey[]; grasp: V3; side: number } | null = null;
+  private loops: { reach: HandKey[]; puppet: HandKey[]; grasp: V3; palm: V3; side: number } | null = null;
   private script: Script | null = null;
   private scriptMs = 0;
   private replayEx: ExampleId | null = null;
@@ -558,7 +558,7 @@ export class LessonsDirector {
       return;
     }
     if (!this.loops || this.loops.side !== side) {
-      this.loops = { reach: reachLoop(side), puppet: puppetLoop(side), grasp: graspFingers(side), side };
+      this.loops = { reach: reachLoop(side), puppet: puppetLoop(side), grasp: graspFingers(side), palm: graspPalm(side), side };
     }
     const keys = k === "reach" ? this.loops.reach : this.loops.puppet;
     const period = keys[keys.length - 1]!.t;
@@ -568,7 +568,7 @@ export class LessonsDirector {
       handAt(keys, this.loopMs, f.hand, this.deps.inputs.lantern(this.at));
       f.hand.anchor = "grasp";
       copy3(this.loops.grasp, f.hand.fingers);
-      copy3(PALM_DOWN, f.hand.palm);
+      copy3(this.loops.palm, f.hand.palm);
     } else {
       this.at[0] = PUPPET_AT[0] * side;
       this.at[1] = PUPPET_AT[1];
