@@ -291,10 +291,13 @@ test("lessons rows replay", async ({ page, boot }) => {
     await app.stepUntil((n) => n.state().screen === "lessons", { maxMs: 5_000, label: "lessons" });
   };
   await toLessons();
-  // Every example and the tip seen are rows.
+  // Every example and every tip seen are rows: "ringless", and the tip box 5 showed as it started (a tip counts as
+  // seen the first time its box plays).
+  const seen = await page.evaluate(() => window.__sl!.lessons.state().tipsSeen);
+  expect(seen[0]).toBe("ringless");
   const ids = (await app.state()).buttons.map((b) => b.id);
-  for (const id of ["lesson-move", "lesson-near-far", "lesson-rings", "lesson-finger", "tip-0"]) expect(ids).toContain(id);
-  expect(ids).not.toContain("tip-1");
+  for (const id of ["lesson-move", "lesson-near-far", "lesson-rings", "lesson-finger", ...seen.map((_, i) => `tip-${i}`)]) expect(ids).toContain(id);
+  expect(ids).not.toContain(`tip-${seen.length}`);
   await shows(app, "tip-0-label", COPY.menus.lessons.ringless);
   // A row plays its example in the lap (the menu goes, the example's lesson box shows), then box 5 is back.
   const replay = async (id: string, ex: string) => {
