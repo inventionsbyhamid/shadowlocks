@@ -8,8 +8,8 @@
 // reward's rise: at most 100 draw calls and 100k triangles in its busiest frame.
 //
 // Time is real CPU time on a shared server, judged by the stall rule the other cost checks use
-// (helpers/stall-rule.ts): WINDOWS windows of TIMED_FRAMES frames one after the other; host stalls (frames over
-// STALL_MS) left out and counted, at most MAX_STALLS in the judged window; the better window's p95 without them held
+// (helpers/stall-rule.ts): WINDOWS windows of TIMED_FRAMES frames one after the other; stalls, the host's or ours
+// (frames over STALL_MS), left out and counted, at most MAX_STALLS in the judged window; the better window's p95 without them held
 // to the budget. Left in, a few stalls push the window's slow-but-ordinary frames down onto the 95th place: the same
 // code measured 2.10 and 3.20 ms in two windows with 1 and 4 stalls.
 //

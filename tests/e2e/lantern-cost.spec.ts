@@ -7,7 +7,7 @@
 // a short test sees the steady-state code.
 //
 // Time: the two systems' summed update time per frame, in two windows of 200 frames one after the other, judged by the
-// stall rule (helpers/lantern.ts, shared with hand-cost.spec.ts): frames over STALL_MS are host stalls, left out and
+// stall rule (helpers/lantern.ts, shared with hand-cost.spec.ts): frames over STALL_MS are stalls (host or ours), left out and
 // counted; the better window must have at most MAX_STALLS of them and its mean stay within MEAN_BUDGET_MS on every
 // run, whatever the server's load. Both windows' means and p95s are reported; p95 is not held to a limit.
 //
