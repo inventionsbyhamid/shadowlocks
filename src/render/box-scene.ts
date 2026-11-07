@@ -41,6 +41,7 @@ import { ENVELOPE } from "../core/envelope";
 import type { Box, V2, V3 } from "../core/types";
 import { Crystals } from "./fx/crystallise";
 import { FlashBudget } from "./fx/flash-budget";
+import { grained, withGrain } from "./lacquer";
 import { LanternView } from "./lantern-view";
 import { mergeParts } from "./merge";
 import { BOX_ROOT_NAME, DEFAULT_BOX_CM } from "./placement";
@@ -103,19 +104,22 @@ const stripe = (len: number, axis: Axis, p: V3, face: Axis) => {
   return new BoxGeometry(size[0], size[1], size[2]).translate(p[0], p[1], p[2]);
 };
 
-function frameGeometry(): BufferGeometry {
+/** The black lacquer frame, plinth and back slab as one geometry, each part's grain running along it (lacquer.ts). */
+export function frameGeometry(): BufferGeometry {
   const H = 0.5, parts: BufferGeometry[] = [];
+  const grainBar = (len: number, axis: Axis, p: V3) => grained(bar(len, axis, p), axis);
   // Four bars front to back along the edges.
-  for (const x of [-H, H]) for (const y of [-H, H]) parts.push(bar(1 + BAR, "z", [x, y, 0.5]));
+  for (const x of [-H, H]) for (const y of [-H, H]) parts.push(grainBar(1 + BAR, "z", [x, y, 0.5]));
   // The back ring around the panel.
-  for (const y of [-H, H]) parts.push(bar(1 - BAR, "x", [0, y, 0]));
-  for (const x of [-H, H]) parts.push(bar(1 - BAR, "y", [x, 0, 0]));
+  for (const y of [-H, H]) parts.push(grainBar(1 - BAR, "x", [0, y, 0]));
+  for (const x of [-H, H]) parts.push(grainBar(1 - BAR, "y", [x, 0, 0]));
   // The front: two posts and the sill; no rail across the top (it would cut across the panel).
-  parts.push(bar(1 - BAR, "x", [0, -H, 1]));
-  for (const x of [-H, H]) parts.push(bar(1 - BAR, "y", [x, 0, 1]));
-  parts.push(slab(1 + BAR, 1 + BAR, 0.035, 0.012).translate(0, 0, -0.045));
-  parts.push(slab(PLINTH.w, PLINTH.h, PLINTH.d, 0.02).translate(0, PLINTH.y, PLINTH.z));
-  return mergeParts(parts);
+  parts.push(grainBar(1 - BAR, "x", [0, -H, 1]));
+  for (const x of [-H, H]) parts.push(grainBar(1 - BAR, "y", [x, 0, 1]));
+  // The back slab and the plinth: grain across.
+  parts.push(grained(slab(1 + BAR, 1 + BAR, 0.035, 0.012).translate(0, 0, -0.045), "x"));
+  parts.push(grained(slab(PLINTH.w, PLINTH.h, PLINTH.d, 0.02).translate(0, PLINTH.y, PLINTH.z), "x"));
+  return mergeParts(parts, ["grain"]);
 }
 
 /** Gold pinstripes along the frame's edges and stepped gold corners, so black lacquer never vanishes in the dark. */
@@ -247,7 +251,8 @@ export class BoxScene {
     // top bars stay black at a grazing angle, the lid adds no haze).
     const env = studioEnvironment(world.renderer, ENV.gold);
     const dark = studioEnvironment(world.renderer, ENV.lacquer);
-    const lacquer = new MeshPhysicalMaterial({ color: COLORS.frame, ...MATERIALS.lacquer, envMap: dark });
+    // Black lacquer with its grain (the owner's pick), drawn in its own shader: one program, one draw call as before.
+    const lacquer = withGrain(new MeshPhysicalMaterial({ color: COLORS.frame, ...MATERIALS.lacquer, envMap: dark }));
     const gold = new MeshStandardMaterial({ color: COLORS.metal, ...MATERIALS.gold, envMap: env });
     const frame = new Mesh(frameGeometry(), lacquer);
     frame.name = "Box Frame";
