@@ -11,29 +11,35 @@ import { relaxIwer } from "./helpers/page-scripts";
 import { type BootFn, expect, test } from "./helpers/test";
 import type { XrApp } from "./helpers/xr-app";
 
+/**
+ * What of the box must be in view, from its middle (box units): the frame, the plinth and the drawer's handle (the
+ * placement's BOX_EXTENT, written out: the spec does not load the game's three.js modules).
+ */
+const BOX_EXTENT = { x: 0.56, up: 0.56, down: 0.65, back: 0.56, front: 0.59 };
+
 /** Holding a phone at the chest, pointed down at a table in front. */
 const PHONE = { position: { x: 0, y: 1.25, z: -1.4 }, lookAt: { x: 0, y: 0.95, z: -1.95 } };
 
 /**
  * Boot into XR as a phone: the session's interaction mode set to screen-space before it is accepted (unless
- * `screenSpace` is false: a browser that does not say so), no controllers.
+ * `screenSpace` is false: a browser that does not say so), and no controllers from the start (a session that ever
+ * lists a hand or a controller is a headset's).
  */
 async function bootPhone(boot: BootFn, page: Page, screenSpace = true): Promise<XrApp> {
   const app = await boot({ enterXR: false, head: PHONE });
-  if (screenSpace) {
-    await page.evaluate(() => {
-      const d = (window as any).IWER_DEVICE;
-      const key = Object.getOwnPropertySymbols(d).find((s) => d[s] && typeof d[s] === "object" && "interactionMode" in d[s]);
-      if (!key) throw new Error("no IWER device state to make a handheld of");
-      d[key].interactionMode = "screen-space";
-    });
-  }
+  await page.evaluate((screen) => {
+    const d = (window as any).IWER_DEVICE;
+    d.controllers.left.connected = false;
+    d.controllers.right.connected = false;
+    if (!screen) return;
+    const key = Object.getOwnPropertySymbols(d).find((s) => d[s] && typeof d[s] === "object" && "interactionMode" in d[s]);
+    if (!key) throw new Error("no IWER device state to make a handheld of");
+    d[key].interactionMode = "screen-space";
+  }, screenSpace);
   await app.waitReal((_ns, w) => w.IWER_DEVICE.sessionOffered === true, { label: "XR session offer" });
   await app.command("accept_session");
   await app.stepUntil((ns) => ns.state().xr.presenting, { maxMs: 5_000, label: "XR presenting" });
   await page.evaluate(relaxIwer);
-  await app.command("set_connected", { device: "controller-left", connected: false });
-  await app.command("set_connected", { device: "controller-right", connected: false });
   await app.stepUntil(
     (ns) => {
       const st = ns.state();
@@ -62,12 +68,49 @@ test("a phone's session places the box in the camera's view", async ({ page, boo
   const st = await app.state();
   expect(st.xr.sessionMode).toBe("immersive-ar");
   expect(st.boxPose.source).toBe("view");
-  // The box's middle 65 cm along the camera's view, where the phone points.
+  // The box's middle along the camera's view, where the phone points.
   const h = await head(page);
   const mid = await toWorld(page, [0, 0, 0.5]);
   const view = unit([PHONE.lookAt.x - PHONE.position.x, PHONE.lookAt.y - PHONE.position.y, PHONE.lookAt.z - PHONE.position.z]);
-  expect(dist(mid, h)).toBeCloseTo(0.65, 2);
+  expect(dist(mid, h)).toBeGreaterThan(0.4);
+  expect(dist(mid, h)).toBeLessThan(1.6);
   expect(dist(unit(sub(mid, h)), view)).toBeLessThan(0.02);
+  // The whole box, plinth and drawer handle included, inside the XR camera's view (with its margin).
+  await app.step(1);
+  const ndc = await page.evaluate((E) => {
+    const w = window.__ns!.world as any;
+    const cam = w.renderer.xr.getCamera().cameras[0];
+    const root = w.scene.getObjectByName("Box");
+    const V = root.position.constructor;
+    const out: [number, number][] = [];
+    for (const x of [-E.x, E.x]) {
+      for (const y of [-E.down, E.up]) {
+        for (const z of [-E.back, E.front]) {
+          const p = new V(x, y, 0.5 + z).applyMatrix4(root.matrixWorld).project(cam);
+          out.push([p.x, p.y]);
+        }
+      }
+    }
+    return out;
+  }, BOX_EXTENT);
+  const worst = Math.max(...ndc.flat().map(Math.abs));
+  console.log(`phone placement: box ${dist(mid, h).toFixed(3)} m away, its farthest corner at ${worst.toFixed(3)} of the view`);
+  expect(worst).toBeLessThanOrEqual(1);
+});
+
+test("a hand or a controller appearing makes the session a headset's: the box goes back to the lap", async ({ page, boot }) => {
+  const app = await bootPhone(boot, page);
+  expect(await page.evaluate(() => window.__sl!.touch.phone())).toBe(true);
+  expect((await app.state()).boxPose.source).toBe("view");
+  await app.command("set_connected", { device: "controller-right", connected: true });
+  await app.step(3);
+  expect(await page.evaluate(() => window.__sl!.touch.phone())).toBe(false);
+  expect((await app.state()).boxPose.source).toBe("head");
+  // Put down again: still a headset's session, the box stays in the lap.
+  await app.command("set_connected", { device: "controller-right", connected: false });
+  await app.step(3);
+  expect(await page.evaluate(() => window.__sl!.touch.phone())).toBe(false);
+  expect((await app.state()).boxPose.source).toBe("head");
 });
 
 test("a phone whose session does not say so is known by its first touch, and the box comes into view", async ({ page, boot }) => {
