@@ -7,9 +7,11 @@
 // opened through the box session, its last lock's sunburst and sparkle running into the box's opening and the
 // reward's rise: at most 100 draw calls and 100k triangles in its busiest frame.
 //
-// Time is real CPU time on a shared server, judged as the other cost checks are (helpers/lantern.ts): WINDOWS
-// windows of TIMED_FRAMES frames one after the other, the better window held to the budget, host stalls (frames
-// over STALL_MS) reported. p95 is robust to a few stalls by itself.
+// Time is real CPU time on a shared server, judged by the stall rule the other cost checks use
+// (helpers/stall-rule.ts): WINDOWS windows of TIMED_FRAMES frames one after the other; host stalls (frames over
+// STALL_MS) left out and counted, at most MAX_STALLS in the judged window; the better window's p95 without them held
+// to the budget. Left in, a few stalls push the window's slow-but-ordinary frames down onto the 95th place: the same
+// code measured 2.10 and 3.20 ms in two windows with 1 and 4 stalls.
 //
 // Allocation: V8 boxes a float that crosses a call it did not inline (12-16 bytes), and the heap sampler cannot tell
 // those from objects; Rulings 58 and 80 accept them within a byte budget that a per-frame array or object per shadow
@@ -21,17 +23,19 @@ import { axisOf, fingerLocks, hands, onRay, Pointer, worldOf } from "./helpers/f
 import { Hands } from "./helpers/hands";
 import {
   carry,
+  expectP95WithinBudget,
   frameStats,
   grab,
   type HeapProfile,
+  judgeWindowsP95,
   lantern,
   loadAverage,
   ourAllocations,
+  p95WithoutStalls,
   STALL_MS,
   TIMED_FRAMES,
   toWorld,
   WINDOWS,
-  withoutStalls,
 } from "./helpers/lantern";
 import { expect, test } from "./helpers/test";
 
@@ -123,18 +127,19 @@ test("box 15 in play, the lantern moving and a hand in the beam: draw calls, tri
     const game = [...all.byFunction].filter(([k]) => !TEST_ONLY.some((t) => k.startsWith(t)));
     const bytes = game.reduce((s, [, v]) => s + v, 0);
 
-    const stats = windows.map((w) => ({ ...frameStats(w.frames), rule: withoutStalls(w.frames) }));
-    const best = stats.reduce((bi, s, i) => (s.p95Ms < stats[bi]!.p95Ms ? i : bi), 0);
+    const stats = windows.map((w) => ({ ...frameStats(w.frames), rule: p95WithoutStalls(w.frames) }));
+    const judged = judgeWindowsP95(windows.map((w) => w.frames));
     const lines = [
       ...windows.map(
         (w, i) =>
           `perf-budget, window ${i + 1}: ${w.calls} draw calls, ${w.triangles} triangles at most; our JS over ${TIMED_FRAMES} frames at 4x: ` +
           `mean ${stats[i]!.meanMs.toFixed(3)}, median ${stats[i]!.medianMs.toFixed(3)}, p95 ${stats[i]!.p95Ms.toFixed(2)}, ` +
-          `max ${stats[i]!.maxMs.toFixed(2)} ms (${stats[i]!.rule.stalls} host stalls over ${STALL_MS} ms); server load ${w.load?.toFixed(1) ?? "?"}; ` +
+          `max ${stats[i]!.maxMs.toFixed(2)} ms (${stats[i]!.rule.stalls} host stalls over ${STALL_MS} ms; p95 ` +
+          `${stats[i]!.rule.p95Ms.toFixed(2)} without them); server load ${w.load?.toFixed(1) ?? "?"}; ` +
           `p95 by system: ${Object.entries(w.systems).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")}`,
       ),
-      `perf-budget: judged on window ${best + 1}: p95 ${stats[best]!.p95Ms.toFixed(2)} ms a frame; box 15 through the box ` +
-        `session, stage ${st.stage}, ${st.open.length} locks open`,
+      `perf-budget: judged on window ${judged.index + 1}: p95 ${judged.p95Ms.toFixed(2)} ms a frame without host stalls ` +
+        `(${judged.stalls} of them); box 15 through the box session, stage ${st.stage}, ${st.open.length} locks open`,
       `perf-budget: our per-frame code allocated about ${bytes.toFixed(0)} bytes a frame over ${nFrames} frames` +
         (game.length ? `: ${game.sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k} ${v.toFixed(0)}`).join("; ")}` : ""),
     ];
@@ -148,7 +153,7 @@ test("box 15 in play, the lantern moving and a hand in the beam: draw calls, tri
       expect(w.calls).toBeLessThanOrEqual(MAX_CALLS);
       expect(w.triangles).toBeLessThanOrEqual(MAX_TRIANGLES);
     }
-    expect(stats[best]!.p95Ms).toBeLessThanOrEqual(P95_MS);
+    expectP95WithinBudget(judged, P95_MS, "perf-budget, our JS at 4x");
     expect(bytes).toBeLessThan(ALLOC_BUDGET);
     expect(game.filter(([, v]) => v > FUNCTION_BUDGET).map(([k, v]) => `${k} ${v.toFixed(0)} bytes a frame`)).toEqual([]);
   } finally {
