@@ -239,11 +239,6 @@ export class Shell {
   }
 
   /**
-   * Restore the saved box the player chose to continue (never automatically). Without a game to
-   * hand it to, the save stays for a build that has one. A save that cannot be played on is let go
-   * and forgotten, so the next launch does not offer it again.
-   */
-  /**
    * A box (or lesson) is about to start (Game.play and resume, before the play screen): the box opened before it is
    * done with, so the room goes down to play's light, not back up. The session's box-start says it again later.
    */
@@ -251,6 +246,11 @@ export class Shell {
     this.roomLights.boxOpen(false);
   }
 
+  /**
+   * Restore the saved box the player chose to continue (never automatically). Without a game to
+   * hand it to, the save stays for a build that has one. A save that cannot be played on is let go
+   * and forgotten, so the next launch does not offer it again.
+   */
   continueSaved(): boolean {
     const snap = this.profiles.profile.current;
     if (!snap || !this.flow) {
