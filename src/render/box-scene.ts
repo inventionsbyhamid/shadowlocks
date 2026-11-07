@@ -301,6 +301,9 @@ export class BoxScene {
   /** The box shown (its scraps, threads, rings, etching and shadows; the lantern goes to its start), or none. */
   setBox(box: Box | null): void {
     this.current = box;
+    // A new box (or none): the flash budget starts afresh, so a box left at its opening leaves no reservation behind
+    // (the game view resets it too; this is the backstop for every other way a box changes).
+    this.flashes.reset();
     this.scraps.setBox(box);
     this.crystals.setBox(box);
     this.panelArt.setBox(box);

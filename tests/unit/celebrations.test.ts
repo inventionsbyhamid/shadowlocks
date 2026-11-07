@@ -158,6 +158,22 @@ describe("the box opening", () => {
     }
   });
 
+  it("a box's last lock reserves the opening's flash whatever its index, even past the burst slots", () => {
+    const budget = new FlashBudget(), fx = new LockOpenFx(lockScene(), budget);
+    fx.setBox(box5);
+    // Lock index 3 has no burst slot (three slots; a box has three locks today): its reservation must still be made.
+    fx.open(3, false, LOCK_TO_BOX_MS / 1000);
+    budget.step(0.5);
+    expect(budget.take()).toBe(false);
+    expect(budget.claim()).toBe(true);
+    // A restored lock (a resumed box) opens nothing and reserves nothing.
+    const quiet = new FlashBudget(), again = new LockOpenFx(lockScene(), quiet);
+    again.setBox(box5);
+    again.open(2, true, LOCK_TO_BOX_MS / 1000);
+    quiet.step(0.5);
+    expect(quiet.take()).toBe(true);
+  });
+
   it("a paused box still opens at full strength: the reservation holds past its time until claimed, and a new box clears it", () => {
     const budget = new FlashBudget();
     budget.reserve(0.7);
