@@ -169,18 +169,16 @@ function fox(): V2[][] {
   const neck: V2[] = [[0.23, 0.05], [0.33, 0.14], [0.26, 0.23], [0.16, 0.11]];
   const head: V2[] = [[0.33, 0.14], [0.41, 0.12], [0.42, 0.27], [0.37, 0.31], [0.31, 0.32], [0.26, 0.23]];
   const snout: V2[] = [[0.41, 0.12], [0.56, 0.17], [0.42, 0.27]];
-  const earFront: V2[] = [[0.42, 0.27], [0.43, 0.44], [0.37, 0.31]];
-  const earBack: V2[] = [[0.37, 0.31], [0.32, 0.45], [0.31, 0.32]];
-  const tail: V2[] = [[-0.22, 0.08], [-0.34, 0.13], [-0.47, 0.14], [-0.57, 0.09], [-0.5, 0], [-0.37, -0.035], [-0.25, -0.02]];
-  // Legs stand on the body's lower edges, 0.06 wide.
+  const earFront: V2[] = [[0.42, 0.27], [0.45, 0.47], [0.37, 0.31]];
+  const earBack: V2[] = [[0.37, 0.31], [0.32, 0.48], [0.31, 0.32]];
+  const tail: V2[] = [[-0.22, 0.08], [-0.33, 0.15], [-0.46, 0.18], [-0.58, 0.15], [-0.6, 0.08], [-0.5, 0], [-0.37, -0.04], [-0.25, -0.02]];
+  // A trotting fox: legs 0.065 wide on the body's lower edges, the hind leg reaching back and the fore leg forward.
   const onBack = (x: number) => atX([-0.22, -0.12], [0, -0.14], x);
-  const leg = (top: V2, topR: V2, x0: number): V2[] => [[x0, -0.36], [x0 + 0.06, -0.36], topR, top];
-  const legs = [
-    leg(onBack(-0.2), onBack(-0.14), -0.235),
-    leg(onBack(-0.1), onBack(-0.04), -0.08),
-    leg([0.02, -0.14], [0.08, -0.14], 0),
-    leg([0.09, -0.14], [0.15, -0.14], 0.12),
-  ];
+  const leg = (x0: number, x1: number, foot: number): V2[] => {
+    const top0 = x0 < 0 ? onBack(x0) : ([x0, -0.14] as V2), top1 = x1 <= 0 ? onBack(x1) : ([x1, -0.14] as V2);
+    return [[foot, -0.34], [foot + 0.065, -0.34], top1, top0];
+  };
+  const legs = [leg(-0.21, -0.145, -0.28), leg(-0.11, -0.045, -0.1), leg(0.01, 0.075, 0.02), leg(0.085, 0.15, 0.16)];
   return [back, front, neck, head, snout, earFront, earBack, tail, ...legs];
 }
 
