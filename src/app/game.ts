@@ -11,16 +11,18 @@ import type { BoxSnapshot } from "../core/profile";
 import type { Box, BoxSpec, V3, Vec3 } from "../core/types";
 import { hands } from "../input/grab-system";
 import { pressGate } from "../input/poke";
+import { grabDepth, type KeyHit } from "../input/touch";
 import type { BoxScene } from "../render/box-scene";
 import { BoxOpenFx } from "../render/fx/box-open";
 import { crystallise } from "../render/fx/crystallise";
 import { LockOpenFx } from "../render/fx/lock-open";
 import { worldToBox } from "../render/placement";
-import { Reward, type RewardHands } from "../render/reward";
+import { REWARD, Reward, type RewardHands } from "../render/reward";
 import { type FrameTips, frameTips } from "../ui/fingertips";
 import { HINT_ASK, HintLantern } from "../ui/hint-lantern";
 import { NO_TIPS } from "../ui/key-view";
 import { Plate } from "../ui/plate";
+import type { PokeKey } from "../ui/poke-key";
 import { BoxSession, LOCK_TO_BOX_MS } from "./box-session";
 import { FingerLockLoop } from "./finger-lock";
 import type { FingerSource } from "./session-fingers";
@@ -56,6 +58,8 @@ export class GameView implements SessionView {
   readonly reward: Reward;
   readonly plate: Plate;
   readonly hintLantern: HintLantern;
+  /** The keys on the box, for a phone's touch. */
+  private readonly boxKeys: readonly PokeKey[];
   private readonly tips: FrameTips;
   private readonly hands: RewardHands;
   private box: Box | null = null;
@@ -63,6 +67,10 @@ export class GameView implements SessionView {
   private readonly drawer: V3 = [0, 0, 0];
   /** The coach line shown now (for the test hooks), or null. */
   coachLine: CoachLine | null = null;
+  /** A phone's touch took the reward (the next update takes it). */
+  private tapTake = false;
+  private readonly rewardAt: V3 = [0, 0, 0];
+  private readonly rewardWorld = new Vector3();
 
   constructor(private readonly d: GameViewDeps) {
     const scene = d.scene, root = scene.root;
@@ -74,6 +82,7 @@ export class GameView implements SessionView {
     this.reward = new Reward(root, scene.flashes);
     this.plate = new Plate(root);
     this.hintLantern = new HintLantern(root, d.canShowMe);
+    this.boxKeys = [this.plate.next, this.hintLantern.lantern, this.hintLantern.hint, this.hintLantern.showMe];
     this.tips = frameTips(d.world);
     this.hands = {
       point: (i, out) => {
@@ -183,7 +192,36 @@ export class GameView implements SessionView {
     if (ask === HINT_ASK.hint) acts |= ACT_HINT;
     else if (ask === HINT_ASK.showMe) acts |= ACT_SHOW_ME;
     if (this.reward.update(dt, this.hands, stage === "reward", this.d.scene.size * 100, reduced)) acts |= ACT_TAKE;
+    if (this.tapTake) {
+      this.tapTake = false;
+      if (stage === "reward" && this.reward.up) acts |= ACT_TAKE;
+    }
     return acts;
+  }
+
+  /**
+   * A phone's touch ray (world): how far along it the reward is, when it can be taken and the ray passes within its
+   * grab radius; NaN otherwise. A screen cannot carry it toward the player, so a touch on it takes it (tapReward).
+   */
+  rewardDepth(o: Readonly<Vec3>, d: Readonly<Vec3>): number {
+    if (!this.reward.up) return Number.NaN;
+    const p = this.reward.group.getWorldPosition(this.rewardWorld);
+    this.rewardAt[0] = p.x;
+    this.rewardAt[1] = p.y;
+    this.rewardAt[2] = p.z;
+    return grabDepth(o, d, this.rewardAt, REWARD.grabCm / 100);
+  }
+
+  /** Take the reward for a phone's touch (after rewardDepth found it): on the next update. */
+  tapReward(): void {
+    this.tapTake = true;
+  }
+
+  /** A phone's touch ray (world) against the box's live keys (the plate's Next, the hint lantern and its choices). */
+  tapHit(o: Readonly<Vec3>, d: Readonly<Vec3>, out: KeyHit): boolean {
+    let hit = false;
+    for (const k of this.boxKeys) if (this.visible(k.group) && k.tapHit(o, d, out)) hit = true;
+    return hit;
   }
 
   /** The box's keys and their states, for the test hooks. */

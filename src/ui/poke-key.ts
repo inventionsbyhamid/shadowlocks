@@ -4,7 +4,9 @@
 // (the key lives in a group that cancels the box's scale), so a key is at least 40 mm whatever the box size. One
 // draw call; per frame it allocates nothing and repaints nothing.
 import { Group, Mesh, MeshBasicMaterial, PlaneGeometry, Vector3 } from "@iwsdk/core";
+import type { V3 } from "../core/types";
 import type { Lang } from "../i18n";
+import { hitKey, type KeyHit } from "../input/touch";
 import { FingerKey, KEY_EVENT, nearestFinger } from "../render/finger-key";
 import { brassFace, fitLabel, LabelCanvas, type LabelFit, labelMaterial } from "../render/label";
 import type { Tips } from "./key-view";
@@ -30,8 +32,11 @@ export function keyLabelFit(g: Measure, text: string, width: number, height: num
   return fitLabel(g, text, "bold", h * LABEL_SIZE, h * LABEL_FLOOR, w * LABEL_ROOM, l);
 }
 
-const tipDist = new Float64Array(2);
-const tipOver = new Uint8Array(2);
+/** Room for both hands' fingertips and a phone touch's. */
+const tipDist = new Float64Array(3);
+const tipOver = new Uint8Array(3);
+/** A phone touch's poke presses this far behind the face (m): past the 80% of the travel where it clicks. */
+export const POKE_TAP_PRESS_M = -0.008;
 const rel = new Vector3();
 const ax = new Vector3();
 const ay = new Vector3();
@@ -139,6 +144,16 @@ export class PokeKey {
     const ev = k.step();
     this.face.position.z = -k.depth;
     return ev;
+  }
+
+  /**
+   * A phone's touch ray (world) against this key's face, when it is live and shown: the nearest hit so far goes into
+   * `out`. Allocation free.
+   */
+  tapHit(o: Readonly<V3>, d: Readonly<V3>, out: KeyHit): boolean {
+    if (!this.live || !this.group.visible) return false;
+    this.group.updateWorldMatrix(true, false);
+    return hitKey(o, d, this.group.matrixWorld.elements, this.width / 2, this.height / 2, POKE_TAP_PRESS_M, out);
   }
 
   /** Forget any finger (the key went away). */

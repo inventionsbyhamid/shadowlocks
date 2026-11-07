@@ -248,6 +248,17 @@ export const COPY = {
       hidden: "This outline is hidden. What shape do the shadows make?",
     },
   },
+  /**
+   * The coach lines that say how to use your hands, as a phone says them (AR on an Android phone: the screen is the
+   * only input). Shown in place of the line each is named after (src/app/phone-lines.ts).
+   */
+  phone: {
+    pickUp: "Drag the lantern.",
+    slide: "Hold the lantern and move the phone nearer or farther.",
+    finger: "One piece is missing. Touch the gap and hold still.",
+    drawer: "Tap the drawer to find these lessons again.",
+    puppets: "Touch the box to put a finger in the light.",
+  },
 } as const;
 
 /** A copy line with its {names} filled in: `fill(COPY.game.boxNo, { n: 3 })` is "Box No. 3". */

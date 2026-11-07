@@ -227,4 +227,11 @@ export const ES: Copy = {
     loading: "Cargando",
     description: "Una caja rompecabezas de luz y sombra para Meta Quest. Sin levantarte, solo con las manos y sin conexión.",
   },
+  phone: {
+    pickUp: "Arrastra el farol.",
+    slide: "Sujeta el farol y acerca o aleja el teléfono.",
+    finger: "Falta una pieza. Toca el hueco y no te muevas.",
+    drawer: "Toca el cajón para volver a ver estas lecciones.",
+    puppets: "Toca la caja para poner un dedo en la luz.",
+  },
 };
