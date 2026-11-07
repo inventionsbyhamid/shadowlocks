@@ -14,15 +14,20 @@ import type { XrApp } from "./helpers/xr-app";
 /** Holding a phone at the chest, pointed down at a table in front. */
 const PHONE = { position: { x: 0, y: 1.25, z: -1.4 }, lookAt: { x: 0, y: 0.95, z: -1.95 } };
 
-/** Boot into XR as a phone: the session's interaction mode set to screen-space before it is accepted, no controllers. */
-async function bootPhone(boot: BootFn, page: Page): Promise<XrApp> {
+/**
+ * Boot into XR as a phone: the session's interaction mode set to screen-space before it is accepted (unless
+ * `screenSpace` is false: a browser that does not say so), no controllers.
+ */
+async function bootPhone(boot: BootFn, page: Page, screenSpace = true): Promise<XrApp> {
   const app = await boot({ enterXR: false, head: PHONE });
-  await page.evaluate(() => {
-    const d = (window as any).IWER_DEVICE;
-    const key = Object.getOwnPropertySymbols(d).find((s) => d[s] && typeof d[s] === "object" && "interactionMode" in d[s]);
-    if (!key) throw new Error("no IWER device state to make a handheld of");
-    d[key].interactionMode = "screen-space";
-  });
+  if (screenSpace) {
+    await page.evaluate(() => {
+      const d = (window as any).IWER_DEVICE;
+      const key = Object.getOwnPropertySymbols(d).find((s) => d[s] && typeof d[s] === "object" && "interactionMode" in d[s]);
+      if (!key) throw new Error("no IWER device state to make a handheld of");
+      d[key].interactionMode = "screen-space";
+    });
+  }
   await app.waitReal((_ns, w) => w.IWER_DEVICE.sessionOffered === true, { label: "XR session offer" });
   await app.command("accept_session");
   await app.stepUntil((ns) => ns.state().xr.presenting, { maxMs: 5_000, label: "XR presenting" });
@@ -63,6 +68,22 @@ test("a phone's session places the box in the camera's view", async ({ page, boo
   const view = unit([PHONE.lookAt.x - PHONE.position.x, PHONE.lookAt.y - PHONE.position.y, PHONE.lookAt.z - PHONE.position.z]);
   expect(dist(mid, h)).toBeCloseTo(0.65, 2);
   expect(dist(unit(sub(mid, h)), view)).toBeLessThan(0.02);
+});
+
+test("a phone whose session does not say so is known by its first touch, and the box comes into view", async ({ page, boot }) => {
+  const app = await bootPhone(boot, page, false);
+  expect(await page.evaluate(() => window.__sl!.touch.phone())).toBe(false);
+  expect((await app.state()).boxPose.source).toBe("head");
+  const h = await head(page);
+  const ahead: Vec3 = add(h, unit([PHONE.lookAt.x - PHONE.position.x, PHONE.lookAt.y - PHONE.position.y, PHONE.lookAt.z - PHONE.position.z]), 0.4);
+  // The screen touch an Android phone's browser lists (here fed as a ray): the session is a phone's from now on.
+  await touch(page, [{ id: 1, at: ahead }]);
+  await app.step(3);
+  expect(await page.evaluate(() => window.__sl!.touch.phone())).toBe(true);
+  expect((await app.state()).boxPose.source).toBe("view");
+  await touch(page, []);
+  await app.step(3);
+  expect(await page.evaluate(() => window.__sl!.touch.phone())).toBe(true);
 });
 
 test("on a phone a touch drags the lantern, its shadows moving, and lifting lets it go", async ({ page, boot }) => {

@@ -141,7 +141,9 @@ export class Touches implements TouchFinger {
   update(frame: XRFrame | null, ref: XRReferenceSpace | null, origin: { matrixWorld: { elements: ArrayLike<number> } }, headAt: Vector3): void {
     const now = performance.now();
     const session = frame?.session ?? null;
-    if (session && session !== this.phoneFor && isHandheld(session)) this.phoneFor = session;
+    // A test build's touches stand for screen touches among the session's input sources.
+    const tests = (this.testTouches?.length ?? 0) > 0;
+    if (session && session !== this.phoneFor && (isHandheld(session) || tests)) this.phoneFor = session;
     this.live = session !== null && session === this.phoneFor;
     // Touches lifted on an earlier frame are done with (a lantern touch let go on the frame it lifted); a key's stays
     // until its poke is back out.

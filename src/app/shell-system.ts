@@ -58,6 +58,9 @@ export class ShellSystem extends createSystem({}) {
       s.recenterAsked = false;
       void s.prewarm();
     }
+    // A phone whose browser does not say it is one (no screen-space mode) is known by its first touch: the box placed
+    // in the lap below its view comes into view then.
+    if (xrSession && placement.source === "head" && onPhone()) s.recenterAsked = true;
     // A Recenter waits for a frame with a tracked head.
     if (s.recenterAsked && this.recenter()) s.recenterAsked = false;
     if (placement.version !== this.laidOut) {
