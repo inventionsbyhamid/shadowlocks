@@ -1,6 +1,9 @@
 import { Matrix4, Vector3 } from "@iwsdk/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { tipLock } from "../../src/app/tips";
+import { generateBox } from "../../src/core/generator";
 import { buildLessonLock, LESSON_1, LESSON_2, lessonPlan } from "../../src/core/lessons-data";
+import { mirrorBox } from "../../src/core/mirror";
 import type { V3 } from "../../src/core/types";
 import { JOINT_COUNT } from "../../src/input/hand-joints";
 import { GhostHand } from "../../src/render/ghost-hand";
@@ -95,6 +98,36 @@ function rig(left = false): Rig {
     },
   };
   return r;
+}
+
+/**
+ * Steps until `done`, placing a real GhostHand each frame the director shows one, as the view does (the box at the
+ * origin, `sizeM` metres across: the ghost is human-sized whatever the box). Returns how far out (|x|) any joint
+ * inside the box (z < 1) went, and where.
+ */
+function handInside(r: Rig, sizeM: number, done: () => boolean): { seen: number; worst: number; where: string } {
+  const g = new GhostHand("right");
+  const at = new Vector3(), fv = new Vector3(), pv = new Vector3(), w = new Vector3();
+  const m = new Matrix4().makeScale(sizeM, sizeM, sizeM);
+  let seen = 0, worst = 0, where = "";
+  r.until(() => {
+    const h = r.d.frame.hand;
+    if (h.opacity > 0) {
+      seen++;
+      g.side = h.side;
+      g.setPose(h.poseA, h.poseB, h.poseT);
+      g.place(h.anchor, at.set(h.at[0], h.at[1], h.at[2]).applyMatrix4(m), fv.set(h.fingers[0], h.fingers[1], h.fingers[2]), pv.set(h.palm[0], h.palm[1], h.palm[2]));
+      for (let j = 0; j < JOINT_COUNT; j++) {
+        g.joint(j, w).divideScalar(sizeM);
+        if (w.z < 1 && Math.abs(w.x) > worst) {
+          worst = Math.abs(w.x);
+          where = `joint ${j} at ${w.toArray().map((v) => v.toFixed(2))}, ${h.anchor} at ${h.at.map((v) => v.toFixed(2))}, fingers ${h.fingers.map((v) => v.toFixed(2))}`;
+        }
+      }
+    }
+    return done();
+  });
+  return { seen, worst, where };
 }
 
 /** Plays the running example (or demo step) to its end, collecting what the frame showed. */
@@ -476,28 +509,7 @@ describe("LessonsDirector: lesson 2", () => {
       for (const left of [false, true]) {
         const q = rig(left);
         q.d.start("l2", 1);
-        const g = new GhostHand(left ? "left" : "right");
-        const at = new Vector3(), fv = new Vector3(), pv = new Vector3(), w = new Vector3();
-        // Box units to metres, the box at the origin: the ghost hand is human-sized whatever the box.
-        const m = new Matrix4().makeScale(sizeM, sizeM, sizeM);
-        let seen = 0, worst = 0, where = "";
-        q.until(() => {
-          const h = q.d.frame.hand;
-          if (h.opacity > 0 && h.anchor === "tip") {
-            seen++;
-            g.side = h.side;
-            g.setPose(h.poseA, h.poseB, h.poseT);
-            g.place("tip", at.set(h.at[0], h.at[1], h.at[2]).applyMatrix4(m), fv.set(h.fingers[0], h.fingers[1], h.fingers[2]), pv.set(h.palm[0], h.palm[1], h.palm[2]));
-            for (let j = 0; j < JOINT_COUNT; j++) {
-              g.joint(j, w).divideScalar(sizeM);
-              if (w.z < 1 && Math.abs(w.x) > worst) {
-                worst = Math.abs(w.x);
-                where = `joint ${j} at ${w.toArray().map((v) => v.toFixed(2))}, tip at ${h.at.map((v) => v.toFixed(2))}, fingers ${h.fingers.map((v) => v.toFixed(2))}`;
-              }
-            }
-          }
-          return q.d.step !== 1;
-        });
+        const { seen, worst, where } = handInside(q, sizeM, () => q.d.step !== 1);
         expect(seen).toBeGreaterThan(0);
         expect(worst, `${sizeM * 100} cm box, ${left ? "left" : "right"}-handed: ${where}`).toBeLessThanOrEqual(0.5);
       }
@@ -642,6 +654,84 @@ describe("LessonsDirector: replay", () => {
     r.d.replay("move");
     r.d.stop();
     expect(r.d.showing).toBe(false);
+  });
+});
+
+describe("LessonsDirector: tip demos", () => {
+  const TIPS = [
+    ["decoys", 2],
+    ["ringless", 4],
+    ["hidden", 5],
+  ] as const;
+  const boxFor = (n: number, left: boolean) => (left ? mirrorBox(generateBox({ kind: "box", n })) : generateBox({ kind: "box", n }));
+  const centroid = (v: V3[]): V3 => [0, 1, 2].map((k) => v.reduce((s, p) => s + p[k]!, 0) / v.length) as V3;
+
+  it("plays about 6 s of ghost for each tip: a finger pointing at decoys, or a ghost lantern swept near (never on) the lock's spot", () => {
+    for (const [tip, n] of TIPS) {
+      const box = boxFor(n, false), r = rig();
+      expect(r.d.tipDemo(tip, box)).toBe(true);
+      expect(r.d.tipping).toBe(true);
+      const decoys = box.elements.filter((e) => e.kind === "decoy").map((e) => centroid(e.verts));
+      const L = box.locks[tipLock(tip, box)]?.L;
+      let hand = 0, lamp = 0, light = false, pointedAt = 0, nearest = Infinity;
+      const ms = r.until(() => {
+        const f = r.d.frame;
+        hand = Math.max(hand, f.hand.opacity);
+        lamp = Math.max(lamp, f.lamp.opacity);
+        light ||= f.ghostLight;
+        if (f.hand.opacity >= 1 && tip === "decoys") {
+          // The finger points at a decoy: the line on from the fingertip passes close by one.
+          for (const c of decoys) {
+            const d = new Vector3(c[0] - f.hand.at[0], c[1] - f.hand.at[1], c[2] - f.hand.at[2]);
+            const along = d.dot(new Vector3(...f.hand.fingers));
+            if (along > 0 && d.lengthSq() - along * along < 0.03 * 0.03) pointedAt++;
+          }
+        }
+        if (L && f.lamp.opacity > 0.5) nearest = Math.min(nearest, Math.hypot(f.lamp.at[0] - L[0], f.lamp.at[1] - L[1], f.lamp.at[2] - L[2]));
+        return !r.d.tipping;
+      });
+      expect(ms, tip).toBeGreaterThan(5000);
+      expect(ms, tip).toBeLessThan(7000);
+      expect(hand, tip).toBe(1);
+      if (tip === "decoys") {
+        expect([lamp, light]).toEqual([0, false]);
+        expect(pointedAt).toBeGreaterThan(0);
+      } else {
+        expect([lamp, light]).toEqual([1, true]);
+        expect(nearest, tip).toBeGreaterThan(0.1);
+      }
+      // Over: nothing left showing, the light back on the player's lantern.
+      expect([r.d.frame.hand.opacity, r.d.frame.lamp.opacity, r.d.frame.ghostLight]).toEqual([0, 0, false]);
+    }
+  });
+
+  it("keeps a tip demo's ghost hand out of the glass sides (18 and 24 cm boxes, both hands)", () => {
+    for (const [tip, n] of TIPS) {
+      for (const sizeM of [0.18, 0.24]) {
+        for (const left of [false, true]) {
+          const r = rig(left);
+          r.d.tipDemo(tip, boxFor(n, left));
+          const { seen, worst, where } = handInside(r, sizeM, () => !r.d.tipping);
+          expect(seen).toBeGreaterThan(0);
+          expect(worst, `${tip}, ${sizeM * 100} cm box, ${left ? "left" : "right"}-handed: ${where}`).toBeLessThanOrEqual(0.5);
+        }
+      }
+    }
+  });
+
+  it("stops a tip demo when told, and never plays one over a lesson or an example", () => {
+    const r = rig();
+    const box = boxFor(2, false);
+    r.d.tipDemo("decoys", box);
+    r.run(1000);
+    r.d.stopTip();
+    expect(r.d.tipping).toBe(false);
+    expect([r.d.frame.hand.opacity, r.d.frame.ghostLight]).toEqual([0, false]);
+    r.d.start("l1");
+    expect(r.d.tipDemo("decoys", box)).toBe(false);
+    r.d.stop();
+    r.d.replay("move");
+    expect(r.d.tipDemo("decoys", box)).toBe(false);
   });
 });
 

@@ -8,8 +8,10 @@
 // click, lets go and leaves, the scraps swing home past their places and settle (no overshoot with reduced motion)
 // while the ghost lantern still lights them, then the lantern lifts out of the cradle and "Your turn."
 import type { LessonId, LessonPlan } from "../core/lessons-data";
-import type { Lock, V3 } from "../core/types";
+import type { TipId } from "../core/profile";
+import type { Box, Lock, V3 } from "../core/types";
 import { COPY } from "../ui/copy";
+import { tipLock } from "./tips";
 
 export type ExampleId = "move" | "near-far" | "rings" | "finger";
 /** The ghost hand's poses (src/lessons/poses.json). */
@@ -440,6 +442,124 @@ export function buildScript(ex: ExampleId, plan: LessonPlan, left: boolean, repl
     twin !== null,
     nearPiece >= 0 ? { piece: nearPiece, beat: 1 } : null,
   );
+}
+
+// --- Tip demos: about 6 s of ghost the first time a box brings in a mechanic, in interactive play ---------------
+//
+// No cradle and no swing: the player's lantern stays where it is. Decoys: the ghost finger points at two of them,
+// straight in through the mouth. A lock without rings, a hidden outline: the ghost carries its lantern in a sweep a
+// little above the lock's spot, the shadows cast from it, so they nearly form and never quite fill (the demo shows
+// how to read them; it never solves the lock).
+
+/** A tip's ghost demo lasts this long. */
+export const TIP_DEMO_MS = 6000;
+
+/** A tip demo, timed from its start (ms). */
+export interface TipScript {
+  end: number;
+  anchor: HandAnchor;
+  fingers: V3;
+  palm: V3;
+  side: "left" | "right";
+  hand: HandKey[];
+  /** Empty: no ghost lantern. */
+  lamp: LampKey[];
+  /** The ghost lantern lights the box over [t0, t1). */
+  light: [number, number];
+}
+
+const centroid = (v: V3[]): V3 => {
+  let x = 0, y = 0, z = 0;
+  for (const p of v) {
+    x += p[0] / v.length;
+    y += p[1] / v.length;
+    z += p[2] / v.length;
+  }
+  return [x, y, z];
+};
+
+/** The finger for decoys: straight into the box, a little down. Its tip stops this far in front of a decoy. */
+const DECOY_FINGERS = unit([0, -0.12, -1]);
+
+function decoyTip(box: Box, side: "left" | "right"): TipScript | null {
+  // The two decoys nearest the middle (the hand never goes near a glass side).
+  const decoys: V3[] = [];
+  for (const e of box.elements) if (e.kind === "decoy") decoys.push(centroid(e.verts));
+  if (!decoys.length) return null;
+  decoys.sort((a, b) => Math.abs(a[0]) - Math.abs(b[0]));
+  const f = DECOY_FINGERS;
+  // Pointing at c from in front of it: the tip at least 0.3 nearer the mouth (and never deeper than 0.7), so the
+  // knuckles are out through the mouth.
+  const pointAt = (c: V3): V3 => {
+    const d = (Math.max(0.7, c[2] + 0.3) - c[2]) / -f[2];
+    return [c[0] - f[0] * d, c[1] - f[1] * d, c[2] - f[2] * d];
+  };
+  const a = pointAt(decoys[0]!), b = pointAt(decoys[1] ?? decoys[0]!);
+  const out = (p: V3): V3 => [p[0], p[1] + 0.06, 1.45];
+  return {
+    end: TIP_DEMO_MS,
+    anchor: "tip",
+    fingers: f,
+    palm: PALM_DOWN,
+    side,
+    hand: [
+      { t: 0, at: out(a), pose: "point", op: 0 },
+      { t: 600, at: out(a), pose: "point", op: 1 },
+      { t: 1600, at: a, pose: "point", op: 1 },
+      { t: 2600, at: a, pose: "point", op: 1 },
+      { t: 3800, at: b, pose: "point", op: 1 },
+      { t: 4800, at: b, pose: "point", op: 1 },
+      { t: 5600, at: out(b), pose: "point", op: 1 },
+      { t: TIP_DEMO_MS, at: out(b), pose: "point", op: 0 },
+    ],
+    lamp: [],
+    light: [0, 0],
+  };
+}
+
+/** How far above a lock's spot the sweep runs: the shadows nearly form, never fill. */
+const SWEEP_ABOVE = 0.14;
+
+function sweepTip(box: Box, lock: number, side: "left" | "right"): TipScript {
+  const s = side === "left" ? -1 : 1, L = box.locks[lock]!.L;
+  // From the dominant side across to the other, then up a little: always above the spot.
+  const A = add(L, 0.16 * s, SWEEP_ABOVE, 0.06), B = add(L, -0.16 * s, SWEEP_ABOVE, -0.04), C = add(L, 0, SWEEP_ABOVE + 0.04, 0.08);
+  const from = handFrom(A, s), away = handFrom(C, s);
+  return {
+    end: TIP_DEMO_MS,
+    anchor: "grasp",
+    fingers: graspFingers(s),
+    palm: PALM_DOWN,
+    side,
+    hand: [
+      { t: 0, at: from, pose: "open", op: 0 },
+      { t: 500, at: from, pose: "open", op: 1 },
+      { t: 1100, at: A, pose: "pinch", op: 1 },
+      { t: 2700, at: B, pose: "pinch", op: 1 },
+      { t: 4100, at: C, pose: "pinch", op: 1 },
+      { t: 4600, at: C, pose: "open", op: 1 },
+      { t: 5300, at: away, pose: "open", op: 0 },
+    ],
+    lamp: [
+      { t: 0, at: A, op: 0 },
+      { t: 500, at: A, op: 1 },
+      { t: 1100, at: A, op: 1 },
+      { t: 2700, at: B, op: 1 },
+      { t: 4100, at: C, op: 1 },
+      { t: 5400, at: C, op: 1 },
+      { t: TIP_DEMO_MS, at: C, op: 0 },
+    ],
+    light: [500, 5700],
+  };
+}
+
+/** Tip `tip`'s demo on `box` (as the player sees it: mirrored already for a left-handed one), or null without one. */
+export function buildTipScript(tip: TipId, box: Box, left: boolean): TipScript | null {
+  const side = left ? "left" : "right";
+  if (tip === "decoys") return decoyTip(box, side);
+  if (tip === "drawer") return null;
+  const lock = tipLock(tip, box);
+  return lock >= 0 ? sweepTip(box, lock, side) : null;
 }
 
 // --- Idle ghosts: loops keyed around a point that may move (the player's lantern) -------------------------------
