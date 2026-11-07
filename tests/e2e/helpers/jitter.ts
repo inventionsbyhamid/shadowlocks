@@ -388,6 +388,21 @@ export interface BotResult {
   realMs: number;
 }
 
+/** How a lesson went (a BotResult for its box, `solved` meaning the lesson is saved done), and its own steps. */
+export interface LessonResult extends BotResult {
+  lesson: "l1" | "l2";
+  /** When each step the bot waited for began (virtual ms from the lesson's box in play). */
+  steps: { step: number; atMs: number }[];
+  /** The reward was lifted out by the bot's hand (not left to collect itself). */
+  rewardTaken: boolean;
+  /** Lesson 1: pinches it took to pick the lantern up at the intro. */
+  grabsAtIntro?: number;
+  /** Lesson 2: how long the hand was in the beam before the shadow puppets moved on (ms; NaN if it did not cast). */
+  beamMs?: number;
+  /** Lesson 2: the real drawer, pulled by hand, brought Home. */
+  drawerPulled?: boolean;
+}
+
 const add = (a: Readonly<Vec3>, b: Readonly<Vec3>, k = 1): Vec3 => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
 const sub = (a: Readonly<Vec3>, b: Readonly<Vec3>): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 
@@ -407,6 +422,16 @@ const FINGER_WAIT_MS = 5000;
 const FINGER_LAYS = 2;
 /** Before its hold, the laid finger is taken this far out (box z, past the mouth at 1: it casts nothing there). */
 const FINGER_OUT_Z = 1.2;
+/** Lessons: the reward and the drawer handle are carried at this speed (cm/s), the drawer pulled this far (m). */
+const REWARD_CMPS = 15;
+const DRAWER_PULL_M = 0.06;
+/** Lesson 2's crown is filled by a finger at this depth (box z), as its lessons spec lays it. */
+const LESSON_FINGER_DEPTH = 0.6;
+/**
+ * The shadow puppets move on after 5 s with a hand in the beam, or after 12 s in all whatever the player does
+ * (lessons-director.ts PUPPET_MS, PUPPET_MAX_MS); the bot waits up to the latter.
+ */
+const PUPPETS_WAIT_MS = 12_000;
 
 /**
  * Page script: the bot's hand, moved before every frame of the virtual clock while `driving`. It goes along queued
@@ -804,17 +829,18 @@ export class Bot {
   }
 
   /**
-   * A finger lock: the lantern carefully onto its spot (the lock then one piece short), then the index finger laid
-   * along the missing piece on the rays from the spot at `fingerDepth`, held there (shaking) until the lock opens.
+   * A finger lock: the lantern carefully onto its spot (the lock then one piece short; skipped when the lantern is
+   * already there, as a lesson leaves it), then the index finger laid along the missing piece on the rays from the spot
+   * at `depth` (`fingerDepth` by default), held there (shaking) until the lock opens.
    */
-  async openFinger(lock: SlLock): Promise<LockResult> {
+  async openFinger(lock: SlLock, o: { depth?: number } = {}): Promise<LockResult> {
     const t0 = await this.app.now();
     const r: LockResult = { lock: lock.i, finger: true, open: false, attempts: 0, grabs: 0, settled: [], restMm: NaN, lays: 0, ms: 0 };
     const short = (w: any, i: number) => {
       const f = w.__sl.fingerLocks().find((x: any) => x.lock === i);
       return !!f && f.coverage.cover >= 0.92 && f.coverage.spill <= 0.25;
     };
-    while (r.attempts < LOCK_TRIES) {
+    while (r.attempts < LOCK_TRIES && !(r.attempts === 0 && (await this.waitFor(short, lock.i, 0)))) {
       r.attempts++;
       await this.place(lock.spot, r);
       if (await this.waitFor(short, lock.i, 300)) break;
@@ -826,19 +852,19 @@ export class Bot {
       return r;
     }
     const fl = (await this.page.evaluate(() => window.__sl!.fingerLocks())).find((f) => f.lock === lock.i)!;
-    const out = await this.fingerHold(fl, r);
+    const out = await this.fingerHold(fl, r, o.depth ?? this.fingerDepth);
     r.open = out === "open";
     if (out !== "open" && out !== "shut") r.blocked = out;
     r.ms = (await this.app.now()) - t0;
     return r;
   }
 
-  /** Where a finger at `fingerDepth` fills `fl`'s gap: the middle of the missing piece on the rays, and its way. */
-  private gapLine(fl: SlFingerLock): { mid: Vec3; dir: Vec3 } {
+  /** Where a finger at `depth` fills `fl`'s gap: the middle of the missing piece on the rays, and its way. */
+  private gapLine(fl: SlFingerLock, depth: number): { mid: Vec3; dir: Vec3 } {
     const { mid, angle } = axisOf(fl.piece);
     // The right hand's finger points to the player's left, so the hand lies to the right of the gap.
     const sign = Math.cos(angle) >= 0 ? -1 : 1;
-    return { mid: onRay(fl.spot, mid as V2, this.fingerDepth), dir: [sign * Math.cos(angle), sign * Math.sin(angle), 0] };
+    return { mid: onRay(fl.spot, mid as V2, depth), dir: [sign * Math.cos(angle), sign * Math.sin(angle), 0] };
   }
 
   /**
@@ -848,8 +874,8 @@ export class Bot {
    * finger (ControllerFinger: a fingertip-sized capsule along its aim, just past its front). "open", "shut", or why it
    * could not be tried.
    */
-  private async fingerHold(fl: SlFingerLock, r: LockResult): Promise<string> {
-    const { mid, dir } = this.gapLine(fl);
+  private async fingerHold(fl: SlFingerLock, r: LockResult, depth: number): Promise<string> {
+    const { mid, dir } = this.gapLine(fl, depth);
     const hands = this.input === "hands";
     let open = false, blocked = "";
     while (!open && !blocked && r.lays < FINGER_LAYS) {
@@ -892,7 +918,7 @@ export class Bot {
         { at, orient, anchor: hands ? "index-tip" : null },
       );
       const [inBox, outOfMouth] = await this.world([
-        [0, 0, this.fingerDepth],
+        [0, 0, depth],
         [0, 0, FINGER_OUT_Z],
       ]);
       await this.go([{ to: add(at, sub(outOfMouth!, inBox!)), cmps: AWAY_CMPS }], "the finger out of the box before its hold");
@@ -930,7 +956,7 @@ export class Bot {
     }
     // Out of the box along its depth, then (a hand) the open hand again, ready for the lantern.
     const [inBox, outBox] = await this.world([
-      [0, 0, this.fingerDepth],
+      [0, 0, depth],
       [0, 0, 1.7],
     ]);
     await this.go([{ to: add(await this.hand(), sub(outBox!, inBox!)), cmps: AWAY_CMPS }], "the finger leaving the box");
@@ -981,8 +1007,9 @@ export class Bot {
     return min.map((d) => d * this.cmPerUnit);
   }
 
-  /** Play `spec` and solve it lock by lock, in order. */
+  /** Play `spec` and solve it lock by lock, in order (a lesson spec plays the lesson: solveLesson). */
   async solve(spec: BoxSpec): Promise<BotResult> {
+    if (spec.kind === "lesson") return this.solveLesson(spec.id);
     const real0 = Date.now(), f0 = await this.frames();
     const s = await this.start(spec);
     const t0 = await this.app.now();
@@ -1006,6 +1033,169 @@ export class Bot {
       frames: (await this.frames()) - f0,
       realMs: Date.now() - real0,
     };
+  }
+
+  // ---------------------------------------------------------------------------------------------- lessons
+
+  /**
+   * A lesson as the director runs it (LESSON_STEPS in src/app/lessons-director.ts), the bot doing the player's part
+   * with its shaking hand. Lessons start through `__sl.lessons.start`, not the session (`start: false` waits for one
+   * already coming, as lesson 2 after lesson 1).
+   * - l1: intro (pick the lantern up), move (lock 0), Example 1, turn (lock 1), Example 2, turn (lock 2), reward (lifted
+   *   out by hand); lesson 2 then starts.
+   * - l2: shadow puppets (an open hand in the beam), Example 3 (the ghost finger; the lesson settles the player's
+   *   lantern on the crown's spot), turn (the crown's gap filled by the finger at depth 0.6), the reward by hand, then
+   *   the drawer step: the real drawer pulled by hand.
+   */
+  async solveLesson(id: "l1" | "l2", o: { start?: boolean } = {}): Promise<LessonResult> {
+    const real0 = Date.now(), f0 = await this.frames(), drops0 = await this.dropouts();
+    if (o.start !== false) {
+      await this.page.evaluate(() => window.__ns!.clearEvents());
+      await this.page.evaluate((i) => window.__sl!.lessons.start(i), id);
+    }
+    await this.app.stepUntil(
+      (_ns, w, k) => {
+        const s = w.__sl.session.state();
+        return s?.key === k && s.stage === "playing" && s.revealed;
+      },
+      { arg: `shadow-locks/lesson/${id}`, maxMs: 15_000, label: `lesson ${id}'s box in play` },
+    );
+    const t0 = await this.app.now();
+    const locks = (await this.page.evaluate(() => window.__sl!.session.state()))!.locks;
+    const steps: { step: number; atMs: number }[] = [];
+    /**
+     * Step until the lesson is at `step` (no example replaying), then (`free`) until the player's lantern is no longer
+     * frozen in its cradle (it is through an example).
+     */
+    const at = async (step: number, maxMs: number, free = true) => {
+      await this.app.stepUntil(
+        (_ns, w, a) => {
+          const s = w.__sl.lessons.state();
+          return s.lesson === a.id && s.step === a.step && !s.replaying;
+        },
+        { arg: { id, step }, maxMs, label: `lesson ${id} at step ${step}` },
+      );
+      steps.push({ step, atMs: (await this.app.now()) - t0 });
+      if (free && !(await this.waitFor((w) => !w.__sl.lessons.state().frozen, null, 5_000))) {
+        throw new Error(`lesson ${id} step ${step}: the player's lantern stayed frozen`);
+      }
+    };
+    const opened: LockResult[] = [];
+    const r: LessonResult = { key: `shadow-locks/lesson/${id}`, solved: false, ms: 0, locks: opened, dropouts: 0, frames: 0, realMs: 0, lesson: id, steps, rewardTaken: false };
+    if (id === "l1") {
+      await at(0, 5_000);
+      // The intro moves on once the lantern is held; then it is let go where it is.
+      r.grabsAtIntro = await this.grab();
+      await at(1, 2_000);
+      await this.pinch(0);
+      await this.standAside();
+      for (const [lock, demo, turn] of [
+        [0, 2, -1],
+        [1, 4, 3],
+        [2, 6, 5],
+      ] as const) {
+        if (turn >= 0) await at(turn, 40_000);
+        opened.push(await this.openPlain(locks[lock]!));
+        await this.standAside();
+        // The next step: an example (the ghost shows the next lock; nothing for the bot to do), or the reward.
+        await at(demo, 3_000, false);
+      }
+      r.rewardTaken = await this.takeReward();
+    } else {
+      await at(0, 5_000);
+      // Shadow puppets: the open hand in the beam, on the crown's left (clear of its missing prong on the right).
+      r.beamMs = await this.handInBeam(id, 0, [-0.22, -0.12, 0.75], PUPPETS_WAIT_MS);
+      await this.standAside();
+      await at(1, 3_000, false);
+      await at(2, 40_000);
+      opened.push(await this.openFinger(locks[0]!, { depth: LESSON_FINGER_DEPTH }));
+      await this.standAside();
+      await at(3, 3_000, false);
+      r.rewardTaken = await this.takeReward();
+      // The drawer line comes once the reward is collected; the real drawer is pulled by hand.
+      await this.app.stepUntil((_ns, w) => w.__sl.session.state()?.stage === "offered", { maxMs: 13_000, label: "the reward collected" });
+      await this.app.stepUntil((_ns, w) => !!w.__sl.lessons.state().line, { maxMs: 3_000, label: "the drawer line" });
+      r.drawerPulled = await this.pullDrawer();
+      await this.waitFor((w) => w.__sl.lessons.state().done, null, 2_000);
+    }
+    const p = (await this.page.evaluate(() => window.__sl!.lessons.state())).progress;
+    r.solved = id === "l1" ? p.l1 : p.l2;
+    r.ms = (await this.app.now()) - t0;
+    r.dropouts = (await this.dropouts()) - drops0;
+    r.frames = (await this.frames()) - f0;
+    r.realMs = Date.now() - real0;
+    return r;
+  }
+
+  /** The open hand out of the way: well beyond the lantern's glow reach (30 cm), so a lesson sees no player. */
+  async standAside(): Promise<void> {
+    const [Lw] = await this.world([(await this.lantern()).pos]);
+    await this.go([{ to: add(Lw!, [0.3, 0.25, 0.3]), cmps: AWAY_CMPS }], "the hand standing aside");
+  }
+
+  /**
+   * The open hand into the beam at `at` (box units, inside the mouth) from in front of the box, held there (shaking)
+   * until lesson `id` leaves `step`; then back out. Returns how long it was in the beam (ms, from its first shadow), or
+   * NaN if it cast nothing or the step never moved on.
+   */
+  private async handInBeam(id: string, step: number, at: V3, maxMs: number): Promise<number> {
+    const [front, inBeam] = await this.world([[at[0], at[1], 1.3], at]);
+    await this.go([{ to: front!, cmps: REACH_CMPS }, { to: inBeam!, cmps: REACH_SLOW_CMPS }], "a hand into the beam");
+    const cast = await this.waitFor((w) => w.__sl.hands().outlines.length > 0, null, 1_000);
+    const t = await this.app.now();
+    const moved = await this.waitFor(
+      (w, a) => {
+        const s = w.__sl.lessons.state();
+        return s.lesson === a.id && s.step !== a.step;
+      },
+      { id, step },
+      maxMs,
+    );
+    const ms = (await this.app.now()) - t;
+    await this.go([{ to: front!, cmps: AWAY_CMPS }], "the hand out of the beam");
+    return cast && moved ? ms : Number.NaN;
+  }
+
+  /**
+   * The reward lifted out by hand once it is up: pinched where it floats, carried 12 cm toward the head and let go.
+   * True once the session has moved past the reward.
+   */
+  async takeReward(): Promise<boolean> {
+    await this.app.stepUntil((_ns, w) => !!w.__sl.session.reward()?.up, { maxMs: 6_000, label: "the reward up" });
+    for (let n = 0; n < GRAB_TRIES; n++) {
+      const rw = (await this.page.evaluate(() => window.__sl!.session.reward()))!;
+      await this.go([{ to: add(rw.world, [0, 0.06, 0.06]), cmps: REACH_CMPS }, { to: rw.world, cmps: REACH_SLOW_CMPS }], "reaching for the reward");
+      await this.pinch(1);
+      if (await this.waitFor((w) => !!w.__sl.session.reward()?.held, null, 600)) {
+        const head = (await this.app.state()).head!;
+        const d = sub(head, rw.world), k = 0.12 / Math.hypot(d[0], d[1], d[2]);
+        await this.go([{ to: add(rw.world, d, k), cmps: REWARD_CMPS }], "the reward toward the player");
+        await this.pinch(0);
+        const taken = await this.waitFor((w) => w.__sl.session.state()?.stage !== "reward", null, 3_000);
+        await this.standAside();
+        return taken;
+      }
+      await this.pinch(0, 100);
+      await this.hold(300);
+    }
+    return false;
+  }
+
+  /**
+   * The real menu drawer pulled by hand: the handle pinched, drawn 6 cm toward the player, let go. True when Home came
+   * up.
+   */
+  async pullDrawer(): Promise<boolean> {
+    const d = await this.page.evaluate(() => window.__ns!.ui.drawer());
+    const handle = d.handle as Vec3, toward = d.toward as Vec3;
+    await this.go([{ to: add(handle, toward, 0.08), cmps: REACH_CMPS }, { to: handle, cmps: REACH_SLOW_CMPS }], "reaching for the drawer");
+    await this.pinch(1);
+    await this.hold(100);
+    await this.go([{ to: add(handle, toward, DRAWER_PULL_M), cmps: REWARD_CMPS }], "pulling the drawer");
+    const home = await this.waitFor((w) => w.__ns.state().screen === "home", null, 1_500);
+    await this.pinch(0);
+    await this.go([{ to: add(handle, toward, 0.3), cmps: AWAY_CMPS }], "the hand leaving the drawer");
+    return home;
   }
 
   /** Tracking dropouts so far. */
@@ -1109,6 +1299,7 @@ export const pageErrors = (app: XrApp): string[] => app.consoleLines.filter((l) 
 /**
  * Play box `spec` and solve it as a careful player with a shaking hand (the plan's interface; a `bot` from
  * Bot.attach can be passed to keep one hand across boxes). `ms` is virtual time from the box in play to its last lock.
+ * A lesson spec plays that lesson (Bot.solveLesson; the result is then a LessonResult).
  */
 export async function botSolve(page: Page | XrApp, spec: BoxSpec, o: BotOptions & { bot?: Bot } = {}): Promise<BotResult> {
   const bot = o.bot ?? (await Bot.attach(page, o));
