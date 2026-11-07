@@ -6,9 +6,9 @@
 // The frame has no rail across the top of the open front: from a seated eye the box's lid is seen
 // from above, and a rail there would cut across the panel. Draw calls: frame, trim, floor, glass,
 // panel, shadows, scraps, threads, rings, and four for the lantern; thirteen for any box, plus one
-// for each crystallised piece (three more while one forms). The panel shader and the shadows live in
-// panel.ts and shadow-mesh.ts. The hands' shadows and the crystallised pieces' join the box's own in
-// the one shadow mesh, after them.
+// for each crystallised piece (three more while one forms). The panel shader lives in panel.ts; what
+// the box casts, and when, in box-shadows.ts, drawn by shadow-mesh.ts. The hands' shadows and the
+// crystallised pieces' join the box's own in the one shadow mesh, after them.
 import {
   BackSide,
   BoxGeometry,
