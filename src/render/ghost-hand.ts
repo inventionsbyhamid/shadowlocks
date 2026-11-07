@@ -492,7 +492,7 @@ export class GhostLantern {
   sync(m: Readonly<Matrix4>): void {
     const e = m.elements, s = Math.hypot(e[0]!, e[1]!, e[2]!), P = this.pos;
     for (let i = 0; i < LANTERN_PARTS.length; i++) {
-      const [a, b, r] = LANTERN_PARTS[i]!;
+      const part = LANTERN_PARTS[i]!, a = part[0], b = part[1], r = part[2];
       const ax = P[0] + a[0], ay = P[1] + a[1], az = P[2] + a[2], bx = P[0] + b[0], by = P[1] + b[1], bz = P[2] + b[2];
       this.caps.set(
         this.from + i,
