@@ -3,7 +3,7 @@
 // Buy in the installed app, where billing can sell; in a browser, "Get it on the Meta Horizon Store".
 // A purchase says how it went on the panel. Pure view model and painting.
 import type { Ent } from "../../core/entitlement";
-import { COPY, fill } from "../copy";
+import { copy, count } from "../../i18n";
 import type { MenuSpec, PanelUi } from "./types";
 
 export const TRIAL: MenuSpec = {
@@ -26,11 +26,11 @@ export interface TrialView {
 }
 
 export function trialView(ent: Ent | null, canBuy: boolean, state: BuyState): TrialView {
-  const t = COPY.menus.trial;
+  const t = copy().menus.trial;
   // Still being worked out: nothing to offer yet (the screen repaints once it is known).
   const known = ent !== null;
   const owned = ent?.kind === "owned" || ent?.kind === "unlocked" || state === "bought";
-  const days = ent?.kind === "trial" ? (ent.daysLeft === 1 ? t.dayLeft : fill(t.daysLeft, { n: ent.daysLeft })) : ent?.kind === "trialOver" ? t.over : "";
+  const days = ent?.kind === "trial" ? count(ent.daysLeft, t.daysLeft) : ent?.kind === "trialOver" ? t.over : "";
   return {
     days,
     over: ent?.kind === "trialOver" && !owned,

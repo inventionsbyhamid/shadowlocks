@@ -58,7 +58,7 @@
     <div class="crest-mid"></div>
   </div>
   <div class="head-tall">
-    <div class="title">Lessons</div>
+    <div id="lessons-title" class="title">Lessons</div>
     <div id="lessons-back-slot" class="slot-fixed slot-back">
       <div id="lessons-back-glow" class="glow"></div>
       <div id="lessons-back" class="key key-graphite">
@@ -69,7 +69,7 @@
       </div>
     </div>
   </div>
-  <div class="section">Examples: poke one to watch it again</div>
+  <div id="lessons-examples-head" class="section">Examples: poke one to watch it again</div>
   <div class="row">
     <div id="lesson-move-slot" class="slot slot-md">
       <div id="lesson-move-glow" class="glow"></div>
@@ -109,7 +109,7 @@
       </div>
     </div>
   </div>
-  <div class="section">Tips</div>
+  <div id="lessons-tips-head" class="section">Tips</div>
   <div id="lessons-tips" class="row">
     <div id="tip-0-slot" class="slot slot-md">
       <div id="tip-0-glow" class="glow"></div>
@@ -146,6 +146,6 @@
     </div>
   </div>
   <div id="lessons-none" class="row">
-    <div class="line-dim">Tips you meet in the boxes show up here.</div>
+    <div id="lessons-none-line" class="line-dim">Tips you meet in the boxes show up here.</div>
   </div>
 </div>

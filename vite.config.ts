@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { iwsdkDev } from "@iwsdk/vite-plugin-dev";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
@@ -18,6 +19,8 @@ export default defineConfig({
   // through @iwsdk/core, which is not pre-bundled, must be the same class uikit checks against).
   resolve: {
     dedupe: ["three", "@pmndrs/uikit", "@pmndrs/uikit-horizon", "@pmndrs/uikit-lucide", "@preact/signals-core"],
+    // UIKit's default Inter (no accents) becomes ours (all of Latin-1; src/ui/inter-fonts.ts).
+    alias: { "@pmndrs/msdfonts/inter": fileURLToPath(new URL("./src/ui/inter-fonts.ts", import.meta.url)) },
   },
   optimizeDeps: {
     exclude: ["@babylonjs/havok"],

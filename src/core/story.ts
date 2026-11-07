@@ -1,53 +1,8 @@
-// Each box's dossier line: "Off the desk of <owner>. Inside: <loot>." Picked by the box's seed.
+// Each box's dossier line: "Off the desk of <owner>. Inside: <loot>." Picked by the box's seed. The words
+// live with the rest of the copy (COPY.story, in this order: the generator picks by place), where each
+// language's table has them too.
+import { COPY } from "../ui/copy";
 
-export const OWNERS: string[] = [
-  "the Clockmaker",
-  "the Archivist",
-  "Madame Rook",
-  "the Harbour Master",
-  "Professor Vane",
-  "the Twins",
-  "Old Saffron",
-  "the Cartographer",
-  "the Night Clerk",
-  "Baron Ashgrove",
-  "the Lamplighter",
-  "Mother Quill",
-  "the Bookbinder",
-  "Captain Ilse Marr",
-  "the Locksmith",
-  "Doctor Halloran",
-  "the Ferryman",
-  "Lady Penhallow",
-  "the Glassblower",
-  "the Stationmaster",
-  "Aunt Marguerite",
-  "the Puppeteer",
-  "Inspector Moreau",
-  "the Organ Tuner",
-];
+export const OWNERS: string[] = [...COPY.story.owners];
 
-export const LOOT: string[] = [
-  "the harbour ledger",
-  "a ruby the size of a thumbnail",
-  "the second key",
-  "a roll of bearer bonds",
-  "the vault schedule",
-  "a photograph of the guard rota",
-  "a brass cipher disc",
-  "the Ashgrove seal",
-  "a night train ticket to Lisbon",
-  "the deposit box number",
-  "a wax cylinder recording",
-  "the blueprints for the east wing",
-  "a pocket watch that runs backwards",
-  "the lighthouse keeper's log",
-  "a sealed letter to the mayor",
-  "the combination to the west safe",
-  "a silver thimble",
-  "the missing chess queen",
-  "a map of the old canals",
-  "an opera ticket for Friday",
-  "a jar of foreign coins",
-  "the stationmaster's whistle",
-];
+export const LOOT: string[] = [...COPY.story.loot];

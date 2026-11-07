@@ -212,7 +212,8 @@ describe("collection", () => {
   });
 
   it("names a daily reward by its day", () => {
-    expect(titleOf("shadow-locks/daily/2026-11-02")).toBe("Daily Box 2026-11-02");
+    // The day as the language writes it (Intl): "Nov 2" in English.
+    expect(titleOf("shadow-locks/daily/2026-11-02")).toBe("Daily Box Nov 2");
     expect(titleOf("shadow-locks/12")).toBe("Box No. 12");
   });
 

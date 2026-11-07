@@ -57,6 +57,7 @@
   .card-loot { color: #CDB27A; }
   #coll-empty { display: none; height: 60; justify-content: center; align-items: center; }
   .coll-page { flex-grow: 1; justify-content: center; align-items: center; }
+  .slot-pager { width: 100; height: 44; }
 </style>
 <div id="collection-root" class="root">
   <div class="crest">
@@ -65,7 +66,7 @@
   </div>
   <div class="head-tall">
     <div class="meta-row">
-      <div class="title">Collection</div>
+      <div id="coll-title" class="title">Collection</div>
       <div id="coll-count" class="meta">No rewards yet</div>
     </div>
     <div id="collection-back-slot" class="slot-fixed slot-back">
@@ -94,10 +95,10 @@
     </div>
   </div>
   <div id="coll-empty" class="row">
-    <div class="line-dim">Open a box to find its first reward.</div>
+    <div id="coll-empty-line" class="line-dim">Open a box to find its first reward.</div>
   </div>
   <div id="coll-pager" class="row">
-    <div id="coll-newer-slot" class="slot-fixed slot-back">
+    <div id="coll-newer-slot" class="slot-fixed slot-pager">
       <div id="coll-newer-glow" class="glow"></div>
       <div id="coll-newer" class="key key-graphite">
         <div id="coll-newer-cap" class="cap cap-graphite cap-center">
@@ -107,7 +108,7 @@
       </div>
     </div>
     <div class="coll-page"><div id="coll-page" class="line-dim">1 to 3 of 3</div></div>
-    <div id="coll-older-slot" class="slot-fixed slot-back">
+    <div id="coll-older-slot" class="slot-fixed slot-pager">
       <div id="coll-older-glow" class="glow"></div>
       <div id="coll-older" class="key key-graphite">
         <div id="coll-older-cap" class="cap cap-graphite cap-center">

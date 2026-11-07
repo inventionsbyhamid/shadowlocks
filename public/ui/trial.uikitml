@@ -60,7 +60,7 @@
     <div class="crest-mid"></div>
   </div>
   <div class="head-tall">
-    <div class="title">Unlock the full game</div>
+    <div id="trial-title" class="title">Unlock the full game</div>
     <div id="trial-back-slot" class="slot-fixed slot-back">
       <div id="trial-back-glow" class="glow"></div>
       <div id="trial-back" class="key key-graphite">

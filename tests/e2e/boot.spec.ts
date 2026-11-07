@@ -42,6 +42,8 @@ test("boots into XR with the box in the lap and the home panel", async ({ page, 
   expect(app.requested("/input-profiles/meta-quest-touch-plus/right.glb")).toBe(true);
   // No console errors at all, from the page or the app.
   expect(app.consoleLines.filter((l) => l.startsWith("error:") || l.startsWith("PAGEERROR"))).toEqual([]);
+  // Every character on the panels is in their font atlases (UIKit draws a box for one that is not).
+  expect(app.consoleLines.filter((l) => /Missing glyph/i.test(l))).toEqual([]);
   expect(await page.title()).toBe("Shadow Locks");
   testInfo.annotations.push({
     type: "timing",

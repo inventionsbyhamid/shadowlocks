@@ -39,11 +39,14 @@ describe("copy", () => {
   it("menus: key lines are short labels, messages are sentences", () => {
     const m = COPY.menus;
     // Second lines on keys fit a key: short, no full stop.
-    for (const [k, s] of Object.entries(m.home)) {
-      if (k === "reset") expect(s).toMatch(/^[A-Z].*\.$/);
-      else {
-        expect(s, k).not.toMatch(/\.$/);
-        expect(s.length, k).toBeLessThanOrEqual(18);
+    for (const [k, v] of Object.entries(m.home)) {
+      // A count is its plural forms: each a key line.
+      for (const s of typeof v === "string" ? [v] : [v.one, v.other]) {
+        if (k === "reset") expect(s).toMatch(/^[A-Z].*\.$/);
+        else {
+          expect(s, k).not.toMatch(/\.$/);
+          expect(s.length, k).toBeLessThanOrEqual(18);
+        }
       }
     }
     for (const s of Object.values(m.lessons)) {
@@ -52,7 +55,7 @@ describe("copy", () => {
     }
     expect(m.collection.page).toBe("{from} to {to} of {n}");
     for (const k of ["over", "bought", "failed"] as const) expect(m.trial[k]).toMatch(/^[A-Z].*\.$/);
-    expect(m.trial.daysLeft).toBe("Your trial: {n} days left");
+    expect(m.trial.daysLeft).toEqual({ one: "Your trial: {n} day left", other: "Your trial: {n} days left" });
     expect(m.trial.unlock).toBe("Unlock the full game");
   });
 
