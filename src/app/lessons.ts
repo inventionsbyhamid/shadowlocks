@@ -217,9 +217,9 @@ export class Lessons implements MenuLessons {
     const held = this.hold.update(asked ? COPY.game[asked] : null, dt);
     const shown = this.menuUp ? null : on;
     this.onScreen.lesson = shown;
-    // A lesson's own line first; when it has none (and no example is showing), the session's suggestion, so the
-    // controller line is never lost under a lesson.
-    const line = this.menuUp ? null : shown ? (dir.frame.line ?? (dir.showing ? null : held)) : (held ?? this.tipLine(session));
+    // Outside an example, the session's suggestion wins over a lesson's own line: it only exists while a controller
+    // player faces a short finger lock (lesson 2's turn), who needs it; hand players lose nothing.
+    const line = this.menuUp ? null : shown ? (dir.showing ? dir.frame.line : (held ?? dir.frame.line)) : (held ?? this.tipLine(session));
     this.view.update(dir.frame, this.onScreen, line, dt, tMs);
   }
 

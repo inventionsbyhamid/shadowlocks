@@ -171,16 +171,43 @@ describe("Lessons", () => {
     expect(b.shown().lesson).toBe("l1");
   });
 
-  it("shows the session's controller line under a lesson whenever the lesson has no line of its own", () => {
+  it("shows the session's controller line under a lesson, with a line of its own or not, but never over an example", () => {
     const b = bench();
     b.lessons.start("l1");
     b.play.view.coachLine = "controllerFinger";
-    // The box still forming: no lesson line yet.
+    // The box still forming (no lesson line yet), then formed ("Pick up the lantern."): the session's line either way.
     b.run(100);
     expect(b.lessons.director.frame.line).toBeNull();
     expect(b.shown().line).toBe(COPY.game.controllerFinger);
     b.run(FORM_MS);
+    expect(b.lessons.director.frame.line).toBe(COPY.lessons.pickUp);
+    expect(b.shown().line).toBe(COPY.game.controllerFinger);
+    // Gone (after its 1.2 s hold): the lesson's own line.
+    b.play.view.coachLine = null;
+    b.run(1500);
     expect(b.shown().line).toBe(COPY.lessons.pickUp);
+    // An example's lines always win.
+    b.lessons.start("l1", { step: 2 });
+    b.play.view.coachLine = "controllerFinger";
+    b.run(500);
+    expect(b.lessons.director.showing).toBe(true);
+    expect(b.shown().line).toBe(b.lessons.director.frame.line);
+  });
+
+  it("lets the controller line win over a lesson's own line in lesson 2's turn, where a controller player needs it", () => {
+    const b = bench();
+    b.lessons.start("l2", { step: 2 });
+    b.run(FORM_MS + 200);
+    expect(b.lessons.director.step).toBe(2);
+    expect(b.lessons.director.frame.line).not.toBeNull();
+    b.play.view.coachLine = "controllerFinger";
+    b.run(32);
+    expect(b.shown().line).toBe(COPY.game.controllerFinger);
+    // Hands again: once the session's line has gone (held 1.2 s), the lesson's own line is back.
+    b.play.view.coachLine = null;
+    b.run(2000);
+    expect(b.shown().line).not.toBeNull();
+    expect(b.shown().line).toBe(b.lessons.director.frame.line);
   });
 
   it("shows a tip on a practice box without counting it seen, and keeps it when \"Show me\" puts the box back", () => {
