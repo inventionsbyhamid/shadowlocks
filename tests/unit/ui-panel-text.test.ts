@@ -1,9 +1,11 @@
 // Japanese on the menu panels: UIKit breaks a line only at a plain space, so in Japanese the panels put one (which
 // the Japanese atlas draws with no width) wherever a line may break by the kinsoku rules.
 import { readFileSync } from "node:fs";
+import type { UIKitMLAsset } from "@iwsdk/core";
 import { describe, expect, it } from "vitest";
 import { tableFor } from "../../src/i18n";
-import { japaneseBreaks } from "../../src/ui/panel-ui";
+import type { MenuSpec } from "../../src/ui/menus/types";
+import { japaneseBreaks, PanelView } from "../../src/ui/panel-ui";
 
 describe("Japanese panel text", () => {
   it("can break between characters, never before a closing mark or small kana, never inside a Latin word", () => {
@@ -18,6 +20,25 @@ describe("Japanese panel text", () => {
       expect(t).not.toMatch(/ [。、」ーュっ]/);
       expect(t).not.toMatch(/「 /);
     }
+  });
+
+  it("writes a text again in its Japanese form when the panel turns Japanese, even when the words are the same", () => {
+    // "24 cm" reads the same in Spanish and Japanese, but only the Japanese form keeps the number with its unit.
+    const written: string[] = [];
+    const el = { setProperties: (p: Record<string, unknown>) => typeof p.text === "string" && written.push(p.text) };
+    const root = { setProperties() {}, traverse: (f: (o: unknown) => void) => f(root) };
+    const asset = { document: { rootElement: root }, getElementById: () => el, assetId: "test" } as unknown as UIKitMLAsset;
+    const view = new PanelView(asset, {} as MenuSpec);
+    view.setLanguage("es");
+    view.text("box-value", "24 cm");
+    view.setLanguage("ja");
+    view.text("box-value", "24 cm");
+    view.setLanguage("en");
+    view.text("box-value", "24 cm");
+    // Between two languages written alike, nothing is written again.
+    view.setLanguage("fr");
+    view.text("box-value", "24 cm");
+    expect(written).toEqual(["24 cm", "24 cm", "24 cm"]);
   });
 
   it("the Japanese atlas draws a plain space with no width and a no-break space with the space's width", () => {

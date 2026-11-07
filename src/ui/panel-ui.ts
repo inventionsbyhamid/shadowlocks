@@ -62,7 +62,10 @@ export class PanelView implements PanelUi {
 
   /** Draw in language `l`: its fonts for every family (Japanese draws all of them with the Japanese font). */
   setLanguage(l: Lang): void {
-    this.japanese = l === "ja";
+    const japanese = l === "ja";
+    // Words that read the same either way ("24 cm") are written differently in Japanese: write every text again.
+    if (japanese !== this.japanese) for (const k of this.given.keys()) if (k.startsWith("t:")) this.given.delete(k);
+    this.japanese = japanese;
     this.root.setProperties({ fontFamilies: fontFamiliesFor(l) });
   }
 
