@@ -5,7 +5,8 @@
 // by hand), lesson 2 (shadow puppets, the ghost finger's example, the player's crown filled by a finger, the real
 // drawer pulled by hand), the drawer over a lesson (it waits; Continue goes back; a progress reset lets it go), "Show
 // me" replaying an example without touching progress (the drawer shut meanwhile), a reload resuming the lesson step,
-// and lesson 1 for a left-handed player.
+// lesson 1 for a left-handed player, the `?lesson=` address, a lesson 2 left half done going on from Home after a
+// reload, a hidden headset holding the lesson's clock, and what the idle ghost and the examples cost in draw calls.
 import type { Page } from "@playwright/test";
 import type { SlLessonsState, SlSessionState } from "../../src/app/test-api";
 import { COPY } from "../../src/ui/copy";
@@ -75,8 +76,12 @@ async function openAtSpot(app: XrApp, page: Page, lock: number): Promise<void> {
  * Watch a staged example run to its end: what the frame showed (lines, the cradle, the ghost light, the scraps'
  * layout, clicks), and that the session opened nothing meanwhile (the ghost solves a twin, never the player's lock).
  */
-async function watchExample(app: XrApp, page: Page, lock: number): Promise<{ lines: string[]; park: number; ghostLight: boolean; minLayout: number; clicks: number; frozen: boolean; ghost: number }> {
-  const seen = { lines: [] as string[], park: 0, ghostLight: false, minLayout: 1, clicks: 0, frozen: false, ghost: 0 };
+async function watchExample(
+  app: XrApp,
+  page: Page,
+  lock: number,
+): Promise<{ lines: string[]; park: number; ghostLight: boolean; minLayout: number; clicks: number; frozen: boolean; ghost: number; calls: number }> {
+  const seen = { lines: [] as string[], park: 0, ghostLight: false, minLayout: 1, clicks: 0, frozen: false, ghost: 0, calls: 0 };
   const start = await lessons(page);
   const openBefore = (await session(page)).open;
   for (let i = 0; i < 400; i++) {
@@ -89,10 +94,20 @@ async function watchExample(app: XrApp, page: Page, lock: number): Promise<{ lin
     seen.frozen ||= s.frozen;
     seen.ghost = Math.max(seen.ghost, s.hand.opacity);
     seen.clicks = s.clicks - start.clicks;
+    seen.calls = Math.max(seen.calls, await callsPerView(app));
     expect((await session(page)).open).toEqual(openBefore);
     if (start.replaying ? s.replaying === null : s.step !== start.step) return seen;
   }
   throw new Error("the example never ended");
+}
+
+/** The last frame's draw calls for one eye (the renderer draws the scene once per view without multiview). */
+async function callsPerView(app: XrApp): Promise<number> {
+  const views = await app.page.evaluate(() => {
+    const xr = (window.__ns!.world as { renderer: { xr: { isPresenting: boolean; getCamera(): { cameras: unknown[] } } } }).renderer.xr;
+    return xr.isPresenting ? xr.getCamera().cameras.length : 1;
+  });
+  return (await app.perf()).calls / Math.max(1, views);
 }
 
 /** The reward lifted out of the drawer by hand: pinched where it floats and dropped 12 cm toward the head. */
@@ -134,6 +149,12 @@ async function playLesson1(app: XrApp, page: Page, side: "left" | "right") {
   expect(s.hand.opacity).toBe(0);
   await app.stepUntil((_ns, w) => w.__sl.lessons.state().hand.opacity > 0.5, { maxMs: 4_000, label: "the ghost after 4 s idle" });
   expect((await lessons(page)).hand.side).toBe(side);
+  // What the idle ghost costs: interactive play's draw-call budget holds.
+  let idleCalls = 0;
+  for (let i = 0; i < 12; i++) {
+    await app.step(3);
+    idleCalls = Math.max(idleCalls, await callsPerView(app));
+  }
   // A hand picks the lantern up: lock I.
   await pickUpLantern(app, page, side);
   await untilStep(app, "l1", 1, 2_000);
@@ -152,13 +173,20 @@ async function playLesson1(app: XrApp, page: Page, side: "left" | "right") {
   // The box opens; the first reward is lifted out by hand.
   await untilStep(app, "l1", 6, 2_000);
   await takeReward(app, page, side === "left" ? "right" : "left");
-  return { ex1, ex2 };
+  return { ex1, ex2, idleCalls };
 }
 
-test("lesson 1 completes with scripted hands", async ({ page, boot }) => {
+test("lesson 1 completes with scripted hands", async ({ page, boot }, testInfo) => {
   // A first launch goes straight into lesson 1.
   const app = await boot({ lessons: true, expectScreen: "play" });
-  const { ex1, ex2 } = await playLesson1(app, page, "right");
+  const { ex1, ex2, idleCalls } = await playLesson1(app, page, "right");
+  // Draw calls per eye: the first minute's idle ghost is interactive play (at most 50); an example, with the player's
+  // lantern parked, is a staged peak like the box opening (at most 100).
+  const calls = `draw calls per eye: idle ghost ${idleCalls}, Example 1 at most ${ex1.calls}, Example 2 at most ${ex2.calls}`;
+  testInfo.annotations.push({ type: "draw-calls", description: calls });
+  console.log(calls);
+  expect(idleCalls, calls).toBeLessThanOrEqual(50);
+  expect(Math.max(ex1.calls, ex2.calls), calls).toBeLessThanOrEqual(100);
   for (const [ex, lines] of [
     [ex1, [C.watch, C.nearSwing, C.yourTurn]],
     [ex2, [C.watch, C.lineUp, C.slide, C.yourTurn]],
@@ -373,4 +401,58 @@ test("the lantern parks on the weak side", async ({ page, boot }) => {
   expect(parked[0]).toBeLessThan(-0.5);
   // Practice: nothing about progress changes.
   expect((await lessons(page)).progress).toEqual({ l1: false, l2: false, step: null });
+});
+
+test("the ?lesson= address plays a lesson as practice, from its start, saving nothing", async ({ page, boot }) => {
+  const app = await boot({ url: "/?lesson=l2", expectScreen: "play" });
+  await untilBox(app, "shadow-locks/lesson/l2");
+  const s = await lessons(page);
+  expect([s.lesson, s.step, s.practice]).toEqual(["l2", 0, true]);
+  await app.stepUntil((_ns, w, t) => w.__sl.lessons.state().line === t, { arg: C.puppets, maxMs: 4_000, label: "the puppets line" });
+  // On past the puppets (their timeout, with the ghost showing how): still nothing saved.
+  await untilStep(app, "l2", 1, 14_000);
+  expect((await lessons(page)).progress).toEqual({ l1: false, l2: false, step: null });
+  expect((await session(page)).practice).toBe(true);
+});
+
+test("a lesson 2 left half done opens on Home, and Continue goes on with it at its step", async ({ page, boot }) => {
+  let app = await boot();
+  // Lesson 1 done; lesson 2 played to its third step (the player's crown), as a player who stopped there left it.
+  await page.evaluate(() => window.__ns!.ui.profile({ lessons: { l1: true, l2: false, step: null } }));
+  await page.evaluate(() => window.__sl!.lessons.start("l2", 2));
+  await untilBox(app, "shadow-locks/lesson/l2");
+  expect((await lessons(page)).progress).toEqual({ l1: true, l2: false, step: { id: "l2", index: 2 } });
+  await app.step(30);
+  // The page loads again: a later launch opens on Home (only a first launch goes straight in; lesson 1 is done here, so
+  // the e2e boot's first-launch switch plays no part).
+  app = await boot();
+  expect((await app.state()).screen).toBe("home");
+  expect(await page.evaluate(() => window.__ns!.ui.behind())).toEqual({ kind: "lesson" });
+  await app.stepUntil((n, _w, t) => n.ui.text("home-continue-sub") === t, { arg: COPY.menus.home.backToLesson, maxMs: 2_000, label: "Your lesson" });
+  await app.poke("home-continue");
+  await untilBox(app, "shadow-locks/lesson/l2");
+  const s = await lessons(page);
+  expect([s.lesson, s.step, s.practice, s.running]).toEqual(["l2", 2, false, true]);
+  expect((await app.state()).screen).toBe("play");
+});
+
+test("a hidden headset holds the lesson's clock", async ({ page, boot }) => {
+  const app = await boot({ lessons: true, expectScreen: "play" });
+  await untilBox(app, "shadow-locks/lesson/l1");
+  await app.stepUntil((_ns, w, t) => w.__sl.lessons.state().line === t, { arg: C.pickUp, maxMs: 4_000, label: "pick up the lantern" });
+  expect((await lessons(page)).hand.opacity).toBe(0);
+  const shown = async (visible: boolean) => {
+    await page.evaluate((v) => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (v ? "visible" : "hidden") });
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => !v });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, visible);
+  };
+  // Six seconds hidden count nothing: the idle ghost (after 4 s without input) never comes.
+  await shown(false);
+  await app.step(72 * 6);
+  expect((await lessons(page)).hand.opacity).toBe(0);
+  // Seen again, the clock runs on and the ghost comes.
+  await shown(true);
+  await app.stepUntil((_ns, w) => w.__sl.lessons.state().hand.opacity > 0.5, { maxMs: 6_000, label: "the idle ghost once seen again" });
 });

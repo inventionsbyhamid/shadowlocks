@@ -319,15 +319,26 @@ test("lessons rows replay", async ({ page, boot }) => {
   after!.lantern.forEach((v, k) => expect(v).toBeCloseTo(before.s!.lantern[k]!, 6));
   expect(after!.elapsedMs - before.s!.elapsedMs).toBeGreaterThanOrEqual(0);
   expect(after!.elapsedMs - before.s!.elapsedMs).toBeLessThan(2_000);
-  // A tip replays the example that teaches its mechanic.
-  await pullDrawer(app);
-  await toLessons();
-  await replay("tip-0", "move");
+  // Every other row too: each example on its own lesson's box, and a tip through the example that teaches it.
+  for (const [id, ex] of [
+    ["lesson-near-far", "near-far"],
+    ["lesson-rings", "rings"],
+    ["lesson-finger", "finger"],
+    ["tip-0", "move"],
+  ] as const) {
+    await pullDrawer(app);
+    await toLessons();
+    await replay(id, ex);
+  }
   expect(await page.evaluate(() => window.__ns!.ui.replays())).toEqual([
     { kind: "example", id: "move", ran: true },
+    { kind: "example", id: "near-far", ran: true },
+    { kind: "example", id: "rings", ran: true },
+    { kind: "example", id: "finger", ran: true },
     { kind: "tip", id: "ringless", ran: true },
   ]);
-  expect((await page.evaluate(() => window.__sl!.session.state()))!.key).toBe("shadow-locks/5");
+  const last = (await page.evaluate(() => window.__sl!.session.snapshot()))!;
+  expect([last.key, last.open]).toEqual([before.s!.key, before.s!.open]);
 });
 
 test("box size change keeps the solve state", async ({ page, boot }) => {
