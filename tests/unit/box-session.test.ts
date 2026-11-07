@@ -420,6 +420,49 @@ describe("box session", () => {
     }
   });
 
+  it("a move at 8 to 15 cm/s from a deliberate hold just outside a lock's rule, along its ray, never opens it", async () => {
+    // The window the dwell must cover (constants.ts, OPEN_DWELL_MS): a hand held still is at rest, and starting to move
+    // it stays at rest until the speed gate catches up. Held a hair outside where the rule begins on the lock's ray
+    // (where the rule holds for centimetres), the move meets the rule at once, while still at rest. A feel without
+    // spots, so no settle: the gate alone.
+    const seen: string[] = [];
+    for (const n of [1, 2, 4]) {
+      for (const cmps of [8, 10, 12, 15]) {
+        const h = harness();
+        await h.session.start(BOX(n));
+        const box = h.session.box!, lock = box.locks.find((l) => !l.finger)!, rule = ruleAt(box, lock);
+        // The rule's outer edge on the ray, to 0.01 mm: it holds at `inside` cm out, not at `outside`.
+        let inside = 0, outside = 12;
+        expect(rule(onRay(lock, inside))).toBe(true);
+        expect(rule(onRay(lock, outside))).toBe(false);
+        while (outside - inside > 0.001) {
+          const mid = (inside + outside) / 2;
+          if (rule(onRay(lock, mid))) inside = mid;
+          else outside = mid;
+        }
+        const lan = heldLantern(h, { spots: false });
+        lan.moveTo(onRay(lock, outside + 3), 10);
+        lan.moveTo(onRay(lock, outside), 2);
+        lan.hold(600);
+        expect(h.holder.rest, `box ${n}, held still`).toBe(true);
+        expect(rule(h.pos), `box ${n}, held just outside the rule`).toBe(false);
+        // In along the ray, through the spot, to as far past it as the box front allows (up to 4 cm).
+        let inCm = 4;
+        while (onRay(lock, -inCm)[2] < LANTERN_MIN_Z + 0.005) inCm -= 0.1;
+        let run = 0, longest = 0;
+        lan.watch = () => {
+          run = h.holder.rest && rule(h.pos) ? run + DT : 0;
+          longest = Math.max(longest, run);
+        };
+        lan.moveTo(onRay(lock, -inCm), cmps);
+        seen.push(`box ${n} ${cmps} cm/s: at rest and meeting for ${longest.toFixed(0)} ms (edge ${outside.toFixed(3)} cm out)`);
+        expect(h.session.isOpen(lock.i), seen[seen.length - 1]).toBe(false);
+        // 139 ms at 8 cm/s, 111 at 10, 97 at 12, 83 at 15 (constants.ts quotes these).
+        expect(longest, seen[seen.length - 1]).toBeLessThan(OPEN_DWELL_MS);
+      }
+    }
+  });
+
   it("a settled lantern opens its lock about 150 ms after the rule holds", async () => {
     const h = harness();
     await h.session.start(BOX(1));

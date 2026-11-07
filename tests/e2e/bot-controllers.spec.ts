@@ -15,7 +15,10 @@ test("bot solves boxes 1 to 20 under jitter with controllers", async ({ boot }, 
   // Every lock the controller could try opened on the first approach, and every box whose locks it could all try was
   // solved.
   for (const r of out) {
-    for (const l of r.locks.filter((x) => !x.blocked)) expect(l.open && l.attempts === 1, `${r.key}: ${lockLine(l)}`).toBe(true);
+    for (const l of r.locks.filter((x) => !x.blocked)) {
+      expect(l.open && l.attempts === 1, `${r.key}: ${lockLine(l)}`).toBe(true);
+      for (const h of l.holds ?? []) expect(h.fresh, `${r.key}: ${lockLine(l)}`).toBe(true);
+    }
     if (!r.locks.some((l) => l.blocked)) expect(r.solved, boxLine("controllers", r)).toBe(true);
   }
   expect(pageErrors(app)).toEqual([]);

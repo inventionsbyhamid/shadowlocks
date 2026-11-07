@@ -19,7 +19,18 @@ test("fast sweeps open nothing", async ({ page, boot }, testInfo) => {
   test.setTimeout(60 * 60_000);
   const app = await boot();
   const bot = await Bot.attach(app, { input: "hands", jitter: { seed: 3 } });
-  const rows: { key: string; ms: number; sweeps: number; opened: number; settles: number; lines: number; closestCm: number[]; frames: number; realMs: number }[] = [];
+  const rows: {
+    key: string;
+    ms: number;
+    sweeps: number;
+    opened: number;
+    openNow: number[];
+    settles: number;
+    lines: number;
+    closestCm: number[];
+    frames: number;
+    realMs: number;
+  }[] = [];
   for (let n = 1; n <= BOXES; n++) {
     const s = await bot.start({ kind: "box", n });
     await bot.grab();
@@ -35,7 +46,10 @@ test("fast sweeps open nothing", async ({ page, boot }, testInfo) => {
       key: s.key!,
       ms: (await app.now()) - t0,
       sweeps: plan.sweeps.length,
+      // The bus keeps only its last 2000 events, so a lock-open early in a busy box could fall out of it: the session's
+      // own state says which locks are open.
       opened: (await app.events("lock-open")).length,
+      openNow: (await page.evaluate(() => window.__sl!.session.state()))!.open,
       settles: feel.filter((e) => e.type === "settle").length,
       lines: feel.filter((e) => e.type === "line" && e.on).length,
       closestCm: await bot.watched(),
@@ -44,9 +58,11 @@ test("fast sweeps open nothing", async ({ page, boot }, testInfo) => {
     };
     rows.push(row);
     expect((await bot.lantern()).held, `${row.key}: still held`).toBe(true);
+    expect(row.openNow, `${row.key}: locks open after sweeping`).toEqual([]);
     report(
       testInfo,
-      `sweeps ${row.key}: ${row.sweeps} sweeps in ${s1(row.ms)} s (${s1(row.realMs)} s real); ${row.opened} locks opened, ` +
+      `sweeps ${row.key}: ${row.sweeps} sweeps in ${s1(row.ms)} s (${s1(row.realMs)} s real); ${row.opened} locks opened ` +
+        `(${row.openNow.length} open in the session), ` +
         `${row.settles} settles, ${row.lines} line locks; closest to each spot ${row.closestCm.map((c) => `${c.toFixed(2)} cm`).join(", ")}`,
     );
     saveResults("sweeps", rows);
