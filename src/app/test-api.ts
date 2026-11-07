@@ -4,6 +4,8 @@ import type { BoxSpec, V2, V3, Vec3 } from "../core/types";
 import type { BoxTextFit } from "../ui/box-text";
 import type { PanelTextProblem } from "../ui/panel-fits";
 import type { FeedbackEvent } from "./bus";
+import type { Census, CensusOptions, ProbeResult } from "./gpu-census";
+import type { HeadsetClass } from "./headset";
 import type { Screen } from "./screens";
 
 /** A pokeable button on the current screen: centre and facing direction in world space, size in metres. */
@@ -168,6 +170,11 @@ export interface NsScene {
   draws(): { calls: number; triangles: number; parts: string[] };
   /** Show or hide the whole box. */
   setVisible(v: boolean): void;
+  /**
+   * The hidden-overdraw trims on (as the game ships) or off (as before them): the back slab's covered front face left
+   * out of the frame, and the velvet floor and the menu slabs drawn ahead of the box's lacquer. Tests compare the two.
+   */
+  trims(on: boolean): void;
 }
 
 /** `window.__ns`, present only in builds made with VITE_TEST_HOOKS=1. */
@@ -190,6 +197,18 @@ export interface NsApi {
   emit(e: FeedbackEvent): void;
   audio: NsAudio;
   scene: NsScene;
+  /**
+   * The whole frame's main-thread time (real ms), oldest first, over perf()'s window: `update` every system's update
+   * (IWSDK's and ours), `render` the renderer drawing the frame (its JavaScript and the commands it sends).
+   */
+  perfWhole(): { update: number[]; render: number[] };
+  /** What one eye's frame asks of the GPU (src/app/gpu-census.ts), for estimates on headsets the emulator cannot time. */
+  gpu: {
+    census(o: CensusOptions): Census;
+    probe(o: { names: string[]; fov: CensusOptions["fov"]; size: number; repeats: number }): ProbeResult[];
+  };
+  /** The headset class the session was tuned for (src/app/headset.ts), and the frame rate it asked for (null: none). */
+  headset(): { class: HeadsetClass; gpu: string | null; frameRate: number | null };
 }
 
 /**

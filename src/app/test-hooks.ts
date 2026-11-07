@@ -1,6 +1,6 @@
 // Test hooks: window.__ns and window.__sl. Only built when VITE_TEST_HOOKS=1 (main.ts imports this
 // module behind that flag, so production bundles drop it).
-import { type Matrix4, Quaternion, Vector3, type World } from "@iwsdk/core";
+import { type BufferGeometry, type Matrix4, type Mesh, Quaternion, Vector3, type World } from "@iwsdk/core";
 import { generateBox } from "../core/generator";
 import { lang } from "../i18n";
 import { boxTextFits } from "../ui/box-text";
@@ -12,12 +12,15 @@ import { meets, SKIP_MISSING, shadowBuffers, shadowPolys } from "../core/solve";
 import type { V2, V3, Vec3 } from "../core/types";
 import { handJoints } from "../input/grab-system";
 import { HAND_JOINTS } from "../input/hand-joints";
+import { FLOOR_ORDER, frameGeometry } from "../render/box-scene";
 import { crystallise } from "../render/fx/crystallise";
+import { SLAB_ORDER } from "../ui/panel-slab";
 import { BOX_ROOT_NAME, boxToWorld, placement, worldToBox } from "../render/placement";
 import { slotOf } from "../render/scraps";
 import type { Access, FakeBillingState } from "./access";
 import type { BoxSession } from "./box-session";
 import { emit, type FeedbackEvent, onAny } from "./bus";
+import { census, probe } from "./gpu-census";
 import type { MenuDrawer } from "./drawer-system";
 import type { GameMenus } from "./menu-game";
 import { REUSED_EVENT_TYPES } from "./events";
@@ -68,6 +71,15 @@ function instrument(world: World, realNow: () => number) {
   let countFrom = false;
   // Per system: this frame's time and a ring of the last PERF_WINDOW frames (allocation free per frame).
   const per: { name: string; now: number; ring: Float64Array; n: number }[] = [];
+  // The whole frame: every system's update (IWSDK's too) and the render after it, a ring of PERF_WINDOW frames each.
+  const whole = { update: new Float64Array(PERF_WINDOW), render: new Float64Array(PERF_WINDOW), n: 0, lastRender: 0, pending: -1 };
+  const renderer = world.renderer;
+  const render = renderer.render.bind(renderer);
+  renderer.render = (scene, camera) => {
+    const a = realNow();
+    render(scene, camera);
+    whole.lastRender = realNow() - a;
+  };
   onAppSystem((sys) => {
     const orig = sys.update.bind(sys);
     const mine = { name: appSystemName(sys), now: 0, ring: new Float64Array(PERF_WINDOW), n: 0 };
@@ -90,7 +102,15 @@ function instrument(world: World, realNow: () => number) {
     countFrom = true;
     current = 0;
     for (const p of per) p.now = 0;
+    // The frame before this one ends here: its update and the render that followed it.
+    if (whole.pending >= 0) {
+      whole.update[whole.n % PERF_WINDOW] = whole.pending;
+      whole.render[whole.n % PERF_WINDOW] = whole.lastRender;
+      whole.n++;
+    }
+    const u0 = realNow();
     update(d, t);
+    whole.pending = realNow() - u0;
     last = current;
     samples.push(current);
     if (samples.length > PERF_WINDOW) samples.shift();
@@ -143,6 +163,17 @@ function instrument(world: World, realNow: () => number) {
       trianglesMax = 0;
       countFrom = false;
       for (const p of per) p.n = 0;
+      whole.n = 0;
+      whole.pending = -1;
+    },
+    /** The whole frame's update and render times, oldest first (the same window as perf()). */
+    whole(): { update: number[]; render: number[] } {
+      const n = Math.min(whole.n, PERF_WINDOW), update: number[] = [], render: number[] = [];
+      for (let k = whole.n - n; k < whole.n; k++) {
+        update.push(whole.update[k % PERF_WINDOW]!);
+        render.push(whole.render[k % PERF_WINDOW]!);
+      }
+      return { update, render };
     },
     /** The named systems' update time per frame, summed, oldest frame first (the same window as perf()). */
     frames(names: string[]): number[] {
@@ -292,6 +323,9 @@ export function installTestHooks(
   };
   const feelLog: SlFeelEvent[] = [];
   lan.onFeel((e) => feelLog.push({ ...e, at: performance.now() }));
+  // The frame's geometry with and without the hidden-overdraw trims (scene.trims).
+  let trimmed: BufferGeometry | undefined;
+  let untrimmed: BufferGeometry | undefined;
   const scene: NsScene = {
     show(spec, mirrored = false) {
       const made = generateBox("n" in spec ? { kind: "box", n: spec.n } : { kind: "daily", day: spec.day });
@@ -336,6 +370,16 @@ export function installTestHooks(
     draws: () => box.drawStats(),
     setVisible: (v) => {
       box.root.visible = v;
+    },
+    trims: (on) => {
+      const frame = box.root.getObjectByName("Box Frame") as Mesh;
+      trimmed ??= frame.geometry;
+      untrimmed ??= frameGeometry(true);
+      frame.geometry = on ? trimmed : untrimmed;
+      box.root.getObjectByName("Box Floor")!.renderOrder = on ? FLOOR_ORDER : 0;
+      world.scene.traverse((o) => {
+        if (o.name === "Panel Slab") o.renderOrder = on ? SLAB_ORDER : 0;
+      });
     },
   };
 
@@ -409,6 +453,12 @@ export function installTestHooks(
       },
     },
     emit,
+    perfWhole: () => timing.whole(),
+    gpu: {
+      census: (o) => census(world, o),
+      probe: (o) => probe(world, { ...o, realNow }),
+    },
+    headset: () => ({ class: shell.headset?.class ?? "standard", gpu: shell.headset?.gpu ?? null, frameRate: shell.frameRateAsked }),
     audio: {
       log: () => sounds.log.map((x) => ({ ...x })),
       clear: () => {
