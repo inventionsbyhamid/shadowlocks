@@ -18,6 +18,7 @@ import { MOTION } from "../motion";
 import { PanelSlabs } from "../panel-slab";
 import { PanelView } from "../panel-ui";
 import { UI } from "../theme";
+import { COPY } from "../copy";
 import { PanelMotion } from "../transitions";
 import { COLLECTION, collectionView, paintCollection } from "./collection";
 import { type ContinueTo, continueTo, HOME, homeView, paintHome } from "./home";
@@ -101,7 +102,10 @@ export class Menus {
   /** The Collection page shown (0: newest). */
   private page = 0;
   private buyState: BuyState = "idle";
-  /** A one-off line for the next Home ("Progress reset."). */
+  /**
+   * The line Home shows on this visit, in English (shown in the language up): the storage notice or a one-off line
+   * ("Progress reset."). It stays through repaints (a new language, a font arriving) and goes when Home is left.
+   */
   private note: string | null = null;
 
   constructor(
@@ -165,6 +169,8 @@ export class Menus {
     const from = this.screen;
     if (from === to) return;
     this.screen = to;
+    // Home's line was for that visit.
+    if (from === "home") this.note = null;
     if (to === "collection" && from === "home") this.page = 0;
     if (to === "trial" && this.buyState !== "buying") this.buyState = "idle";
     if (this.layoutWaiting) this.placePanels();
@@ -415,15 +421,16 @@ export class Menus {
     paintLabels(p.view, screen, copy());
     switch (screen) {
       case "home": {
-        // The storage notice shows once: it stays on this Home and is gone the next time.
+        // The storage notice shows once: it stays on this Home, painted again or not, and is gone the next time.
         const pending = this.deps.profiles.pendingNotice;
-        const raised = pending ?? this.note;
-        const notice = raised === null ? null : localNotice(raised);
+        if (pending !== null) {
+          this.note = pending;
+          this.deps.profiles.markNoticeShown();
+        }
+        const notice = this.note === null ? null : localNotice(this.note);
         const v = homeView(profile, { behind: data.behind(), ent: data.ent(), today: data.today(), notice });
         paintHome(p.view, v);
         this.keyStates(p, v.disabled);
-        if (pending !== null) this.deps.profiles.markNoticeShown();
-        else this.note = null;
         break;
       }
       case "lessons":
@@ -513,7 +520,7 @@ export class Menus {
         return;
       case "reset-confirm":
         void a.resetProgress().then(() => {
-          this.note = copy().menus.home.reset;
+          this.note = COPY.menus.home.reset;
           go("home");
         });
         return;
