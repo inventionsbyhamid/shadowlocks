@@ -100,7 +100,8 @@ test("settings persist after reload", async ({ page, boot }) => {
   for (const id of ["music-down", "effects-down", "box-up", "toggle-warmth", "toggle-captions", "toggle-motion", "toggle-dimming", "toggle-hand"]) {
     await app.poke(id);
   }
-  const want = { musicVol: 0.6, sfxVol: 0.8, boxSizeCm: 26, warmth: false, captions: false, reducedMotion: true, dimming: false, handed: "left" };
+  // The language stays as it was (its own reload test is in i18n-menus.spec.ts).
+  const want = { musicVol: 0.6, sfxVol: 0.8, boxSizeCm: 26, warmth: false, captions: false, reducedMotion: true, dimming: false, handed: "left", language: "auto" };
   await app.stepUntil((n, _w, a) => Object.entries(a).every(([k, v]) => n.ui.settings()[k] === v), { arg: want, maxMs: 3_000, label: "every setting changed" });
   expect(await page.evaluate(() => window.__ns!.ui.key("toggle-hand"))).toMatchObject({ lit: true });
   await app.step(90); // the save lands
