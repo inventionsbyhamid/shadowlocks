@@ -33,6 +33,8 @@ import {
   ourAllocations,
   p95WithoutStalls,
   STALL_MS,
+  startTrail,
+  takeTrail,
   TIMED_FRAMES,
   toWorld,
   WINDOWS,
@@ -290,7 +292,7 @@ test("box 15 in play with the tip on the coach line and a settle ripple: the bus
   page,
   boot,
 }, testInfo) => {
-  // Visual mode: a shot of the lantern in its ripple is taken on the way (the lantern's body and ring, as drawn).
+  // Visual mode: drawn as on the headset (tests/e2e/lantern.spec.ts takes the settle ripple's shot).
   const app = await boot({ mode: "visual" });
   await page.evaluate(() => window.__sl!.session.play({ kind: "box", n: 15 }));
   await app.stepUntil(
@@ -311,20 +313,15 @@ test("box 15 in play with the tip on the coach line and a settle ripple: the bus
   await app.step(3);
   const off = await grab(app, page, right);
   await page.evaluate(() => window.__ns!.resetPerf());
+  // The settle (and its half-second ripple) can come anywhere on the way in: every frame is sampled, and the perf
+  // hook's busiest frame covers them all.
+  await startTrail(page);
   await carry(right, off, await toWorld(page, f!.spot), 3000);
   await app.stepUntil((_ns, w) => w.__sl.lantern().mode === "settled", { maxMs: 3_000, label: "settled on the spot" });
-  let ring = 0, chip = 0, shot = false;
-  for (let i = 0; i < 45; i++) {
-    await app.step(1);
-    const l = await lantern(page);
-    ring = Math.max(ring, l.ripple);
-    chip = Math.max(chip, (await page.evaluate(() => window.__sl!.lessons.state().coach.opacity)) as number);
-    if (!shot && l.ripple > 0.5) {
-      const [w] = await worldOf(page, [l.pos]);
-      await app.captureHeadset("perf-lantern-ripple-headset", { x: w![0], y: w![1], z: w![2] }, 40);
-      shot = true;
-    }
-  }
+  await app.step(45);
+  const trail = await takeTrail(page);
+  const rippled = trail.filter((x) => x.ripple).length;
+  const chip = (await page.evaluate(() => window.__sl!.lessons.state().coach.opacity)) as number;
   const p = await app.perf();
   // What draws now (one call each, both views counted by the renderer): for the record.
   const drawn = await page.evaluate(() => {
@@ -340,11 +337,11 @@ test("box 15 in play with the tip on the coach line and a settle ripple: the bus
   });
   const line =
     `perf-budget, tip and settle ripple: busiest frame ${p.callsMax} draw calls (both views), ${p.trianglesMax} triangles; ` +
-    `ring ${ring.toFixed(2)}, coach chip ${chip.toFixed(2)}; drawn now: ${drawn}`;
+    `ripple in ${rippled} of ${trail.length} frames, coach chip ${chip.toFixed(2)}; drawn now: ${drawn}`;
   testInfo.annotations.push({ type: "perf", description: line });
   console.log(line);
-  expect(ring).toBeGreaterThan(0.5);
-  expect(chip).toBeGreaterThan(0.5);
+  expect(rippled, "frames with the settle ripple").toBeGreaterThan(0);
+  expect(chip).toBeGreaterThan(0.9);
   expect((await page.evaluate(() => window.__sl!.session.state()))!.open).toEqual([]);
   expect(p.callsMax).toBeLessThanOrEqual(MAX_CALLS);
 });
