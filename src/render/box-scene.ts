@@ -52,6 +52,8 @@ import { COLORS, ENV, type EnvPanel, LIGHTS, MATERIALS } from "./theme";
 
 /** Frame bars: thickness and edge radius (box units). The radius gives the clearcoat a rim to catch light. */
 const BAR = 0.05;
+/** The frame's bars' thickness (box units): the front posts' inner faces are at x = ±(0.5 - FRAME_BAR / 2). */
+export const FRAME_BAR = BAR;
 const BAR_R = 0.008;
 /** The back panel sits just in front of the back slab; its shadows lie exactly on it. */
 const PANEL_Z = 0.002;

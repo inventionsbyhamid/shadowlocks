@@ -34,6 +34,11 @@ export const REWARD = {
   riseS: 0.8,
   /** It floats this high above the drawer top (box units). */
   rise: 0.5,
+  /**
+   * Risen, the plaque floats no further from the box's middle than this (box units), rising a little inward from the
+   * drawer (which opens at DRAWER_X, 0.34): seen from the seated eye, its outer edge stays clear of the front post.
+   */
+  maxX: 0.17,
   /** A pinch starting this close to it takes hold (cm). */
   grabCm: 7,
   /** Let go this much nearer the player than where it floated (cm, toward +z): taken. */
@@ -212,7 +217,9 @@ export class Reward {
   /** The box opened: rise out of the drawer whose top is `drawer` (box units), REWARD.riseAtS from now. */
   rise(drawer: Readonly<V3>): void {
     this.from.set(drawer[0], drawer[1], drawer[2]);
-    this.rest.set(drawer[0], drawer[1] + REWARD.rise, drawer[2] - 0.04);
+    // Up and a little inward, clear of the front post (REWARD.maxX).
+    const x = Math.sign(drawer[0]) * Math.min(Math.abs(drawer[0]), REWARD.maxX);
+    this.rest.set(x, drawer[1] + REWARD.rise, drawer[2] - 0.04);
     this.group.position.copy(this.from);
     this.group.scale.setScalar(0.4);
     this.group.visible = false;

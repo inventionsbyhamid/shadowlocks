@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import { Group, type Mesh, type MeshBasicMaterial, Vector3 } from "@iwsdk/core";
 import { generateBox } from "../../src/core/generator";
 import type { V3 } from "../../src/core/types";
+import { FRAME_BAR } from "../../src/render/box-scene";
 import { KEY_EVENT } from "../../src/render/finger-key";
+import { BoxOpenFx, DRAWER_X } from "../../src/render/fx/box-open";
 import { FlashBudget } from "../../src/render/fx/flash-budget";
+import { boxToWorld, DEFAULT_BOX_CM, placeBox } from "../../src/render/placement";
 import { REWARD, Reward, type RewardHands } from "../../src/render/reward";
 import { COPY } from "../../src/ui/copy";
 import { PLATE, plateLayout, plateText, wrapTwo } from "../../src/ui/plate";
@@ -45,7 +48,7 @@ function risen() {
 }
 
 describe("reward", () => {
-  it("rises out of the drawer with the tune and floats there", () => {
+  it("rises out of the drawer with the tune, a little inward, and floats there", () => {
     const { r, run } = risen();
     run(REWARD.riseAtS - 0.05);
     expect(r.group.visible).toBe(false);
@@ -53,7 +56,8 @@ describe("reward", () => {
     run(REWARD.riseS + 0.1);
     expect(r.up).toBe(true);
     const p = r.position([0, 0, 0]);
-    expect(p[0]).toBeCloseTo(-0.22, 6);
+    // From the drawer at x -0.22, in to REWARD.maxX (clear of the front post).
+    expect(p[0]).toBeCloseTo(-Math.min(0.22, REWARD.maxX), 6);
     expect(p[1]).toBeCloseTo(-0.55 + REWARD.rise, 6);
   });
 
@@ -82,6 +86,35 @@ describe("reward", () => {
       const sizes = seen.filter((x) => x.o > 0).map((x) => x.s);
       if (reduced) expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThan(1e-9);
       else expect(Math.max(...sizes)).toBeGreaterThan(Math.min(...sizes) * 1.3);
+    }
+  });
+
+  it("risen, the plaque clears the box's front post as the seated player sees it, on either side the drawer opens", () => {
+    // The box placed in front of a seated head (the default size), the head looking straight at it.
+    const m = placeBox({ pos: new Vector3(0, 1.2, 0), yaw: 0 }, DEFAULT_BOX_CM);
+    const angle = (p: V3) => {
+      const w = boxToWorld(m, p, new Vector3());
+      return Math.atan2(Math.abs(w.x), -w.z);
+    };
+    for (const side of [-1, 1]) {
+      const r = new Reward(new Group());
+      r.setBox(generateBox({ kind: "box", n: 3 }));
+      const fx = new BoxOpenFx(new Group(), new FlashBudget());
+      fx.start(side);
+      r.rise(fx.drawerTop([0, 0, 0]));
+      const { hands } = hand();
+      for (let t = 0; t < REWARD.riseAtS + REWARD.riseS + 0.2; t += DT) r.update(DT, hands, false, CM, false);
+      expect(r.up).toBe(true);
+      const p = r.position([0, 0, 0]);
+      // Its outer corners, against the front post's inner face (x 0.5 - BAR/2, the box's front, all its height).
+      const P = REWARD.plaque, x = p[0] + side * (P.w / 2);
+      const plaque = Math.max(angle([x, p[1] - P.h / 2, p[2]]), angle([x, p[1] + P.h / 2, p[2]]));
+      let post = Infinity;
+      for (let y = -0.5; y <= 0.5; y += 0.05) post = Math.min(post, angle([side * (0.5 - FRAME_BAR / 2), y, 1]));
+      expect(plaque).toBeLessThan(post - (0.5 * Math.PI) / 180);
+      // It rose from the drawer, a little inward: no further out than the drawer, on the drawer's side.
+      expect(Math.sign(p[0])).toBe(side);
+      expect(Math.abs(p[0])).toBeLessThanOrEqual(DRAWER_X);
     }
   });
 
