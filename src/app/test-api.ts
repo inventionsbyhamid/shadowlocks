@@ -1,6 +1,8 @@
 import type { GameSounds } from "../audio/cues";
 import type { BoxSnapshot } from "../core/profile";
 import type { BoxSpec, V2, V3, Vec3 } from "../core/types";
+import type { BoxTextFit } from "../ui/box-text";
+import type { PanelTextProblem } from "../ui/panel-fits";
 import type { FeedbackEvent } from "./bus";
 import type { Screen } from "./screens";
 
@@ -449,6 +451,25 @@ export interface SlApi {
   sound: GameSounds;
   /** The caption texts up now. */
   captions(): string[];
+  /** The game's languages (set one with __ns.ui.setSettings({ language })). */
+  i18n: SlI18n;
+}
+
+/** The game's languages, for tests. */
+export interface SlI18n {
+  /** The language shown, and the page's `lang`. */
+  lang(): { shown: string; doc: string };
+  /** What the box's lettering says now: the plate, the box's keys by id, the story card's two sentences. */
+  texts(): { plate: string; keys: Record<string, string>; story: [string, string] };
+  /** Every piece of the box's lettering in every language, measured once the canvas fonts have loaded. */
+  boxFits(): Promise<BoxTextFit[]>;
+  /** The texts of a menu screen's panel, as laid out now, that do not fit (null without that panel). */
+  panelFits(screen: Screen): PanelTextProblem[] | null;
+  /**
+   * Write `text` on an element of a screen's panel (the layout check's negative controls): through PanelView, or
+   * `raw`, straight onto the element as the generator's own text sits there.
+   */
+  forceText(screen: Screen, id: string, text: string, raw?: boolean): void;
 }
 
 declare global {

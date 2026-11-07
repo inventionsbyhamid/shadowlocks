@@ -5,7 +5,8 @@
 // paywall update only, the trial row. Pure view model and painting.
 import { canPlay, type Ent } from "../../core/entitlement";
 import type { Profile } from "../../core/profile";
-import { COPY, fill } from "../copy";
+import { copy, count } from "../../i18n";
+import { fill } from "../copy";
 import { UI } from "../theme";
 import { boxNumberOf } from "./collection";
 import type { Behind, MenuSpec, PanelUi } from "./types";
@@ -79,7 +80,7 @@ export interface HomeInput {
 }
 
 function continueSub(p: Readonly<Profile>, i: HomeInput): string {
-  const m = COPY.menus.home;
+  const m = copy().menus.home;
   const to = continueTo(p, i.behind, i.ent);
   if (i.behind?.kind === "lesson") return m.backToLesson;
   if (to.kind === "trial") return m.trialOver;
@@ -94,7 +95,7 @@ function continueNo(p: Readonly<Profile>, i: HomeInput): string {
 }
 
 function dailySub(p: Readonly<Profile>, today: string): string {
-  const m = COPY.menus.home;
+  const m = copy().menus.home;
   if (!dailyOpen(p)) return m.dailyLocked;
   if (p.daily.lastDay === today) return m.dailyDone;
   if (p.daily.streak > 0) return fill(m.streak, { n: p.daily.streak });
@@ -102,15 +103,15 @@ function dailySub(p: Readonly<Profile>, today: string): string {
 }
 
 function trialRow(ent: Ent | null): HomeView["trial"] {
-  const t = COPY.menus.trial;
+  const t = copy().menus.trial;
   if (ent === null) return null;
-  if (ent.kind === "trial") return { label: ent.daysLeft === 1 ? t.dayLeft : fill(t.daysLeft, { n: ent.daysLeft }), sub: t.unlock };
+  if (ent.kind === "trial") return { label: count(ent.daysLeft, t.daysLeft), sub: t.unlock };
   if (ent.kind === "trialOver") return { label: t.over, sub: t.unlock };
   return null;
 }
 
 export function homeView(p: Readonly<Profile>, i: HomeInput): HomeView {
-  const m = COPY.menus.home;
+  const m = copy().menus.home;
   const n = p.collection.length;
   const open = dailyOpen(p);
   return {
@@ -119,7 +120,7 @@ export function homeView(p: Readonly<Profile>, i: HomeInput): HomeView {
     dailyOpen: open,
     dailySub: dailySub(p, i.today),
     lessonsSub: m.lessons,
-    collectionSub: n === 0 ? m.collectionEmpty : n === 1 ? m.collectionOne : fill(m.collectionMany, { n }),
+    collectionSub: n === 0 ? m.collectionEmpty : count(n, m.rewards),
     trial: trialRow(i.ent),
     notice: i.notice,
     disabled: [...(open ? [] : ["home-daily"]), ...(continueTo(p, i.behind, i.ent).kind === "wait" ? ["home-continue"] : [])],

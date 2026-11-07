@@ -20,6 +20,7 @@ import { createSystem, type World } from "@iwsdk/core";
 import type { LessonId } from "../core/lessons-data";
 import type { BoxSnapshot, TipId } from "../core/profile";
 import type { BoxSpec } from "../core/types";
+import { localLine } from "../i18n";
 import type { BoxScene } from "../render/box-scene";
 import type { BoxSession } from "./box-session";
 import { on as onBus } from "./bus";
@@ -220,7 +221,8 @@ export class Lessons implements MenuLessons {
     // Outside an example, the session's suggestion wins over a lesson's own line: it only exists while a controller
     // player faces a short finger lock (lesson 2's turn), who needs it; hand players lose nothing.
     const line = this.menuUp ? null : shown ? (dir.showing ? dir.frame.line : (held ?? dir.frame.line)) : (held ?? this.tipLine(session));
-    this.view.update(dir.frame, this.onScreen, line, dt, tMs);
+    // Lines come in English (the director, the tips, the session); the chip shows them in the language shown.
+    this.view.update(dir.frame, this.onScreen, localLine(line), dt, tMs);
   }
 
   /**

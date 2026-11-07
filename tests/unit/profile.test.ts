@@ -45,7 +45,7 @@ function played(): Profile {
   p.tipsSeen = ["decoys", "drawer"];
   p.collection = [item()];
   p.daily = { streak: 2, best: 4, lastDay: "2026-11-05", current: snap("shadow-locks/daily/2026-11-06") };
-  p.settings = { ...p.settings, warmth: false, boxSizeCm: 28, handed: "left", musicVol: 0.4 };
+  p.settings = { ...p.settings, warmth: false, boxSizeCm: 28, handed: "left", musicVol: 0.4, language: "fr" };
   return p;
 }
 
@@ -90,8 +90,27 @@ describe("profile", () => {
         captions: true,
         dimming: true,
         handed: "right",
+        language: "auto",
       },
     });
+  });
+
+  it("a save from before the Language setting keeps everything and follows the headset", () => {
+    const p = played();
+    const { language: _none, ...old } = p.settings;
+    const raw = JSON.parse(JSON.stringify({ ...p, settings: old }));
+    expect(migrate(raw, NOW, BUILD)).toEqual({ ...p, lastSeenMs: NOW, settings: { ...p.settings, language: "auto" } });
+  });
+
+  it("keeps a chosen language and drops one the game does not speak", () => {
+    const lang = (language: unknown) => migrate({ version: 1, settings: { language } }, NOW, BUILD).settings.language;
+    expect(lang("ja")).toBe("ja");
+    expect(lang("pt-BR")).toBe("pt-BR");
+    expect(lang("pt-br")).toBe("pt-BR");
+    expect(lang("auto")).toBe("auto");
+    expect(lang("it")).toBe("auto");
+    expect(lang(7)).toBe("auto");
+    expect(lang(null)).toBe("auto");
   });
 
   it("migrate of garbage returns a new profile", () => {

@@ -2,8 +2,10 @@
 """Writes public/ui/*.uikitml for the menus: python3 scripts/ui/gen-menus.py public/ui
 
 Shared classes and keycap helpers live in ui_common.py. Edit the generators, not the generated
-files; tests/unit/ui-generated.test.ts checks they are in sync. Labels here are fixed panel text;
-text painted from code lives in src/ui/copy.ts (the defaults here match it).
+files; tests/unit/ui-generated.test.ts checks they are in sync. The words here are the English
+defaults: every text has an id, and the menus paint each one in the language shown (fixed labels
+through src/ui/menus/labels.ts, the rest from the panels' views; tests/unit/ui-labels.test.ts checks
+none is left out). The words themselves live in src/ui/copy.ts and its tables.
 
 Every panel stands on the box's drawer, so they grow upward (anchor bottom). Keys are at least
 40 mm and at least 12 mm apart (comfort envelope)."""
@@ -31,10 +33,10 @@ home = HEADER + head("""
 """) + f"""<div id="home-root" class="root">
   {CREST}
   <div class="head">
-    <div class="title">Shadow Locks</div>
+    <div id="home-title" class="title">Shadow Locks</div>
     <div class="meta-row">
       <div class="led"></div>
-      <div class="meta">A puzzle box of light</div>
+      <div id="home-tagline" class="meta">A puzzle box of light</div>
     </div>
   </div>
   <div id="home-notice">
@@ -76,19 +78,19 @@ lessons = HEADER + head("""
 """) + f"""<div id="lessons-root" class="root">
   {CREST}
   <div class="head-tall">
-    <div class="title">Lessons</div>
+    <div id="lessons-title" class="title">Lessons</div>
     {back_key("lessons-back")}
   </div>
-  <div class="section">Examples: poke one to watch it again</div>
+  <div id="lessons-examples-head" class="section">Examples: poke one to watch it again</div>
   <div class="row">
     {"".join(wrap_key(i, l, dot=True) for i, l in EXAMPLES)}
   </div>
-  <div class="section">Tips</div>
+  <div id="lessons-tips-head" class="section">Tips</div>
   <div id="lessons-tips" class="row">
     {"".join(wrap_key(f"tip-{i}", "Tip") for i in range(4))}
   </div>
   <div id="lessons-none" class="row">
-    <div class="line-dim">Tips you meet in the boxes show up here.</div>
+    <div id="lessons-none-line" class="line-dim">Tips you meet in the boxes show up here.</div>
   </div>
 </div>
 """
@@ -110,11 +112,12 @@ collection = HEADER + head("""
   .card-loot { color: #CDB27A; }
   #coll-empty { display: none; height: 60; justify-content: center; align-items: center; }
   .coll-page { flex-grow: 1; justify-content: center; align-items: center; }
+  .slot-pager { width: 100; height: 44; }
 """) + f"""<div id="collection-root" class="root">
   {CREST}
   <div class="head-tall">
     <div class="meta-row">
-      <div class="title">Collection</div>
+      <div id="coll-title" class="title">Collection</div>
       <div id="coll-count" class="meta">No rewards yet</div>
     </div>
     {back_key("collection-back")}
@@ -123,12 +126,12 @@ collection = HEADER + head("""
     {"".join(card(i) for i in range(3))}
   </div>
   <div id="coll-empty" class="row">
-    <div class="line-dim">Open a box to find its first reward.</div>
+    <div id="coll-empty-line" class="line-dim">Open a box to find its first reward.</div>
   </div>
   <div id="coll-pager" class="row">
-    {label_key("coll-newer", "graphite", "Newer", "slot-fixed slot-back")}
+    {label_key("coll-newer", "graphite", "Newer", "slot-fixed slot-pager")}
     <div class="coll-page"><div id="coll-page" class="line-dim">1 to 3 of 3</div></div>
-    {label_key("coll-older", "graphite", "Older", "slot-fixed slot-back")}
+    {label_key("coll-older", "graphite", "Older", "slot-fixed slot-pager")}
   </div>
 </div>
 """
@@ -142,7 +145,7 @@ def slider(prefix, label, value):
         {minus}
         <div class="readout plate">
           <div class="readout-top">
-            <div class="readout-label">{label}</div>
+            <div id="{prefix}-label" class="readout-label">{label}</div>
             <div id="{prefix}-value" class="readout-value">{value}</div>
           </div>
           <div class="meter">{segs}</div>
@@ -151,32 +154,46 @@ def slider(prefix, label, value):
       </div>"""
 
 def toggle(id, label, sub):
-    # Latching key: lit gold cap, a gold LED and "On" when on; black glass and "Off" when off.
+    # Latching key: lit gold cap, a gold LED and "On" when on; black glass and "Off" when off. A little taller than
+    # the other keys: a name that takes two lines (es, fr, de, pt "Less motion") stays clear of the gold hairline.
     return key(id, "graphite", f"""<div id="{id}-label" class="label-sm">{label}</div>
-          <div class="toggle-row"><div id="{id}-led" class="toggle-led"></div><div id="{id}-state" class="toggle-state">Off</div><div id="{id}-sub" class="sub ink-dim toggle-sub">{sub}</div></div>""", "slot slot-sm", "toggle-cap")
+          <div class="toggle-row"><div id="{id}-led" class="toggle-led"></div><div id="{id}-state" class="toggle-state">Off</div><div id="{id}-sub" class="sub ink-dim toggle-sub">{sub}</div></div>""", "slot slot-toggle", "toggle-cap")
+
+def language_row():
+    # One key: poke it for the next language (Automatic, then each language in its own name, and round). The
+    # value and the language Automatic picked are drawn in the font that has every language's letters.
+    return f"""<div class="row">
+    {key("settings-language", "graphite", '''<div id="settings-language-label" class="label-sm">Language</div>
+          <div class="lang-values"><div id="settings-language-value" class="lang-value">Automatic</div><div id="settings-language-sub" class="sub ink-dim lang-name">English</div></div>''', "slot slot-sm", "lang-cap")}
+  </div>"""
 
 settings = HEADER + head("""
   #settings-root { width: 456; }
   .cells { flex-direction: row; gap: 12; }
   .cell { flex-grow: 1; flex-basis: 0; flex-direction: row; align-items: center; gap: 8; height: 44; }
   .readout { flex-grow: 1; flex-basis: 0; height: 44; flex-direction: column; justify-content: center; gap: 5; padding-left: 8; padding-right: 8; }
-  .readout-top { flex-direction: row; justify-content: space-between; align-items: center; }
+  .readout-top { flex-direction: row; justify-content: space-between; align-items: center; gap: 3; }
   .readout-label { font-size: 10; font-weight: bold; color: #CDB27A; }
-  .readout-value { font-size: 11.5; font-weight: bold; color: #FFD36A; }
+  .readout-value { font-size: 11.5; font-weight: bold; color: #FFD36A; flex-shrink: 0; }
   .meter { flex-direction: row; gap: 1.2; }
   .seg { flex-grow: 1; height: 4; border-radius: 0.6; background-color: #3A3236; }
   .keys2 { flex-grow: 1; flex-basis: 0; flex-direction: row; gap: 12; }
+  .slot-toggle { height: 48; }
   .toggle-cap { padding-left: 9; padding-right: 9; }
   .toggle-row { flex-direction: row; align-items: center; gap: 4; }
   .toggle-led { width: 6; height: 6; border-radius: 3; background-color: #3A3236; }
   .toggle-state { font-size: 10.5; font-weight: bold; flex-shrink: 0; }
   .toggle-sub { flex-shrink: 0; }
+  .lang-cap { flex-direction: row; align-items: center; justify-content: space-between; }
+  .lang-values { flex-direction: row; align-items: center; gap: 8; }
+  .lang-value { font-size: 11.5; font-weight: bold; color: #FFD36A; }
 """) + f"""<div id="settings-root" class="root">
   {CREST}
   <div class="head">
-    <div class="title">Settings</div>
-    <div class="meta">Changes apply right away</div>
+    <div id="settings-title" class="title">Settings</div>
+    <div id="settings-note" class="meta">Changes apply right away</div>
   </div>
+  {language_row()}
   <div class="cells">
     {slider("music", "Music", "70%")}
     {slider("effects", "Effects", "90%")}
@@ -196,7 +213,7 @@ settings = HEADER + head("""
   <div class="row">
     {toggle("toggle-dimming", "Dim room", "In play")}
     {toggle("toggle-hand", "Left hand", "Mirrored")}
-    {key("settings-done", "putty", '<div id="settings-done-label" class="label-sm">Done</div>', "slot slot-sm", "cap-center")}
+    {key("settings-done", "putty", '<div id="settings-done-label" class="label-sm">Done</div>', "slot slot-toggle", "cap-center")}
   </div>
 </div>
 """
@@ -208,11 +225,11 @@ reset = HEADER + head("""
 """) + f"""<div id="reset-root" class="root">
   {CREST}
   <div class="head">
-    <div class="title">Reset progress?</div>
+    <div id="reset-title" class="title">Reset progress?</div>
   </div>
   <div class="reset-lines">
-    <div class="line">Boxes, lessons, the collection and the streak start over.</div>
-    <div class="line-dim">Your settings stay.</div>
+    <div id="reset-body" class="line">Boxes, lessons, the collection and the streak start over.</div>
+    <div id="reset-keeps" class="line-dim">Your settings stay.</div>
   </div>
   <div class="row">
     {label_key("reset-keep", "graphite", "Keep it")}
@@ -232,7 +249,7 @@ trial = HEADER + head("""
 """) + f"""<div id="trial-root" class="root">
   {CREST}
   <div class="head-tall">
-    <div class="title">Unlock the full game</div>
+    <div id="trial-title" class="title">Unlock the full game</div>
     {back_key("trial-back")}
   </div>
   <div class="trial-lines">
