@@ -3,7 +3,6 @@
 // slide along. Brightest at the mark, fading toward the lantern, and stopping short of its body. Lives in the box
 // root (box units). One draw call while shown, none while hidden; no allocation per frame.
 import {
-  AdditiveBlending,
   BufferAttribute,
   CylinderGeometry,
   Mesh,
@@ -11,6 +10,7 @@ import {
   Vector3,
 } from "@iwsdk/core";
 import type { V3 } from "../core/types";
+import { LIGHT_BLEND } from "./light-blend";
 import { COLORS } from "./theme";
 
 export const BEAM = {
@@ -47,7 +47,7 @@ export class RingBeam {
         vertexColors: true,
         transparent: true,
         opacity: BEAM.opacity,
-        blending: AdditiveBlending,
+        ...LIGHT_BLEND,
         depthWrite: false,
         toneMapped: false,
       }),

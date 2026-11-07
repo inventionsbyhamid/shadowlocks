@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AudioManifest } from "../../src/audio/manifest";
+import { EIGHTH_MS, tuneFor } from "../../src/audio/music-box";
 import { COPY } from "../../src/ui/copy";
 import { EDITS, END_CARD } from "../video/edits";
 import {
@@ -146,6 +147,21 @@ describe("mix plan", () => {
     expect(plan.ducks).toHaveLength(1);
     expect(plan.ducks[0]!.t).toBe(1);
     expect(plan.ducks[0]!.depth).toBeCloseTo(db(-6), 6);
+  });
+
+  it("dips the music 4 dB under the box's tune, from its first note until its last has rung, as the game does", () => {
+    const tune = tuneFor("box-7");
+    const m = tweaked((x) => {
+      // Every note of the tune, pitched from mb_g5, ringing 1.9 s (7 cents flat in the fixture, so a little longer).
+      x.sfx.mb_g5!.durations = [1.9];
+      for (const id of tune) if (!x.sfx[id]) x.derived[id] = { from: "mb_g5", semitones: 0 };
+    });
+    const plan = planMix([frame(1, [{ type: "box-open", key: "box-7" }])], m, { duration: 12, seed: "t", initialMusic: "calm" });
+    const first = 1 + 1.7, last = first + ((tune.length - 1) * EIGHTH_MS) / 1000;
+    const d = plan.ducks.find((x) => Math.abs(x.t - first) < 1e-6);
+    expect(d).toBeDefined();
+    expect(d!.depth).toBeCloseTo(db(-4), 6);
+    expect(d!.end).toBeCloseTo(last + 0.05 + 1.9 / 2 ** (-7 / 1200), 6);
   });
 
   it("mixes a shot to silence of its length while there is no sound pack", () => {

@@ -232,13 +232,15 @@ export class ShadowMesh {
       this.commitLayout(n);
     }
     this.setDrawn(n);
+    // The skirt widths go as the array and an index, never as a float argument: a float crossing a call the engine
+    // did not inline is boxed, once per shadow per frame.
     for (let i = 0; i < n; i++) {
-      const poly = polys[i]!, c = poly.length, s = soft[i]!, v = this.vStart[i]!;
+      const poly = polys[i]!, c = poly.length, v = this.vStart[i]!;
       if (this.rings[i]) {
         const h = c >> 1;
-        this.ringEdge(poly, 0, h, s, v, v + 3 * h, h);
-        this.ringEdge(poly, h, h, s, v + h, v + 2 * h, 0);
-      } else this.roundEdge(poly, c, s, v);
+        this.ringEdge(poly, 0, h, soft, i, v, v + 3 * h, h);
+        this.ringEdge(poly, h, h, soft, i, v + h, v + 2 * h, 0);
+      } else this.roundEdge(poly, c, soft, i, v);
     }
     this.posAttr.commit(this.nVerts);
   }
@@ -315,15 +317,15 @@ export class ShadowMesh {
   }
 
   /**
-   * A polygon's corners to vertices from `at`, and its skirt `s` wide (outward by the polygon's own
-   * winding, so either winding works) to the three skirt points of each corner from `at + c`. Along each
-   * edge the skirt runs parallel to it exactly `s` away. A convex corner gets a rounded cap: its three
-   * points sit `s` from it along the incoming edge's normal, the bisector and the outgoing edge's
+   * A polygon's corners to vertices from `at`, and its skirt s = soft[si] wide (outward by the polygon's
+   * own winding, so either winding works) to the three skirt points of each corner from `at + c`. Along
+   * each edge the skirt runs parallel to it exactly `s` away. A convex corner gets a rounded cap: its
+   * three points sit `s` from it along the incoming edge's normal, the bisector and the outgoing edge's
    * normal. A reflex corner's three points all sit on the miter, where the two edges' offsets meet
    * (at most REFLEX_MITER_LIMIT skirt widths away).
    */
-  private roundEdge(poly: readonly V2[], c: number, s: number, at: number): void {
-    const P = this.positions, o = this.orient(poly, 0, c), out = at + c;
+  private roundEdge(poly: readonly V2[], c: number, soft: Float32Array, si: number, at: number): void {
+    const P = this.positions, o = this.orient(poly, 0, c), out = at + c, s = soft[si]!;
     // The edge into corner 0 (from the last corner): its direction and outward normal.
     let p = poly[c - 1]!, q = poly[0]!;
     let dx = q[0] - p[0], dy = q[1] - p[1], len = Math.sqrt(dx * dx + dy * dy);
@@ -392,12 +394,12 @@ export class ShadowMesh {
 
   /**
    * A ring's edge: corners poly[from, from + c) to vertices from `at`, and offset outward (by their own
-   * winding) on the miter to vertices from `out`. A ring's corners turn only 360 / RING_SIDES degrees,
-   * so the miter stays within 3% of `s`. Each offset is held to half the distance from corner
-   * `pair + j` (the matching corner of the ring's other edge), so the body stays solid.
+   * winding) on the miter to vertices from `out`, s = soft[si] wide. A ring's corners turn only 360 /
+   * RING_SIDES degrees, so the miter stays within 3% of `s`. Each offset is held to half the distance
+   * from corner `pair + j` (the matching corner of the ring's other edge), so the body stays solid.
    */
-  private ringEdge(poly: readonly V2[], from: number, c: number, s: number, at: number, out: number, pair: number): void {
-    const P = this.positions;
+  private ringEdge(poly: readonly V2[], from: number, c: number, soft: Float32Array, si: number, at: number, out: number, pair: number): void {
+    const P = this.positions, s = soft[si]!;
     const o = this.orient(poly, from, c);
     let p = poly[from + c - 1]!, q = poly[from]!;
     let dx = q[0] - p[0], dy = q[1] - p[1], len = Math.sqrt(dx * dx + dy * dy);
@@ -611,14 +613,17 @@ export class BoxShadows {
     at[0] = L[0];
     at[1] = L[1];
     at[2] = L[2] > LZ_MIN ? L[2] : LZ_MIN;
-    const soft = this.soft;
+    const soft = this.soft, Lz = at[2];
     let k = 0;
     for (let i = 0; i < cs.length; i++) {
       const c = cs[i]!;
       if (!c.on) continue;
       const pts = c.pts, poly = c.poly;
       for (let j = 0; j < pts.length; j++) projInto(pts[j]!, at, poly[j]!);
-      const pen = penumbra(c.z, at[2]);
+      // penumbra(c.z, Lz), written out: a float returned from a call the engine did not inline is boxed.
+      const z = c.z, d = Lz - z;
+      let pen = d > 0 ? (LANTERN_RADIUS * z) / d : PENUMBRA_MAX;
+      if (pen > PENUMBRA_MAX) pen = PENUMBRA_MAX;
       soft[k++] = pen > SOFT_MIN ? pen : SOFT_MIN;
     }
     const polys = this.polys;

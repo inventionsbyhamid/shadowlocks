@@ -3,7 +3,7 @@ import type { BoxSpec, Vec3 } from "../core/types";
 import type { AudioEngine, PlayHandle, PlayOptions } from "./engine";
 import { Hums, humsOn, type LoopEngine } from "./hums";
 import { isSfxId, type MusicState, type SfxId, type StingId } from "./manifest";
-import { BOX_OPEN_MS, dialTickPitch, LOCK_OPEN_MS, scheduleBoxOpen, scheduleLockOpen } from "./music-box";
+import { BOX_OPEN_MS, dialTickPitch, LOCK_OPEN_MS, type Scheduled, scheduleBoxOpen, scheduleLockOpen } from "./music-box";
 import { CueScheduler } from "./scheduler";
 
 /**
@@ -14,9 +14,11 @@ import { CueScheduler } from "./scheduler";
  *
  * Game events (the names the box session uses):
  * - `lock-open` {lock}: glass tick, brass clunk at +120 ms, the lock's music-box note at +200 ms.
- * - `box-open` {key}: the chord resolves, walls, drawer, and the box's tune from its key (the seed).
+ * - `box-open` {key}: the chord resolves, walls, drawer, and the box's tune from its key (the seed),
+ *   the music dipping 4 dB under the tune (its notes' cues carry `duckDb`).
  * - `ring` {lock, on}: the ring chime when the rings line up (on), nothing when they part.
  * - `crystallise` {lock}, `hint` {lock, gain?}, `lesson-step`: their sounds.
+ * - `theatre` {up}: the theatre lights coming up (theatre_up) or going down (theatre_dim), head-locked.
  * - `drawer`: the menu drawer pulled open (its slide).
  * - `tick` {cm}, or `feel` {e: {type: "tick", cm}}: a dial tick, climbing G A B D.
  * An event that names a lock must name it as a whole number from 0; otherwise it is skipped.
@@ -24,7 +26,7 @@ import { CueScheduler } from "./scheduler";
 export type CueEvent = { type: string; [key: string]: unknown };
 
 export type Cue =
-  | { kind: "sfx"; id: SfxId; position?: Vec3; pitch?: number; gain?: number; variant?: number; delayMs?: number }
+  | { kind: "sfx"; id: SfxId; position?: Vec3; pitch?: number; gain?: number; variant?: number; delayMs?: number; duckDb?: number }
   | { kind: "sting"; id: StingId }
   | { kind: "music"; state: MusicState };
 
@@ -50,6 +52,9 @@ export const LESSON_STEP_GAIN = 0.5;
 export const HINT_GLOW_GAIN = 10 ** (-6 / 20);
 /** The game events the mapper knows (see CueEvent): in the game they sound through GameSounds. */
 export const GAME_CUE_TYPES: ReadonlySet<string> = new Set(["lock-open", "box-open", "ring", "crystallise", "hint", "lesson-step", "tick", "feel", "drawer"]);
+/** The theatre lights' events (GameSounds.theatre): made once, never changed. */
+const THEATRE_UP: CueEvent = Object.freeze({ type: "theatre", up: true });
+const THEATRE_DIM: CueEvent = Object.freeze({ type: "theatre", up: false });
 /** Game events that name a lock. */
 const LOCK_EVENTS: ReadonlySet<string> = new Set(["lock-open", "ring", "crystallise", "hint"]);
 
@@ -111,14 +116,15 @@ export class CueMapper {
     out.push(position ? { kind: "sfx", id, position, ...extra } : { kind: "sfx", id, ...extra });
   }
 
-  /** A schedule of layers, all at one place (the event's), each `delayMs` after the event. */
-  private layers(out: Cue[], e: CueEvent, schedule: readonly { id: string; atMs: number }[]): void {
+  /** A schedule of layers, all at one place (the event's), each `delayMs` after the event, with its music dip. */
+  private layers(out: Cue[], e: CueEvent, schedule: readonly Scheduled[]): void {
     const position = this.where(e);
     for (const s of schedule) {
       if (!isSfxId(s.id)) continue;
       const cue: Extract<Cue, { kind: "sfx" }> = { kind: "sfx", id: s.id };
       if (position) cue.position = position;
       if (s.atMs > 0) cue.delayMs = s.atMs;
+      if (s.duckDb) cue.duckDb = s.duckDb;
       out.push(cue);
     }
   }
@@ -176,6 +182,9 @@ export class CueMapper {
       }
       case "lesson-step":
         this.sfx(out, "lesson_step", { gain: LESSON_STEP_GAIN });
+        return;
+      case "theatre":
+        this.sfx(out, e.up === true ? "theatre_up" : "theatre_dim");
         return;
       case "drawer":
         this.sfxAt(out, "drawer_pull", e);
@@ -430,6 +439,11 @@ export class GameSounds {
   /** A lesson moves on a step: the lesson beat. */
   lessonStep(): void {
     this.handle({ type: "lesson-step" });
+  }
+
+  /** The theatre lights: the room's light coming up (the box opened) or going down (a box in play). Head-locked. */
+  theatre(up: boolean): void {
+    this.handle(up ? THEATRE_UP : THEATRE_DIM);
   }
 
   /** The menu drawer was pulled open (at the handle, when given): its slide, and a clunk in the pulling hand. */

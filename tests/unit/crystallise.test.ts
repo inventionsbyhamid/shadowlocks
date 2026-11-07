@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type BufferAttribute, type Mesh, type MeshBasicMaterial, type MeshStandardMaterial, Vector3 } from "@iwsdk/core";
+import { type BufferAttribute, type DataTexture, type Mesh, type MeshBasicMaterial, type MeshStandardMaterial, Vector3 } from "@iwsdk/core";
 import { generateBox } from "../../src/core/generator";
 import type { Box, Lock, V2, V3 } from "../../src/core/types";
 import type { BoxScene } from "../../src/render/box-scene";
@@ -72,6 +72,37 @@ describe("crystallise", () => {
     expect(drawn.length).toBeGreaterThan(0);
     for (const v of drawn) expect(outline.some((o) => near(proj(v, lock.L), o))).toBe(true);
     expect(drawn.some((v) => v[2] < 0.45 - 1e-4)).toBe(true);
+  });
+
+  it("the gap fills with banded gold foil across its diagonal, as an open lock does", () => {
+    const { c, lock, slot } = setup();
+    void c.form(lock, 0.5);
+    const mat = slot.fill.material as MeshBasicMaterial;
+    const tex = mat.map as DataTexture;
+    expect(tex).toBeTruthy();
+    // The texture runs the foil's stops (dark and bright bands), lifted toward gold hot.
+    const data = tex.image.data as Uint8Array, w = tex.image.width;
+    const luma = Array.from({ length: w }, (_, x) => 0.2126 * data[x * 4]! + 0.7152 * data[x * 4 + 1]! + 0.0722 * data[x * 4 + 2]!);
+    expect(Math.max(...luma) - Math.min(...luma)).toBeGreaterThan(80);
+    expect(Math.min(...luma)).toBeGreaterThan(90);
+    // Two bright bands (the stops at 0.2 and 0.56) between darker ones (0, 0.38, 0.76).
+    const at = (t: number) => luma[Math.round(t * (w - 1))]!;
+    expect(at(0.2)).toBeGreaterThan(at(0) + 30);
+    expect(at(0.2)).toBeGreaterThan(at(0.38) + 20);
+    expect(at(0.56)).toBeGreaterThan(at(0.38) + 20);
+    expect(at(0.56)).toBeGreaterThan(at(0.76) + 20);
+    // Each corner of the gap reads the foil along the diagonal (x - y) across it, inside the texture's ends.
+    const uv = slot.fill.geometry.getAttribute("uv") as BufferAttribute;
+    const outline = lock.target[lock.missing]!;
+    const us = outline.map((_, i) => uv.getX(i));
+    for (const u of us) {
+      expect(u).toBeGreaterThan(0.04);
+      expect(u).toBeLessThan(0.96);
+    }
+    expect(Math.max(...us) - Math.min(...us)).toBeGreaterThan(0.5);
+    const diag = outline.map((p) => p[0] - p[1]);
+    const order = (xs: number[]) => xs.map((_, i) => i).sort((a, b) => xs[a]! - xs[b]!);
+    expect(order(us)).toEqual(order(diag));
   });
 
   it("gold fills the gap for 300 ms, then the piece forms; 700 ms in all", async () => {

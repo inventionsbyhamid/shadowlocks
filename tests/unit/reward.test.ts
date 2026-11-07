@@ -1,9 +1,13 @@
 // The reward's rise, pinch and drop, and a key on the box pressed by a fingertip, without a renderer.
 import { describe, expect, it } from "vitest";
-import { Group, Vector3 } from "@iwsdk/core";
+import { Group, type Mesh, type MeshBasicMaterial, Vector3 } from "@iwsdk/core";
 import { generateBox } from "../../src/core/generator";
 import type { V3 } from "../../src/core/types";
+import { FRAME_BAR } from "../../src/render/box-scene";
 import { KEY_EVENT } from "../../src/render/finger-key";
+import { BoxOpenFx, DRAWER_X } from "../../src/render/fx/box-open";
+import { FlashBudget } from "../../src/render/fx/flash-budget";
+import { boxToWorld, DEFAULT_BOX_CM, placeBox } from "../../src/render/placement";
 import { REWARD, Reward, type RewardHands } from "../../src/render/reward";
 import { COPY } from "../../src/ui/copy";
 import { PLATE, plateLayout, plateText } from "../../src/ui/plate";
@@ -44,7 +48,7 @@ function risen() {
 }
 
 describe("reward", () => {
-  it("rises out of the drawer with the tune and floats there", () => {
+  it("rises out of the drawer with the tune, a little inward, and floats there", () => {
     const { r, run } = risen();
     run(REWARD.riseAtS - 0.05);
     expect(r.group.visible).toBe(false);
@@ -52,8 +56,107 @@ describe("reward", () => {
     run(REWARD.riseS + 0.1);
     expect(r.up).toBe(true);
     const p = r.position([0, 0, 0]);
-    expect(p[0]).toBeCloseTo(-0.22, 6);
+    // From the drawer at x -0.22, in to REWARD.maxX (clear of the front post).
+    expect(p[0]).toBeCloseTo(-Math.min(0.22, REWARD.maxX), 6);
     expect(p[1]).toBeCloseTo(-0.55 + REWARD.rise, 6);
+  });
+
+  it("a gold glow blooms behind it as it rises, on the box's flash, and settles to a soft glow; reduced motion: in place", () => {
+    for (const reduced of [false, true]) {
+      const budget = new FlashBudget();
+      const r = new Reward(new Group(), budget);
+      r.setBox(generateBox({ kind: "box", n: 3 }));
+      r.rise([0.22, -0.55, 1.27]);
+      const { hands } = hand();
+      const seen: { o: number; s: number }[] = [];
+      for (let t = 0; t < REWARD.riseAtS + REWARD.riseS + 0.5; t += DT) {
+        budget.step(DT);
+        r.update(DT, hands, true, CM, reduced);
+        const m = r.glow.material as MeshBasicMaterial;
+        seen.push({ o: r.glow.visible && r.group.visible ? m.opacity : 0, s: r.glow.scale.x });
+      }
+      // Nothing before it rises; one flash when it does; a peak, then a softer glow that stays.
+      expect(seen.slice(0, Math.floor((REWARD.riseAtS - 0.05) / DT)).every((x) => x.o === 0)).toBe(true);
+      expect(budget.started).toBe(1);
+      const peak = Math.max(...seen.map((x) => x.o));
+      expect(peak).toBeCloseTo(REWARD.glow.peak, 2);
+      expect(seen.at(-1)!.o).toBeCloseTo(REWARD.glow.peak * REWARD.glow.rest, 2);
+      // Rising, the glow never jumps.
+      for (let i = 1; i < seen.length; i++) expect(Math.abs(seen[i]!.o - seen[i - 1]!.o)).toBeLessThan(0.08);
+      const sizes = seen.filter((x) => x.o > 0).map((x) => x.s);
+      if (reduced) expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThan(1e-9);
+      else expect(Math.max(...sizes)).toBeGreaterThan(Math.min(...sizes) * 1.3);
+    }
+  });
+
+  it("risen, the plaque clears the box's front post as the seated player sees it, on either side the drawer opens", () => {
+    // The box placed in front of a seated head (the default size), the head looking straight at it.
+    const m = placeBox({ pos: new Vector3(0, 1.2, 0), yaw: 0 }, DEFAULT_BOX_CM);
+    const angle = (p: V3) => {
+      const w = boxToWorld(m, p, new Vector3());
+      return Math.atan2(Math.abs(w.x), -w.z);
+    };
+    for (const side of [-1, 1]) {
+      const r = new Reward(new Group());
+      r.setBox(generateBox({ kind: "box", n: 3 }));
+      const fx = new BoxOpenFx(new Group(), new FlashBudget());
+      fx.start(side);
+      r.rise(fx.drawerTop([0, 0, 0]));
+      const { hands } = hand();
+      for (let t = 0; t < REWARD.riseAtS + REWARD.riseS + 0.2; t += DT) r.update(DT, hands, false, CM, false);
+      expect(r.up).toBe(true);
+      const p = r.position([0, 0, 0]);
+      // Its outer corners, against the front post's inner face (x 0.5 - BAR/2, the box's front, all its height).
+      const P = REWARD.plaque, x = p[0] + side * (P.w / 2);
+      const plaque = Math.max(angle([x, p[1] - P.h / 2, p[2]]), angle([x, p[1] + P.h / 2, p[2]]));
+      let post = Infinity;
+      for (let y = -0.5; y <= 0.5; y += 0.05) post = Math.min(post, angle([side * (0.5 - FRAME_BAR / 2), y, 1]));
+      expect(plaque).toBeLessThan(post - (0.5 * Math.PI) / 180);
+      // It rose from the drawer, a little inward: no further out than the drawer, on the drawer's side.
+      expect(Math.sign(p[0])).toBe(side);
+      expect(Math.abs(p[0])).toBeLessThanOrEqual(DRAWER_X);
+    }
+  });
+
+  it("the glow is a flat glow behind the plaque, parallel to it, so it never cuts across the plaque from any side", () => {
+    const r = new Reward(new Group());
+    r.setBox(generateBox({ kind: "box", n: 3 }));
+    // A camera-facing sprite tilts through a plaque seen from above or aside (a bright wedge across it); a plane
+    // parallel to the plaque, behind its back, cannot.
+    const glow = r.glow as Mesh, plaque = r.group.getObjectByName("Reward Trinket") as Mesh;
+    expect(glow.isMesh).toBe(true);
+    expect((glow as unknown as { isSprite?: boolean }).isSprite).toBeUndefined();
+    expect(glow.rotation.toArray().slice(0, 3)).toEqual(plaque.rotation.toArray().slice(0, 3));
+    plaque.geometry.computeBoundingBox();
+    expect(glow.position.z).toBeLessThan(plaque.position.z + plaque.geometry.boundingBox!.min.z - 0.01);
+    // Its material adds light (light-blend.test.ts holds the blend), drawn without writing depth.
+    expect((glow.material as MeshBasicMaterial).depthWrite).toBe(false);
+  });
+
+  it("the glow shows round the plaque, not only behind it: bright at its sides at the peak, soft there at rest", () => {
+    const budget = new FlashBudget();
+    const r = new Reward(new Group(), budget);
+    r.setBox(generateBox({ kind: "box", n: 3 }));
+    r.rise([0.22, -0.55, 1.27]);
+    const { hands } = hand();
+    const m = r.glow.material as MeshBasicMaterial;
+    const img = m.map!.image as { data: Uint8Array; width: number };
+    // The glow's own alpha at the plaque's side edge (radius 0..1 across the sprite), read from its texture.
+    const atSide = () => {
+      const n = img.width, x = Math.floor(n / 2 + ((REWARD.plaque.w / 2) / (r.glow.scale.x / 2)) * (n / 2));
+      return x >= n ? 0 : img.data[(Math.floor(n / 2) * n + x) * 4 + 3]! / 255;
+    };
+    let peak = 0;
+    for (let t = 0; t < REWARD.riseAtS + REWARD.riseS + 0.5; t += DT) {
+      budget.step(DT);
+      r.update(DT, hands, true, CM, false);
+      if (r.glow.visible) peak = Math.max(peak, m.opacity * atSide());
+    }
+    // Gold added at the plaque's sides: a clear bloom, then a soft glow while it floats.
+    expect(peak).toBeGreaterThanOrEqual(0.3);
+    expect(m.opacity * atSide()).toBeGreaterThanOrEqual(0.12);
+    // About the box's width: it lights the reward, not the room.
+    expect(REWARD.glow.size).toBeLessThanOrEqual(1.1);
   });
 
   it("pinched and let go nearer the player: taken; let go elsewhere: it floats back", () => {

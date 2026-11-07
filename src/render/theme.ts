@@ -41,6 +41,13 @@ export const MATERIALS = {
   gold: { roughness: 0.16, metalness: 1.0, envMapIntensity: 1.5 },
   lining: { roughness: 1.0, metalness: 0, envMapIntensity: 0.15 },
   glass: { roughness: 0.04, metalness: 0, opacity: 0.11, envMapIntensity: 1.6 },
+  /**
+   * The lid: from the seated eye it lies over the panel's upper half, so a pale lid would lift the shadows there
+   * (luma 18 to 28 with the side glass's look). Smoked dark instead: what it adds is about as dark as a shadow, so
+   * shadows keep their depth, the lit panel behind it dims a little, as under real smoked glass, and the strips
+   * still draw a glint across it.
+   */
+  lid: { color: "#1d2026", roughness: 0.04, metalness: 0, opacity: 0.1, envMapIntensity: 1.8 },
   /** Threads drawn at this opacity. */
   threadOpacity: 0.6,
 } as const;
@@ -83,26 +90,64 @@ export const PANEL_LIGHT = {
   lanternRadius: 0.016,
 } as const;
 
+/** A soft light strip in a studio environment: colour times k, at pos (box units, +z the player's side), w x h. */
+export interface EnvPanel {
+  readonly color: string;
+  readonly k: number;
+  readonly pos: readonly [number, number, number];
+  readonly w: number;
+  readonly h: number;
+}
+
+/** The lookdev's studio strips: tall soft lights the clearcoat edges and polished gold catch. */
+const STRIPS: readonly EnvPanel[] = [
+  { color: "#fff1d8", k: 3.2, pos: [-3, 2.5, 3], w: 0.35, h: 5 },
+  { color: "#fff1d8", k: 2.4, pos: [4, 1, 2.5], w: 0.3, h: 5 },
+  { color: "#ffffff", k: 1.4, pos: [0, 6, 1], w: 5, h: 0.25 },
+  { color: "#ffe9c4", k: 1.6, pos: [0.5, 2.2, 5], w: 3.2, h: 0.9 },
+  { color: "#fff4e0", k: 0.9, pos: [-1.5, -1.5, 4.5], w: 2.5, h: 0.6 },
+];
+
 /**
- * Studio reflections for the lacquer and gold (a small environment rendered once, turned with the
- * box): tall soft strips that the frame's clearcoat edges catch, and a warm glow below and in front,
- * the lap the lantern lights. Polished gold shows only what it reflects: a scrap faces its lantern
- * spot (low and in front), so from the eye it mirrors the space below the box; with the lookdev's
- * black studio (#040405) most scraps read black, like their own shadows. The base is a dim warm
- * brown, so a scrap facing nothing bright is dark bronze, never black on the black frame. Directions
- * in box units (+z is the player's side); the first five strips are the lookdev's, the last two the lap.
+ * Studio reflections (small environments rendered once, turned with the box), one per kind of surface.
+ *
+ * Gold: polished gold shows only what it reflects. A scrap faces its lantern spot (low and in front), so from the
+ * eye it mirrors the space below the box; in the lookdev's black studio (#040405) most scraps read black, like
+ * their own shadows. So gold's studio has a dim warm brown base and a warm glow below and in front (the lap the
+ * lantern lights): a scrap facing nothing bright is dark bronze, never black on the black frame.
+ *
+ * Lacquer and glass: the same strips over a near-black base, as the lookdev had it. The clearcoat reflects almost
+ * everything at a grazing angle, and from a seated eye the top bars are seen at one: over the warm base they read
+ * brown, over this one they stay black lacquer with a bright line where a strip catches the edge. The smoked glass
+ * lid, which lies over the panel's upper half from the seated eye, takes this one too, so it adds a sheen, not a
+ * brown haze, over the shadows behind it.
  */
 export const ENV = {
-  base: "#3a2e20",
-  panels: [
-    { color: "#fff1d8", k: 3.2, pos: [-3, 2.5, 3], w: 0.35, h: 5 },
-    { color: "#fff1d8", k: 2.4, pos: [4, 1, 2.5], w: 0.3, h: 5 },
-    { color: "#ffffff", k: 1.4, pos: [0, 6, 1], w: 5, h: 0.25 },
-    { color: "#ffe9c4", k: 1.6, pos: [0.5, 2.2, 5], w: 3.2, h: 0.9 },
-    { color: "#fff4e0", k: 0.9, pos: [-1.5, -1.5, 4.5], w: 2.5, h: 0.6 },
-    { color: "#ffd9a6", k: 0.9, pos: [0, -2.5, 3], w: 8, h: 5 },
-    { color: "#ffd9a6", k: 0.6, pos: [0, -4, 0.5], w: 8, h: 8 },
-  ],
+  gold: {
+    base: "#3a2e20",
+    panels: [
+      ...STRIPS,
+      { color: "#ffd9a6", k: 0.9, pos: [0, -2.5, 3], w: 8, h: 5 },
+      { color: "#ffd9a6", k: 0.6, pos: [0, -4, 0.5], w: 8, h: 8 },
+    ] as readonly EnvPanel[],
+  },
+  lacquer: { base: "#09090c", panels: STRIPS },
+} as const;
+
+/**
+ * Theatre lights (theatre.ts): while a box is in play the room dims so the lantern and the shadows carry the scene,
+ * and the light comes back up when the box opens. Brightness the room keeps (the owner: 35% in play, 55% in menus,
+ * never darker than 35%). The veil over the passthrough is near black with a breath of the film's cool tint
+ * (#b9c8de at 30% saturation in the lookdev): passthrough cannot be desaturated from a web page, so dimming carries
+ * it, and the faint cool lift keeps the dimmed room reading as night rather than as a brown haze.
+ * The virtual room (no passthrough): a dark studio, cool charcoal above, a warm glow low in front where the lap is.
+ */
+export const ROOM = {
+  play: 0.35,
+  menu: 0.55,
+  fadeS: 0.8,
+  veil: "#080a0e",
+  studio: { top: "#060608", horizon: "#16171c", floor: "#0e0c0b", glow: "#3a2c1c" },
 } as const;
 
 /** The lantern's glow sprite and how brightness, flare and ripple move it. */

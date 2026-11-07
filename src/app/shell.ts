@@ -7,6 +7,7 @@ import { specOfKey } from "../core/generator";
 import type { BoxSnapshot } from "../core/profile";
 import { BoxScene } from "../render/box-scene";
 import { placement } from "../render/placement";
+import { type RoomLight, RoomLights, Theatre } from "../render/theatre";
 import type { ContinueTo } from "../ui/menus/home";
 import type { LessonRow } from "../ui/menus/lessons";
 import type { Behind } from "../ui/menus/types";
@@ -57,7 +58,13 @@ export class Shell {
   readonly panels: Panels;
   /** The box in the lap, at the box placement. */
   readonly box: BoxScene;
-  /** The virtual room shown without passthrough (none yet); `updateRoomVisibility` switches it. */
+  /** Theatre lights: the room dims while a box is in play, half way in menus (ShellSystem steps it). */
+  readonly theatre: Theatre;
+  /** Which light the room has: the screen and whether the box in play has opened. */
+  readonly roomLights: RoomLights;
+  /** Called when the room's light changes, from and to (the theatre's sounds). */
+  onRoomLight: ((from: RoomLight, to: RoomLight) => void) | null = null;
+  /** The virtual room shown without passthrough (the theatre's studio); `updateRoomVisibility` switches it. */
   room: Object3D | null = null;
   /** Recenter was asked for (a key, or Quest's own recenter); ShellSystem places the box on its next frame. */
   recenterAsked = false;
@@ -73,6 +80,18 @@ export class Shell {
   ) {
     this.lifecycle = new Lifecycle({ persist: (snap) => this.persist(snap) });
     this.box = new BoxScene(world);
+    this.theatre = new Theatre();
+    world.scene.add(this.theatre.veil, this.theatre.room);
+    this.room = this.theatre.room;
+    this.updateRoomVisibility();
+    // Menus dim the room half way, a box in play the most, and the light comes up when the box opens until the next
+    // box starts; the dimming setting can turn it off. The theatre's sounds hook in through onRoomLight.
+    this.theatre.setEnabled(this.settings.get().dimming);
+    this.settings.subscribe((s) => this.theatre.setEnabled(s.dimming));
+    this.roomLights = new RoomLights(this.theatre, (from, to) => this.onRoomLight?.(from, to));
+    on("screen", (e) => this.roomLights.screen(e.to));
+    on("box-open", () => this.roomLights.boxOpen(true));
+    on("box-start", () => this.roomLights.boxOpen(false));
     // Menus emit `press` themselves and call back here for anything beyond the screens.
     this.panels = new Panels(world, {
       profiles,
@@ -175,7 +194,9 @@ export class Shell {
   /** Lay out the box and the panels after the placement (or the box size) changed. */
   layout(): void {
     this.box.setPlacement(placement.matrix());
-    this.panels.layout(placement.pose(), placement.matrix());
+    const pose = placement.pose();
+    this.panels.layout(pose, placement.matrix());
+    this.theatre.placeRoom(pose.position[0], pose.position[2]);
   }
 
   /** The virtual room shows only without passthrough (VR session or the 2D page). */
@@ -215,6 +236,14 @@ export class Shell {
       await new Promise((r) => setTimeout(r, 50));
     }
     return !!this.world.session;
+  }
+
+  /**
+   * A box (or lesson) is about to start (Game.play and resume, before the play screen): the box opened before it is
+   * done with, so the room goes down to play's light, not back up. The session's box-start says it again later.
+   */
+  boxBegins(): void {
+    this.roomLights.boxOpen(false);
   }
 
   /**
@@ -292,6 +321,30 @@ export class Shell {
       this.lifecycle.setXrVisibility("non-immersive", performance.now());
       this.updateRoomVisibility();
     });
+  }
+
+  /**
+   * Compile every shader the scene can show, hidden ones too (a crystallise, the settle ripple, the ring beam, the
+   * theatre's veil and studio, menus not shown yet), for the session's own render target: a program compiled before
+   * the session (or for the page) does not serve a multiview XR target, and a compile the first time something shows
+   * stalls that frame on the headset. Call it inside an XR frame (three sets the session's target per frame):
+   * ShellSystem does, on each session's first frame. Links in the background where the browser can; a failure
+   * only costs that. The panel's etched textures upload now too, not on the first frame they show.
+   */
+  prewarm(): Promise<void> {
+    const r = this.world.renderer;
+    try {
+      for (const t of [this.box.panelArt.uniforms.uAlbedo.value, this.box.panelArt.uniforms.uMasks.value, this.box.panelArt.uniforms.uHalo.value]) {
+        if (t) r.initTexture(t);
+      }
+      return r.compileAsync(this.world.scene, this.world.camera).then(
+        () => undefined,
+        (err: unknown) => console.warn("shaders could not be compiled ahead", err),
+      );
+    } catch (err) {
+      console.warn("shaders could not be compiled ahead", err);
+      return Promise.resolve();
+    }
   }
 
   /** Ask for 90 Hz and full foveation where the headset supports them; never fail over it. */
