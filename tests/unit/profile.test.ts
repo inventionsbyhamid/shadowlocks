@@ -2,7 +2,7 @@ import { IDBFactory } from "fake-indexeddb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FeedbackEvent } from "../../src/app/bus";
 import { NOT_SAVED_NOTICE, ProfileStore } from "../../src/app/profile-store";
-import { type BoxSnapshot, type CollectionItem, isSnapshot, migrate, newProfile, type Profile } from "../../src/core/profile";
+import { type BoxSnapshot, type CollectionItem, isSnapshot, migrate, newProfile, type Profile, withProgressReset } from "../../src/core/profile";
 import { openStore } from "../../src/platform/store";
 
 afterEach(() => {
@@ -60,6 +60,16 @@ const notices = () => {
 };
 
 describe("profile", () => {
+  it("a saved box keeps which way it was mirrored (a hand change resumes it the other way round)", () => {
+    const s = { ...snap(), mirrored: true };
+    expect(isSnapshot(s)).toBe(true);
+    expect(isSnapshot({ ...snap(), mirrored: "yes" })).toBe(false);
+    const p = { ...newProfile(NOW, BUILD), current: s };
+    expect(migrate(JSON.parse(JSON.stringify(p)), NOW, BUILD).current).toEqual(s);
+    // Older saves say nothing about it, and stay so.
+    expect(migrate(JSON.parse(JSON.stringify({ ...p, current: snap() })), NOW, BUILD).current).not.toHaveProperty("mirrored");
+  });
+
   it("newProfile defaults: box 1, nothing played, the first-launch marker and default settings", () => {
     expect(newProfile(NOW, BUILD)).toEqual({
       version: 1,
@@ -257,5 +267,42 @@ describe("profile", () => {
     expect(ps.persistent).toBe(false);
     expect(n.out).toEqual([NOT_SAVED_NOTICE]);
     expect((await store.load(NOW, BUILD)).nextBox).toBe(7);
+  });
+});
+
+describe("reset progress", () => {
+  it("starts boxes, lessons, tips, the collection and the daily streak over; settings and the trial clock stay", () => {
+    const p = played();
+    const r = withProgressReset(p);
+    expect(r).toEqual({
+      ...newProfile(p.firstLaunch.atMs, p.firstLaunch.build),
+      lastSeenMs: p.lastSeenMs,
+      settings: p.settings,
+    });
+    expect(r.nextBox).toBe(1);
+    expect(r.current).toBeNull();
+    expect(r.collection).toEqual([]);
+    expect(r.daily).toEqual({ streak: 0, best: 0, lastDay: null, current: null });
+    expect(r.firstLaunch).toEqual({ atMs: NOW - 3 * DAY, build: "0.9.0" });
+    // A copy: the old profile is untouched and shares nothing.
+    expect(p.nextBox).toBe(6);
+    expect(r.settings).not.toBe(p.settings);
+  });
+
+  it("the profile store resets in place and saves", async () => {
+    vi.stubGlobal("indexedDB", new IDBFactory());
+    const ps = await ProfileStore.open(await openStore(), () => {}, clock());
+    Object.assign(ps.profile, played());
+    await ps.save();
+    const before = ps.profile;
+    await ps.resetProgress();
+    expect(ps.profile).toBe(before);
+    expect(ps.profile.nextBox).toBe(1);
+    expect(ps.profile.settings.boxSizeCm).toBe(28);
+    const back = await (await openStore()).load(NOW, BUILD);
+    expect(back.nextBox).toBe(1);
+    expect(back.tipsSeen).toEqual([]);
+    expect(back.settings.handed).toBe("left");
+    expect(back.firstLaunch).toEqual({ atMs: NOW - 3 * DAY, build: "0.9.0" });
   });
 });

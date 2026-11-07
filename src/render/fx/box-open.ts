@@ -56,9 +56,14 @@ export const BOX_OPEN_FX = {
 const PANE = 0.95;
 const LID_Y = 0.49;
 /** The drawer: size, its height (the plinth's centre), and its centre's z closed (inside the plinth). */
-const DRAWER = { w: 0.42, h: 0.07, d: 0.5, y: -0.585, z: 0.72 } as const;
-/** The drawer sits this far from the box centre, toward the side away from the lantern. */
-export const DRAWER_X = 0.22;
+const DRAWER = { w: 0.3, h: 0.07, d: 0.5, y: -0.585, z: 0.72 } as const;
+/** The reward drawer's size (box units), for checks against the menu drawer beside it. */
+export const REWARD_DRAWER: { readonly w: number; readonly h: number } = DRAWER;
+/**
+ * The drawer sits this far from the box centre, toward the side away from the lantern: clear of the menu
+ * drawer in the middle of the plinth (src/render/drawer.ts, 0.34 wide), inside the plinth's 1.1.
+ */
+export const DRAWER_X = 0.34;
 
 export class BoxOpenFx {
   readonly group = new Group();

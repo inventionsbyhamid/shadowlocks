@@ -19,6 +19,7 @@ import { CueScheduler } from "./scheduler";
  * - `ring` {lock, on}: the ring chime when the rings line up (on), nothing when they part.
  * - `crystallise` {lock}, `hint` {lock, gain?}, `lesson-step`: their sounds.
  * - `theatre` {up}: the theatre lights coming up (theatre_up) or going down (theatre_dim), head-locked.
+ * - `drawer`: the menu drawer pulled open (its slide).
  * - `tick` {cm}, or `feel` {e: {type: "tick", cm}}: a dial tick, climbing G A B D.
  * An event that names a lock must name it as a whole number from 0; otherwise it is skipped.
  */
@@ -36,7 +37,7 @@ const INPUT_SOUNDS: Record<string, SfxId[]> = {
   release: ["lantern_set"],
 };
 /** Keys that step back out of a screen: a softer click. */
-const BACK_KEYS = new Set(["settings-done"]);
+const BACK_KEYS = new Set(["settings-done", "lessons-back", "collection-back", "trial-back", "reset-keep"]);
 /** Screens (UiEvent `screen`, field `to`) with a box in play; every other screen is menu music. */
 const PLAY_SCREENS = new Set(["play"]);
 const EMPTY: readonly Cue[] = Object.freeze([]);
@@ -50,7 +51,7 @@ export const LESSON_STEP_GAIN = 0.5;
 /** The hint lantern's glow after the player is stuck plays the hint sound 6 dB down. */
 export const HINT_GLOW_GAIN = 10 ** (-6 / 20);
 /** The game events the mapper knows (see CueEvent): in the game they sound through GameSounds. */
-export const GAME_CUE_TYPES: ReadonlySet<string> = new Set(["lock-open", "box-open", "ring", "crystallise", "hint", "lesson-step", "tick", "feel"]);
+export const GAME_CUE_TYPES: ReadonlySet<string> = new Set(["lock-open", "box-open", "ring", "crystallise", "hint", "lesson-step", "tick", "feel", "drawer"]);
 /** The theatre lights' events (GameSounds.theatre): made once, never changed. */
 const THEATRE_UP: CueEvent = Object.freeze({ type: "theatre", up: true });
 const THEATRE_DIM: CueEvent = Object.freeze({ type: "theatre", up: false });
@@ -184,6 +185,9 @@ export class CueMapper {
         return;
       case "theatre":
         this.sfx(out, e.up === true ? "theatre_up" : "theatre_dim");
+        return;
+      case "drawer":
+        this.sfxAt(out, "drawer_pull", e);
         return;
       case "tick":
         this.sfxAt(out, "dial_tick", e, { pitch: dialTickPitch(Number(e.cm)) });
@@ -440,6 +444,12 @@ export class GameSounds {
   /** The theatre lights: the room's light coming up (the box opened) or going down (a box in play). Head-locked. */
   theatre(up: boolean): void {
     this.handle(up ? THEATRE_UP : THEATRE_DIM);
+  }
+
+  /** The menu drawer was pulled open (at the handle, when given): its slide, and a clunk in the pulling hand. */
+  drawerPull(at?: Vec3, hand?: Hand): void {
+    this.handle(at ? { type: "drawer", at } : { type: "drawer" });
+    this.pulse(hand, "settle");
   }
 
   /** A menu opened over the box (or closed): the bed's menu low-pass, and the hums hush. */

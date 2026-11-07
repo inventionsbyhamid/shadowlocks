@@ -1,10 +1,10 @@
 // The box in play, one frame at a time: each lock measured from where the lantern is (only locks within WARMTH_RANGE
 // of it, and only when the lantern or a finger moved), its warmth on the panel and in its hum, its rings lining up,
-// a finger lock's hold and its piece forming (session-fingers.ts), locks opening, the head's gaze choosing the lock in
-// focus, the stuck watch lighting the hint lantern, then the box opening, its reward taken, and the next box offered
-// on the plate. It owns the rules around a box (session-rules.ts): the Warmth setting, hints, saves (every 2 s of
-// play, and whenever the lifecycle asks), the collection, the next box and the daily streak. Play time counts only
-// while the player can see the box.
+// a finger lock's hold and its piece forming (session-fingers.ts), locks opening (the rule met for OPEN_DWELL_MS with
+// the lantern at rest), the head's gaze choosing the lock in focus, the stuck watch lighting the hint lantern, then
+// the box opening, its reward taken, and the next box offered on the plate. It owns the rules around a box
+// (session-rules.ts): the Warmth setting, hints, saves (every 2 s of play, and whenever the lifecycle asks), the
+// collection, the next box and the daily streak. Play time counts only while the player can see the box.
 //
 // The session runs right after the lantern and the hands (priority -2.8), before the box scene draws the frame. The
 // renderer, the hands and the sounds come in as small interfaces (session-deps.ts), so the unit tests run it on a
@@ -187,8 +187,24 @@ export class BoxSession {
     }
     if (token !== this.token) return;
     if (this.deps.settings.get().handed === "left") box = mirrorBox(box);
-    const keep = snap && snap.key === box.key && snap.gen === GENERATOR_VERSION ? snap : null;
+    let keep = snap && snap.key === box.key && snap.gen === GENERATOR_VERSION ? snap : null;
+    // Saved for the other hand: this box is the other way round, and so is the lantern's side of it.
+    if (keep && keep.mirrored !== undefined && keep.mirrored !== box.mirrored) {
+      keep = { ...keep, lantern: [-keep.lantern[0], keep.lantern[1], keep.lantern[2]] };
+    }
     this.apply(box, spec, keep);
+  }
+
+  /**
+   * The Left hand setting changed: the box being solved is rebuilt the other way round from its own save, its open
+   * locks, pieces, hints and time kept and its lantern crossing to the same side of the box. Nothing for a box that
+   * already matches the hand, one loading, one opened (its moment has played) or a lesson's.
+   */
+  rehand(): Promise<void> {
+    const box = this.current, spec = this.currentSpec;
+    if (!box || !spec || spec.kind === "lesson" || this.stageNow !== "playing") return Promise.resolve();
+    if (box.mirrored === (this.deps.settings.get().handed === "left")) return Promise.resolve();
+    return this.start(spec, this.snapshot(), { practice: this.practiceNow });
   }
 
   /**
@@ -198,6 +214,11 @@ export class BoxSession {
    */
   next(): Promise<void> {
     if (this.stageNow !== "offered") return Promise.resolve();
+    // Every Next is an endless box: asked of the entitlement first (a trial over keeps only the Daily Box and lessons).
+    if (!(this.deps.canPlayBox?.() ?? true)) {
+      this.deps.boxRefused?.();
+      return Promise.resolve();
+    }
     const spec = this.currentSpec, p = this.deps.profiles.profile;
     if (this.practiceNow && spec?.kind === "box") return this.start({ kind: "box", n: spec.n + 1 }, null, { practice: true });
     const saved = p.current ? specOfKey(p.current.key) : null;
@@ -255,7 +276,17 @@ export class BoxSession {
       if (s.open || s.done) open.push(s.lock.i);
       if (Number.isFinite(s.crystalZ)) crystal.push({ lock: s.lock.i, z: s.crystalZ });
     }
-    return { key: box.key, gen: GENERATOR_VERSION, lantern: p, open, crystal, elapsedMs: this.elapsed, hints: this.book.count, hintLevel: this.book.levels() };
+    return {
+      key: box.key,
+      gen: GENERATOR_VERSION,
+      mirrored: box.mirrored,
+      lantern: p,
+      open,
+      crystal,
+      elapsedMs: this.elapsed,
+      hints: this.book.count,
+      hintLevel: this.book.levels(),
+    };
   }
 
   /** The next hint for lock `lock`: 1 its scraps, 2 its rings and line, 3 a marker at the spot's distance, 4 a ghost lantern on the spot. */
@@ -325,7 +356,7 @@ export class BoxSession {
     d.sound.boxStart(spec);
     // The lantern drops out of a hand for the new box: a real release, but a silent one (the box's moment).
     if (d.lantern.grab.holder !== null) d.sound.muteRelease();
-    this.view.setBox(box, spec);
+    this.view.setBox(box, spec, this.practiceNow);
     this.view.offerNext(false);
     this.heldBack = true;
     d.emit({ type: "box-start", key: box.key });
@@ -386,7 +417,7 @@ export class BoxSession {
     last[1] = L[1];
     last[2] = L[2];
     this.lastVersion = v;
-    const warmOn = d.settings.get().warmth;
+    const warmOn = d.settings.get().warmth, rest = d.lantern.atRest;
     let ns = -1, best = 0, opened = false;
     fingers.begin();
     for (let i = 0; i < this.locks.length; i++) {
@@ -419,7 +450,8 @@ export class BoxSession {
         const z = fingers.update(lock, s.cov, near, dt);
         if (z === z) this.pieceForming(s, z);
       } else {
-        s.meetMs = s.meets ? s.meetMs + dt : 0;
+        // The open dwell counts only while the lantern is at rest: a sweep, even along the lock's ray, opens nothing.
+        s.meetMs = s.meets && rest ? s.meetMs + dt : 0;
         if (s.meetMs >= OPEN_DWELL_MS - EPS_MS) {
           this.openLock(s, false);
           opened = true;

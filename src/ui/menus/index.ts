@@ -1,14 +1,16 @@
-// The menus: one UIKitML panel per screen, floating in front of the box and pressed with a
-// fingertip (or a ray). Paints each screen when it opens, springs panels in and out, moves every
-// keycap, emits `hover` and `press` on the bus (audio turns them into clicks) and acts on presses.
-// Each panel has a placeholder slab for a body (src/ui/panel-slab.ts). Per-frame work (`update`)
-// does not allocate.
-import { type Object3D, type UIKitMLAsset, Vector3, type World } from "@iwsdk/core";
+// The drawer's menus: one UIKitML panel per screen, standing on the box's open drawer and pressed
+// with a fingertip (or a ray). Paints each screen when it opens (and when what it shows changes),
+// springs panels in and out, moves every keycap, emits `hover` and `press` on the bus (audio turns
+// them into clicks) and acts on presses. Each panel has a slab mesh for a body (src/ui/panel-slab.ts).
+// Per-frame work (`update`) does not allocate; painting happens only on a change.
+import { type Matrix4, type Object3D, type UIKitMLAsset, Vector3, type World } from "@iwsdk/core";
 import { emit, on } from "../../app/bus";
-import type { BoxPose } from "../../render/placement";
 import type { ProfileStore } from "../../app/profile-store";
 import { go, type Screen } from "../../app/screens";
 import type { SettingsStore } from "../../app/settings";
+import { DRAWER_PANEL_ANCHOR } from "../../render/drawer";
+import type { BoxPose } from "../../render/placement";
+import { COPY } from "../copy";
 import { type FrameTips, frameTips } from "../fingertips";
 import { KeyView, NO_TIPS } from "../key-view";
 import { MOTION } from "../motion";
@@ -16,19 +18,23 @@ import { PanelSlabs } from "../panel-slab";
 import { PanelView } from "../panel-ui";
 import { UI } from "../theme";
 import { PanelMotion } from "../transitions";
-import { HOME, homeView, paintHome } from "./home";
-import { paintSettings, SETTINGS, settingAction, settingsView, sliderPosition, TOGGLES } from "./settings";
-import type { MenuSpec } from "./types";
+import { COLLECTION, collectionView, paintCollection } from "./collection";
+import { type ContinueTo, continueTo, HOME, homeView, paintHome } from "./home";
+import { LESSONS, type LessonRow, lessonRowOf, lessonsView, paintLessons } from "./lessons";
+import { paintSettings, RESET, SETTINGS, settingAction, settingsView, sliderPosition, TOGGLES, toggleOn } from "./settings";
+import { type BuyState, paintTrial, TRIAL, trialView } from "./trial";
+import type { MenuData, MenuSpec } from "./types";
 
-export const MENU_SPECS: readonly MenuSpec[] = [HOME, SETTINGS];
+export const MENU_SPECS: readonly MenuSpec[] = [HOME, LESSONS, COLLECTION, SETTINGS, RESET, TRIAL];
 
 /**
- * Where panels float, from the box pose (its back panel's centre): the bottom edge level with the
- * bottom of a 24 cm box and 16 cm toward the player, leaning back 35 degrees so the face looks up
- * at the seated player's eyes. Panels grow upward from that edge (UIKit anchor bottom). The menus
- * pass moves them into the drawer.
+ * Where panels stand: the bottom edge on the open drawer (DRAWER_PANEL_ANCHOR, box units, so it
+ * follows the box size), then `toward` metres nearer the player, leaning back `leanRad` from upright
+ * (in the world, not with the box's own tilt): enough to face a seated player's eyes, not so much
+ * that a tall panel's top reaches back into the box mouth at any box size. Panels grow upward from
+ * that edge (UIKit anchor bottom).
  */
-export const MENU_PLACE = { up: -0.12, toward: 0.16, tiltRad: (-35 * Math.PI) / 180 };
+export const MENU_PLACE = { toward: 0.015, leanRad: (15 * Math.PI) / 180 };
 
 /** One UIKit unit is 1 mm (scene scale 0.1, UIKit pixel size 1 cm): 1 mm in the panel's local units. */
 const MM = 1 / 100;
@@ -36,12 +42,25 @@ const MM = 1 / 100;
 export interface MenuActions {
   /** Place the box again from where the head is now. */
   recenter(): void;
+  /** Continue: back to what waits behind the menus, or the numbered box in progress, or the next. */
+  continueBox(to: Extract<ContinueTo, { kind: "back" | "box" }>): void;
+  /** Today's Daily Box (the key is live only once box 3 is solved). */
+  playDaily(): void;
+  /** Replay a lesson example or a tip (never touches box progress). */
+  replay(row: LessonRow): void;
+  /** Start over: boxes, lessons, tips, the collection and the streak (settings stay). */
+  resetProgress(): Promise<void>;
+  /** Buy the full game through billing (the trial screen's Buy). */
+  buy(): Promise<"bought" | "cancelled" | "error">;
+  /** Open the game's page on the Meta Horizon Store (a browser's trial screen). */
+  openStore(): void;
 }
 
 export interface MenuDeps {
   profiles: ProfileStore;
   settings: SettingsStore;
   actions: MenuActions;
+  data: MenuData;
 }
 
 /** A pokeable key, for the test hooks. */
@@ -59,19 +78,27 @@ interface LivePanel {
   keys: KeyView[];
 }
 
+const anchor = new Vector3();
+
 export class Menus {
   private readonly live: LivePanel[] = [];
   private readonly byScreen = new Map<Screen, LivePanel>();
   private screen: Screen = "boot";
-  /** The box pose panels follow, and whether a move waits for the finger to leave. */
+  /** The box pose and matrix panels follow, and whether a move waits for the finger to leave. */
   private readonly pose: BoxPose = { position: [0, 0, 0], yaw: 0 };
+  private readonly box = new Vector3();
   private hasPose = false;
   private layoutWaiting = false;
-  /** Placeholder panel bodies. */
+  /** Panel bodies. */
   private readonly slabs: PanelSlabs;
   private slabsShown = false;
   private readonly tips: FrameTips;
   private readonly countEvent: { type: "count"; id: string; k: number; done: boolean } = { type: "count", id: "", k: 0, done: false };
+  /** The Collection page shown (0: newest). */
+  private page = 0;
+  private buyState: BuyState = "idle";
+  /** A one-off line for the next Home ("Progress reset."). */
+  private note: string | null = null;
 
   constructor(
     world: World,
@@ -129,6 +156,8 @@ export class Menus {
     const from = this.screen;
     if (from === to) return;
     this.screen = to;
+    if (to === "collection" && from === "home") this.page = 0;
+    if (to === "trial" && this.buyState !== "buying") this.buyState = "idle";
     if (this.layoutWaiting) this.placePanels();
     const out = this.byScreen.get(from);
     const into = this.byScreen.get(to);
@@ -155,16 +184,24 @@ export class Menus {
     }
   }
 
+  /** What the current screen shows may have changed (the profile, the entitlement): paint it again. */
+  refresh(): void {
+    if (this.byScreen.has(this.screen)) this.paint(this.screen);
+  }
+
   /**
-   * Put every panel in front of the box. Not per frame: only when the box moves. While a fingertip
-   * is on a key of the current panel the move waits (a panel moving onto a finger would press a key
-   * again, say right after Recenter); it happens once the finger leaves or the screen changes.
+   * Stand every panel on the box's drawer. Not per frame: only when the box moves or changes size.
+   * While a fingertip is on a key of the current panel the move waits (a panel moving onto a finger
+   * would press a key again, say right after Recenter or a box size step); it happens once the finger
+   * leaves or the screen changes.
    */
-  layout(pose: Readonly<BoxPose>): void {
+  layout(pose: Readonly<BoxPose>, box: Readonly<Matrix4>): void {
     this.pose.position[0] = pose.position[0];
     this.pose.position[1] = pose.position[1];
     this.pose.position[2] = pose.position[2];
     this.pose.yaw = pose.yaw;
+    anchor.set(DRAWER_PANEL_ANCHOR[0], DRAWER_PANEL_ANCHOR[1], DRAWER_PANEL_ANCHOR[2]).applyMatrix4(box);
+    this.box.copy(anchor);
     this.hasPose = true;
     if (this.fingerOnCurrent()) {
       this.layoutWaiting = true;
@@ -188,14 +225,14 @@ export class Menus {
   private placePanels(): void {
     this.layoutWaiting = false;
     if (!this.hasPose) return;
-    const pose = this.pose;
-    const [x, y, z] = pose.position;
-    const s = Math.sin(pose.yaw);
-    const c = Math.cos(pose.yaw);
+    const yaw = this.pose.yaw;
+    const s = Math.sin(yaw);
+    const c = Math.cos(yaw);
+    const t = MENU_PLACE.toward;
     for (const p of this.live) {
       const o = p.asset;
-      o.position.set(x + s * MENU_PLACE.toward, y + MENU_PLACE.up, z + c * MENU_PLACE.toward);
-      o.rotation.set(MENU_PLACE.tiltRad, pose.yaw, 0, "YXZ");
+      o.position.set(this.box.x + s * t, this.box.y, this.box.z + c * t);
+      o.rotation.set(-MENU_PLACE.leanRad, yaw, 0, "YXZ");
       o.updateMatrixWorld(true);
     }
   }
@@ -247,6 +284,11 @@ export class Menus {
       const p = this.live[i] as LivePanel;
       this.slabs.draw(p.view.root, p.motion.visible ? p.motion.opacity : 0);
     }
+  }
+
+  /** The screen shown now. */
+  get current(): Screen {
+    return this.screen;
   }
 
   /** Pokeable keys of a screen (shown ones only). For test hooks. */
@@ -336,29 +378,64 @@ export class Menus {
     p.asset.visible = p.motion.visible;
   }
 
+  /** Give a panel's keys their states: `disabled` ones move but never click; `lit` ones show on. */
+  private keyStates(p: LivePanel, disabled: readonly string[], lit: readonly string[] = []): void {
+    for (const k of p.keys) {
+      k.enabled = !disabled.includes(k.id);
+      k.lit = lit.includes(k.id);
+    }
+  }
+
   private paint(screen: Screen): void {
     const p = this.byScreen.get(screen);
     if (!p) return;
+    const profile = this.deps.profiles.profile;
+    const data = this.deps.data;
     switch (screen) {
       case "home": {
         // The storage notice shows once: it stays on this Home and is gone the next time.
-        const notice = this.deps.profiles.pendingNotice;
-        paintHome(p.view, homeView(notice));
-        if (notice !== null) this.deps.profiles.markNoticeShown();
+        const pending = this.deps.profiles.pendingNotice;
+        const notice = pending ?? this.note;
+        const v = homeView(profile, { behind: data.behind(), ent: data.ent(), today: data.today(), notice });
+        paintHome(p.view, v);
+        this.keyStates(p, v.disabled);
+        if (pending !== null) this.deps.profiles.markNoticeShown();
+        else this.note = null;
+        break;
+      }
+      case "lessons":
+        paintLessons(p.view, lessonsView(profile.tipsSeen));
+        this.keyStates(p, []);
+        break;
+      case "collection": {
+        const v = collectionView(profile.collection, this.page);
+        this.page = v.index;
+        paintCollection(p.view, v);
+        this.keyStates(p, v.disabled);
         break;
       }
       case "settings": {
         const s = this.deps.settings.get();
         const v = settingsView(s);
         paintSettings(p.view, v);
-        for (const k of p.keys) {
-          k.enabled = !v.disabled.includes(k.id);
-          k.lit = v.toggles.some((t) => t.id === k.id && t.on);
-        }
+        this.keyStates(
+          p,
+          v.disabled,
+          v.toggles.filter((t) => t.on).map((t) => t.id),
+        );
         for (const t of TOGGLES) {
           const k = p.keys.find((x) => x.id === t.id);
-          if (k) k.motion.latched = s[t.key];
+          if (k) k.motion.latched = toggleOn(s, t.key);
         }
+        break;
+      }
+      case "reset":
+        this.keyStates(p, []);
+        break;
+      case "trial": {
+        const v = trialView(data.ent(), data.canBuy(), this.buyState);
+        paintTrial(p.view, v);
+        this.keyStates(p, v.disabled);
         break;
       }
     }
@@ -367,17 +444,72 @@ export class Menus {
 
   /** A key's action (its `press` was emitted when it clicked). */
   private act(id: string): void {
+    const a = this.deps.actions;
     switch (id) {
+      case "home-continue": {
+        const to = continueTo(this.deps.profiles.profile, this.deps.data.behind(), this.deps.data.ent());
+        if (to.kind === "trial") go("trial");
+        // Still working the entitlement out: the key is disabled (no click), so nothing to do.
+        else if (to.kind !== "wait") a.continueBox(to);
+        return;
+      }
+      case "home-daily":
+        a.playDaily();
+        return;
+      case "home-lessons":
+        go("lessons");
+        return;
+      case "home-collection":
+        go("collection");
+        return;
       case "home-settings":
         go("settings");
         return;
+      case "home-trial":
+        go("trial");
+        return;
+      case "lessons-back":
+      case "collection-back":
+      case "trial-back":
       case "settings-done":
         go("home");
         return;
-      case "home-recenter":
-      case "settings-recenter":
-        this.deps.actions.recenter();
+      case "coll-newer":
+      case "coll-older":
+        this.page += id === "coll-older" ? 1 : -1;
+        this.paint("collection");
         return;
+      case "settings-recenter":
+        a.recenter();
+        return;
+      case "settings-reset":
+        go("reset");
+        return;
+      case "reset-keep":
+        go("settings");
+        return;
+      case "reset-confirm":
+        void a.resetProgress().then(() => {
+          this.note = COPY.menus.home.reset;
+          go("home");
+        });
+        return;
+      case "trial-buy":
+        this.buyState = "buying";
+        this.paint("trial");
+        void a.buy().then(
+          (r) => this.bought(r),
+          () => this.bought("error"),
+        );
+        return;
+      case "trial-store":
+        a.openStore();
+        return;
+    }
+    if (id.startsWith("lesson-") || id.startsWith("tip-")) {
+      const row = lessonRowOf(lessonsView(this.deps.profiles.profile.tipsSeen), id);
+      if (row) a.replay(row);
+      return;
     }
     const patch = settingAction(id, this.deps.settings.get());
     if (!patch) return;
@@ -385,5 +517,10 @@ export class Menus {
     // A slider step ticks at a pitch that follows the new value.
     const k = sliderPosition(id, this.deps.settings.get());
     if (k !== null) emit({ type: "slider", id, k });
+  }
+
+  private bought(r: "bought" | "cancelled" | "error"): void {
+    this.buyState = r === "bought" ? "bought" : r === "error" ? "failed" : "idle";
+    if (this.screen === "trial") this.paint("trial");
   }
 }

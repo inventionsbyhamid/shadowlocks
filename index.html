@@ -5,21 +5,141 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
     <link rel="icon" type="image/png" href="./icons/icon-192.png" />
     <meta name="theme-color" content="#1a1410" />
+    <meta name="description" content="A puzzle box of light and shadow for Meta Quest. Seated, hands only, plays offline." />
     <title>Shadow Locks</title>
     <style>
-      html, body { margin: 0; height: 100%; background: #1a1410; color: #f1e6d2; font-family: system-ui, sans-serif; }
+      :root {
+        --ebony: #141115;
+        --lacquer: #1c191d;
+        --gold: #e2bd62;
+        --gold-hot: #ffd36a;
+        --gold-deep: #9c7424;
+        --leaf: #b08732;
+        --ivory: #efe6d2;
+        --dim: #cdb27a;
+      }
+      html, body { margin: 0; height: 100%; background: var(--ebony); color: var(--ivory); font-family: system-ui, sans-serif; }
       #scene-container { position: fixed; inset: 0; }
-      #enter-overlay { position: fixed; left: 0; right: 0; bottom: 8vh; display: flex; justify-content: center; pointer-events: none; }
-      #enter { pointer-events: auto; font: 600 22px system-ui, sans-serif; padding: 14px 40px; border-radius: 999px; border: 0;
-        background: #d9b26a; color: #1e1610; cursor: pointer; }
+      /* The landing: the hosted link's one page before XR. Gone once XR starts. */
+      #landing {
+        position: fixed; inset: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 14px; padding: 24px 16px; box-sizing: border-box; text-align: center;
+        background: radial-gradient(ellipse at 50% 38%, #2a2228 0%, #17131a 46%, #0d0b0e 100%);
+      }
+      body.in-xr #landing { display: none; }
+      /* The installed Quest apps go straight into XR: no box art or name flashing by as a splash, only the status
+         (and the button, should going into XR fail). */
+      body.installed #landing { background: var(--ebony); }
+      body.installed #landing .art, body.installed #landing h1, body.installed #landing .rule,
+      body.installed #tagline, body.installed #facts { display: none; }
+      .art { position: relative; width: min(78vw, 340px); aspect-ratio: 32 / 30; }
+      .art::before {
+        /* The deco sunburst behind the box: 24 soft gold rays. */
+        content: ""; position: absolute; inset: -18%; border-radius: 50%;
+        background: repeating-conic-gradient(from 7.5deg, rgba(255, 211, 106, 0.11) 0deg 5deg, transparent 5deg 15deg);
+        -webkit-mask: radial-gradient(circle, #000 18%, transparent 68%); mask: radial-gradient(circle, #000 18%, transparent 68%);
+      }
+      .art svg { position: relative; width: 100%; height: 100%; display: block; }
+      .glow { animation: breathe 4.8s ease-in-out infinite; transform-origin: 262px 214px; }
+      @keyframes breathe { 0%, 100% { opacity: 0.82; } 50% { opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) { .glow { animation: none; } }
+      h1 {
+        margin: 6px 0 0; font: 400 clamp(30px, 8.5vw, 46px) / 1.05 "Didot", "Bodoni 72", "Playfair Display", Georgia, "Times New Roman", serif;
+        letter-spacing: 0.2em; text-transform: uppercase; padding-left: 0.2em;
+        background: linear-gradient(180deg, #fff3cf 0%, var(--gold-hot) 38%, var(--gold) 62%, var(--gold-deep) 100%);
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+      }
+      .rule { width: min(60vw, 240px); height: 9px; background:
+        linear-gradient(var(--leaf), var(--leaf)) center / 100% 1px no-repeat,
+        linear-gradient(45deg, transparent 35%, var(--gold) 35% 65%, transparent 65%) center / 9px 9px no-repeat; }
+      .tagline { margin: 0; font-size: 17px; color: var(--ivory); }
+      .facts { margin: 0; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+      #enter {
+        margin-top: 10px; min-width: 220px; min-height: 52px; padding: 14px 40px; border: 0; cursor: pointer;
+        font: 700 17px system-ui, sans-serif; letter-spacing: 0.12em; text-transform: uppercase; color: var(--lacquer);
+        background: linear-gradient(180deg, #ffe08c 0%, var(--gold-hot) 30%, var(--gold) 70%, #c79a3e 100%);
+        clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+        filter: drop-shadow(0 0 0 transparent); transition: filter 160ms ease, transform 120ms ease;
+      }
+      #enter:hover, #enter:focus-visible { filter: drop-shadow(0 0 12px rgba(255, 211, 106, 0.55)); outline: none; }
+      #enter:active { transform: translateY(1px); }
+      #enter:disabled { cursor: progress; opacity: 0.7; }
       #enter[hidden] { display: none; }
-      #status { position: fixed; left: 0; right: 0; bottom: 3vh; text-align: center; font-size: 15px; opacity: 0.8; }
+      @media (prefers-reduced-motion: reduce) { #enter { transition: none; } }
+      #status { min-height: 1.4em; font-size: 15px; color: var(--dim); }
     </style>
   </head>
   <body>
     <div id="scene-container"></div>
-    <div id="enter-overlay"><button id="enter" type="button" hidden>Enter</button></div>
-    <div id="status">Loading</div>
+    <main id="landing">
+      <div class="art" aria-hidden="true">
+        <svg viewBox="0 0 320 300" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="pool" cx="0.62" cy="0.7" r="0.85">
+              <stop offset="0" stop-color="#fbf5e8" />
+              <stop offset="0.55" stop-color="#efe8da" />
+              <stop offset="1" stop-color="#cfc6b4" />
+            </radialGradient>
+            <radialGradient id="lamp" cx="0.5" cy="0.5" r="0.5">
+              <stop offset="0" stop-color="#fff0d2" stop-opacity="0.95" />
+              <stop offset="0.35" stop-color="#ffd36a" stop-opacity="0.45" />
+              <stop offset="1" stop-color="#ffd36a" stop-opacity="0" />
+            </radialGradient>
+            <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#ffe08c" />
+              <stop offset="0.5" stop-color="#e2bd62" />
+              <stop offset="1" stop-color="#9c7424" />
+            </linearGradient>
+            <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.6" /></filter>
+            <mask id="crescent">
+              <rect width="320" height="300" fill="#fff" />
+              <circle cx="168" cy="118" r="38" fill="#000" />
+            </mask>
+            <mask id="scrapcut">
+              <rect width="320" height="300" fill="#fff" />
+              <circle cx="207" cy="92" r="9" fill="#000" />
+            </mask>
+          </defs>
+          <!-- The plinth and its drawer. -->
+          <rect x="30" y="250" width="260" height="22" rx="3" fill="#1c191d" />
+          <rect x="36" y="254" width="248" height="0.9" fill="#b08732" />
+          <rect x="36" y="267" width="248" height="0.9" fill="#b08732" />
+          <rect x="124" y="253" width="72" height="17" rx="1.5" fill="#2a2529" stroke="#b08732" stroke-width="0.8" />
+          <rect x="146" y="260" width="28" height="3.2" rx="1.6" fill="url(#gold)" />
+          <!-- The lacquer frame with its gold pinstripe. -->
+          <rect x="38" y="28" width="244" height="224" rx="4" fill="#1c191d" />
+          <rect x="45" y="35" width="230" height="210" rx="2" fill="none" stroke="#b08732" stroke-width="0.9" />
+          <!-- The ivory panel in the lantern's light, and the moon's shadow on it. -->
+          <rect x="54" y="44" width="212" height="192" fill="url(#pool)" />
+          <rect x="62" y="52" width="196" height="176" fill="none" stroke="#b08732" stroke-opacity="0.55" stroke-width="0.7" />
+          <circle cx="150" cy="132" r="44" fill="#121016" mask="url(#crescent)" filter="url(#soft)" />
+          <!-- The brass scrap on its thread that casts it. -->
+          <line x1="200" y1="44" x2="200" y2="80" stroke="#e2bd62" stroke-opacity="0.6" stroke-width="0.8" />
+          <circle cx="200" cy="92" r="12" fill="url(#gold)" mask="url(#scrapcut)" />
+          <!-- Stepped gold corners. -->
+          <g fill="url(#gold)">
+            <path d="M38 28h18v4h-14v14h-4z M42 32h10v3h-7v7h-3z" />
+            <path d="M282 28h-18v4h14v14h4z M278 32h-10v3h7v7h3z" />
+            <path d="M38 252h18v-4h-14v-14h-4z M42 248h10v-3h-7v-7h-3z" />
+            <path d="M282 252h-18v-4h14v-14h4z M278 248h-10v-3h7v-7h3z" />
+          </g>
+          <!-- The lantern, just in front of the box. -->
+          <circle class="glow" cx="262" cy="214" r="46" fill="url(#lamp)" />
+          <g transform="translate(262 214)">
+            <path d="M-7 -13h14l5 6v14l-5 6h-14l-5 -6v-14z" fill="#fff0d2" />
+            <path d="M-7 -13h14l5 6v14l-5 6h-14l-5 -6v-14z" fill="none" stroke="url(#gold)" stroke-width="2" />
+            <path d="M0 -13v26 M-12 0h24" stroke="#e2bd62" stroke-width="1.2" />
+            <rect x="-4" y="-19" width="8" height="5" rx="1" fill="url(#gold)" />
+          </g>
+        </svg>
+      </div>
+      <h1>Shadow Locks</h1>
+      <div class="rule" aria-hidden="true"></div>
+      <p id="tagline" class="tagline">A puzzle box of light and shadow.</p>
+      <p id="facts" class="facts">Seated. Hands only. Plays offline.</p>
+      <button id="enter" type="button" hidden>Open the box</button>
+      <div id="status" role="status">Loading</div>
+    </main>
     <script type="module" src="/src/app/main.ts"></script>
   </body>
 </html>

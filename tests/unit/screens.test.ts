@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBus, type UiEvent } from "../../src/app/bus";
-import { createScreens, SCREENS } from "../../src/app/screens";
+import { createScreens, isMenuScreen, MENU_SCREENS, SCREENS } from "../../src/app/screens";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -14,8 +14,15 @@ function setup() {
 describe("screens", () => {
   it("lists every screen", () => {
     expect([...SCREENS].sort()).toEqual(
-      ["boot", "home", "play", "settings"],
+      ["boot", "collection", "home", "lessons", "play", "reset", "settings", "trial"],
     );
+  });
+
+  it("knows which screens raise a menu panel on the drawer", () => {
+    expect(MENU_SCREENS).toEqual(["home", "lessons", "collection", "settings", "reset", "trial"]);
+    expect(isMenuScreen("play")).toBe(false);
+    expect(isMenuScreen("boot")).toBe(false);
+    expect(isMenuScreen("lessons")).toBe(true);
   });
 
   it("starts at boot and emits one screen event per move", () => {

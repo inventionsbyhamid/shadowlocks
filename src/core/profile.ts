@@ -28,6 +28,11 @@ export interface BoxSnapshot {
    * that may have changed.
    */
   gen?: number;
+  /**
+   * The box was played mirrored (for a left hand). A save resumed for the other hand is rebuilt the other way
+   * round, its lantern crossing to the same side of the box. Absent in older saves: taken as it is.
+   */
+  mirrored?: boolean;
   /** Lantern position in box units. */
   lantern: V3;
   /** Indexes of the open locks. */
@@ -148,6 +153,7 @@ export function isSnapshot(v: unknown): v is BoxSnapshot {
     typeof v.key === "string" &&
     v.key.length > 0 &&
     (v.gen === undefined || isNat(v.gen)) &&
+    (v.mirrored === undefined || typeof v.mirrored === "boolean") &&
     Array.isArray(v.lantern) &&
     v.lantern.length === 3 &&
     v.lantern.every(isNum) &&
@@ -170,6 +176,7 @@ function snapshotFrom(v: unknown): BoxSnapshot | null {
   return {
     key: v.key,
     ...(v.gen === undefined ? {} : { gen: v.gen }),
+    ...(v.mirrored === undefined ? {} : { mirrored: v.mirrored }),
     lantern: [v.lantern[0], v.lantern[1], v.lantern[2]],
     open: [...v.open],
     crystal: v.crystal.map((c) => ({ lock: c.lock, z: c.z })),
@@ -250,4 +257,14 @@ export function migrate(raw: unknown, nowMs: number, build: string): Profile {
     },
     settings: settingsFrom(raw.settings),
   };
+}
+
+/**
+ * The profile with its progress started over (Settings, Reset progress): boxes, the box in
+ * progress, lessons, tips, the collection and the Daily Box with its streak. Settings stay, and so
+ * do the first-launch marker and the latest time seen: a reset never gives back trial days.
+ */
+export function withProgressReset(p: Readonly<Profile>): Profile {
+  const fresh = newProfile(p.firstLaunch.atMs, p.firstLaunch.build);
+  return { ...fresh, firstLaunch: { ...p.firstLaunch }, lastSeenMs: p.lastSeenMs, settings: { ...p.settings } };
 }
