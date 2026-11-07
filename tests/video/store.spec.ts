@@ -24,10 +24,14 @@ import {
   artHtml,
   boundsOf,
   boxPoints,
+  centreSquare,
   clearOf,
   eyeBehind,
   fovyRad,
+  inside,
   keySilhouette,
+  LINK_CARD,
+  LINK_CARD_MAX_BYTES,
   overviewHtml,
   type Plate,
   type PlateScene,
@@ -447,4 +451,65 @@ test("art: covers, icon and logo cut from the plates, with the title; screenshot
   await page.screenshot({ path: path.join(OUT, "overview.png"), fullPage: true });
   expect(problems, "title placement").toEqual([]);
   expect(missing, "art without its plate or screenshot").toEqual([]);
+});
+
+// The website's link card (LINK_CARD): scripts/store-art.sh copies test-results/store/og-image.jpg to public/, and
+// `scripts/store-art.sh --link-card` runs only this and its plate (-g "link.card"). Written only once every check passes.
+test("link card: og-image.jpg for the website, cut from the link-card plate", async ({ page }) => {
+  const a = LINK_CARD;
+  const png = path.join(PLATES_DIR, `${a.plate}.png`);
+  expect(fs.existsSync(png), `the ${a.plate} plate, rendered in the same run`).toBe(true);
+  const info = JSON.parse(fs.readFileSync(path.join(PLATES_DIR, `${a.plate}.json`), "utf8")) as PlateInfo;
+  const font = `data:font/ttf;base64,${fs.readFileSync(TITLE_FONT_FILE).toString("base64")}`;
+  await page.setViewportSize({ width: a.width, height: a.height });
+  await page.setContent(artHtml(a, { plate: dataUrl(png), glow: info.glow, fontDataUrl: font }));
+  const ok = await page.evaluate(async () => {
+    await document.fonts.load("40px Limelight");
+    await document.fonts.ready;
+    for (const img of [...document.images]) await img.decode();
+    return document.fonts.check("40px Limelight");
+  });
+  expect(ok, "the Limelight font loaded").toBe(true);
+  // The title and the line, each shrunk to its width limit, where they ended up.
+  const [title, line] = await page.evaluate(
+    (limits) =>
+      limits.map(([id, maxW]) => {
+        const el = document.getElementById(id as string)!;
+        const r0 = el.getBoundingClientRect();
+        if (r0.width > (maxW as number)) el.style.fontSize = `${parseFloat(getComputedStyle(el).fontSize) * ((maxW as number) / r0.width)}px`;
+        const r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+      }),
+    [
+      ["title", a.title!.maxWidth * a.width],
+      ["line", 0.4 * a.width],
+    ],
+  );
+  const square = toPixels(centreSquare(a.width, a.height), a.width, a.height);
+  const box = info.boxRect && toPixels(info.boxRect, a.width, a.height);
+  const where = `square ${JSON.stringify(square)}, box ${JSON.stringify(box)}, title ${JSON.stringify(title)}, line ${JSON.stringify(line)}`;
+  console.log(`link card: ${where}`);
+  // The square crop (WhatsApp, iMessage) still shows the box, the title and the line whole.
+  expect(box, "the box on the plate").not.toBeNull();
+  for (const [what, r] of [["box", box!], ["title", title!], ["line", line!]] as const) expect(inside(r, square), `${what} inside the centre square: ${where}`).toBe(true);
+  expect(clearOf(title!, box!, TITLE_CLEARANCE * a.height), where).toBeNull();
+  expect(title!.bottom, where).toBeLessThan(line!.top);
+  // JPEG, as good as fits the size limit.
+  const out = path.join(OUT, a.file);
+  const raw = path.join(RAW, a.file);
+  let quality = 92;
+  await page.screenshot({ path: raw, type: "jpeg", quality, fullPage: false });
+  while (fs.statSync(raw).size > LINK_CARD_MAX_BYTES && quality > 60) {
+    quality -= 6;
+    await page.screenshot({ path: raw, type: "jpeg", quality, fullPage: false });
+  }
+  const bytes = fs.statSync(raw).size;
+  expect(bytes, `og-image.jpg at quality ${quality}`).toBeLessThanOrEqual(LINK_CARD_MAX_BYTES);
+  const facts = imageFacts(raw);
+  expect({ width: facts.width, height: facts.height }).toEqual({ width: a.width, height: a.height });
+  // How it reads small, for the review only: the card at 300x157 and its centre square at 300x300.
+  ffmpeg(["-y", "-v", "error", "-i", raw, "-vf", "scale=300:157:flags=lanczos", "-frames:v", "1", path.join(REVIEW, "link-card-300x157.png")]);
+  ffmpeg(["-y", "-v", "error", "-i", raw, "-vf", `crop=${a.height}:${a.height},scale=300:300:flags=lanczos`, "-frames:v", "1", path.join(REVIEW, "link-card-square-300.png")]);
+  fs.copyFileSync(raw, out);
+  console.log(`link card: ${out} ${facts.width}x${facts.height} ${facts.pixFmt}, ${bytes} bytes, JPEG quality ${quality}`);
 });

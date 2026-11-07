@@ -147,6 +147,13 @@ render fails when a title enters the top or bottom 20%. Results go to `test-resu
 to the planning folder's `store/assets/`, with `store-art.json` and `overview.png`. Sizes, views and title
 placement live in `lib/store-art.ts`. About 25 minutes on the shared browser lock.
 
+The same run makes the website's link card (`LINK_CARD`: index.html's og:image, 1200x630 JPEG under 300 KB,
+the box, the title and a "Play on Meta Quest" line inside the centre square that chat apps crop to) and
+copies it into the repo as `public/og-image.jpg`, never to the planning folder; commit it.
+`scripts/store-art.sh --link-card` makes only the card and its plate (a few minutes) and leaves the
+planning folder alone; `test-results/store/review/link-card-*.png` show it at 300x157 and as the
+300x300 square crop.
+
 ## Attached and detached
 
 Both first wait (as `scripts/e2e.sh` does) up to an hour until no other `shadowlocks-e2e` browser

@@ -76,6 +76,8 @@ export interface Art {
   alpha: boolean;
   /** The icon: the key lock's shape in gold, with the plate (the lantern alone) placed over it. */
   icon?: boolean;
+  /** One small line under the title (the website's link card only; store art carries the title alone). */
+  line?: { text: string; y: number; size: number };
 }
 
 /**
@@ -112,7 +114,44 @@ export const PLATES: Plate[] = [
   { name: "portrait", width: 1008, height: 1440, scene: KEY_SCENE, view: PORTRAIT_VIEW },
   // The lantern alone, from its right and a little above and in front, so the box lies outside the frame.
   { name: "icon-lantern", width: 1024, height: 1024, scene: KEY_SCENE, lanternView: { offset: [0.56, 0.08, 0.2], vfovDeg: 22 } },
+  // The website's link card (LINK_CARD): the square cover's camera, so the box stands in the middle, above the title.
+  // Drawn at twice its size and scaled down.
+  { name: "link-card", width: 2400, height: 1260, scene: KEY_SCENE, view: SQUARE_VIEW },
 ];
+
+/**
+ * The website's link card: index.html's og:image and twitter:image, public/og-image.jpg. Same pipeline, but it goes
+ * into the repo's public/ (scripts/store-art.sh copies it there; `scripts/store-art.sh --link-card` makes it alone),
+ * never to plan/store/assets. JPEG, at most LINK_CARD_MAX_BYTES (WhatsApp and some scrapers drop bigger images). Not
+ * store art, so it carries one small line under the title. WhatsApp and iMessage crop cards to the centre square, so the
+ * box, the title and the line all stay inside the middle 630x630 (centreSquare).
+ */
+export const LINK_CARD: Art = {
+  file: "og-image.jpg",
+  width: 1200,
+  height: 630,
+  plate: "link-card",
+  title: { x: 0.5, y: 0.72, size: 0.1, align: "center", maxWidth: 0.44 },
+  line: { text: "Play on Meta Quest", y: 0.862, size: 0.04 },
+  alpha: false,
+};
+export const LINK_CARD_MAX_BYTES = 300 * 1024;
+
+/** The square a chat app crops a `width` x `height` card to (its middle), as fractions of the card. */
+export const centreSquare = (width: number, height: number): Rect => {
+  const half = Math.min(width, height) / 2;
+  return { left: 0.5 - half / width, right: 0.5 + half / width, top: 0.5 - half / height, bottom: 0.5 + half / height };
+};
+
+/** Whether `inner` lies wholly inside `outer` (same units). */
+export const inside = (inner: Rect, outer: Rect): boolean =>
+  inner.left >= outer.left && inner.right <= outer.right && inner.top >= outer.top && inner.bottom <= outer.bottom;
+
+/** The small line's largest possible box (fractions of the frame), like titleBound; it is set at most this wide. */
+export function lineBound(l: NonNullable<Art["line"]>, maxWidth = 0.4): Rect {
+  const halfH = (l.size * 1.12) / 2;
+  return { left: 0.5 - maxWidth / 2, right: 0.5 + maxWidth / 2, top: l.y - halfH, bottom: l.y + halfH };
+}
 
 /** The five screenshots: 2560x1440 real frames (store.spec.ts SCREENSHOTS sets up each one). */
 export const SCREENSHOT_SIZE = { width: 2560, height: 1440 } as const;
@@ -289,6 +328,13 @@ export function artHtml(
   -webkit-background-clip: text; background-clip: text; color: transparent;
   filter: drop-shadow(0 ${(0.004 * h).toFixed(1)}px ${(0.012 * h).toFixed(1)}px rgba(0, 0, 0, 0.75)) drop-shadow(0 0 ${(0.03 * h).toFixed(1)}px rgba(255, 211, 106, 0.22)); }`
     : "";
+  const l = a.line;
+  const lineCss = l
+    ? `.line { position: absolute; left: ${(0.5 * w).toFixed(1)}px; top: ${(l.y * h).toFixed(1)}px; transform: translate(-50%, -50%);
+  font-family: Limelight; font-size: ${(l.size * h).toFixed(1)}px; line-height: 1.12; white-space: nowrap; text-transform: uppercase;
+  letter-spacing: 0.16em; padding-left: 0.16em; color: ${PALETTE.brass};
+  filter: drop-shadow(0 ${(0.003 * h).toFixed(1)}px ${(0.008 * h).toFixed(1)}px rgba(0, 0, 0, 0.8)); }`
+    : "";
   let body = "";
   if (!a.alpha) {
     body += `<div class="bg"></div>`;
@@ -322,7 +368,8 @@ html, body { margin: 0; width: ${w}px; height: ${h}px; overflow: hidden; backgro
 .shape { filter: drop-shadow(0 0 ${(0.03 * h).toFixed(1)}px rgba(255, 211, 106, 0.45)); }
 .vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.42) 100%); }
 ${titleCss}
-</style></head><body>${body}${t ? `<div class="title" id="title">${esc(TITLE)}</div>` : ""}</body></html>`;
+${lineCss}
+</style></head><body>${body}${t ? `<div class="title" id="title">${esc(TITLE)}</div>` : ""}${l ? `<div class="line" id="line">${esc(l.text)}</div>` : ""}</body></html>`;
 }
 
 /** The review sheet: every piece of art with its file name; `actual: true` shows an image at its own size (the icon at 64 and 128 px). */
