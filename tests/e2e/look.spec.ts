@@ -7,6 +7,7 @@
 import type { Page } from "@playwright/test";
 import { generateBox } from "../../src/core/generator";
 import type { V3 } from "../../src/core/types";
+import { COPY } from "../../src/ui/copy";
 import { installCapture } from "./helpers/page-scripts";
 import { expect, test } from "./helpers/test";
 import { DT, type XrApp } from "./helpers/xr-app";
@@ -352,4 +353,54 @@ test("owner's look shots: lesson 1 forming, its idle ghost hand, and Example 1 w
   testInfo.annotations.push({ type: "draw-calls", description: line });
   console.log(line);
   expect(idle.callsMax).toBeLessThanOrEqual(100);
+});
+
+test("owner's look shots: the ghost hand at work in each example, the box from the head and the hand close up", async ({ page, boot }) => {
+  const app = await boot({ lessons: true, expectScreen: "play", mode: "visual" });
+  await app.stepUntil(
+    (_ns, w) => {
+      const s = w.__sl.session.state();
+      return s?.key === "shadow-locks/lesson/l1" && s.stage === "playing" && s.revealed;
+    },
+    { maxMs: 10_000, label: "lesson 1 in play" },
+  );
+  const panel = (await app.state()).boxPose.position;
+  const at = { x: panel[0], y: panel[1], z: panel[2] };
+  const C = COPY.lessons;
+  /**
+   * An example as practice from its demo step, on to its line `line` and `ms` more: the box from the head (does the
+   * ghost hide the panel's shadows?) and the ghost's hand at headset density (does it read as a hand?).
+   */
+  const shoot = async (name: string, id: "l1" | "l2", step: number, line: string, ms: number) => {
+    // Lesson 2's box in play first: a demo step whose lock the box in play shows open (lesson 1's, from its snapshot)
+    // counts as done.
+    if (id === "l2") {
+      await page.evaluate(() => window.__sl!.lessons.start("l2", 0, true));
+      await app.stepUntil(
+        (_ns, w) => {
+          const s = w.__sl.session.state();
+          return s?.key === "shadow-locks/lesson/l2" && s.stage === "playing" && s.revealed && !s.open.length;
+        },
+        { maxMs: 10_000, dt: 50, label: "lesson 2 in play" },
+      );
+    }
+    await page.evaluate(([i, s]) => window.__sl!.lessons.start(i as "l1" | "l2", s as number, true), [id, step] as const);
+    await app.stepUntil((_ns, w, l) => w.__sl.lessons.state().line === l, { arg: line, maxMs: 20_000, dt: 50, label: `${name}: ${line}` });
+    await app.step(Math.ceil(ms / DT));
+    const s = await page.evaluate(() => window.__sl!.lessons.state());
+    expect(s.hand.opacity, name).toBeGreaterThan(0.9);
+    await app.captureHeadset(`look-owner-${name}-headset`, at, 11);
+    const [hand] = await page.evaluate((p) => window.__ns!.scene.toWorld([p]), s.hand.at);
+    await app.captureHeadset(`look-owner-${name}-hand-headset`, { x: hand![0], y: hand![1], z: hand![2] });
+  };
+  // Example 1 swaying the lantern (the near scrap's shadow swings), Example 2 sliding along the ring line, and lesson
+  // 2's ghost finger holding in the crown's gap.
+  await shoot("example1-sway", "l1", 2, C.nearSwing, 1000);
+  await shoot("example2-slide", "l1", 4, C.slide, 1500);
+  await shoot("example3-finger", "l2", 1, C.finger, 5800);
+  // Lesson 2's puppets: after 4 s without a hand in the beam the ghost's open hand shows how, its shadow on the panel.
+  await page.evaluate(() => window.__sl!.lessons.start("l2", 0, true));
+  await app.stepUntil((_ns, w) => w.__sl.lessons.state().hand.opacity > 0.9, { maxMs: 12_000, dt: 50, label: "the puppet ghost" });
+  await app.step(Math.ceil(400 / DT));
+  await app.captureHeadset("look-owner-puppets-headset", at, 11);
 });
