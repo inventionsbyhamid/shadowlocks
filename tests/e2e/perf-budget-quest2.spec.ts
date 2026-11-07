@@ -4,9 +4,11 @@
 // the beam) on IWER's Quest 2 profile (helpers/headset.ts), with the CPU throttled for the slower of Quest 2 and Pro.
 //
 // The throttle: perf-budget's 4x stands for a Quest 3. The XR2 Gen 2's CPU is "more than 33 percent" faster than the
-// XR2 Gen 1's (Qualcomm and Meta at the Quest 3 launch), so a Quest 2 is 4 x 4/3 = 5.33x. A Quest Pro in passthrough
-// (this game) is held to CPU level 3, 1.38 GHz, where a Quest 2 runs level 4, 1.48 GHz (Meta's CPU and GPU levels page),
-// so a Pro is PRO_RATE = 4 x 4/3 x 1.48/1.38 = 5.72x, the slower of the two: the one gated. Both run the same code.
+// XR2 Gen 1's (Qualcomm and Meta at the Quest 3 launch), so a Quest 2 is at least 4 x 4/3 = 5.33x. A Quest Pro in
+// passthrough (this game) is held to CPU level 3, 1.38 GHz, where a Quest 2 runs level 4, 1.48 GHz (Meta's CPU and GPU
+// levels page), so a Pro is at least PRO_RATE = 4 x 4/3 x 1.48/1.38 = 5.72x, the slower of the two: the one gated. Both
+// run the same code. (Measured on 2026-11-08: tight. One run passed at 3.30 ms, one failed at 3.90, the server's load
+// the difference; task-25-report.md, fix round 1.)
 //
 // The budgets: the same draw calls and triangles as perf-budget (the scene is the same on every headset, far inside
 // Meta's Quest 2 guidance of 400-600 draws and 750k-1M triangles for a puzzle game). Our JS: the same share of the frame
