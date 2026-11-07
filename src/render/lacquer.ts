@@ -60,25 +60,39 @@ vec3 lacquerTone(vec3 base, float k) {
 }
 `;
 
+const GRAIN_COLOR = new Color(COLORS.frameGrain);
+
+/** A shader as onBeforeCompile receives it (the parts the grain touches). */
+export interface GrainShader {
+  uniforms: Record<string, { value: unknown }>;
+  vertexShader: string;
+  fragmentShader: string;
+}
+
+/**
+ * The grain spliced into a lit (standard or physical) shader in onBeforeCompile: every material with the lacquer's
+ * look takes it from here (the frame and lantern foot through withGrain, the menu drawer in its own hook).
+ */
+export function grainShader(s: GrainShader): void {
+  s.uniforms.grainColor = { value: GRAIN_COLOR };
+  s.vertexShader = s.vertexShader
+    .replace("#include <common>", "#include <common>\nattribute vec3 grain;\nvarying vec3 vGrainAxis;\nvarying vec3 vGrainPos;")
+    .replace("#include <begin_vertex>", "#include <begin_vertex>\nvGrainAxis = grain;\nvGrainPos = position;");
+  s.fragmentShader = s.fragmentShader
+    .replace("#include <common>", `#include <common>\n${GLSL}`)
+    .replace(
+      "#include <color_fragment>",
+      "#include <color_fragment>\nfloat grainK = lacquerGrain(vGrainPos, vGrainAxis);\ndiffuseColor.rgb = lacquerTone(diffuseColor.rgb, grainK);",
+    )
+    .replace(
+      "#include <roughnessmap_fragment>",
+      `#include <roughnessmap_fragment>\nroughnessFactor = clamp(roughnessFactor - grainK * ${LACQUER_GRAIN.roughness.toFixed(2)}, 0.04, 1.0);`,
+    );
+}
+
 /** `m` (the frame's lacquer) drawing its grain. Call once, when the material is made. */
 export function withGrain(m: MeshPhysicalMaterial): MeshPhysicalMaterial {
-  const grainColor = new Color(COLORS.frameGrain);
-  m.onBeforeCompile = (s) => {
-    s.uniforms.grainColor = { value: grainColor };
-    s.vertexShader = s.vertexShader
-      .replace("#include <common>", "#include <common>\nattribute vec3 grain;\nvarying vec3 vGrainAxis;\nvarying vec3 vGrainPos;")
-      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvGrainAxis = grain;\nvGrainPos = position;");
-    s.fragmentShader = s.fragmentShader
-      .replace("#include <common>", `#include <common>\n${GLSL}`)
-      .replace(
-        "#include <color_fragment>",
-        "#include <color_fragment>\nfloat grainK = lacquerGrain(vGrainPos, vGrainAxis);\ndiffuseColor.rgb = lacquerTone(diffuseColor.rgb, grainK);",
-      )
-      .replace(
-        "#include <roughnessmap_fragment>",
-        `#include <roughnessmap_fragment>\nroughnessFactor = clamp(roughnessFactor - grainK * ${LACQUER_GRAIN.roughness.toFixed(2)}, 0.04, 1.0);`,
-      );
-  };
+  m.onBeforeCompile = (s) => grainShader(s);
   m.customProgramCacheKey = () => "sl-lacquer-grain";
   return m;
 }

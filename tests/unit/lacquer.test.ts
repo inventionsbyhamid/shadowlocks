@@ -1,12 +1,13 @@
 // The frame's lacquer grain (the owner's pick: lacquer #1c191d with grain #2a2529): fine streaks along each bar,
 // drawn in the lacquer's own shader (no texture, no extra draw call), and none on parts without a grain direction.
 import { describe, expect, it } from "vitest";
-import { BoxGeometry, Color, type Mesh, MeshPhysicalMaterial, MeshStandardMaterial } from "@iwsdk/core";
+import { BoxGeometry, Color, Group, type Mesh, MeshPhysicalMaterial, MeshStandardMaterial } from "@iwsdk/core";
 import { frameGeometry } from "../../src/render/box-scene";
+import { DrawerView } from "../../src/render/drawer";
 import { grained, LACQUER_GRAIN, withGrain } from "../../src/render/lacquer";
 import { LanternView } from "../../src/render/lantern-view";
 import { mergeParts } from "../../src/render/merge";
-import { COLORS } from "../../src/render/theme";
+import { COLORS, MATERIALS } from "../../src/render/theme";
 
 const axisOf = (a: { getX(i: number): number; getY(i: number): number; getZ(i: number): number }, i: number) =>
   [a.getX(i), a.getY(i), a.getZ(i)].join(",");
@@ -71,6 +72,56 @@ describe("the lacquer's grain", () => {
     // The sheen moves little, so the speculars never shimmer at grazing angles.
     expect(LACQUER_GRAIN.roughness).toBeLessThanOrEqual(0.08);
     expect(LACQUER_GRAIN.streaksPerUnit).toBeGreaterThan(30);
+  });
+
+  it("the menu drawer's front has the plinth's lacquer: clearcoat, grain along it, metal only where gold; still one mesh", () => {
+    const root = new Group();
+    const drawer = new DrawerView(root);
+    const meshes: Mesh[] = [];
+    root.traverse((o) => {
+      if ((o as Mesh).isMesh) meshes.push(o as Mesh);
+    });
+    // One mesh, one material: the same one draw call.
+    expect(meshes).toEqual([drawer.mesh]);
+    const m = drawer.mesh.material as MeshPhysicalMaterial;
+    expect(m.isMeshPhysicalMaterial).toBe(true);
+    expect(m.clearcoat).toBe(MATERIALS.lacquer.clearcoat);
+    expect(m.clearcoatRoughness).toBe(MATERIALS.lacquer.clearcoatRoughness);
+    // The lacquer parts (the front and the body's sides, coloured as the frame) carry a grain direction; the gold
+    // inlay and pull and the velvet carry none.
+    const g = drawer.mesh.geometry, col = g.getAttribute("color"), grain = g.getAttribute("grain");
+    expect(grain.count).toBe(g.getAttribute("position").count);
+    const frame = new Color(COLORS.frame);
+    let lacquer = 0, other = 0;
+    for (let i = 0; i < col.count; i++) {
+      const isLacquer = Math.abs(col.getX(i) - frame.r) < 1e-6 && Math.abs(col.getY(i) - frame.g) < 1e-6 && Math.abs(col.getZ(i) - frame.b) < 1e-6;
+      const len = Math.hypot(grain.getX(i), grain.getY(i), grain.getZ(i));
+      if (isLacquer) {
+        lacquer++;
+        expect(len).toBeCloseTo(1, 9);
+      } else {
+        other++;
+        expect(len).toBe(0);
+      }
+    }
+    expect(lacquer).toBeGreaterThan(0);
+    expect(other).toBeGreaterThan(0);
+    // Its shader: the lacquer's grain, the gold's glow, and its metal masked after three's metalness chunk (a
+    // replacement of the chunk's own line never matched: onBeforeCompile sees the #include, not the line).
+    const shader = {
+      uniforms: {} as Record<string, { value: unknown }>,
+      vertexShader: "#include <common>\nvoid main() {\n#include <begin_vertex>\n}",
+      fragmentShader:
+        "#include <common>\nvoid main() {\nvec3 totalEmissiveRadiance = emissive;\n#include <color_fragment>\n" +
+        "#include <roughnessmap_fragment>\n#include <metalnessmap_fragment>\n}",
+    };
+    m.onBeforeCompile(shader as never, undefined as never);
+    const f = shader.fragmentShader;
+    expect(f).toContain("lacquerTone(diffuseColor.rgb, grainK)");
+    expect(f).toContain("roughnessFactor = clamp(roughnessFactor - grainK");
+    expect(f).toContain("totalEmissiveRadiance = emissive * smoothstep( 0.18, 0.6, vColor.r );");
+    expect(f).toMatch(/#include <metalnessmap_fragment>\s*metalnessFactor \*= smoothstep\( 0\.18, 0\.6, vColor\.r \);/);
+    expect(shader.vertexShader).toContain("attribute vec3 grain;");
   });
 
   it("the lantern's foot, which shares the lacquer, carries a zero grain: plain lacquer, explicitly", () => {
