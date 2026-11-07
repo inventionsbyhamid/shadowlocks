@@ -31,7 +31,8 @@ function lessonKeys(): Set<string> {
 describe("coach lines in every language", () => {
   it("every line the coach chip shows comes out as the same line of every table", () => {
     const en = coachLines(COPY);
-    expect(en).toHaveLength(14);
+    // The lessons' lines and tips, the session's suggestion, and a phone's five.
+    expect(en).toHaveLength(19);
     for (const l of OTHERS) {
       const there = coachLines(tableFor(l));
       en.forEach((s, i) => expect(localLine(s, l), `${l}: ${s}`).toBe(there[i]));

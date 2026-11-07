@@ -8,6 +8,7 @@ import type { Vec3 } from "../core/types";
 import { DRAWER_PULL, type DrawerFrame, type DrawerHands, DrawerPull } from "../input/drawer-pull";
 import { type HandPinch, handJoints, hands, SIDES } from "../input/grab-system";
 import type { HandJoints, HandSide } from "../input/hand-joints";
+import { grabDepth } from "../input/touch";
 import { DrawerView } from "../render/drawer";
 import { emit, on } from "./bus";
 import { go, isMenuScreen, type Screen } from "./screens";
@@ -125,6 +126,25 @@ export class MenuDrawer {
     }
     this.view.update(dt, this.d.reducedMotion());
     this.glow();
+  }
+
+  /**
+   * A phone's touch along the ray from `o` (unit direction `d`, world): when it passes within the grip radius of the
+   * handle and the drawer could be pulled now, it opens as a pull would (the menus come up on the next frame). The
+   * distance along the ray to the handle, or NaN when the touch is not for the drawer.
+   */
+  tapDepth(o: Readonly<Vec3>, d: Readonly<Vec3>): number {
+    if (this.screen !== "play" || this.pull.state !== "closed" || !(this.d.allowed?.() ?? true)) return Number.NaN;
+    const h = this.frame.handle(this.tmp);
+    this.at[0] = h.x;
+    this.at[1] = h.y;
+    this.at[2] = h.z;
+    return grabDepth(o, d, this.at, DRAWER_PULL.gripM);
+  }
+
+  /** Open it for a phone's touch (after tapDepth found the handle). True when it opened. */
+  tap(hand: HandSide): boolean {
+    return this.pull.tap(hand);
   }
 
   /** The gold lights up as a pinch point comes near the handle (only while it can be pulled). */

@@ -226,4 +226,11 @@ export const PT_BR: Copy = {
     loading: "Carregando",
     description: "Uma caixa de enigmas de luz e sombra para Meta Quest. Sem se levantar, só com as mãos, funciona offline.",
   },
+  phone: {
+    pickUp: "Arraste a lanterna.",
+    slide: "Segure a lanterna e aproxime ou afaste o celular.",
+    finger: "Falta uma peça. Toque no espaço vazio e não se mexa.",
+    drawer: "Toque na gaveta para rever estas lições.",
+    puppets: "Toque na caixa para colocar um dedo na luz.",
+  },
 };

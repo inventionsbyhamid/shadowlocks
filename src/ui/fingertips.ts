@@ -13,8 +13,11 @@ interface XrLike {
 
 /** Both fingertips, read once per XR frame from a FingertipSource and shared. Allocation free. */
 export class FrameTips implements Tips {
-  readonly points = [new Vector3(), new Vector3()];
+  /** Both hands' fingertips, then a phone touch's poking one. */
+  readonly points = [new Vector3(), new Vector3(), new Vector3()];
   count = 0;
+  /** A phone's touch poking a key (the touch system): its fingertip into `out`, false while it pokes nothing. */
+  extra: ((out: Vector3) => boolean) | null = null;
   private lastFrame: unknown = null;
   private readonly xr: XrLike | undefined;
 
@@ -33,6 +36,7 @@ export class FrameTips implements Tips {
     for (let h = 0; h < 2; h++) {
       if (this.source.read(h, this.points[this.count] as Vector3)) this.count++;
     }
+    if (this.extra?.(this.points[this.count] as Vector3)) this.count++;
     return this;
   }
 }

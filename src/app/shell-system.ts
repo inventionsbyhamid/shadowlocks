@@ -1,9 +1,10 @@
-// Per-frame shell work: place the box in the lap once per XR session (and again on Recenter), lay
-// out what follows the placement, step the box's own motion and the theatre lights, and run debounced
-// saves. Allocation-free per frame.
+// Per-frame shell work: place the box in the lap (on a phone, in the camera's view) once per XR session
+// (and again on Recenter), lay out what follows the placement, step the box's own motion and the theatre
+// lights, and run debounced saves. Allocation-free per frame.
 import { createSystem, Quaternion, Vector3 } from "@iwsdk/core";
-import { placement, yawFromQuaternion } from "../render/placement";
+import { PHONE_VIEW, pitchFromQuaternion, placement, type ViewTangents, viewOf, yawFromQuaternion } from "../render/placement";
 import type { Shell } from "./shell";
+import { onPhone } from "./touch-system";
 
 let shell: Shell | null = null;
 
@@ -19,26 +20,41 @@ export class ShellSystem extends createSystem({}) {
   private readonly headPos = new Vector3();
   private readonly headQuat = new Quaternion();
   private readonly headPose = { position: [0, 0, 0] as [number, number, number], yaw: 0 };
+  private readonly view: ViewTangents = { tanH: PHONE_VIEW.tanH, tanV: PHONE_VIEW.tanV };
   private placedFor: XRSession | null = null;
   private laidOut = -1;
 
   /**
    * Place the box from the current head pose (Recenter, and the test hooks); the box size stays. False
-   * while the head is not tracked.
+   * while the head is not tracked. A phone's session (the touch system tells, earlier in the frame) places it
+   * in the camera's view instead of the lap, as far as the camera's own projection needs to show it whole.
    */
   recenter(): boolean {
     if (!shell) return false;
     const head = this.world.player.head;
     head.getWorldPosition(this.headPos);
     head.getWorldQuaternion(this.headQuat);
-    if (this.headPos.y < MIN_HEAD_Y_M) return false;
+    // A phone held low (sitting at a table) can be lower than a seated head: only a head at the origin is untracked.
+    const phone = onPhone();
+    if (phone ? this.headPos.lengthSq() === 0 : this.headPos.y < MIN_HEAD_Y_M) return false;
     const q = this.headQuat;
     this.headPose.position[0] = this.headPos.x;
     this.headPose.position[1] = this.headPos.y;
     this.headPose.position[2] = this.headPos.z;
     this.headPose.yaw = yawFromQuaternion(q.x, q.y, q.z, q.w);
-    placement.start(this.headPose);
+    if (phone) placement.startInView(this.headPose, pitchFromQuaternion(q.x, q.y, q.z, q.w), this.cameraView());
+    else placement.start(this.headPose);
     return true;
+  }
+
+  /**
+   * The XR camera's view as half-angle tangents, from this frame's projection (three sets it from the session's view
+   * before our systems run), the narrower side each way (viewOf). A phone's default where the projection is not there
+   * yet.
+   */
+  private cameraView(): ViewTangents {
+    const xr = this.renderer.xr.getCamera() as { cameras?: { projectionMatrix: { elements: ArrayLike<number> } }[] };
+    return viewOf(xr.cameras?.[0]?.projectionMatrix.elements, this.view);
   }
 
   update(delta: number): void {
@@ -53,6 +69,10 @@ export class ShellSystem extends createSystem({}) {
       s.recenterAsked = false;
       void s.prewarm();
     }
+    // Placed for the other kind of session: a phone whose browser does not say it is one, known by its first touch
+    // (the box in the lap is below its view), or a session that turned out not to be a phone's after all (a hand or a
+    // controller appeared). Placed again the right way.
+    if (xrSession && placement.source !== "default" && (placement.source === "view") !== onPhone()) s.recenterAsked = true;
     // A Recenter waits for a frame with a tracked head.
     if (s.recenterAsked && this.recenter()) s.recenterAsked = false;
     if (placement.version !== this.laidOut) {

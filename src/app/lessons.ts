@@ -28,6 +28,7 @@ import { on as onBus } from "./bus";
 import type { Game } from "./game";
 import type { HandsInBox } from "./hand-system";
 import type { Lantern } from "./lantern-system";
+import { phoneLine } from "./phone-lines";
 import { lessonSnapshot } from "./lesson-boxes";
 import { LessonView } from "./lesson-view";
 import { EXAMPLES, type ExampleId, exampleFor, type LessonInputs, LessonsDirector } from "./lessons-director";
@@ -59,6 +60,8 @@ export interface LessonsDeps {
   autoStart?: () => boolean;
   /** What draws the lessons (tests pass their own; the real one needs a world and the box scene). */
   view?: LessonView;
+  /** The session is a phone's: the coach chip says the lines about hands the phone's way (phone-lines.ts). */
+  phone?: () => boolean;
 }
 
 export class Lessons implements MenuLessons {
@@ -259,8 +262,9 @@ export class Lessons implements MenuLessons {
           : (held ?? this.tipLine(session));
     if (!shown) this.tipDemo(session);
     this.onScreen.tip = dir.tipping && !this.menuUp;
-    // Lines come in English (the director, the tips, the session); the chip shows them in the language shown.
-    this.view.update(dir.frame, this.onScreen, localLine(line), dt, tMs);
+    // Lines come in English (the director, the tips, the session); the chip shows them in the language shown, and on a
+    // phone the phone's way.
+    this.view.update(dir.frame, this.onScreen, localLine(this.d.phone?.() ? phoneLine(line) : line), dt, tMs);
   }
 
   /**
