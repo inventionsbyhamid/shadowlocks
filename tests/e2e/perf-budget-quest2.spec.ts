@@ -55,7 +55,7 @@ test("Quest 2 and Pro: box 15 in play at 72 Hz, the lantern moving and a hand in
   const windows = await timedWindows(app, page, sweep, PRO_RATE, WINDOWS_HERE);
   const st = (await page.evaluate(() => window.__sl!.session.state()))!;
 
-  // Where the container cannot be read (no cgroup counter), no stall is excused beyond the 4x rule's allowance.
+  // Where the container's pauses are unknown (no cgroup counter, or no quota periods counted), the 4x rule's allowance.
   const judged = judgeSystemWindowsP95(
     windows.map((w) => ({ frames: w.frames, bySystem: w.bySystem, excused: w.throttled ?? MAX_STALLS })),
     STALL,

@@ -82,6 +82,22 @@ export interface SystemWindow {
   excused: number;
 }
 
+/** The test container's CPU quota counters (its cgroup's `nr_periods` and `nr_throttled`), read by helpers/perf-play.ts. */
+export interface ContainerCpu {
+  periods: number;
+  throttled: number;
+}
+
+/**
+ * The kernel's pauses of the container between two readings (a window's `excused`), or null when unknown: a counter
+ * could not be read, or no quota period ran between them. A cgroup with no quota counts no periods, so its 0 pauses
+ * say nothing, and the spec falls back to MAX_STALLS rather than excuse none.
+ */
+export function pausesBetween(a: ContainerCpu | null, b: ContainerCpu | null): number | null {
+  if (!a || !b || b.periods <= a.periods) return null;
+  return b.throttled - a.throttled;
+}
+
 /** Each stalled frame's owner: the system that took most of it. */
 export function stallOwners(w: Pick<SystemWindow, "frames" | "bySystem">, stallMs = STALL_MS): string[] {
   const owners: string[] = [];

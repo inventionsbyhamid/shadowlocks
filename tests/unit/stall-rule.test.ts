@@ -9,6 +9,7 @@ import {
   judgeWindowsP95,
   MAX_STALLS,
   p95WithoutStalls,
+  pausesBetween,
   STALL_MS,
   stallOwners,
   type SystemWindow,
@@ -133,5 +134,22 @@ describe("stalls counted against their cause", () => {
     const k = judgeSystemWindowsP95([win(spread(9), 6), win(spread(5), 0)], 28);
     expect(k.index).toBe(0);
     expect(k.stalls).toBeGreaterThan(k.excused);
+  });
+});
+
+describe("the container's pauses during a window", () => {
+  it("are the throttled periods counted between the two readings", () => {
+    expect(pausesBetween({ periods: 1000, throttled: 900 }, { periods: 1180, throttled: 1075 })).toBe(175);
+    // Periods ran and none was throttled: a calm container excuses no stall.
+    expect(pausesBetween({ periods: 1000, throttled: 900 }, { periods: 1180, throttled: 900 })).toBe(0);
+  });
+
+  it("are unknown when no quota period ran (a cgroup with no quota) or a counter could not be read", () => {
+    // A cgroup without a quota counts no periods: its unmoving counter says nothing, so the spec excuses MAX_STALLS.
+    expect(pausesBetween({ periods: 0, throttled: 0 }, { periods: 0, throttled: 0 })).toBeNull();
+    expect(pausesBetween({ periods: 50, throttled: 7 }, { periods: 50, throttled: 7 })).toBeNull();
+    expect(pausesBetween(null, { periods: 5, throttled: 1 })).toBeNull();
+    expect(pausesBetween({ periods: 5, throttled: 1 }, null)).toBeNull();
+    expect(MAX_STALLS).toBe(5);
   });
 });

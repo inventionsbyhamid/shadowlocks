@@ -7,6 +7,7 @@ import type { Page } from "@playwright/test";
 import { hands, Pointer, worldOf } from "./finger";
 import { Hands } from "./hands";
 import { carry, grab, lantern, loadAverage, TIMED_FRAMES, toWorld, WINDOWS } from "./lantern";
+import { type ContainerCpu, pausesBetween } from "./stall-rule";
 import { expect } from "./test";
 import type { XrApp } from "./xr-app";
 
@@ -19,7 +20,10 @@ export interface PlayWindow {
   frames: number[];
   /** Each of PLAY_SYSTEMS' own time, the same frames. */
   bySystem: Record<string, number[]>;
-  /** The periods the kernel paused the test container meanwhile (containerThrottles), or null when unknown. */
+  /**
+   * The periods the kernel paused the test container meanwhile (pausesBetween), or null when unknown: no counter, or no
+   * quota period counted (the spec then excuses MAX_STALLS, the 4x rule's allowance).
+   */
   throttled: number | null;
   /** Every system's update a frame, IWSDK's (input, UI) and ours (real ms). */
   update: number[];
@@ -69,14 +73,16 @@ export async function box15InPlay(app: XrApp, page: Page): Promise<(i: number) =
 }
 
 /**
- * How many 100 ms periods the kernel has paused this test container for using more CPU than its quota (the cgroup's
- * `nr_throttled`; helpers/stall-rule.ts, judgeSystemWindowsP95), or null where the counter cannot be read.
+ * The cgroup's `nr_periods` and `nr_throttled` (helpers/stall-rule.ts, judgeSystemWindowsP95): how many 100 ms quota
+ * periods have run, and in how many the kernel paused the container for using more CPU than its quota. Null where the
+ * counters cannot be read.
  */
-export function containerThrottles(): number | null {
+export function containerCpu(): ContainerCpu | null {
   for (const f of ["/sys/fs/cgroup/cpu.stat", "/sys/fs/cgroup/cpu/cpu.stat"]) {
     try {
-      const m = /^nr_throttled (\d+)$/m.exec(fs.readFileSync(f, "utf8"));
-      if (m) return Number(m[1]);
+      const s = fs.readFileSync(f, "utf8");
+      const p = /^nr_periods (\d+)$/m.exec(s), t = /^nr_throttled (\d+)$/m.exec(s);
+      if (p && t) return { periods: Number(p[1]), throttled: Number(t[1]) };
     } catch {
       // the next place
     }
@@ -99,9 +105,9 @@ export async function timedWindows(
     for (let w = 0; w < count; w++) {
       const load0 = loadAverage();
       await page.evaluate(() => window.__ns!.resetPerf());
-      const throttled0 = containerThrottles();
+      const cpu0 = containerCpu();
       for (let i = 0; (await app.perf()).frames < TIMED_FRAMES; i++) await sweep(i);
-      const throttled1 = containerThrottles();
+      const cpu1 = containerCpu();
       const frames = (await page.evaluate((s) => window.__ns!.perfFrames(s), PLAY_SYSTEMS)).slice(-TIMED_FRAMES);
       // Each of our systems' own time, the same frames (where a stall fell).
       const bySystem = await page.evaluate(
@@ -116,7 +122,7 @@ export async function timedWindows(
       windows.push({
         frames,
         bySystem,
-        throttled: throttled0 !== null && throttled1 !== null ? throttled1 - throttled0 : null,
+        throttled: pausesBetween(cpu0, cpu1),
         update: whole.update.slice(from),
         render: whole.render.slice(from),
         calls: perf.callsMax,
