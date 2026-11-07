@@ -226,4 +226,11 @@ export const FR: Copy = {
     loading: "Chargement",
     description: "Une boîte à énigmes faite d'ombre et de lumière pour Meta Quest. Sans te lever, juste avec les mains, hors ligne.",
   },
+  phone: {
+    pickUp: "Fais glisser la lanterne.",
+    slide: "Tiens la lanterne et approche ou éloigne le téléphone.",
+    finger: "Il manque une pièce. Touche le trou pour la projeter.",
+    drawer: "Touche le tiroir pour retrouver ces leçons.",
+    puppets: "Touche la boîte pour mettre un doigt dans la lumière.",
+  },
 };

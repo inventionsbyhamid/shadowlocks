@@ -228,4 +228,12 @@ export const JA: Copy = {
     loading: "読み込み中",
     description: `Meta${NB}Questで遊べる、光と影のパズルボックス。座ったまま、手だけで遊べて、オフライン対応。`,
   },
+  // Only characters the shipped Japanese font subset already has (scripts/fonts would have to add any other).
+  phone: {
+    pickUp: "指でランタンを動かそう。",
+    slide: "ランタンに指を置いたまま、近づいたり遠ざかったりしよう。",
+    finger: "ピースがひとつ足りない。すき間をタッチして影を作ろう。",
+    drawer: "引き出しをタップすれば、レッスンをまた見られるよ。",
+    puppets: "箱をタッチして、光の中に指を入れてみよう。",
+  },
 };

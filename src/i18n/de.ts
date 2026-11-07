@@ -225,4 +225,11 @@ export const DE: Copy = {
     loading: "Wird geladen",
     description: "Eine Rätselbox aus Licht und Schatten für Meta Quest. Im Sitzen, nur mit den Händen, offline spielbar.",
   },
+  phone: {
+    pickUp: "Zieh die Laterne mit dem Finger.",
+    slide: "Halte die Laterne und geh mit dem Telefon näher ran oder weg.",
+    finger: "Ein Teil fehlt. Berühre die Lücke, um seinen Schatten zu werfen.",
+    drawer: "Tipp auf die Schublade, um diese Lektionen wiederzufinden.",
+    puppets: "Berühre die Box, um einen Finger ins Licht zu halten.",
+  },
 };
