@@ -72,6 +72,12 @@ export const PRECACHE_EXTENSIONS = [
   "ogg", "flac", "mp3", "wav", "wasm", "woff2", "ttf", "txt",
 ];
 
+/**
+ * Files for link scrapers and search engines only (the link card image, robots.txt, the sitemap): the app
+ * never loads them, so they stay out of the precache (scripts/check-dist.mjs allows exactly these).
+ */
+export const SCRAPER_FILES = ["og-image.jpg", "robots.txt", "sitemap.xml"];
+
 /** Above the biggest file we ship (the main bundle, a music loop); workbox's default is 2 MiB. */
 export const MAX_PRECACHE_FILE_BYTES = 8 * 1024 * 1024;
 
@@ -113,9 +119,10 @@ export function pwaOptions(o: { headersFile?: string } = {}): Partial<VitePWAOpt
     workbox: {
       cacheId: CACHE_ID,
       globPatterns: [`**/*.{${PRECACHE_EXTENSIONS.join(",")}}`],
-      // Host files, asset links (the Quest app checks those on the network, never from cache) and
-      // the 404 page (the worker answers unknown pages with index.html, never with it).
-      globIgnores: ["**/node_modules/**", "**/_headers", "**/_redirects", "**/.well-known/**", "404.html"],
+      // Host files, asset links (the Quest app checks those on the network, never from cache), the
+      // 404 page (the worker answers unknown pages with index.html, never with it) and what only link
+      // scrapers and search engines fetch (SCRAPER_FILES), so an offline install never grows by them.
+      globIgnores: ["**/node_modules/**", "**/_headers", "**/_redirects", "**/.well-known/**", "404.html", ...SCRAPER_FILES],
       maximumFileSizeToCacheInBytes: MAX_PRECACHE_FILE_BYTES,
       // No skipWaiting: a new version never takes over mid-game. The page tells it to at the next
       // boot, before anything starts (takeOverWaitingUpdate in offline.ts).

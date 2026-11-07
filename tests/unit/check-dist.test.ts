@@ -15,6 +15,8 @@ function fakeDist(): string {
   fs.writeFileSync(path.join(dir, "music.ogg"), randomBytes(200_000));
   fs.writeFileSync(path.join(dir, "manifest.webmanifest"), JSON.stringify({ icons: [] }));
   fs.writeFileSync(path.join(dir, "_headers"), "/*\n  X-Test: 1\n");
+  // The link card image: shipped, never precached, and never counted in the budget.
+  fs.writeFileSync(path.join(dir, "og-image.jpg"), randomBytes(50_000));
   const urls = ["index.html", "app.js", "music.ogg", "manifest.webmanifest"];
   fs.writeFileSync(path.join(dir, "sw.js"), `self.m=[${urls.map((u) => `{url:"${u}",revision:"1"}`).join(",")}];`);
   return dir;
