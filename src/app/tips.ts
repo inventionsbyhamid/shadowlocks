@@ -1,7 +1,11 @@
-// Just-in-time tips: the first time a mechanic matters, one line on the coach line and a short ghost demo at the lock
-// it is about; the tip goes once the player has done it. Decoys at box 2, a lock without rings at box 4, a hidden
-// outline at box 5 (the difficulty curve brings each in there). A player who skips ahead (a field flag, the Daily
-// Box) gets the earliest tip not yet seen, one a box. Lessons never show tips; the drawer is lesson 2's to teach.
+// Just-in-time tips: the first time a mechanic matters, one line on the coach line until the player has done it.
+// Decoys at box 2, a lock without rings at box 4, a hidden outline at box 5 (the difficulty curve brings each in
+// there). A player who skips ahead (a field flag, the Daily Box) gets the earliest tip not yet seen, one a box.
+// Lessons never show tips; the drawer is lesson 2's to teach.
+// This module says which tip a box shows, the lock it is about (tipLock) and when it is done. The ghost demo of
+// about 6 s that plays once as the line first shows (the finger pointing at two decoys, or a ghost lantern swept
+// just above the lock's spot) is built in lesson-scripts.ts (buildTipScript) and run by lessons.ts, which also
+// replays it from a Lessons row.
 import type { TipId } from "../core/profile";
 import type { Box } from "../core/types";
 import { COPY } from "../ui/copy";
