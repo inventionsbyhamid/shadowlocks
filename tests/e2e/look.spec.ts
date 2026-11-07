@@ -81,7 +81,9 @@ test("look shots: the menu, box 1, box 5 at a spot and warming, a lock opening, 
   await app.stepUntil((ns) => !ns.ui.busy(), { maxMs: 3_000, label: "home at rest" });
   await app.step(Math.ceil(1000 / DT));
   await app.capture("look-menu-wide");
-  await app.captureHeadset("look-menu-headset", target);
+  // The menu panel itself (it stands on the drawer at the plinth, below the box's middle), wide enough to hold it.
+  const home = (await page.evaluate(() => window.__ns!.ui.panelBox("home")))!;
+  await app.captureHeadset("look-menu-headset", { x: home.center[0], y: home.center[1], z: home.center[2] }, 18);
 
   await inPlay(app);
   // Box 1 as the player first meets it: the lantern at its start.
