@@ -16,8 +16,13 @@ export const PLAY_SYSTEMS = ["hand-pinch", "hands", "lantern", "game", "menus", 
 export interface PlayWindow {
   /** Our systems' update time a frame (real ms), the window's frames in order. */
   frames: number[];
-  /** The whole frame on the main thread: every system's update (IWSDK's too) and the render after it (real ms). */
-  whole: number[];
+  /** Every system's update a frame, IWSDK's (input, UI) and ours (real ms). */
+  update: number[];
+  /**
+   * The render after it (real ms): three's JavaScript and the commands it sends. Reported only: the emulator renders in
+   * software, and its frames wait on that work in ways a headset's do not.
+   */
+  render: number[];
   calls: number;
   triangles: number;
   load: number | undefined;
@@ -70,14 +75,14 @@ export async function timedWindows(app: XrApp, page: Page, sweep: (i: number) =>
       for (let i = 0; (await app.perf()).frames < TIMED_FRAMES; i++) await sweep(i);
       const frames = (await page.evaluate((s) => window.__ns!.perfFrames(s), PLAY_SYSTEMS)).slice(-TIMED_FRAMES);
       const whole = await page.evaluate(() => window.__ns!.perfWhole());
-      const n = whole.update.length;
-      const wholeFrames = whole.update.map((u, i) => u + whole.render[i]!).slice(Math.max(0, n - TIMED_FRAMES));
+      const from = Math.max(0, whole.update.length - TIMED_FRAMES);
       // Draw calls and triangles: the most in any one frame of the window, every frame counted.
       const perf = await app.perf();
       const loads = [load0, loadAverage()].filter((l): l is number => l !== undefined);
       windows.push({
         frames,
-        whole: wholeFrames,
+        update: whole.update.slice(from),
+        render: whole.render.slice(from),
         calls: perf.callsMax,
         triangles: perf.trianglesMax,
         load: loads.length ? Math.max(...loads) : undefined,

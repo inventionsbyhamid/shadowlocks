@@ -92,8 +92,9 @@ test("box 15 in play, the lantern moving and a hand in the beam: draw calls, tri
           `perf-budget, window ${i + 1}: ${w.calls} draw calls, ${w.triangles} triangles at most; our JS over ${TIMED_FRAMES} frames at 4x: ` +
           `mean ${stats[i]!.meanMs.toFixed(3)}, median ${stats[i]!.medianMs.toFixed(3)}, p95 ${stats[i]!.p95Ms.toFixed(2)}, ` +
           `max ${stats[i]!.maxMs.toFixed(2)} ms (${stats[i]!.rule.stalls} stalls (host or ours) over ${STALL_MS} ms; p95 ` +
-          `${stats[i]!.rule.p95Ms.toFixed(2)} without them); whole frame (all systems and the render) p95 ` +
-          `${p95WithoutStalls(w.whole).p95Ms.toFixed(2)} ms; server load ${w.load?.toFixed(1) ?? "?"}; ` +
+          `${stats[i]!.rule.p95Ms.toFixed(2)} without them); every system (IWSDK's too) p95 ` +
+          `${p95WithoutStalls(w.update).p95Ms.toFixed(2)} ms, the render's (software GL) ${p95WithoutStalls(w.render).p95Ms.toFixed(2)} ms; ` +
+          `server load ${w.load?.toFixed(1) ?? "?"}; ` +
           `p95 by system: ${Object.entries(w.systems).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")}`,
       ),
       `perf-budget: judged on window ${judged.index + 1}: p95 ${judged.p95Ms.toFixed(2)} ms a frame without stalls ` +

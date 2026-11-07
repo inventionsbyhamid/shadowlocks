@@ -51,4 +51,11 @@ describe("the stall rule", () => {
     expect(withoutStalls([1, 3, 60])).toEqual({ meanMs: 2, stalls: 1 });
     expect(judgeWindows([[2, 2], [1, 1, 60]]).index).toBe(1);
   });
+
+  it("takes a threshold scaled with another throttle: at 6x a 25 ms frame is no stall", () => {
+    const frames = [1, 2, 25, 26, 40];
+    expect(p95WithoutStalls(frames)).toEqual({ p95Ms: 2, stalls: 3 });
+    expect(p95WithoutStalls(frames, (STALL_MS * 6) / 4)).toEqual({ p95Ms: 26, stalls: 1 });
+    expect(judgeWindowsP95([frames, [1, 1, 50]], 30).index).toBe(1);
+  });
 });

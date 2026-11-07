@@ -48,17 +48,18 @@ export function judgeWindows(windows: readonly (readonly number[])[]): StallMean
 
 /**
  * A window's p95 by the stall rule: of the frames under STALL_MS, the one at the 95th place (as frameStats takes it).
- * Stalls left in would push the window's slow-but-ordinary frames down onto the 95th place.
+ * Stalls left in would push the window's slow-but-ordinary frames down onto the 95th place. A check timed at another
+ * throttle than 4x passes its own threshold, STALL_MS scaled with the throttle (a stall stretches with it).
  */
-export function p95WithoutStalls(frames: readonly number[]): StallP95 {
-  const kept = frames.filter((ms) => ms < STALL_MS).sort((a, b) => a - b);
+export function p95WithoutStalls(frames: readonly number[], stallMs = STALL_MS): StallP95 {
+  const kept = frames.filter((ms) => ms < stallMs).sort((a, b) => a - b);
   const n = kept.length;
   return { p95Ms: n ? kept[Math.min(n - 1, Math.floor(n * 0.95))]! : Number.NaN, stalls: frames.length - n };
 }
 
 /** Of several windows' frame times, the one judged on its p95 without stalls (the lower one) and its index. */
-export function judgeWindowsP95(windows: readonly (readonly number[])[]): StallP95 & { index: number } {
-  const judged = windows.map(p95WithoutStalls);
+export function judgeWindowsP95(windows: readonly (readonly number[])[], stallMs = STALL_MS): StallP95 & { index: number } {
+  const judged = windows.map((w) => p95WithoutStalls(w, stallMs));
   const index = pick(judged, (a, b) => a.p95Ms < b.p95Ms);
   return { ...judged[index]!, index };
 }
