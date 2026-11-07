@@ -27,7 +27,13 @@ function roomLight(page: Page): Promise<{ veil: number; share: number }> {
   return page.evaluate((dt) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const w = window as any;
-    w.__vt.step(dt);
+    // The synthetic room is drawn only in frames that read it (page-scripts roomOnCaptureOnly), as XrApp.capture does.
+    w.__nsRoomFrame = true;
+    try {
+      w.__vt.step(dt);
+    } finally {
+      w.__nsRoomFrame = false;
+    }
     const app = w.__ns.world.renderer.domElement as HTMLCanvasElement;
     const env = w.IWER_DEVICE.sem.environmentCanvas as HTMLCanvasElement;
     const W = app.width, H = app.height;
@@ -293,4 +299,52 @@ test("celebrations: a lock opening with its glints, the box opening and the ligh
   await app.stepUntil((_ns, w) => w.__sl.session.state()?.stage === "playing", { maxMs: 10_000, label: "box 2 in play" });
   await app.step(Math.ceil(1000 / DT));
   expect(await veilNow(page)).toBeCloseTo(0.65, 3);
+});
+
+test("owner's look shots: lesson 1 forming, its idle ghost hand, and Example 1 with the ghost lantern and the cradle", async ({
+  page,
+  boot,
+}, testInfo) => {
+  // A first launch goes straight into lesson 1.
+  const app = await boot({ lessons: true, expectScreen: "play" });
+  const inLesson = () =>
+    app.stepUntil(
+      (_ns, w) => {
+        const s = w.__sl.session.state();
+        return s?.key === "shadow-locks/lesson/l1" && s.stage === "playing" && s.revealed;
+      },
+      { maxMs: 10_000, label: "lesson 1 in play" },
+    );
+  await inLesson();
+  const panel = (await app.state()).boxPose.position;
+  const at = { x: panel[0], y: panel[1], z: panel[2] };
+  // The box forming out of light.
+  await app.stepUntil((_ns, w) => w.__sl.lessons.state().form >= 0.5, { maxMs: 3_000, label: "the box half formed" });
+  await app.captureHeadset("look-owner-lesson1-forming-headset", at);
+  // Idle: the ghost hand shows how to take the lantern.
+  await app.stepUntil((_ns, w) => w.__sl.lessons.state().hand.opacity > 0.9, { maxMs: 8_000, label: "the idle ghost hand" });
+  await page.evaluate(() => window.__ns!.resetPerf());
+  await app.step(30);
+  const idle = await app.perf();
+  await app.captureHeadset("look-owner-lesson1-ghost-headset", at);
+  await app.capture("look-owner-lesson1-ghost-wide");
+  // Example 1 (practice, from its step): the ghost lantern swings over the twin while the player's waits in its cradle.
+  await page.evaluate(() => window.__sl!.lessons.start("l1", 2, true));
+  await app.stepUntil(
+    (_ns, w) => {
+      const s = w.__sl.lessons.state();
+      return s.park >= 1 && s.lamp.opacity > 0.9 && s.hand.opacity > 0.9;
+    },
+    { maxMs: 12_000, dt: 50, label: "Example 1 running, the lantern in its cradle" },
+  );
+  await page.evaluate(() => window.__ns!.resetPerf());
+  await app.step(30);
+  const example = await app.perf();
+  await app.captureHeadset("look-owner-lesson1-example-headset", at);
+  await app.capture("look-owner-lesson1-example-wide");
+  // Draw calls, both views counted as perf-budget counts them (the busiest frame of 30).
+  const line = `look, lesson 1 draw calls (both views): idle ghost ${idle.callsMax}, Example 1 ${example.callsMax}`;
+  testInfo.annotations.push({ type: "draw-calls", description: line });
+  console.log(line);
+  expect(idle.callsMax).toBeLessThanOrEqual(100);
 });
