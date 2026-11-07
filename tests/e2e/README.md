@@ -132,12 +132,16 @@ drifts as it lets go and drops out of tracking (`helpers/jitter.ts`). They are n
 them through their own config, which is the suite's with only these specs:
 
 ```sh
-scripts/e2e.sh -c playwright.bot.config.ts                          # all three, one after the other
-scripts/e2e.sh -c playwright.bot.config.ts tests/e2e/bot.spec.ts    # one
+# All three, one after the other (about 80 minutes): wait up to two hours for the slot, allow three to run.
+NS_LOCK_WAIT=7200 NS_MAX_RUN=10800 scripts/e2e.sh -c playwright.bot.config.ts
+# One (about 25 minutes)
+NS_LOCK_WAIT=7200 scripts/e2e.sh -c playwright.bot.config.ts tests/e2e/bot.spec.ts
 ```
 
 Run them after a change to the feel (`src/feel/constants.ts`, the ring thresholds, the lantern or finger paths) or
 the box session's open rule. Each carries `// e2e: exclusive`, and any run naming the bot config is exclusive too.
 Naming a bot spec with the default config finds no tests. Per-box results land in `test-results/bot/*.json` and a
-summary in the run notes. A bot spec waits for an exclusive slot; behind another lane's long run that can take over
-an hour, so `NS_LOCK_WAIT=7200` is worth setting.
+summary in the run notes. A bot run waits for an exclusive slot; behind another lane's long run that can take over
+an hour, hence `NS_LOCK_WAIT=7200` (the default gives up after one). All three together take about 80 minutes (1.4 h
+measured), near enough the default two-hour container limit (`NS_MAX_RUN` 7200) on a loaded server that
+`NS_MAX_RUN=10800` is the safer setting.

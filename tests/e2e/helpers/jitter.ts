@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // The jitter bot: a careful player whose hand shakes, drifts as it lets go and drops out of tracking now and then,
-// playing the box session through IWER's emulated hand (or controller), so the feel layer's assists (the speed gate,
-// the settle, the ring line lock, the release lookback) are proven under the conditions they exist for.
+// playing the box session through IWER's emulated hand (or controller), so the feel layer's assists are tried under
+// the conditions they exist for. In the bot's runs the speed gate, the settle and the finger hold decide the outcome;
+// every plain lock opens while its settled lantern is still held, so the release lookback and the release drift
+// happen but decide nothing, and whether the ring line lock engaged is not recorded.
 //
 // - withJitter(dispatch, opts) wraps IWER's remote dispatch: every hand position the bot sets is off by up to
 //   `noiseMm` on each axis (a new uniform draw every frame), opening a pinch drags the hand `releaseDriftCm` in a
@@ -11,7 +13,7 @@
 // - Bot drives one hand (or controller) frame by frame from the page: a per-frame driver set before every step of the
 //   virtual clock moves it along queued legs through withJitter. botSolve plays a box with it: each plain lock by the
 //   careful approach and a release, each finger lock by the lantern on its spot and the index finger laid in its gap
-//   at depth 0.45 and held there.
+//   at depth 0.45, taken out and brought back so its whole hold is shaken, and held there.
 import fs from "node:fs";
 import path from "node:path";
 import type { Page, TestInfo } from "@playwright/test";
@@ -349,10 +351,24 @@ export interface LockResult {
   /** Finger locks: how many times the finger was laid. */
   lays: number;
   /**
-   * Finger locks, per lay: how far off the laid finger ended (mm from the gap's line, degrees), and its hold: frames
-   * held, frames meeting the rule, frames with no finger shadow, best progress, mean and least gap filled, most spill.
+   * Finger locks, per lay: whether its hold started from zero under the jitter (`fresh`: the finger was taken out of
+   * the box until the hold was back at zero, then brought back in shaking), how far off the laid finger ended (mm from
+   * the gap's line, degrees), and its hold from the finger's return: frames, frames meeting the rule, frames with no
+   * finger shadow, best progress, mean and least gap filled, most spill.
    */
-  holds?: { offMm: number; deg: number; frames: number; meets: number; noFinger: number; progress: number; gap: number; gapMin: number; spillAll: number; coverMin: number }[];
+  holds?: {
+    fresh: boolean;
+    offMm: number;
+    deg: number;
+    frames: number;
+    meets: number;
+    noFinger: number;
+    progress: number;
+    gap: number;
+    gapMin: number;
+    spillAll: number;
+    coverMin: number;
+  }[];
   /** Virtual ms from starting on this lock until it opened (or gave up). */
   ms: number;
   /** Why it could not be tried, when it could not. */
@@ -389,6 +405,8 @@ const OPEN_WAIT_MS = 1500;
 /** A laid finger opens its lock within this (ms: a 600 ms hold, the piece forming 700 ms, dropouts restarting it). */
 const FINGER_WAIT_MS = 5000;
 const FINGER_LAYS = 2;
+/** Before its hold, the laid finger is taken this far out (box z, past the mouth at 1: it casts nothing there). */
+const FINGER_OUT_Z = 1.2;
 
 /**
  * Page script: the bot's hand, moved before every frame of the virtual clock while `driving`. It goes along queued
@@ -824,10 +842,11 @@ export class Bot {
   }
 
   /**
-   * The finger laid in the gap, as a player aims it by its shadow (the lay itself is not shaken), then held there with
-   * the jitter until the lock opens: the right index finger (Pointer), or the right controller's stand-in finger
-   * (ControllerFinger: a fingertip-sized capsule along its aim, just past its front). "open", "shut", or why it could
-   * not be tried.
+   * The finger laid in the gap, as a player aims it by its shadow (the lay itself is not shaken), taken out of the box
+   * until its hold is back at zero, brought back into the gap and held there, all with the jitter, until the lock
+   * opens: so the whole 600 ms hold is shaken. The right index finger (Pointer), or the right controller's stand-in
+   * finger (ControllerFinger: a fingertip-sized capsule along its aim, just past its front). "open", "shut", or why it
+   * could not be tried.
    */
   private async fingerHold(fl: SlFingerLock, r: LockResult): Promise<string> {
     const { mid, dir } = this.gapLine(fl);
@@ -857,19 +876,38 @@ export class Bot {
         orient = c.q;
       }
       r.lays++;
+      // The lay's last, unshaken frames can start the hold. So, shaking from here on, the finger goes out of the box
+      // until its hold is back at zero (FINGER_GRACE_MS without the gap filled), then back into the gap at 10 cm/s:
+      // the whole hold is shaken.
       await this.page.evaluate(
-        ({ at, orient, anchor, lock }) => {
+        ({ at, orient, anchor }) => {
           const b = (window as any).__bot;
           b.stop();
           b.anchor = anchor;
           b.orient = orient;
           b.pos = at;
           b.sel = 0;
-          b.hold = { lock, frames: 0, meets: 0, noFinger: 0, progress: 0, gap: 0, gapMin: Infinity, spillAll: 0, coverMin: Infinity };
           b.driving = true;
         },
-        { at, orient, anchor: hands ? "index-tip" : null, lock: fl.lock },
+        { at, orient, anchor: hands ? "index-tip" : null },
       );
+      const [inBox, outOfMouth] = await this.world([
+        [0, 0, this.fingerDepth],
+        [0, 0, FINGER_OUT_Z],
+      ]);
+      await this.go([{ to: add(at, sub(outOfMouth!, inBox!)), cmps: AWAY_CMPS }], "the finger out of the box before its hold");
+      const fresh = await this.waitFor(
+        (w, i) => {
+          const f = w.__sl.fingerLocks().find((x: any) => x.lock === i);
+          return !!f && f.state === "idle" && f.progress === 0;
+        },
+        fl.lock,
+        1000,
+      );
+      await this.go([{ to: at, cmps: REACH_SLOW_CMPS }], "the finger back into the gap");
+      await this.page.evaluate((lock) => {
+        (window as any).__bot.hold = { lock, frames: 0, meets: 0, noFinger: 0, progress: 0, gap: 0, gapMin: Infinity, spillAll: 0, coverMin: Infinity };
+      }, fl.lock);
       open = await this.waitFor((w, i) => w.__sl.session.state().open.includes(i), fl.lock, FINGER_WAIT_MS);
       const h = await this.page.evaluate(() => {
         const b = (window as any).__bot, H = b.hold;
@@ -877,6 +915,7 @@ export class Bot {
         return H as Record<string, number>;
       });
       (r.holds ??= []).push({
+        fresh,
         offMm: laid.off * this.cmPerUnit * 10,
         deg: (laid.angle * 180) / Math.PI,
         frames: h.frames!,
@@ -996,7 +1035,9 @@ export function lockLine(l: LockResult): string {
     const ms = l.openAfterReleaseMs;
     parts.push(ms < 0 ? `${(-ms).toFixed(0)} ms before letting go` : `${ms.toFixed(0)} ms after letting go`);
   }
-  for (const h of l.holds ?? []) parts.push(`lay: ${h.meets}/${h.frames} frames meeting, gap ${(h.gap * 100).toFixed(0)}%`);
+  for (const h of l.holds ?? []) {
+    parts.push(`lay: ${h.meets}/${h.frames} frames meeting, gap ${(h.gap * 100).toFixed(0)}%${h.fresh ? "" : ", hold NOT started fresh"}`);
+  }
   parts.push(`${s1(l.ms)} s`);
   return parts.join(", ");
 }
