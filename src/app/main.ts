@@ -128,7 +128,8 @@ async function main(): Promise<void> {
     hands,
     sound,
     play,
-    presenting: () => shell.sessionMode !== null,
+    // In XR and seen: a hidden headset (or page) holds the lesson's clock, as the lifecycle holds the box's.
+    presenting: () => shell.sessionMode !== null && shell.lifecycle.active,
     autoStart: () => !box && !lesson && !skipLessons,
   });
   // What the menus play through: the box session and the lessons. A progress reset lets a lesson or replay in the
