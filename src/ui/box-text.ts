@@ -7,7 +7,7 @@ import { storyLayout } from "../render/reward";
 import { COPY, fill } from "./copy";
 import { HINT_LANTERN } from "./hint-lantern";
 import { keyLabelFit } from "./poke-key";
-import { coachLayout, PLATE, plateCueFit, plateNameFit } from "./plate";
+import { PLATE, plateCueFit, plateNameFit } from "./plate";
 
 /** One piece of lettering in one language: where it is drawn, its size (px) and whether it had to be squeezed. */
 export interface BoxTextFit {
@@ -33,7 +33,6 @@ export function boxTextFits(g: Measure): BoxTextFit[] {
     for (const name of [fill(G.boxNo, { n: 1 }), fill(G.boxNo, { n: 88 }), fill(G.boxNo, { n: 888 }), G.daily]) add("plate", name, plateNameFit(g, name, 3, l));
     add("plate cue", G.practice, plateCueFit(g, G.practice, 3, l));
     add("plate-next", G.next, keyLabelFit(g, G.next, PLATE.key.w, PLATE.key.h, l));
-    add("coach", G.controllerFinger, coachLayout(g, G.controllerFinger, l));
     for (const [id, s] of [
       ["hint-choice", G.hint],
       ["hint-show-me", G.showMe],

@@ -47,11 +47,19 @@ export const FINGER_HOLD_MS = 600;
 export const FINGER_GRACE_MS = 100;
 
 /**
- * A lock opens once the lantern has met its rule this long: a lantern at rest (released, settled, or held still)
- * passes at once, while a sweep through the spot meets it for a frame or two and opens nothing (at 15 cm/s the
- * lantern crosses the few millimetres where the rule holds in well under this).
+ * A lock opens once the lantern has met its rule this long while at rest (LanternController.atRest: not held,
+ * settled, or held by a deliberate hand, the speed gate above); moving, the dwell starts over. So the shadows click
+ * together soon after the lantern comes to rest on its spot, while no sweep opens a lock, even one along the lock's
+ * ray, where the rule holds for half a second at 5 cm/s.
+ *
+ * Keep it above the speed gate's close time. A hand held still is at rest, and when it starts to move it stays at rest
+ * until the gate's filtered speed passes SPEED_GATE_CMPS. Held a hair outside where a lock's rule begins on its ray, a
+ * move meets the rule at once while still at rest: for 139 ms at 8 cm/s, 111 ms at 10, 97 ms at 12 and 83 ms at 15
+ * (72 Hz frames; box-session.test.ts measures them). 150 ms is above all of these (39 ms of margin at 10 cm/s, 11 ms
+ * at 8), so no move from a hold opens a lock in passing. Lowering this below about 140 ms, or slowing the gate
+ * (a longer SPEED_FILTER_MS, a higher SPEED_GATE_CMPS), lets such a move open one; retune them together.
  */
-export const OPEN_DWELL_MS = 100;
+export const OPEN_DWELL_MS = 150;
 
 /** Head gaze on a new lock this long moves the focus to it. */
 export const GAZE_DWELL_MS = 400;

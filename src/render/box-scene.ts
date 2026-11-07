@@ -222,6 +222,13 @@ export class BoxScene {
   private handOutlines: readonly V2[][] = [];
   private handCount = 0;
   private handDepth: Float32Array = new Float32Array(0);
+  /** A lesson's ghost hand's outlines and depths (cast after the hands'). */
+  private ghostOutlines: readonly V2[][] = [];
+  private ghostCount = 0;
+  private ghostDepth: Float32Array = new Float32Array(0);
+  /** Shadows cast from here instead of the lantern (a lesson's ghost lantern), while `lightOn`. */
+  private readonly lightAt: V3 = [0, 0, 0];
+  private lightOn = false;
   /** The crystals' version at the last cast (a piece made, growing or gone since recasts). */
   private castCrystals = -1;
 
@@ -294,6 +301,8 @@ export class BoxScene {
     this.shadows.setBox(box);
     // The hands' outlines were for the last box; the hand system gives this box's on the next frame.
     this.handCount = 0;
+    this.ghostCount = 0;
+    this.lightOn = false;
     const s = box ? box.start : ENVELOPE.START;
     this.lantern.setPos([s[0], s[1], s[2]]);
     this.syncShadows();
@@ -310,6 +319,39 @@ export class BoxScene {
     this.handDepth = depth;
   }
 
+  /** A lesson's ghost hand's shadows this frame, as setHandShadows takes a hand's (drawn after the hands'). */
+  setGhostShadows(outlines: readonly V2[][], n: number, depth: Float32Array): void {
+    this.ghostOutlines = outlines;
+    this.ghostCount = n;
+    this.ghostDepth = depth;
+  }
+
+  /**
+   * Cast the shadows and light the panel from `p` (box units) instead of the lantern: a lesson's ghost lantern while
+   * it solves its example. Null: from the lantern again.
+   */
+  setLightFrom(p: Readonly<V3> | null): void {
+    this.lightOn = p !== null;
+    if (!p) return;
+    this.lightAt[0] = p[0];
+    this.lightAt[1] = p[1];
+    this.lightAt[2] = p[2];
+  }
+
+  /** Where the shadows are cast from now (box units), into out. */
+  lightPos(out: V3): V3 {
+    if (!this.lightOn) return this.lantern.getPos(out);
+    out[0] = this.lightAt[0];
+    out[1] = this.lightAt[1];
+    out[2] = this.lightAt[2];
+    return out;
+  }
+
+  /** Scraps or rings were moved in place (a lesson's scraps swinging): cast them where they are on the next sync. */
+  shadowsMoved(): void {
+    this.shadows.moved();
+  }
+
   /**
    * Cast the shadows and move the light pool if anything changed since the last time; true when it
    * did. Every frame calls it; so can whoever moves the lantern. The extra shadows (crystallised
@@ -318,7 +360,7 @@ export class BoxScene {
    * move) or a piece changed. Allocation-free.
    */
   syncShadows(): boolean {
-    const L = this.lantern.getPos(this.lanternAt);
+    const L = this.lightOn ? this.lightAt : this.lantern.getPos(this.lanternAt);
     const extras = this.extras, soft = this.extraSoft;
     let n = this.crystals.castShadows(L, extras, soft);
     const hands = Math.min(this.handCount, MAX_EXTRAS - n);
@@ -327,7 +369,13 @@ export class BoxScene {
       soft[n] = penumbra(this.handDepth[i]!, L[2]);
       n++;
     }
-    const changed = hands > 0 || this.crystals.version !== this.castCrystals;
+    const ghost = Math.min(this.ghostCount, MAX_EXTRAS - n);
+    for (let i = 0; i < ghost; i++) {
+      extras[n] = this.ghostOutlines[i]!;
+      soft[n] = penumbra(this.ghostDepth[i]!, L[2]);
+      n++;
+    }
+    const changed = hands > 0 || ghost > 0 || this.crystals.version !== this.castCrystals;
     if (!this.shadows.refresh(L, extras, n, soft, changed)) return false;
     this.castCrystals = this.crystals.version;
     this.panelArt.setLantern(L);

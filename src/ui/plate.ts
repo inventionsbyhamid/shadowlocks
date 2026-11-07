@@ -7,7 +7,7 @@ import { Group, Mesh, MeshBasicMaterial, type Object3D, PlaneGeometry } from "@i
 import type { Box, BoxSpec } from "../core/types";
 import { KEY_EVENT } from "../render/finger-key";
 import { copy, type Lang } from "../i18n";
-import { brassFace, breakUnits, fitLabel, LabelCanvas, type LabelFit, labelFont, roundRect } from "../render/label";
+import { brassFace, fitLabel, LabelCanvas, type LabelFit, labelFont } from "../render/label";
 import { fill } from "./copy";
 import type { Tips } from "./key-view";
 import { PokeKey } from "./poke-key";
@@ -25,8 +25,6 @@ export const PLATE = {
   h: 0.034,
   /** The Next key (m): above the plate, wide enough for its label at full size. */
   key: { w: 0.1, h: 0.044, above: 0.012 },
-  /** The coach line's card (m): above the plate during play, about as wide as it, two lines of 13 mm lettering. */
-  coach: { w: 0.2, h: 0.05, above: 0.012 },
 } as const;
 
 const ROMAN = ["I", "II", "III"];
@@ -48,12 +46,13 @@ export function plateLayout(w: number, h: number, n: number): { nameX: number; n
 
 /**
  * What the plate says for a box in the language now shown: its name ("Box No. 3", "Daily Box"), and a small cue under
- * it ("Practice" for a `?box` practice box).
+ * it ("Practice" for a `?box` practice box). A lesson's box says nothing, practice or not (a replay plays as
+ * practice; the coach line talks).
  */
 export function plateText(spec: BoxSpec, practice: boolean): { name: string; cue: string } {
   const g = copy().game;
   const name = spec.kind === "box" ? fill(g.boxNo, { n: spec.n }) : spec.kind === "daily" ? g.daily : "";
-  return { name, cue: practice ? g.practice : "" };
+  return { name, cue: practice && spec.kind !== "lesson" ? g.practice : "" };
 }
 
 /** How `name` sits on the plate beside `n` latch lights (canvas px) in language `l`: the fit it is painted with. */
@@ -69,43 +68,6 @@ const CUE_SIZE = 0.22;
 export function plateCueFit(g: Parameters<typeof fitLabel>[0], cue: string, n: number, l?: Lang): LabelFit {
   const w = Math.round(PLATE.w * PX), h = Math.round(PLATE.h * PX);
   return fitLabel(g, cue, "italic", h * CUE_SIZE, h * CUE_SIZE, plateLayout(w, h, n).nameMax, l);
-}
-
-/**
- * `text` in one line if it fits `max` (as `width` measures it), else in two where the longer line is shortest, broken
- * only where a line may break (between words; between Japanese characters by the kinsoku rules).
- */
-export function wrapTwo(text: string, width: (s: string) => number, max: number): string[] {
-  if (width(text) <= max) return [text];
-  const units = breakUnits(text);
-  let best: string[] = [text], bestW = Number.POSITIVE_INFINITY;
-  for (let k = 1; k < units.length; k++) {
-    const a = units.slice(0, k).join("").trimEnd(), b = units.slice(k).join("").trim();
-    const w = Math.max(width(a), width(b));
-    if (w < bestW) {
-      bestW = w;
-      best = [a, b];
-    }
-  }
-  return best;
-}
-
-/** The coach card's lettering: this share of its height (13 mm), never below the floor (12 mm). */
-const COACH_SIZE = 0.26;
-const COACH_FLOOR = 0.24;
-
-/** How the coach line sits on its card in language `l` (canvas px): its size, its (one or two) lines, squeezed or not. */
-export function coachLayout(g: Parameters<typeof fitLabel>[0], text: string, l?: Lang): { size: number; lines: string[]; squeezed: boolean } {
-  const w = Math.round(PLATE.coach.w * PX), h = Math.round(PLATE.coach.h * PX), room = w * 0.9;
-  let size = Math.round(h * COACH_SIZE), lines: string[] = [text];
-  for (; size >= h * COACH_FLOOR; size -= 2) {
-    g.font = labelFont("italic", size, l);
-    lines = wrapTwo(text, (s) => g.measureText(s).width, room);
-    if (lines.every((x) => g.measureText(x).width <= room)) return { size, lines, squeezed: false };
-  }
-  size += 2;
-  g.font = labelFont("italic", size, l);
-  return { size, lines, squeezed: true };
 }
 
 export class Plate {
@@ -124,9 +86,6 @@ export class Plate {
   private scale = 0;
   /** The Next key's press was accepted (the press gate); its action comes when the finger lets go. */
   private armed = false;
-  private readonly coachCard: Mesh;
-  private readonly coachLabel = new LabelCanvas(Math.round(PLATE.coach.w * PX), Math.round(PLATE.coach.h * PX));
-  private coachText = "";
 
   constructor(private readonly root: Object3D) {
     this.group.name = "Plate";
@@ -137,41 +96,9 @@ export class Plate {
     this.face.position.y = PLATE.h / 2;
     this.next.group.position.set(0, PLATE.h + PLATE.key.above + PLATE.key.h / 2, 0.002);
     this.next.show(false);
-    const C = PLATE.coach;
-    this.coachCard = new Mesh(new PlaneGeometry(C.w, C.h), new MeshBasicMaterial({ map: this.coachLabel.texture, transparent: true, toneMapped: false }));
-    this.coachCard.name = "Coach Line";
-    this.coachCard.position.set(0, PLATE.h + C.above + C.h / 2, 0.002);
-    this.coachCard.visible = false;
-    this.group.add(this.face, this.next.group, this.coachCard);
+    this.group.add(this.face, this.next.group);
     this.group.visible = false;
     root.add(this.group);
-  }
-
-  /**
-   * The coach line above the plate (during play, where the Next key stands after a box), or none. Task 15's coach line
-   * takes over the `coach` event when it lands.
-   */
-  coach(text: string | null, repaint = false): void {
-    this.coachCard.visible = text !== null;
-    if (text === null || (text === this.coachText && !repaint)) return;
-    this.coachText = text;
-    this.coachLabel.paint((g, w, h) => {
-      roundRect(g, 4, 4, w - 8, h - 8, h * 0.14);
-      g.fillStyle = "rgba(20, 16, 22, 0.86)";
-      g.fill();
-      g.fillStyle = "#f6e7c4";
-      g.textAlign = "center";
-      g.textBaseline = "middle";
-      // Two lines at most, broken where a line may break (a line still too long condenses to fit).
-      const L = coachLayout(g, text), max = w * 0.9;
-      const step = h * 0.34, top = h / 2 - ((L.lines.length - 1) * step) / 2;
-      L.lines.forEach((l, i) => g.fillText(l, w / 2, top + i * step, max));
-    });
-  }
-
-  /** The coach line shown now, or "" (for the test hooks). */
-  get coachShown(): string {
-    return this.coachCard.visible ? this.coachText : "";
   }
 
   /** A new box: its name (and "Practice" under it for a practice box), as many latch lights as it has locks, all off, no Next. */

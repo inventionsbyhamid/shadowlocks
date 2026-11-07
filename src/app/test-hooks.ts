@@ -30,9 +30,10 @@ import type { SfxId } from "../audio/manifest";
 import type { PlayOptions } from "../audio/engine";
 import type { HandsInBox } from "./hand-system";
 import type { Lantern } from "./lantern-system";
+import type { Lessons } from "./lessons";
 import type { Sound } from "./sound";
 import { appSystemName, onAppSystem } from "./systems";
-import type { NsApi, NsButton, NsClock, NsPerf, NsScene, NsSound, NsState, SlApi, SlFeelEvent, SlHand, SlLantern, SlSession } from "./test-api";
+import type { NsApi, NsButton, NsClock, NsPerf, NsScene, NsSound, NsState, SlApi, SlFeelEvent, SlHand, SlLantern, SlLessons, SlSession } from "./test-api";
 import { installVirtualClock, type VirtualClock } from "./virtual-clock";
 
 const MAX_EVENTS = 2000;
@@ -198,6 +199,7 @@ export function installTestHooks(
     access: Access;
     fakeBilling: FakeBillingState | null;
     menuGame: GameMenus;
+    lessons: Lessons;
   },
 ): void {
   const w = window as unknown as { __vt?: VirtualClock; __ns?: NsApi; __sl?: SlApi };
@@ -462,8 +464,41 @@ export function installTestHooks(
     },
     hint: () => ses.useHint(),
   };
+  const les = app.lessons;
+  const lessons: SlLessons = {
+    start: (id, step, practice) => les.start(id, { step, practice }),
+    state: () => {
+      const d = les.director, f = d.frame, p = shell.profiles.profile;
+      const c3 = (v: V3): V3 => [v[0], v[1], v[2]];
+      return {
+        lesson: d.lesson,
+        step: d.step,
+        done: d.done,
+        replaying: d.replaying,
+        running: les.running,
+        drawerAllowed: les.drawerAllowed,
+        practice: les.practice,
+        line: f.line,
+        coach: { text: les.view.coach.text, opacity: les.view.coach.opacity },
+        ghost: les.view.ghost.opacity,
+        form: f.form,
+        hand: { opacity: f.hand.opacity, pose: f.hand.poseB, side: f.hand.side, anchor: f.hand.anchor, at: c3(f.hand.at) },
+        lamp: { opacity: f.lamp.opacity, at: c3(f.lamp.at) },
+        ghostLight: f.ghostLight,
+        park: f.park,
+        layout: Array.from(f.layout),
+        clicks: f.clicks,
+        box: f.box,
+        frozen: lan.frozen,
+        progress: { l1: p.lessons.l1, l2: p.lessons.l2, step: p.lessons.step ? { ...p.lessons.step } : null },
+        tipsSeen: [...p.tipsSeen],
+      };
+    },
+    replay: (ex) => les.replay(ex),
+  };
   w.__sl = {
     session,
+    lessons,
     // What a demo video frame's fingerprint reads: copies, never the session's own arrays.
     frameState: () => {
       const b = ses.box;

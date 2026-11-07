@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { disableMultiview, FrameStats, readFieldFlags, startBox } from "../../src/app/field-flags";
+import { disableMultiview, FrameStats, readFieldFlags, startBox, startLesson } from "../../src/app/field-flags";
 import { recordingName, recordSeconds } from "../../src/app/hand-recorder";
 
 describe("field test flags", () => {
@@ -59,6 +59,16 @@ describe("start box switch", () => {
     expect(startBox("?box=5")).toBe(5);
     expect(startBox("?perf=1&box=12")).toBe(12);
     for (const bad of ["?box", "?box=0", "?box=-2", "?box=1.5", "?box=five", "?box=05"]) expect(startBox(bad), bad).toBeNull();
+  });
+});
+
+describe("start lesson switch", () => {
+  it("reads ?lesson=l1 or l2, and nothing else", () => {
+    expect(startLesson("")).toBeNull();
+    expect(startLesson("?box=3")).toBeNull();
+    expect(startLesson("?lesson=l1")).toBe("l1");
+    expect(startLesson("?perf=1&lesson=l2")).toBe("l2");
+    for (const bad of ["?lesson", "?lesson=", "?lesson=l3", "?lesson=L1", "?lesson=1", "?lesson=l1x"]) expect(startLesson(bad), bad).toBeNull();
   });
 });
 

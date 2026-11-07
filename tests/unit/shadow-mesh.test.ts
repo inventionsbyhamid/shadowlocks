@@ -544,6 +544,33 @@ describe("BoxShadows", () => {
     expect(sh.refresh([L[0] + 0.01, L[1], L[2]], one, 1, soft)).toBe(true);
   });
 
+  it("follows scraps and rings moved in place (a lesson's swing) once told, and casts them there on the next refresh", () => {
+    const L: V3 = [0.1, -0.3, 1.3];
+    const { box, piece, ring, mark } = moonBox(L);
+    const sh = new BoxShadows();
+    sh.setBox(box);
+    sh.cast(L);
+    expect(coverage(sh.mesh, mark[0], mark[1], sh.slotOf(ring))).toBe(0);
+    // On the ring's shadow: between its hole (0.032) and its edge (0.044).
+    const ringBefore = coverage(sh.mesh, mark[0] + 0.038, mark[1], sh.slotOf(ring));
+    expect(ringBefore).toBeGreaterThan(0.5);
+    // Move the Moon's scrap and the ring sideways by 0.1, in place (the element objects themselves).
+    for (const v of piece.verts) v[0] += 0.1;
+    ring.c[0] += 0.1;
+    // Untold, nothing changed for the shadows: no cast.
+    expect(sh.refresh(L)).toBe(false);
+    sh.moved();
+    expect(sh.refresh(L)).toBe(true);
+    const k = L[2] / (L[2] - ring.c[2]);
+    // The ring's shadow moved by 0.1 * k: its old place is lit, the new one dark.
+    expect(coverage(sh.mesh, mark[0] + 0.038 + 0.1 * k, mark[1], sh.slotOf(ring))).toBeGreaterThan(0.5);
+    expect(coverage(sh.mesh, mark[0] - 0.038, mark[1], sh.slotOf(ring))).toBe(0);
+    const kp = L[2] / (L[2] - 0.3);
+    const p0 = proj(piece.verts[0]!, L);
+    expect(p0[0]).toBeCloseTo(proj([piece.verts[0]![0] - 0.1, piece.verts[0]![1], 0.3], L)[0] + 0.1 * kp, 9);
+    expect(sh.refresh(L)).toBe(false);
+  });
+
   it("has room for the largest box plus MAX_EXTRAS bones of up to MAX_CASTER_CORNERS corners", () => {
     const sh = new BoxShadows(allShown);
     const big = all.reduce((a, b) => (b.elements.length > a.elements.length ? b : a));

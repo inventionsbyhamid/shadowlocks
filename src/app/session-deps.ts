@@ -36,6 +36,8 @@ export interface SessionScene {
 /** What the session needs of the lantern (the app's Lantern has it all). */
 export interface SessionLantern {
   readonly grab: { readonly holder: "left" | "right" | null };
+  /** At rest (LanternController.atRest): a lock's open dwell counts only then. */
+  readonly atRest: boolean;
   readonly feel: { setOpen(lock: number, open: boolean): void; aligned(lock: number): boolean };
   onFeel(fn: (e: FeelEvent) => void): () => void;
 }

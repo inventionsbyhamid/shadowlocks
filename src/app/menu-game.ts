@@ -11,10 +11,14 @@ import type { Behind, ExampleKey } from "../ui/menus/types";
 import type { Stage } from "./session-deps";
 import type { MenuGame } from "./shell";
 
-/** What the menus need of the lessons (Task 15's LessonsDirector, as its wiring offers it). */
+/** What the menus need of the lessons (lessons.ts's Lessons offers it). */
 export interface MenuLessons {
   /** A lesson or a replay is in the lap now. */
   readonly running: boolean;
+  /** A lesson left half done waits to go on (not in the lap): Continue offers it when no box is in the lap. */
+  readonly waiting?: boolean;
+  /** Go on with the lesson that waits, at its saved step; false when none does. */
+  resume?(): boolean;
   /** Start lesson 1 (a first launch); false when the lessons cannot start one. */
   startFirst(): boolean;
   /** Replay one example alone; never touches box progress. False when it cannot. */
@@ -68,15 +72,19 @@ export class GameMenus implements MenuGame {
   }
 
   behind(): Behind {
-    if (this.d.lessons.running) return { kind: "lesson" };
+    const l = this.d.lessons;
+    if (l.running) return { kind: "lesson" };
     const spec = this.live();
-    if (!spec) return null;
-    if (spec.kind === "box") return { kind: "box", n: spec.n };
-    if (spec.kind === "daily") return { kind: "daily" };
-    return { kind: "lesson" };
+    if (spec?.kind === "box") return { kind: "box", n: spec.n };
+    if (spec?.kind === "daily") return { kind: "daily" };
+    // A lesson's box the lessons no longer run (lesson 2 ends on this menu) waits for nothing; a lesson left half
+    // done does, when no box is in the lap.
+    return l.waiting ? { kind: "lesson" } : null;
   }
 
   back(): void {
+    const l = this.d.lessons;
+    if (!l.running && this.behind()?.kind === "lesson") l.resume?.();
     this.d.toPlay();
   }
 

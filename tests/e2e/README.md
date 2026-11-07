@@ -33,7 +33,10 @@ from `public/_headers`, the report-only CSP sent enforced. The update test serve
 Helpers:
 - `boot({ mode, room, head, date, enterXR, expectScreen })`: loads the page, seats the headset
   (`SEATED`: eyes 1.2 m high, looking down at the lap), accepts the XR offer and waits for the first
-  screen with the box placed. `mode: "visual"` is 1280x720 with the room drawn, for screenshots.
+  screen with the box placed. `mode: "visual"` is 1280x720 with the room drawn, for screenshots: the
+  room is drawn only in frames a capture takes (`roomOnCaptureOnly`; drawing it every frame made each
+  visual frame 0.5 to 2 s on the server). Anything that captures goes through `app.capture` or sets
+  `window.__nsRoomFrame` around its frame step, or the room is missing from the image.
   `date` sets the page's clock (default `DEFAULT_DATE`, so daily seeds reproduce; the time zone is UTC).
 - `app.step(frames, dt)`, `app.stepUntil(pred, { maxMs, arg })`: predicates run in the page and get
   `(window.__ns, window, arg)`; they cannot use test variables, pass them as `arg`.
@@ -122,3 +125,26 @@ says how much: `scripts/remote.sh <lane> --expect-gb <n> ...` or `NS_EXPECT_GB=<
 and then needs 100 + n GB. Pulls stay capped at 2 GB per run either way.
 
 The emulator cannot show multiview, foveation, the real frame rate or real hand jitter.
+
+## The jitter bot (opt in)
+
+`bot.spec.ts` (hands solve boxes 1 to 20), `bot-controllers.spec.ts` (the same with Touch controllers) and
+`bot-sweeps.spec.ts` (five minutes of fast sweeps open nothing) drive the game as a careful player whose hand shakes,
+drifts as it lets go and drops out of tracking (`helpers/jitter.ts`). They are not part of the routine suite:
+`playwright.config.ts` leaves `bot*.spec.ts` out, because each takes about 25 minutes of exclusive server time. Run
+them through their own config, which is the suite's with only these specs:
+
+```sh
+# All three, one after the other (about 80 minutes): wait up to two hours for the slot, allow three to run.
+NS_LOCK_WAIT=7200 NS_MAX_RUN=10800 scripts/e2e.sh -c playwright.bot.config.ts
+# One (about 25 minutes)
+NS_LOCK_WAIT=7200 scripts/e2e.sh -c playwright.bot.config.ts tests/e2e/bot.spec.ts
+```
+
+Run them after a change to the feel (`src/feel/constants.ts`, the ring thresholds, the lantern or finger paths) or
+the box session's open rule. Each carries `// e2e: exclusive`, and any run naming the bot config is exclusive too.
+Naming a bot spec with the default config finds no tests. Per-box results land in `test-results/bot/*.json` and a
+summary in the run notes. A bot run waits for an exclusive slot; behind another lane's long run that can take over
+an hour, hence `NS_LOCK_WAIT=7200` (the default gives up after one). All three together take about 80 minutes (1.4 h
+measured), near enough the default two-hour container limit (`NS_MAX_RUN` 7200) on a loaded server that
+`NS_MAX_RUN=10800` is the safer setting.

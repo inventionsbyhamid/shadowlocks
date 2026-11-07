@@ -44,6 +44,11 @@ export class Lantern {
   private shown: Box | null | undefined = undefined;
   private listeners: FeelListener[] = [];
   private readonly tmp: V3 = [0, 0, 0];
+  /**
+   * While frozen (a lesson's example parks the lantern in its cradle) no hand can take it: grabs, holds and feel
+   * events wait; `place` still moves it. A hold is let go when freezing (`freeze`).
+   */
+  private frozenNow = false;
   /** Put away while a menu is up over the box: not held, not grabbable (its view is hidden by the app). */
   private awayNow = false;
 
@@ -61,12 +66,27 @@ export class Lantern {
     this.grab.place(p);
   }
 
+  get frozen(): boolean {
+    return this.frozenNow;
+  }
+
+  /** Freeze the lantern out of every hand (letting a hold go at `tMs`), or let hands take it again. */
+  freeze(on: boolean, tMs: number): void {
+    if (on && !this.frozenNow) this.grab.drop(tMs, this.feel.ctx);
+    this.frozenNow = on;
+  }
+
   /** Hear every feel event (pooled objects: copy what you keep). Returns an unsubscribe. */
   onFeel(fn: FeelListener): () => void {
     this.listeners = [...this.listeners, fn];
     return () => {
       this.listeners = this.listeners.filter((x) => x !== fn);
     };
+  }
+
+  /** The lantern is at rest (LanternController.atRest): not held, settled, or held by a deliberate hand. */
+  get atRest(): boolean {
+    return this.ctrl.atRest;
   }
 
   /** Put away while a menu is up over the box. */
@@ -101,6 +121,7 @@ export class Lantern {
       this.grab.place(scene.lantern.getPos(this.tmp));
     }
     const ctx = this.feel.update(this.ctrl.pos, scene.size * 100);
+    if (this.frozenNow) return;
     const grab = this.grab;
     grab.update(tMs, ctx);
     // In the order they happened: a hand lost, its hold let go, another hand taking the lantern.

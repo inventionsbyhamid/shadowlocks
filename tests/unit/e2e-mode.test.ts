@@ -66,6 +66,7 @@ describe("e2e run mode (scripts/e2e.sh --print-mode)", () => {
     expect(mode(["store"])).toBe("exclusive");
     expect(mode(["tests/video/render.spec.ts"])).toBe("exclusive");
     expect(mode(["-c", "playwright.video.config.ts", "render"])).toBe("exclusive");
+    expect(mode(["-c", "playwright.bot.config.ts"])).toBe("exclusive");
     expect(mode(["tests/e2e/boot.spec.ts", "-g", "cost"])).toBe("exclusive");
     expect(mode(["tests/e2e/boot.spec.ts", "--grep=perf-budget"])).toBe("exclusive");
   });

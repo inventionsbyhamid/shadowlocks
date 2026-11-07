@@ -11,7 +11,7 @@ import { breakUnits, fitLabel, labelFont, wrapLabel } from "../../src/render/lab
 import { Reward } from "../../src/render/reward";
 import { captionFor } from "../../src/ui/captions";
 import { HintLantern } from "../../src/ui/hint-lantern";
-import { PLATE, Plate, wrapTwo } from "../../src/ui/plate";
+import { PLATE, Plate } from "../../src/ui/plate";
 
 afterEach(() => setLang("en"));
 
@@ -112,18 +112,6 @@ describe("the box's labels follow the language", () => {
     setLang("ja");
     p.relabel();
     expect([p.title, p.cueText]).toEqual(["第4の箱", "練習"]);
-  });
-
-  it("the controller coach card splits Japanese into two lines without spaces, by the rules", () => {
-    setLang("ja");
-    const text = tableFor("ja").game.controllerFinger;
-    // A character an em wide, 12 to a line: two lines, neither starting with a closing mark.
-    const lines = wrapTwo(text, (s) => [...s].length, 12);
-    expect(lines).toHaveLength(2);
-    expect(lines.join("")).toBe(text);
-    for (const l of lines) expect(l).not.toMatch(/^[、。ー]/);
-    // The English line still splits between words, balanced.
-    expect(wrapTwo("Or set a controller down and use your finger.", (s) => s.length, 30)).toEqual(["Or set a controller down", "and use your finger."]);
   });
 
   it("the hint lantern's choices", () => {

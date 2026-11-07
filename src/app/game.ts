@@ -25,10 +25,11 @@ import { BoxSession } from "./box-session";
 import { FingerLockLoop } from "./finger-lock";
 import type { FingerSource } from "./session-fingers";
 import { emit } from "./bus";
-import { copy, onLangChange } from "../i18n";
+import { onLangChange } from "../i18n";
 import type { CoachLine, HintLevel } from "./events";
 import { HintMarks } from "./hints";
 import type { Lantern } from "./lantern-system";
+import { withLessons } from "./lesson-boxes";
 import type { Lifecycle, LifecycleSession } from "./lifecycle";
 import type { ProfileStore } from "./profile-store";
 import { go } from "./screens";
@@ -94,14 +95,13 @@ export class GameView implements SessionView {
     this.plate.relabel();
     this.hintLantern.relabel();
     this.reward.relabel();
-    if (this.coachLine) this.plate.coach(copy().game[this.coachLine], true);
   }
 
   /** What the box's lettering says now, for the test hooks. */
-  texts(): { plate: string; keys: Record<string, string>; story: [string, string]; coach: string } {
+  texts(): { plate: string; keys: Record<string, string>; story: [string, string] } {
     const keys: Record<string, string> = {};
     for (const k of [this.plate.next, this.hintLantern.hint, this.hintLantern.showMe]) keys[k.id] = k.labelText;
-    return { plate: this.plate.title, keys, story: this.reward.story, coach: this.plate.coachShown };
+    return { plate: this.plate.title, keys, story: this.reward.story };
   }
 
   setBox(box: Box, spec: BoxSpec, practice = false): void {
@@ -161,9 +161,9 @@ export class GameView implements SessionView {
     return this.hintLantern.worldPos(out);
   }
 
+  /** The session's suggestion: the lessons' coach line shows it (the one place coach text shows). */
   coach(line: CoachLine | null): void {
     this.coachLine = line;
-    this.plate.coach(line ? copy().game[line] : null);
   }
 
   update(dtMs: number, stage: Stage): number {
@@ -337,7 +337,8 @@ export function attachGame(d: GameDeps): { game: Game; session: BoxSession; view
     },
     scene: shell.box,
     lantern: d.lantern,
-    boxes: createBoxClient(),
+    // Generated boxes from the worker; the lessons' hand-built boxes for lesson specs.
+    boxes: withLessons(createBoxClient()),
     profiles: shell.profiles,
     settings: shell.settings,
     sound: d.sound.game,

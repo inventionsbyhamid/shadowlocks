@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { type Material, ShaderLib } from "@iwsdk/core";
+import { type Material, Matrix4, ShaderLib, Vector3 } from "@iwsdk/core";
 import { generateBox } from "../../src/core/generator";
-import { proj } from "../../src/core/geom";
+import { inPoly, proj } from "../../src/core/geom";
+import { LESSON_1 } from "../../src/core/lessons-data";
 import { mirrorBox } from "../../src/core/mirror";
 import type { Box, V3 } from "../../src/core/types";
 import {
+  MAX_RINGS,
   MAX_SCRAP_VERTS,
   MAX_SLOTS,
   MAX_THREAD_VERTS,
   RING_TUBE_SEGMENTS,
   ringRadii,
+  ringSlot,
   SCRAP_GAP,
   SCRAP_THICKNESS,
   Scraps,
@@ -34,11 +37,17 @@ const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 describe("slots", () => {
-  it("gives every lock piece its own slot below MAX_SLOTS, and decoys slot 0", () => {
+  it("gives every lock piece and every ring its own slot below MAX_SLOTS, and decoys slot 0", () => {
     const seen = new Set<number>();
     for (let l = 0; l < 3; l++) for (let p = 0; p < 16; p++) {
       const s = slotOf(l, p);
       expect(s).toBeGreaterThan(0);
+      expect(s).toBeLessThan(MAX_SLOTS);
+      expect(seen.has(s)).toBe(false);
+      seen.add(s);
+    }
+    for (let r = 0; r < MAX_RINGS; r++) {
+      const s = ringSlot(r);
       expect(s).toBeLessThan(MAX_SLOTS);
       expect(seen.has(s)).toBe(false);
       seen.add(s);
@@ -126,9 +135,20 @@ describe("writeScraps", () => {
     const n = writeScraps(b, out);
     const slots = new Set<number>();
     for (let i = 0; i < n; i++) slots.add(out.slot[i]!);
+    // Decoys share slot 0; each lock piece has its own slot, and so does each ring (its pin), in box order.
     const want = new Set<number>([0]);
-    for (const e of b.elements) if (e.kind === "piece") want.add(slotOf(e.lock, e.piece));
+    let r = 0;
+    for (const e of b.elements) {
+      if (e.kind === "piece") want.add(slotOf(e.lock, e.piece));
+      if (e.kind === "ring") want.add(ringSlot(r++));
+    }
+    expect(r).toBeGreaterThan(0);
     expect([...slots].sort((x, y) => x - y)).toEqual([...want].sort((x, y) => x - y));
+    const tpos = new Float32Array(MAX_THREAD_VERTS * 3), tslot = new Float32Array(MAX_THREAD_VERTS);
+    const tn = writeThreads(b, { position: tpos, slot: tslot });
+    const threadSlots = new Set<number>();
+    for (let i = 0; i < tn; i++) threadSlots.add(tslot[i]!);
+    expect([...threadSlots].sort((x, y) => x - y)).toEqual([...want].sort((x, y) => x - y));
   });
 
   it("insets each front face inside its outline (the full gap but at sharp corners), so pieces that meet edge to edge never share a face", () => {
@@ -171,6 +191,20 @@ describe("writeScraps", () => {
     // Nearly every corner gets the whole gap; only sharp corners of small pieces get less.
     const full = insides.filter((d) => d >= SCRAP_GAP * 0.99).length / insides.length;
     expect(full).toBeGreaterThan(0.9);
+  });
+
+  it("fills a scrap that is not convex (lesson 1's Moon) by its own outline, never across its hollow", () => {
+    const out = buffers();
+    writeScraps(LESSON_1, out);
+    const moon = LESSON_1.elements[0]!;
+    if (moon.kind !== "piece" || moon.lock !== 0) throw new Error("lesson 1 starts with its Moon");
+    const L = LESSON_1.locks[0]!.L, outline = LESSON_1.locks[0]!.target[0]!, k = moon.verts.length;
+    // Its front and back faces, k - 2 triangles each: every triangle's middle, seen from the spot, is in the Moon.
+    for (let t = 0; t < (k - 2) * 6; t += 3) {
+      const a = v3(out.position, t), b = v3(out.position, t + 1), c = v3(out.position, t + 2);
+      const mid: V3 = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3];
+      expect(inPoly(proj(mid, L), outline), `triangle ${t / 3}`).toBe(true);
+    }
   });
 });
 
@@ -249,6 +283,30 @@ describe("Scraps (no renderer)", () => {
     for (let k = 0; k < s.rings.count; k++) expect(s.ringGlowOf(k)).toBe(0);
   });
 
+  it("moves a piece's scrap, pin and thread by its slot's offset, and a ring by its pose (its pin and thread with it)", () => {
+    const s = new Scraps(null);
+    const b = boxes[4]!;
+    s.setBox(b);
+    expect(s.offsets).toHaveLength(MAX_SLOTS * 3);
+    expect([...s.offsets].every((v) => v === 0)).toBe(true);
+    s.offsetPiece(1, 2, 0.1, -0.02, 0.03);
+    const o = slotOf(1, 2) * 3;
+    expect([s.offsets[o], s.offsets[o + 1], s.offsets[o + 2]].map((v) => Math.round(v! * 1e6) / 1e6)).toEqual([0.1, -0.02, 0.03]);
+    // A ring: its torus goes to the new centre facing the new way, its pin and thread follow its centre.
+    const rings = b.elements.filter((e) => e.kind === "ring");
+    const r0 = rings[0]!;
+    const c: V3 = [r0.c[0] + 0.05, r0.c[1], r0.c[2]];
+    s.moveRing(0, c, r0.nrm, [0.05, 0, 0]);
+    const m = new Matrix4();
+    s.rings.getMatrixAt(0, m);
+    const at = new Vector3().setFromMatrixPosition(m);
+    expect(at.toArray().map((v) => Math.round(v * 1e6) / 1e6)).toEqual(c.map((v) => Math.round(v * 1e6) / 1e6));
+    expect(s.offsets[ringSlot(0) * 3]).toBeCloseTo(0.05, 6);
+    // A new box puts everything back.
+    s.setBox(b);
+    expect([...s.offsets].every((v) => v === 0)).toBe(true);
+  });
+
   it("resets every slot for a new box (and for none)", () => {
     const s = new Scraps(null);
     s.setBox(fingerBox);
@@ -282,6 +340,9 @@ describe("Scraps (no renderer)", () => {
     expect(scrap.fragmentShader).toContain("totalEmissiveRadiance += uGlowColor * vGlow;");
     expect(scrap.fragmentShader).not.toContain("if (vShow < 0.5) discard;");
     expect(scrap.uniforms.uSlots!.value).toBe(s.slots);
+    // Each slot's offset moves its vertices (a lesson's scraps swinging), before a hidden slot collapses.
+    expect(scrap.vertexShader).toContain("transformed += uOffsets[int(aSlot + 0.5)];");
+    expect(scrap.uniforms.uOffsets!.value).toBe(s.offsets);
     // The threads (a basic line material): the same collapse, glow tints the colour, and a hidden thread is discarded.
     const thread = patch(s.threads.material as Material, ShaderLib.basic);
     expect(thread.vertexShader).toContain("if (slotState.y < 0.5) transformed = vec3(0.0);");

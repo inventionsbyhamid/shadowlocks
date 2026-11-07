@@ -91,7 +91,12 @@ export function prepareLock(lock: Lock, step = RUNTIME_STEP): LockSamples {
   return lockSamples(lock.target, step, lock.missing);
 }
 
-/** Each ring's circle in the box, made once: it does not depend on the lantern. Elements never change. */
+/**
+ * Each ring's circle in the box, made once: it does not depend on the lantern. A box's elements stay where they are,
+ * except while a lesson's example swings them (lesson-layout.ts moves them in place and always puts them back
+ * exactly), so the circle cached here is the ring's place in the player's layout. The solve reads a copy made as the
+ * box starts (ShadowCaster), never a swung ring.
+ */
 const ringPts = new WeakMap<Ring, V3[]>();
 function ringPoly(r: Ring): V3[] {
   let pts = ringPts.get(r);
