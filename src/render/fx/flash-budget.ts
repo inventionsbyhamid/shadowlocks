@@ -26,7 +26,8 @@ export class FlashBudget {
 
   /**
    * A flash `inS` from now must have its turn (the box opening after its last lock): until it is claimed, no other
-   * flash starts in the gap before it. Not claimed within MIN_GAP_S after its time, it lapses.
+   * flash starts in the gap before it, nor after its time (a box paused at its opening still opens at full strength).
+   * It holds until claimed or reset (a new box).
    */
   reserve(inS: number): void {
     this.until[0] = inS;
@@ -35,10 +36,7 @@ export class FlashBudget {
   /** True when a flash may start now (and it counts as started). */
   take(): boolean {
     const u = this.until[0] as number;
-    if (u === u) {
-      if (u < -MIN_GAP_S) this.until[0] = Number.NaN;
-      else if (u <= MIN_GAP_S + RESERVE_SLACK_S) return false;
-    }
+    if (u === u && u <= MIN_GAP_S + RESERVE_SLACK_S) return false;
     if ((this.since[0] as number) < MIN_GAP_S) return false;
     this.since[0] = 0;
     this.started++;

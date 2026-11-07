@@ -141,6 +141,11 @@ export class LockOpenFx {
     this.sparkle.burst(lock, this.strength[lock]!, this.reduced);
   }
 
+  /** The box is opening: glints still waiting their turn are let go (the bursts and glitter play on). */
+  quiet(): void {
+    this.sparkle.quiet();
+  }
+
   /** True while any burst, flare or sparkle runs. */
   get running(): boolean {
     for (let i = 0; i < SLOTS; i++) if (this.t[i]! < LOCK_OPEN_FX.burstS) return true;

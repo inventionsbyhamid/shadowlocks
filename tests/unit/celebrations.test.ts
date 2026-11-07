@@ -6,6 +6,7 @@ import { BOX_OPEN_FX, BoxOpenFx } from "../../src/render/fx/box-open";
 import { FlashBudget, MIN_GAP_S } from "../../src/render/fx/flash-budget";
 import { LOCK_OPEN_FX, LockOpenFx } from "../../src/render/fx/lock-open";
 import { PER_LOCK, SPARKLE, SPARKLE_S } from "../../src/render/fx/sparkle";
+import { REWARD, Reward, type RewardHands } from "../../src/render/reward";
 
 const DT = 1 / 72;
 const box5 = generateBox({ kind: "box", n: 5 });
@@ -108,53 +109,70 @@ describe("a lock opening", () => {
 });
 
 describe("the box opening", () => {
-  it("wins its flash: the last lock opens at 0 and the box at 0.7 s on the same budget, at full strength; the glints wait", () => {
-    const budget = new FlashBudget(), s = lockScene();
-    const lockFx = new LockOpenFx(s, budget);
-    lockFx.setBox(box5);
-    const box = new BoxOpenFx(boxRoot().root, budget);
-    // The last lock: the box opens LOCK_TO_BOX_MS after it.
-    lockFx.open(2, false, LOCK_TO_BOX_MS / 1000);
-    expect(budget.started).toBe(1);
-    const takes: number[] = [];
-    let t = 0;
-    const frame = () => {
-      budget.step(DT);
-      t += DT;
-      const before = budget.started;
-      lockFx.update(DT, false);
-      if (budget.started > before) takes.push(t);
-    };
-    while (t < LOCK_TO_BOX_MS / 1000 - 1e-9) frame();
-    box.start(1);
-    // Full strength: its burst as bright as a box opening on a budget of its own.
-    const ref = new BoxOpenFx(boxRoot().root, new FlashBudget());
-    ref.start(1);
-    box.update(0.1, false);
-    ref.update(0.1, false);
+  it("the last lock, the box opening 0.7 s on and the reward's bloom all flash at full strength, at 72 and 90 Hz", () => {
+    const noHands: RewardHands = { point: () => false, pinching: () => false, started: () => false, busy: () => false };
     const opacity = (fx: BoxOpenFx) => ((fx.group.getObjectByName("Box Burst") as Mesh).material as MeshBasicMaterial).opacity;
-    expect(opacity(ref)).toBeGreaterThan(0);
-    expect(opacity(box)).toBeCloseTo(opacity(ref), 9);
-    // No glint flared within the gap before the opening; they flare after it, a gap apart, none lost.
-    expect(takes.every((x) => x <= LOCK_TO_BOX_MS / 1000 - MIN_GAP_S)).toBe(true);
-    const after: number[] = [];
-    for (let i = 0; i < 3 / DT; i++) {
-      budget.step(DT);
-      t += DT;
-      const before = budget.started;
-      lockFx.update(DT, false);
-      if (budget.started > before) after.push(t);
+    for (const hz of [72, 90]) {
+      const dt = 1 / hz, budget = new FlashBudget(), s = lockScene();
+      const lockFx = new LockOpenFx(s, budget);
+      lockFx.setBox(box5);
+      const box = new BoxOpenFx(boxRoot().root, budget);
+      // A box opening on a budget of its own, started on the same frame: what full strength looks like.
+      const ref = new BoxOpenFx(boxRoot().root, new FlashBudget());
+      const reward = new Reward(new Group(), budget);
+      reward.setBox(box5);
+      // The last lock (its glints due from 0.34 s): the box opens LOCK_TO_BOX_MS after it, as the game view does.
+      lockFx.open(2, false, LOCK_TO_BOX_MS / 1000);
+      expect(budget.started).toBe(1);
+      const takes: number[] = [];
+      let t = 0, opened = false, burst = 0, burstRef = 0, bloom = 0;
+      for (let i = 0; i < 4 * hz; i++) {
+        budget.step(dt);
+        t += dt;
+        const before = budget.started;
+        // The session opens the box on the first frame at or past its time: the view quiets the glints, then claims.
+        if (!opened && t >= LOCK_TO_BOX_MS / 1000 - 1e-9) {
+          opened = true;
+          lockFx.quiet();
+          box.start(1);
+          ref.start(1);
+          reward.rise([0.22, -0.55, 1.27]);
+        }
+        lockFx.update(dt, false);
+        box.update(dt, false);
+        ref.update(dt, false);
+        reward.update(dt, noHands, false, 24, false);
+        if (budget.started > before) takes.push(t);
+        burst = Math.max(burst, opacity(box));
+        burstRef = Math.max(burstRef, opacity(ref));
+        if (reward.glow.visible) bloom = Math.max(bloom, (reward.glow.material as Material).opacity);
+      }
+      expect(burstRef).toBeGreaterThan(0);
+      expect(burst).toBeCloseTo(burstRef, 9);
+      expect(bloom).toBeCloseTo(REWARD.glow.peak, 2);
+      // After the lock's own burst: the opening, then the bloom. The glints still waiting were let go at the opening.
+      expect(takes).toHaveLength(2);
+      expect(takes[0]!).toBeCloseTo(Math.ceil((LOCK_TO_BOX_MS / 1000) * hz - 1e-6) / hz, 6);
+      expect(takes[1]! - takes[0]!).toBeGreaterThanOrEqual(MIN_GAP_S);
+      expect(lockFx.running).toBe(false);
     }
-    expect(after.length + takes.length).toBe(SPARKLE.glints);
-    expect(after[0]! - LOCK_TO_BOX_MS / 1000).toBeGreaterThanOrEqual(MIN_GAP_S - DT);
   });
 
-  it("a reservation nobody claims lapses: flashes go on after its time has passed", () => {
+  it("a paused box still opens at full strength: the reservation holds past its time until claimed, and a new box clears it", () => {
     const budget = new FlashBudget();
     budget.reserve(0.7);
     budget.step(0.5);
     expect(budget.take()).toBe(false);
-    budget.step(0.6);
+    // Paused at the opening for 5 s while the scene runs on: nothing else takes the opening's turn.
+    budget.step(5);
+    expect(budget.take()).toBe(false);
+    expect(budget.claim()).toBe(true);
+    // Claimed, the budget is as usual again.
+    budget.step(MIN_GAP_S);
+    expect(budget.take()).toBe(true);
+    // A box left before it opened: the next box starts with the budget reset.
+    budget.reserve(0.7);
+    budget.reset();
     expect(budget.take()).toBe(true);
   });
 

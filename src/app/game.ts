@@ -89,6 +89,8 @@ export class GameView implements SessionView {
 
   setBox(box: Box, spec: BoxSpec, practice = false): void {
     this.box = box;
+    // A new box: the flash budget starts afresh (a box left at its opening leaves no reservation behind).
+    this.d.scene.flashes.reset();
     this.marks.setBox(box);
     this.lockFx.setBox(box);
     this.boxFx.reset();
@@ -128,6 +130,8 @@ export class GameView implements SessionView {
   boxOpened(): void {
     // The drawer opens on the side away from the lantern, so reaching for the reward never grabs the lantern.
     const L = this.d.scene.lantern.getPos(this.lanternAt);
+    // The climax: the glints still waiting are let go, so the opening and then the reward's bloom have their flashes.
+    this.lockFx.quiet();
     this.boxFx.start(L[0] >= 0 ? -1 : 1);
     this.reward.rise(this.boxFx.drawerTop(this.drawer));
     this.marks.focus(null);
