@@ -2,7 +2,7 @@
 // grid and the shadows from geom.ts alone, so a bug in the generator's own checks cannot hide here.
 import { ENVELOPE } from "../../../src/core/envelope";
 import { area, bbox, circlePts, elongation, inPoly, polyDist, proj, segDist } from "../../../src/core/geom";
-import { boxParams, dailyParams } from "../../../src/core/params";
+import { boxParams, boxParamsV3, dailyParams, silhouetteCount } from "../../../src/core/params";
 import { SILHOUETTES } from "../../../src/core/shapes";
 import type { Box, BoxParams, Element, Piece, Ring, V2, V3 } from "../../../src/core/types";
 
@@ -68,9 +68,15 @@ export function covered(pts: V2[], polys: V2[][]): number {
 const dist3 = (a: V3, b: V3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
 export function paramsFor(box: Box): BoxParams {
-  if (box.spec.kind === "box") return boxParams(box.spec.n);
+  if (box.spec.kind === "box") return box.spec.gen === 3 ? boxParamsV3(box.spec.n) : boxParams(box.spec.n);
   if (box.spec.kind === "daily") return dailyParams();
   throw new Error("no params for a lesson");
+}
+
+/** How many silhouettes a box shows: two in a silhouettes box, else one once it hides an outline (one at most in version 3). */
+export function silhouettesFor(box: Box): number {
+  if (box.spec.kind === "box" && box.spec.gen !== 3) return silhouetteCount(box.spec.n);
+  return paramsFor(box).hidden >= 1 ? 1 : 0;
 }
 
 export interface LockStat {
@@ -183,12 +189,16 @@ export function checkCounts(box: Box): string[] {
   return errs;
 }
 
-/** At most one silhouette per box, always on a hidden lock, and exactly one when the box hides any outline. */
+/**
+ * The box's silhouettes, each on a hidden lock and no two the same: two in a silhouettes box, else one when the box
+ * hides any outline.
+ */
 export function checkSilhouettes(box: Box): string[] {
   const errs: string[] = [];
   const sil = box.locks.filter((l) => SILHOUETTES.includes(l.shape));
-  const want = paramsFor(box).hidden >= 1 ? 1 : 0;
+  const want = silhouettesFor(box);
   if (sil.length !== want) errs.push(`${sil.length} silhouettes (${sil.map((l) => l.shape).join(", ")}), want ${want}`);
+  if (new Set(sil.map((l) => l.shape)).size !== sil.length) errs.push(`the same silhouette twice: ${sil.map((l) => l.shape).join(", ")}`);
   for (const l of sil) if (!l.hidden) errs.push(`lock ${l.i} is a ${l.shape} with its outline shown`);
   return errs;
 }

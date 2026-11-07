@@ -154,7 +154,7 @@ describe("crystallise", () => {
     for (let i = peak + 1; i < b.length; i++) expect(b[i]!).toBeLessThanOrEqual(b[i - 1]! + 1e-9);
     expect(c.flashes).toBe(1);
     // Another crystallise at once (a second finger lock) does not flash again: it fills at half strength.
-    const two = generateBox({ kind: "box", n: 10 });
+    const two = generateBox({ kind: "box", n: 9 });
     const locks = two.locks.filter((l) => l.finger);
     expect(locks.length).toBe(2);
     const d = new Crystals(null);

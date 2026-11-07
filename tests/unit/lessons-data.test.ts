@@ -103,7 +103,7 @@ describe("buildLessonLock", () => {
     const area2 = lock.target.reduce((s, p) => s + area(p), 0) / (0.3 * 0.3);
     expect(area2).toBeCloseTo(area4, 9);
     // The goldens: generated boxes are pinned by tests/unit/generator.test.ts; the lessons' version is the same.
-    expect(GENERATOR_VERSION).toBe(3);
+    expect(GENERATOR_VERSION).toBe(4);
   });
 
   it("refuses a depth list that does not match the pieces", () => {

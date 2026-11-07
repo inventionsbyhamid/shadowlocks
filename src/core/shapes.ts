@@ -1,6 +1,8 @@
 // The shape library: each shape is a set of convex pieces that tile its outline without overlapping. Ported from
-// the Shadow Locks mock (spikes/shadow-locks-mock/shadowgen.js, buildShapes), plus three silhouettes.
+// the Shadow Locks mock (spikes/shadow-locks-mock/shadowgen.js, buildShapes), plus the silhouettes: the first three
+// here, the rest in silhouettes.ts.
 import { cap, DEG, onCircle, onEllipse, rect, strip } from "./shape-kit";
+import { newSilhouettes } from "./silhouettes";
 import type { ShapeName, V2 } from "./types";
 
 // The silhouettes are built counter-clockwise, and pieces meet only along shared edges: each one is a corner list on
@@ -66,7 +68,7 @@ function teapot(): V2[][] {
   return [body, lid, knob, spout, armTop, grip, armBottom];
 }
 
-function buildShapes(): { shapes: Record<ShapeName, V2[][]>; moonOutline: V2[] } {
+function buildShapes(): { shapes: Record<ShapeName, V2[][]>; moonOutline: V2[]; added: ShapeName[] } {
   const oct = (cx: number, cy: number, r: number): V2[] =>
     Array.from({ length: 8 }, (_, i) => [
       cx + r * Math.cos(Math.PI / 8 + (i * Math.PI) / 4),
@@ -140,8 +142,10 @@ function buildShapes(): { shapes: Record<ShapeName, V2[][]>; moonOutline: V2[] }
     [[-0.32, -0.4], [0.32, -0.4], [0, 0]],
     rect(-0.4, -0.5, 0.4, -0.4),
   ];
+  const added = newSilhouettes();
   const S: Record<ShapeName, V2[][]> = {
     Key, Star, Moon, Diamond, Crown, Arrow, Hourglass, Cat: cat(), Bird: bird(), Teapot: teapot(),
+    ...added,
   };
 
   // Centre and scale every shape to fit a unit square; the Moon's outline moves with the Moon.
@@ -159,13 +163,15 @@ function buildShapes(): { shapes: Record<ShapeName, V2[][]>; moonOutline: V2[] }
     S[k] = S[k].map((p) => p.map(fit));
     if (k === "Moon") outline = outline.map(fit);
   }
-  return { shapes: S, moonOutline: outline };
+  return { shapes: S, moonOutline: outline, added: Object.keys(added) as ShapeName[] };
 }
 
 const built = buildShapes();
 /** Every shape's convex pieces, centred on the origin, the larger side of its bounding box 1. */
 export const SHAPES: Record<ShapeName, V2[][]> = built.shapes;
+/** The silhouettes of generator version 3 and before, in their order: boxes saved then are rebuilt with these. */
+export const FIRST_SILHOUETTES: ShapeName[] = ["Cat", "Bird", "Teapot"];
 /** Shapes for hidden outlines: things a player names on sight. */
-export const SILHOUETTES: ShapeName[] = ["Cat", "Bird", "Teapot"];
+export const SILHOUETTES: ShapeName[] = [...FIRST_SILHOUETTES, ...built.added];
 /** The Moon as one simple polygon (lesson 1's single scrap), in the same frame as SHAPES.Moon. */
 export const MOON_OUTLINE: V2[] = built.moonOutline;

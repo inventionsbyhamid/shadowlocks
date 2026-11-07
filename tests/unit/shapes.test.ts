@@ -1,10 +1,94 @@
 import { describe, expect, it } from "vitest";
+import { FINGER_MAX_SHARE, FINGER_MIN_SHARE, fingerPiece } from "../../src/core/generator";
 import { area, bbox, elongation, inPoly, segDist } from "../../src/core/geom";
-import { MOON_OUTLINE, SHAPES, SILHOUETTES } from "../../src/core/shapes";
+import { FIRST_SILHOUETTES, MOON_OUTLINE, SHAPES, SILHOUETTES } from "../../src/core/shapes";
 import type { ShapeName, V2 } from "../../src/core/types";
+import { outlineEdges } from "../../src/render/outline";
 
-const ALL: ShapeName[] = ["Key", "Star", "Moon", "Diamond", "Crown", "Arrow", "Hourglass", "Cat", "Bird", "Teapot"];
+const CLASSICS: ShapeName[] = ["Key", "Star", "Moon", "Diamond", "Crown", "Arrow", "Hourglass"];
+const ADDED: ShapeName[] = [
+  "Anchor", "Sailboat", "Mushroom", "House", "Fish", "Whale", "Snail", "Owl", "Fox", "Rabbit", "Mouse", "Candle", "Teacup",
+  "Violin", "Knight", "Cactus", "Tree", "Turtle", "Wrench",
+];
+const ALL: ShapeName[] = [...CLASSICS, "Cat", "Bird", "Teapot", ...ADDED];
 const EDGE = 1e-6;
+/** The scrap buffers' room: pieces a lock, corners a piece (src/render/scraps.ts). */
+const MAX_PIECES = 16;
+const MAX_CORNERS = 16;
+/** The locks' places and sizes (generator.ts LAYOUTS) and how far an outline turns (ROT_MAX). */
+const SLOTS: { c: V2; size: number }[] = [
+  { c: [0, 0.05], size: 0.46 },
+  { c: [-0.2, 0.13], size: 0.34 },
+  { c: [0.21, -0.12], size: 0.34 },
+  { c: [-0.24, 0.2], size: 0.29 },
+  { c: [0.24, 0.18], size: 0.29 },
+  { c: [0, -0.2], size: 0.29 },
+];
+const ROT_MAX = 0.5;
+
+/** A convex polygon clipped to another (Sutherland-Hodgman); both counter-clockwise or both clockwise. */
+function clip(subject: V2[], by: V2[]): V2[] {
+  const sign = Math.sign(signedArea(by));
+  let out = subject;
+  for (let i = 0; i < by.length && out.length; i++) {
+    const a = by[i]!, b = by[(i + 1) % by.length]!;
+    const side = (p: V2) => sign * ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]));
+    const next: V2[] = [];
+    out.forEach((p, k) => {
+      const q = out[(k + 1) % out.length]!, sp = side(p), sq = side(q);
+      if (sp >= 0) next.push(p);
+      if ((sp >= 0) !== (sq >= 0)) {
+        const t = sp / (sp - sq);
+        next.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]);
+      }
+    });
+    out = next;
+  }
+  return out;
+}
+
+function signedArea(poly: V2[]): number {
+  let a = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i]!, q = poly[(i + 1) % poly.length]!;
+    a += p[0] * q[1] - q[0] * p[1];
+  }
+  return a / 2;
+}
+
+/** Length along which edges of two pieces lie on one line and overlap. */
+function sharedLength(A: V2[], B: V2[]): number {
+  let len = 0;
+  for (let i = 0; i < A.length; i++) {
+    const a = A[i]!, b = A[(i + 1) % A.length]!, l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const u: V2 = [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
+    for (let j = 0; j < B.length; j++) {
+      const c = B[j]!, d = B[(j + 1) % B.length]!;
+      const off = (p: V2) => Math.abs(u[0] * (p[1] - a[1]) - u[1] * (p[0] - a[0]));
+      if (off(c) > 1e-9 || off(d) > 1e-9) continue;
+      const t = (p: V2) => u[0] * (p[0] - a[0]) + u[1] * (p[1] - a[1]);
+      len += Math.max(0, Math.min(l, Math.max(t(c), t(d))) - Math.max(0, Math.min(t(c), t(d))));
+    }
+  }
+  return len;
+}
+
+/** The share of a piece's perimeter that is the shape's outline (not an edge it shares with another piece). */
+function onOutline(pieces: V2[][], j: number): number {
+  const piece = pieces[j]!;
+  let perim = 0, out = 0;
+  for (let k = 0; k < piece.length; k++) perim += Math.hypot(piece[(k + 1) % piece.length]![0] - piece[k]![0], piece[(k + 1) % piece.length]![1] - piece[k]![1]);
+  for (const [a, b] of outlineEdges(pieces)) {
+    const m: V2 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    if (piece.some((p, k) => segDist(m, p, piece[(k + 1) % piece.length]!) < 1e-9)) out += Math.hypot(b[0] - a[0], b[1] - a[1]);
+  }
+  return out / perim;
+}
+
+const turn = (pieces: V2[][], rot: number): V2[][] => {
+  const c = Math.cos(rot), s = Math.sin(rot);
+  return pieces.map((p) => p.map(([x, y]): V2 => [x * c - y * s, x * s + y * c]));
+};
 
 /** Cross products of consecutive edges, one per vertex. */
 function turns(poly: V2[]): number[] {
@@ -52,7 +136,7 @@ function isSimple(poly: V2[]): boolean {
 }
 
 describe("shapes", () => {
-  it("has all ten shapes", () => {
+  it("has the seven classic shapes and every silhouette", () => {
     expect(Object.keys(SHAPES).sort()).toEqual([...ALL].sort());
   });
 
@@ -81,8 +165,40 @@ describe("shapes", () => {
     expect(twice).toEqual([]);
   });
 
-  it("lists the three silhouettes", () => {
-    expect(SILHOUETTES).toEqual(["Cat", "Bird", "Teapot"]);
+  it("lists the first three silhouettes, then the added ones; every other shape is a classic", () => {
+    expect(FIRST_SILHOUETTES).toEqual(["Cat", "Bird", "Teapot"]);
+    expect(SILHOUETTES).toEqual(["Cat", "Bird", "Teapot", ...ADDED]);
+    expect(ALL.filter((s) => !SILHOUETTES.includes(s))).toEqual(CLASSICS);
+  });
+
+  it.each(ALL)("%s: fits the scrap buffers (at most 16 pieces of at most 16 corners)", (name) => {
+    expect(SHAPES[name].length).toBeLessThanOrEqual(MAX_PIECES);
+    for (const p of SHAPES[name]) expect(p.length).toBeLessThanOrEqual(MAX_CORNERS);
+  });
+
+  it.each(SILHOUETTES)("%s: no two pieces overlap (exactly, by clipping)", (name) => {
+    const pieces = SHAPES[name], overlaps: string[] = [];
+    for (let i = 0; i < pieces.length; i++) {
+      for (let j = 0; j < i; j++) {
+        const a = Math.abs(signedArea(clip(pieces[i]!, pieces[j]!)));
+        if (a > 1e-9) overlaps.push(`${j} and ${i}: ${a.toExponential(2)}`);
+      }
+    }
+    expect(overlaps).toEqual([]);
+  });
+
+  it.each(SILHOUETTES)("%s: one piece, through shared edges, reaches every other", (name) => {
+    const pieces = SHAPES[name], seen = new Set([0]), todo = [0];
+    while (todo.length) {
+      const i = todo.pop()!;
+      pieces.forEach((p, j) => {
+        if (!seen.has(j) && sharedLength(pieces[i]!, p) > 1e-6) {
+          seen.add(j);
+          todo.push(j);
+        }
+      });
+    }
+    expect([...seen].sort((a, b) => a - b)).toEqual(pieces.map((_, j) => j));
   });
 
   it.each(["Cat", "Bird", "Teapot"] as const)("%s: at least 5 pieces and a finger-like piece near horizontal", (name) => {
@@ -91,6 +207,38 @@ describe("shapes", () => {
     const total = pieces.reduce((s, p) => s + area(p), 0);
     const finger = pieces.some((p) => area(p) / total >= 0.08 && Math.abs(elongation(p).angle) <= Math.PI / 4);
     expect(finger).toBe(true);
+  });
+
+  // The added silhouettes meet a stricter rule than the first three (the teapot's spout rises at 34 degrees).
+  it.each(ADDED)("%s: at least 5 pieces and a finger strip: 8-35% of it, near horizontal, on its outline", (name) => {
+    const pieces = SHAPES[name];
+    expect(pieces.length).toBeGreaterThanOrEqual(5);
+    const total = pieces.reduce((s, p) => s + area(p), 0), j = fingerPiece(pieces);
+    expect(j, "a piece a finger can fill").toBeGreaterThanOrEqual(0);
+    const share = area(pieces[j]!) / total;
+    expect(share).toBeGreaterThanOrEqual(FINGER_MIN_SHARE);
+    expect(share).toBeLessThanOrEqual(FINGER_MAX_SHARE);
+    expect(Math.abs(elongation(pieces[j]!).angle), "within 20 degrees of horizontal").toBeLessThanOrEqual((20 * Math.PI) / 180);
+    // On the edge: a third of its rim or more is the outline, so a finger can come to it from outside.
+    expect(onOutline(pieces, j), "share of its edge on the outline").toBeGreaterThanOrEqual(1 / 3);
+  });
+
+  it.each(ADDED)("%s: turned either way as far as a lock turns, the same strip stays the finger piece, within 45 degrees", (name) => {
+    const j = fingerPiece(SHAPES[name]);
+    for (let rot = -ROT_MAX; rot <= ROT_MAX + 1e-9; rot += 0.05) {
+      const pieces = turn(SHAPES[name], rot);
+      expect(fingerPiece(pieces), `turned ${rot.toFixed(2)}`).toBe(j);
+      expect(Math.abs(elongation(pieces[j]!).angle)).toBeLessThanOrEqual(Math.PI / 4);
+    }
+  });
+
+  it.each(SILHOUETTES)("%s: at every lock's place and turn, the outline stays on the panel with its lit band", (name) => {
+    for (const { c, size } of SLOTS) {
+      for (const rot of [-ROT_MAX, 0, ROT_MAX]) {
+        const [x0, y0, x1, y1] = bbox(turn(SHAPES[name], rot).flat().map(([x, y]): V2 => [c[0] + x * size, c[1] + y * size]));
+        expect(Math.max(-x0, x1, -y0, y1)).toBeLessThanOrEqual(0.5 - 0.04);
+      }
+    }
   });
 
   it("MOON_OUTLINE is a simple, non-convex polygon with the Moon's area", () => {

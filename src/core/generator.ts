@@ -1,7 +1,8 @@
 // The box generator: endless boxes from a seed, the same box for the same spec everywhere. Ported from the Shadow
 // Locks mock (spikes/shadow-locks-mock/shadowgen.js, generate and tryBuild), with the lantern spots inside the seated
-// comfort envelope (envelope.ts), the difficulty curve of params.ts, at most one silhouette per box (on a hidden
-// lock), sight rings whose shadows make a bullseye at the spot, and finger pieces that run near horizontal.
+// comfort envelope (envelope.ts), the difficulty curve and box kinds of params.ts, silhouettes only on hidden locks
+// (one a box, two in a silhouettes box, dealt by silhouette-deck.ts), sight rings whose shadows make a bullseye at the
+// spot, and finger pieces that run near horizontal.
 //
 // What every box guarantees (tests/unit/generator.test.ts): from its spot, each lock's scraps tile its outline and
 // leave the band around it lit; a finger lock is short exactly its missing piece; no other scrap or ring falls on a
@@ -9,9 +10,10 @@
 // the others.
 import { ENVELOPE } from "./envelope";
 import { area, bbox, circlePts, elongation, hash, inPoly, polyDist, proj, rng32, segDist } from "./geom";
-import { boxParams, dailyParams } from "./params";
+import { boxParams, boxParamsV3, dailyParams } from "./params";
 import { isDayKey } from "./profile";
-import { SHAPES, SILHOUETTES } from "./shapes";
+import { FIRST_SILHOUETTES, SHAPES, SILHOUETTES } from "./shapes";
+import { boxSilhouettes } from "./silhouette-deck";
 import { BAND, type Coverage, type LockSamples, lockSamples, measure, RING_SIDES, shadowPolys } from "./solve";
 import { LOOT, OWNERS } from "./story";
 import type { Box, BoxParams, BoxSpec, Element, Lock, Ring, ShapeName, V2, V3 } from "./types";
@@ -19,9 +21,29 @@ import type { Box, BoxParams, BoxSpec, Element, Lock, Ring, ShapeName, V2, V3 } 
 /**
  * The generator's version. Bump it with any change that alters a box for some spec (RNG call order, a constant, a
  * shape, a check), and update the golden hashes in tests/unit/generator.test.ts. Saves store it with each box, so a
- * box saved under another version can be told apart.
+ * box saved under another version can be told apart, and rebuilt as it was if that version is still buildable.
  */
-export const GENERATOR_VERSION = 3;
+export const GENERATOR_VERSION = 4;
+/**
+ * The versions buildBox can still build. Version 3 (before the box kinds and the added silhouettes) is kept so a box
+ * saved mid-play under it resumes as the same box: its spec carries `gen: 3`.
+ */
+export const BUILDABLE_VERSIONS: readonly number[] = [3, 4];
+
+/** The generator version a spec asks for: its own `gen` for a box saved under an older one, else this one. */
+export function genOf(spec: BoxSpec): number {
+  return spec.kind !== "lesson" && spec.gen !== undefined ? spec.gen : GENERATOR_VERSION;
+}
+
+/**
+ * The spec to rebuild a saved box from: `spec` itself, or, for a save of this box made under an older version this
+ * generator can still build, the spec of that version's box. Any other save is played afresh (box-session.ts).
+ */
+export function specForSave(spec: BoxSpec, save: { key: string; gen?: number } | null | undefined): BoxSpec {
+  if (spec.kind === "lesson" || !save || save.gen === undefined || save.gen === GENERATOR_VERSION) return spec;
+  if (!BUILDABLE_VERSIONS.includes(save.gen) || save.key !== seedKey(spec)) return spec;
+  return { ...spec, gen: save.gen };
+}
 
 const E = ENVELOPE;
 /** Spacing of the grid points for the start check and the ring marks' clearance. */
@@ -222,8 +244,13 @@ export interface BoxBuild {
 
 /** Builds a box and says how hard it was: generateBox plus the attempt count and why attempts failed. */
 export function buildBox(spec: BoxSpec): BoxBuild {
-  const key = seedKey(spec);
-  const P: BoxParams = spec.kind === "box" ? boxParams(spec.n) : dailyParams();
+  const key = seedKey(spec), gen = genOf(spec);
+  if (!BUILDABLE_VERSIONS.includes(gen)) throw new Error(`The generator cannot build version ${gen} boxes: ${key}`);
+  const v3 = gen === 3;
+  const P: BoxParams = spec.kind === "box" ? (v3 ? boxParamsV3(spec.n) : boxParams(spec.n)) : dailyParams();
+  // The silhouettes the box's hidden locks take, in order (version 3 drew one from the first three as it built).
+  const silNames = v3 ? null : boxSilhouettes(spec);
+  const silCount = v3 ? Math.min(P.hidden, 1) : silNames!.length;
   const rng = rng32(hash(key));
   const R = (a: number, b: number) => a + (b - a) * rng();
   const pick = <T>(a: T[]): T => a[Math.floor(rng() * a.length)]!;
@@ -241,18 +268,25 @@ export function buildBox(spec: BoxSpec): BoxBuild {
   const [PZ0, PZ1] = E.PIECE_Z;
 
   /**
-   * One silhouette at most, and only on a hidden lock (`silLock`, or -1 for none): it is the box's "it's a cat!"
-   * moment. Every other lock, hidden or not, is a different classic shape.
+   * Silhouettes only on hidden locks (`silLocks`, in the order they take the box's silhouettes): each is the box's
+   * "it's a cat!" moment. Every other lock, hidden or not, is a different classic shape. Each silhouette lock draws
+   * from the first three as version 3 did, so the draws after it stay in step (boxes 5 to 9 differ from version 3
+   * only in the silhouette); from version 4 the dealt silhouette takes its place.
    */
-  function pickShapes(n: number, silLock: number): ShapeName[] {
+  function pickShapes(n: number, silLocks: number[]): ShapeName[] {
     const classics = shuffle(CLASSICS.slice());
-    return Array.from({ length: n }, (_, i) => (i === silLock ? pick(SILHOUETTES) : classics[i]!));
+    return Array.from({ length: n }, (_, i) => {
+      const k = silLocks.indexOf(i);
+      if (k < 0) return classics[i]!;
+      const drawn = pick(FIRST_SILHOUETTES);
+      return silNames ? silNames[k]! : drawn;
+    });
   }
 
   function tryBuild(): Box | Reason {
     const lay = LAYOUTS[P.locks], ids = lay.map((_, i) => i);
     const hiddenOrder = shuffle(ids.slice()).slice(0, P.hidden), hidden = new Set(hiddenOrder);
-    const shapes = pickShapes(P.locks, hiddenOrder[0] ?? -1);
+    const shapes = pickShapes(P.locks, hiddenOrder.slice(0, silCount));
     const locks: Draft[] = [];
     for (let i = 0; i < P.locks; i++) {
       const { c: center, size } = lay[i]!, rot = R(-ROT_MAX, ROT_MAX), c = Math.cos(rot), s = Math.sin(rot);

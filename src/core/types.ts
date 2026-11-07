@@ -6,7 +6,32 @@ export type V2 = [number, number];
 /** A point in the box, in box units: the panel is z = 0, the open front z = 1. */
 export type V3 = [number, number, number];
 
-export type ShapeName = "Key" | "Star" | "Moon" | "Diamond" | "Crown" | "Arrow" | "Hourglass" | "Cat" | "Bird" | "Teapot";
+/** The shapes etched as outlines: icons a player matches by eye. */
+export type ClassicShape = "Key" | "Star" | "Moon" | "Diamond" | "Crown" | "Arrow" | "Hourglass";
+/** The first silhouettes (generator version 3 and before). */
+export type FirstSilhouette = "Cat" | "Bird" | "Teapot";
+/** The silhouettes added in generator version 4 (src/core/silhouettes.ts). */
+export type AddedSilhouette =
+  | "Anchor"
+  | "Sailboat"
+  | "Mushroom"
+  | "House"
+  | "Fish"
+  | "Whale"
+  | "Snail"
+  | "Owl"
+  | "Fox"
+  | "Rabbit"
+  | "Mouse"
+  | "Candle"
+  | "Teacup"
+  | "Violin"
+  | "Knight"
+  | "Cactus"
+  | "Tree"
+  | "Turtle"
+  | "Wrench";
+export type ShapeName = ClassicShape | FirstSilhouette | AddedSilhouette;
 
 /** A brass scrap: one convex piece of a lock's shape, placed on rays from that lock's lantern spot. */
 export interface Piece {
@@ -68,7 +93,11 @@ export interface BoxParams {
   amp: number;
 }
 
-export type BoxSpec = { kind: "box"; n: number } | { kind: "daily"; day: string } | { kind: "lesson"; id: "l1" | "l2" };
+/**
+ * Which box: numbered, a day's Daily Box, or a lesson's. `gen` names an older generator version for a box saved under
+ * it (generator.ts specForSave); absent, the box is built by the current one.
+ */
+export type BoxSpec = { kind: "box"; n: number; gen?: number } | { kind: "daily"; day: string; gen?: number } | { kind: "lesson"; id: "l1" | "l2" };
 
 export interface Box {
   key: string;

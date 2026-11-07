@@ -6,7 +6,7 @@ import { ACT_HINT, ACT_NEXT, ACT_TAKE, type BoxSessionDeps, type SessionView } f
 import { COACH_HOLD_MS, CRYSTAL_MS, type FingerLoop } from "../../src/app/session-fingers";
 import type { FeedbackEvent } from "../../src/app/bus";
 import { GENERATOR_VERSION, generateBox } from "../../src/core/generator";
-import { type BoxSnapshot, defaultSettings, newProfile, type Profile, type Settings } from "../../src/core/profile";
+import { type BoxSnapshot, defaultSettings, migrate, newProfile, type Profile, type Settings } from "../../src/core/profile";
 import { type Coverage, measure, meets, prepareLock, SKIP_MISSING, shadowBuffers, shadowPolys } from "../../src/core/solve";
 import type { Box, BoxSpec, Lock, V2, V3, Vec3 } from "../../src/core/types";
 import { GAZE_DWELL_MS, LANTERN_MIN_Z, OPEN_DWELL_MS, STUCK_MS } from "../../src/feel/constants";
@@ -550,17 +550,56 @@ describe("box session", () => {
     expect([h3.session.isOpen(0), h3.session.isOpen(1)]).toEqual([true, true]);
   });
 
-  it("a save from another generator version starts its box afresh", async () => {
+  it("a save from a generator version it can no longer build (or none) starts its box afresh", async () => {
     const h = harness();
     await h.session.start(BOX(2));
     h.place(h.session.box!.locks[0]!.L);
     h.until(() => h.session.isOpen(0), 1000);
-    const old = { ...h.session.snapshot(), gen: GENERATOR_VERSION - 1 };
+    const { gen: _gen, ...unversioned } = h.session.snapshot();
+    for (const old of [{ ...h.session.snapshot(), gen: 2 }, unversioned]) {
+      const h2 = harness();
+      await h2.session.start(BOX(2), old);
+      expect(h2.session.isOpen(0)).toBe(false);
+      expect(h2.pos).toEqual(h2.session.box!.start);
+      expect(h2.session.elapsedMs).toBe(0);
+      expect(h2.session.snapshot().gen).toBe(GENERATOR_VERSION);
+    }
+  });
+
+  it("a box saved mid-play under generator version 3 resumes as that same box, saved under 3 until it opens", async () => {
+    // Box 12 changed with version 4 (it became an expert box): the save must not land in today's box 12.
+    const then = generateBox({ kind: "box", n: 12, gen: 3 }), now = generateBox(BOX(12));
+    expect(then.locks.map((l) => l.shape)).not.toEqual(now.locks.map((l) => l.shape));
+    const plain = then.locks.find((l) => !l.finger)!;
+    const save: BoxSnapshot = { key: then.key, gen: 3, lantern: [0.12, -0.31, 1.3], open: [plain.i], crystal: [], elapsedMs: 41_000, hints: 1, hintLevel: { [plain.i]: 1 } };
+    // Through the profile's loader too, as a reload brings it back.
+    const profile = migrate({ ...newProfile(0, "test"), nextBox: 12, current: save }, 1, "test");
+    expect(profile.current).toEqual(save);
+    const h = harness({ profile });
+    await h.session.start(BOX(12), profile.current);
+    expect(h.session.box!.locks.map((l) => [l.shape, l.L])).toEqual(then.locks.map((l) => [l.shape, l.L]));
+    expect(h.session.box!.elements).toEqual(then.elements);
+    expect(h.session.spec).toEqual({ kind: "box", n: 12, gen: 3 });
+    expect(h.session.isOpen(plain.i)).toBe(true);
+    expect(h.pos).toEqual(save.lantern);
+    expect(h.session.elapsedMs).toBe(41_000);
+    expect(h.session.hints.count).toBe(1);
+    // Saved again, it is still version 3's box 12, and resumes so once more.
+    const again = h.session.snapshot();
+    expect(again).toMatchObject({ key: then.key, gen: 3, open: [plain.i] });
     const h2 = harness();
-    await h2.session.start(BOX(2), old);
-    expect(h2.session.isOpen(0)).toBe(false);
-    expect(h2.pos).toEqual(h2.session.box!.start);
-    expect(h2.session.elapsedMs).toBe(0);
+    await h2.session.start(BOX(12), again);
+    expect(h2.session.box!.elements).toEqual(then.elements);
+    expect(h2.session.isOpen(plain.i)).toBe(true);
+    // Finished: it moves the player on to box 13, built by today's generator.
+    openPlainLocks(h2);
+    for (const l of h2.session.box!.locks) if (l.finger && !h2.session.isOpen(l.i)) openFingerLock(h2, l);
+    h2.until(() => h2.session.stage === "reward", LOCK_TO_BOX_MS + REWARD_UP_MS + 100);
+    expect(h2.profile.nextBox).toBe(13);
+    expect(h2.profile.current).toBeNull();
+    await h2.session.start(BOX(13));
+    expect(h2.session.box!).toEqual(generateBox(BOX(13)));
+    expect(h2.session.snapshot().gen).toBe(GENERATOR_VERSION);
   });
 
   it("a finger lock opens once its piece has formed, and the piece is restored with it", async () => {
