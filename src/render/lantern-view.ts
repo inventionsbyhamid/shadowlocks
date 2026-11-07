@@ -25,6 +25,7 @@ import {
 import type { V3 } from "../core/types";
 import { clamp01, outCubic } from "./fx/ease";
 import { FlashBudget } from "./fx/flash-budget";
+import { grained } from "./lacquer";
 import { LIGHT_BLEND } from "./light-blend";
 import { mergeParts } from "./merge";
 import { COLORS, LANTERN_GLOW, LIGHTS } from "./theme";
@@ -80,7 +81,8 @@ export class LanternView {
     this.group.name = "Lantern";
     const { lacquer, gold } = mats;
     // Lacquer foot.
-    const foot = new Mesh(at(new CylinderGeometry(0.052, 0.058, 0.026, 8), 0, -0.074, 0), lacquer);
+    // The frame's lacquer reads a grain direction from every mesh it draws: the foot's is zero (plain lacquer).
+    const foot = new Mesh(grained(at(new CylinderGeometry(0.052, 0.058, 0.026, 8), 0, -0.074, 0), null), lacquer);
     // Gold: a band on the foot, eight fins round the core, three steps, a spire and the ring to hold it by.
     const parts: BufferGeometry[] = [at(new CylinderGeometry(0.0525, 0.0525, 0.004, 8), 0, -0.06, 0)];
     for (let i = 0; i < 8; i++) {
