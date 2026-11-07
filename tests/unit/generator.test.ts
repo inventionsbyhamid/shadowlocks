@@ -232,8 +232,8 @@ describe("golden boxes", () => {
   const GOLDEN: [BoxSpec, string][] = [
     [{ kind: "box", n: 1 }, "deeb47a2fbea952f"],
     [{ kind: "box", n: 7 }, "cd05b6b31abb474d"],
-    [{ kind: "box", n: 15 }, "7c668c246fb51cb4"],
-    [{ kind: "daily", day: "2026-11-06" }, "30aa1b96a697b432"],
+    [{ kind: "box", n: 15 }, "0388926107aed88e"],
+    [{ kind: "daily", day: "2026-11-06" }, "e8c5bbc792a2b100"],
   ];
 
   it("pins boxes 1, 7, 15 and one day at generator version 4", () => {

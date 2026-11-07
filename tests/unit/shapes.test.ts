@@ -8,7 +8,7 @@ import { outlineEdges } from "../../src/render/outline";
 const CLASSICS: ShapeName[] = ["Key", "Star", "Moon", "Diamond", "Crown", "Arrow", "Hourglass"];
 const ADDED: ShapeName[] = [
   "Anchor", "Sailboat", "Mushroom", "House", "Fish", "Whale", "Snail", "Owl", "Fox", "Rabbit", "Mouse", "Candle", "Teacup",
-  "Violin", "Knight", "Cactus", "Tree", "Turtle", "Wrench",
+  "Violin", "Knight", "Cactus", "Tree", "Turtle",
 ];
 const ALL: ShapeName[] = [...CLASSICS, "Cat", "Bird", "Teapot", ...ADDED];
 const EDGE = 1e-6;

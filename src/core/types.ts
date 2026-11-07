@@ -29,8 +29,7 @@ export type AddedSilhouette =
   | "Knight"
   | "Cactus"
   | "Tree"
-  | "Turtle"
-  | "Wrench";
+  | "Turtle";
 export type ShapeName = ClassicShape | FirstSilhouette | AddedSilhouette;
 
 /** A brass scrap: one convex piece of a lock's shape, placed on rays from that lock's lantern spot. */

@@ -14,10 +14,6 @@ const sector = (c: V2, ro: number, ri: number, a0: number, a1: number): V2[] => 
   onCircle(c, ri, a1 % 360),
   onCircle(c, ri, a0 % 360),
 ];
-
-/** A piece mirrored top to bottom, still counter-clockwise. */
-const mirrorY = (poly: V2[]): V2[] => poly.map(([x, y]): V2 => [x, -y]).reverse();
-
 /** An anchor: a ring on top, the stock across the shank (the finger strip), arms curving up to two flukes. */
 function anchor(): V2[][] {
   const rc: V2 = [0, 0.4], ro = 0.1, ri = 0.055;
@@ -131,7 +127,7 @@ function whale(): V2[][] {
 
 /** A snail facing right: the shell in four pieces, the foot under it (the finger strip), the head and two eye stalks. */
 function snail(): V2[][] {
-  const foot: V2[] = [[-0.36, -0.36], [0.34, -0.36], [0.42, -0.3], [0.36, -0.26], [-0.42, -0.26], [-0.54, -0.33]];
+  const foot: V2[] = [[-0.36, -0.38], [0.34, -0.38], [0.42, -0.31], [0.36, -0.26], [-0.42, -0.26], [-0.54, -0.33]];
   const sc: V2 = [-0.12, -0.03], r = 0.26, S = (deg: number) => onCircle(sc, r, deg);
   const lo = Math.asin((-0.26 - sc[1]) / r) / DEG;
   const a0 = 180 - lo, a1 = 360 + lo;
@@ -147,7 +143,7 @@ function snail(): V2[][] {
 
 /** An owl on a branch, from the front: body, a face with two eye holes, ear tufts, and the branch (the finger strip). */
 function owl(): V2[][] {
-  const branch: V2[] = [[-0.46, -0.47], [0.46, -0.47], [0.5, -0.43], [0.47, -0.39], [-0.47, -0.39], [-0.5, -0.43]];
+  const branch: V2[] = [[-0.46, -0.49], [0.46, -0.49], [0.5, -0.44], [0.47, -0.39], [-0.47, -0.39], [-0.5, -0.44]];
   const bc: V2 = [0, -0.15], B = (deg: number) => ellAt(bc, 0.22, 0.3, deg);
   const lo = Math.asin(-0.24 / 0.3) / DEG, hi = Math.asin(0.15 / 0.3) / DEG;
   const bodyR: V2[] = [[0, -0.39], B(360 + lo), B(320), B(335), B(350), B(5), B(18), B(hi), [0, 0]];
@@ -203,10 +199,10 @@ function mouse(): V2[][] {
   const c: V2 = [0, -0.05], E = (deg: number) => ellAt(c, 0.24, 0.15, deg);
   const top: V2 = [0, 0.1], bottom: V2 = [0, -0.2];
   const front: V2[] = [bottom, E(290), E(305), E(320), E(335), E(20), E(40), E(55), E(85), top];
-  const back: V2[] = [top, E(110), E(130), E(150), E(170), E(190), E(210), E(225), E(240), E(255), bottom];
+  const back: V2[] = [top, E(110), E(130), E(148), E(165), E(195), E(212), E(226), E(240), E(255), bottom];
   const snout: V2[] = [E(335), [0.38, -0.075], E(20)];
   const ear = cap(E(55), E(85), 0.085, [-35, -10, 15, 40, 65, 90, 115, 140, 165, 190]).poly;
-  const tail = strip(E(170), E(190), 182, 0.4, 0.019);
+  const tail = strip(E(165), E(195), 182, 0.4, 0.026);
   const tip = strip(tail[1]!, tail[2]!, 150, 0.09, 0.011);
   const footFront = strip(E(290), E(305), 280, 0.05, 0.02);
   const footBack = strip(E(240), E(255), 262, 0.05, 0.02);
@@ -287,7 +283,7 @@ function cactus(): V2[][] {
 
 /** A fir tree on a snowy mound (the finger strip): the trunk and three tiers of branches. */
 function tree(): V2[][] {
-  const ground: V2[] = [[-0.48, -0.5], [0.48, -0.5], [0.44, -0.455], [0.3, -0.43], [-0.3, -0.43], [-0.44, -0.455]];
+  const ground: V2[] = [[-0.48, -0.53], [0.48, -0.53], [0.44, -0.47], [0.3, -0.43], [-0.3, -0.43], [-0.44, -0.47]];
   const trunk = rect(-0.06, -0.43, 0.06, -0.27);
   const lowL: V2[] = [[-0.38, -0.27], [0, -0.27], [0, -0.02], [-0.17, -0.02]];
   const lowR: V2[] = [[0, -0.27], [0.38, -0.27], [0.17, -0.02], [0, -0.02]];
@@ -298,7 +294,8 @@ function tree(): V2[][] {
 
 /** A turtle walking right: a domed shell in three slices on its rim (the finger strip), head, two legs and a tail. */
 function turtle(): V2[][] {
-  const rim: V2[] = [[-0.34, -0.13], [0.3, -0.13], [0.37, -0.07], [-0.4, -0.07]];
+  // The rim is thick enough that a finger's shadow laid along it stays mostly on it (a thin one floods its band).
+  const rim: V2[] = [[-0.34, -0.16], [0.3, -0.16], [0.37, -0.07], [-0.4, -0.07]];
   const D = (deg: number) => ellAt([-0.02, -0.07], 0.34, 0.27, deg);
   const al = Math.acos(-0.11 / 0.34) / DEG, ar = Math.acos(0.11 / 0.34) / DEG;
   const right: V2[] = [[0.09, -0.07], D(0), D(15), D(30), D(45), D(60), D(ar)];
@@ -307,26 +304,9 @@ function turtle(): V2[][] {
   // The head and tail come out from under the shell's ends; the rim keeps its ends and most of its underside free.
   const head: V2[] = [D(0), [0.44, -0.07], [0.52, -0.04], [0.53, 0.01], [0.49, 0.045], [0.41, 0.035], D(15)];
   const tail: V2[] = [D(168), [-0.48, -0.05], D(180)];
-  const legFront: V2[] = [[0.12, -0.28], [0.22, -0.28], [0.21, -0.13], [0.12, -0.13]];
-  const legBack: V2[] = [[-0.28, -0.28], [-0.18, -0.28], [-0.18, -0.13], [-0.27, -0.13]];
+  const legFront: V2[] = [[0.12, -0.3], [0.22, -0.3], [0.21, -0.16], [0.12, -0.16]];
+  const legBack: V2[] = [[-0.28, -0.3], [-0.18, -0.3], [-0.18, -0.16], [-0.27, -0.16]];
   return [rim, left, middle, right, head, legFront, legBack, tail];
-}
-
-/** A spanner lying flat: a ring end, the handle (the finger strip), and an open jaw. */
-function wrench(): V2[][] {
-  const rc: V2 = [-0.34, 0], ro = 0.13, ri = 0.062;
-  const O = (d: number) => onCircle(rc, ro, d), I = (d: number) => onCircle(rc, ri, d);
-  // Six ring pieces round a hexagonal hole; each but the handle's has a corner halfway round its outer edge.
-  const ring: V2[][] = [[O(330), O(30), I(30), I(330)]];
-  for (const d of [30, 90, 150, 210, 270]) ring.push([O(d), O(d + 30), O(d + 60), I(d + 60), I(d)]);
-  const xl = O(330)[0];
-  const jc: V2 = [0.32, 0], jr = 0.15, J = (deg: number) => onCircle(jc, jr, deg);
-  const cf = Math.acos(-0.12 / jr) / DEG, slot = Math.asin(0.055 / jr) / DEG;
-  const handle: V2[] = [[xl, -0.045], [0.2, -0.05], [0.2, 0.05], [xl, 0.045]];
-  const back: V2[] = [[0.32, -0.15], [0.32, 0.15], J(110), J(125), J(cf), J(360 - cf), J(235), J(250)];
-  const jawTop: V2[] = [[0.32, 0.055], J(slot), J(40), J(60), J(75), [0.32, 0.15]];
-  const jawLow = mirrorY(jawTop);
-  return [...ring, handle, back, jawTop, jawLow];
 }
 
 /** The added silhouettes, built (not yet centred and scaled), in the order the library lists them. */
@@ -350,6 +330,5 @@ export function newSilhouettes(): Record<AddedSilhouette, V2[][]> {
     Cactus: cactus(),
     Tree: tree(),
     Turtle: turtle(),
-    Wrench: wrench(),
   };
 }
