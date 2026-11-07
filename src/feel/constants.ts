@@ -47,11 +47,12 @@ export const FINGER_HOLD_MS = 600;
 export const FINGER_GRACE_MS = 100;
 
 /**
- * A lock opens once the lantern has met its rule this long: a lantern at rest (released, settled, or held still)
- * passes at once, while a sweep through the spot meets it for a frame or two and opens nothing (at 15 cm/s the
- * lantern crosses the few millimetres where the rule holds in well under this).
+ * A lock opens once the lantern has met its rule this long while at rest (LanternController.atRest: not held,
+ * settled, or held by a deliberate hand, the speed gate above); moving, the dwell starts over. So the shadows click
+ * together soon after the lantern comes to rest on its spot, while no sweep opens a lock, even one along the lock's
+ * ray, where the rule holds for half a second at 5 cm/s.
  */
-export const OPEN_DWELL_MS = 100;
+export const OPEN_DWELL_MS = 150;
 
 /** Head gaze on a new lock this long moves the focus to it. */
 export const GAZE_DWELL_MS = 400;
