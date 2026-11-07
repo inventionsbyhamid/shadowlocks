@@ -6,9 +6,9 @@
 // The frame has no rail across the top of the open front: from a seated eye the box's lid is seen
 // from above, and a rail there would cut across the panel. Draw calls: frame, trim, floor, side
 // glass, lid, panel, shadows, scraps, threads, rings, and four for the lantern; fourteen for any box,
-// plus one for each crystallised piece (three more while one forms). The panel shader and the shadows live in
-// panel.ts and shadow-mesh.ts. The hands' shadows and the crystallised pieces' join the box's own in
-// the one shadow mesh, after them.
+// plus one for each crystallised piece (three more while one forms). The panel shader lives in
+// panel.ts; what the box casts, and when, in box-shadows.ts, drawn by shadow-mesh.ts. The hands'
+// shadows and the crystallised pieces' join the box's own in the one shadow mesh, after them.
 import {
   BackSide,
   BoxGeometry,
@@ -47,7 +47,8 @@ import { mergeParts } from "./merge";
 import { BOX_ROOT_NAME, DEFAULT_BOX_CM } from "./placement";
 import { Panel } from "./panel";
 import { type ScrapHandle, Scraps, slotOf } from "./scraps";
-import { BoxShadows, LANTERN_RADIUS, MAX_EXTRAS, PENUMBRA_MAX } from "./shadow-mesh";
+import { BoxShadows, MAX_EXTRAS } from "./box-shadows";
+import { LANTERN_RADIUS, PENUMBRA_MAX } from "./shadow-mesh";
 import { COLORS, ENV, type EnvPanel, LIGHTS, MATERIALS } from "./theme";
 
 /** Frame bars: thickness and edge radius (box units). The radius gives the clearcoat a rim to catch light. */

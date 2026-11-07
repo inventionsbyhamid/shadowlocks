@@ -8,19 +8,8 @@ import { lockSamples, RING_SIDES } from "../../src/core/solve";
 import type { Box, Decoy, Lock, Piece, Ring, V2, V3 } from "../../src/core/types";
 import { outlineEdges } from "../../src/render/outline";
 import { panelMaterials, panelUniforms } from "../../src/render/panel";
-import {
-  BoxShadows,
-  LANTERN_RADIUS,
-  MAX_CASTER_CORNERS,
-  MAX_CASTERS,
-  MAX_EXTRAS,
-  PENUMBRA_MAX,
-  penumbra,
-  ShadowMesh,
-  type ShadowShape,
-  SOFT_MIN,
-  triangulate,
-} from "../../src/render/shadow-mesh";
+import { BoxShadows, MAX_CASTER_CORNERS, MAX_CASTERS, MAX_EXTRAS } from "../../src/render/box-shadows";
+import { LANTERN_RADIUS, PENUMBRA_MAX, penumbra, ShadowMesh, type ShadowShape, SOFT_MIN, triangulate } from "../../src/render/shadow-mesh";
 
 const boxes: Box[] = [];
 for (let n = 1; n <= 30; n++) boxes.push(generateBox({ kind: "box", n }));

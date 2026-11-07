@@ -15,7 +15,8 @@
 // line put away; the drawer stays shut while an example shows; a progress reset lets the lesson or replay go.
 //
 // Tips: the first time a box brings in a mechanic (decoys, a lock without rings, a hidden outline), its line shows
-// on the coach line until the player has done what it says.
+// on the coach line until the player has done what it says, with a ghost demo of about 6 s as it first shows (the
+// finger pointing at decoys, or a ghost lantern swept near the lock's spot; lesson-scripts.ts).
 import { createSystem, type World } from "@iwsdk/core";
 import type { LessonId } from "../core/lessons-data";
 import type { BoxSnapshot, TipId } from "../core/profile";
@@ -35,7 +36,7 @@ import type { ProfileStore } from "./profile-store";
 import { go, isMenuScreen } from "./screens";
 import type { SettingsStore } from "./settings";
 import { registerAppSystem } from "./systems";
-import { TIP_LINES, tipDone, tipFor } from "./tips";
+import { TIP_FROM, TIP_LINES, tipDone, tipFor } from "./tips";
 import { LineHold } from "../ui/coach-line";
 import { COPY } from "../ui/copy";
 import type { CoachLine } from "./events";
@@ -66,7 +67,7 @@ export class Lessons implements MenuLessons {
   /** The lesson running is practice (`?lesson=`): its steps and its end change nothing about progress. */
   practice = false;
   /** The box in play when a replay started, put back when it ends. */
-  private saved: { spec: BoxSpec; snap: BoxSnapshot | null; practice: boolean } | null = null;
+  private saved: Kept | null = null;
   /** Lesson 2's drawer was pulled at its last step. */
   private drawerOpen = false;
   /** A menu is up over the box (the drawer is out). */
@@ -77,9 +78,17 @@ export class Lessons implements MenuLessons {
   private tip: TipId | null = null;
   /** The box the tip was worked out for, by key: the same box put back after "Show me" keeps its tip. */
   private tipKey: string | null = null;
+  /** The box whose tip demo has had its one chance to play (by key), and the tip it plays. */
+  private tipDemoKey: string | null = null;
+  private demoTip: TipId | null = null;
+  /**
+   * A Lessons row's tip replay: its demo on a fresh practice copy of the box that brings the tip in (shown once that
+   * box is up), then what was in play put back.
+   */
+  private tipReplay: { tip: Exclude<TipId, "drawer">; saved: Kept | null; shown: boolean } | null = null;
   private lastT = Number.NaN;
   /** Made once: the frame passes them every frame. */
-  private readonly onScreen: { lesson: LessonId | null } = { lesson: null };
+  private readonly onScreen: { lesson: LessonId | null; tip: boolean } = { lesson: null, tip: false };
   private readonly isOpen = (lock: number) => this.d.play.session.isOpen(lock);
   /** The session's suggestion, held through brief drops (a finger lock's coverage crossing its threshold). */
   private readonly hold = new LineHold();
@@ -153,7 +162,7 @@ export class Lessons implements MenuLessons {
   /** A lesson or a replay is in the lap (the menus show "Your lesson" behind them). Lesson 2 ends with its pull. */
   get running(): boolean {
     const dir = this.director;
-    return dir.replaying !== null || (dir.lesson !== null && !dir.done && !this.drawerOpen);
+    return dir.replaying !== null || this.tipReplay !== null || (dir.lesson !== null && !dir.done && !this.drawerOpen);
   }
 
   /**
@@ -181,17 +190,34 @@ export class Lessons implements MenuLessons {
 
   /** Show one example alone (a Lessons menu row, "Show me"); false while one is already showing. */
   replay(example: ExampleId): boolean {
+    // Not during a tip replay: its practice box would be the one kept and put back, losing the real one.
+    if (this.tipReplay) return false;
     return this.director.replay(example);
   }
 
   /** The menu drawer may be pulled: not while an example shows (the ghost has the lantern in its cradle). */
   get drawerAllowed(): boolean {
-    return !this.director.showing;
+    return !this.director.showing && !this.tipReplay;
+  }
+
+  /**
+   * A Lessons row's tip: its own ghost demo on a fresh practice copy of the box that brings it in (TIP_FROM), then
+   * what was in play put back; nothing about progress changes. The drawer has no box: lesson 2's example teaches it.
+   * False while an example or another tip replay shows.
+   */
+  replayTip(tip: TipId): boolean {
+    if (tip === "drawer") return this.replay("finger");
+    if (this.director.showing || this.tipReplay) return false;
+    this.director.stopTip();
+    this.tipReplay = { tip, saved: this.keepInPlay(), shown: false };
+    this.d.play.game.play({ kind: "box", n: TIP_FROM[tip] }, null, true);
+    return true;
   }
 
   /** Let the lesson or replay in the lap go (a progress reset): nothing is put back, nothing more is saved. */
   stop(): void {
     this.saved = null;
+    this.tipReplay = null;
     this.dropping = true;
     this.director.stop();
     this.dropping = false;
@@ -203,15 +229,17 @@ export class Lessons implements MenuLessons {
     const dt = Number.isFinite(this.lastT) ? Math.min(Math.max(tMs - this.lastT, 0), 100) : 0;
     this.lastT = tMs;
     const dir = this.director, session = this.d.play.session;
-    // The player left the lesson (another box was started): the lesson stops where it is.
+    // The player left the lesson (another box was started): the lesson stops where it is. Not for a replay's box.
     const lesson = dir.lesson;
-    if (lesson && !dir.replaying && !dir.done && session.stage !== "loading") {
+    if (lesson && !dir.replaying && !this.tipReplay && !dir.done && session.stage !== "loading") {
       const s = session.spec;
       if (!s || s.kind !== "lesson" || s.id !== lesson) dir.stop();
     }
-    const on = dir.replaying ? EXAMPLES[dir.replaying].lesson : dir.done ? null : dir.lesson;
-    // Under a menu the lesson waits, but for the pull that ends lesson 2.
-    if (on && this.d.presenting() && (!this.menuUp || this.drawerOpen)) dir.update(tMs);
+    if (this.tipReplay) this.stepTipReplay(session);
+    // A tip replay holds any lesson where it is (its box is put back after).
+    const on = this.tipReplay ? null : dir.replaying ? EXAMPLES[dir.replaying].lesson : dir.done ? null : dir.lesson;
+    // Under a menu the lesson waits, but for the pull that ends lesson 2. A tip's demo runs on the director's clock too.
+    if ((on || dir.tipping) && this.d.presenting() && (!this.menuUp || this.drawerOpen)) dir.update(tMs);
     // One coach line: a lesson's, else the session's suggestion (held through brief drops), else a tip; none under a
     // menu (the lesson's ghost is put away there too).
     const asked = this.d.play.view.coachLine;
@@ -220,9 +248,71 @@ export class Lessons implements MenuLessons {
     this.onScreen.lesson = shown;
     // Outside an example, the session's suggestion wins over a lesson's own line: it only exists while a controller
     // player faces a short finger lock (lesson 2's turn), who needs it; hand players lose nothing.
-    const line = this.menuUp ? null : shown ? (dir.showing ? dir.frame.line : (held ?? dir.frame.line)) : (held ?? this.tipLine(session));
+    const line = this.menuUp
+      ? null
+      : shown
+        ? dir.showing
+          ? dir.frame.line
+          : (held ?? dir.frame.line)
+        : this.tipReplay
+          ? TIP_LINES[this.tipReplay.tip]
+          : (held ?? this.tipLine(session));
+    if (!shown) this.tipDemo(session);
+    this.onScreen.tip = dir.tipping && !this.menuUp;
     // Lines come in English (the director, the tips, the session); the chip shows them in the language shown.
     this.view.update(dir.frame, this.onScreen, localLine(line), dt, tMs);
+  }
+
+  /**
+   * A tip's ghost demo (about 6 s): once a box, tried as its tip first shows on the box it was worked out for, once
+   * the box is shown, and skipped if the lantern is in hand then. It stops when the player takes the lantern, the tip
+   * is done or another takes its place, a menu comes up or the box goes. A tip replay runs its own.
+   */
+  private tipDemo(session: BoxSession): void {
+    if (this.tipReplay) return;
+    const dir = this.director, box = session.box, held = this.d.lantern.grab.holder !== null;
+    if (dir.tipping) {
+      if (!this.tip || this.tip !== this.demoTip || held || this.menuUp || !box || box.key !== this.tipDemoKey) dir.stopTip();
+      return;
+    }
+    if (!this.tip || !box || box.key !== this.tipKey || box.key === this.tipDemoKey) return;
+    if (this.menuUp || !this.d.presenting() || !session.revealed) return;
+    this.tipDemoKey = box.key;
+    if (!held && dir.tipDemo(this.tip, box)) this.demoTip = this.tip;
+  }
+
+  /** A tip replay: its demo once the practice box is up and shown; at its end, what was in play put back. */
+  private stepTipReplay(session: BoxSession): void {
+    const tr = this.tipReplay!, dir = this.director;
+    if (tr.shown) {
+      // As in play, a hand taking the lantern stops the demo; the replay is then over.
+      if (dir.tipping && this.d.lantern.grab.holder !== null) dir.stopTip();
+      if (!dir.tipping) this.endTipReplay();
+      return;
+    }
+    const box = session.box, n = TIP_FROM[tr.tip];
+    if (!box || box.spec.kind !== "box" || box.spec.n !== n || !session.practice || session.stage !== "playing" || !session.revealed) return;
+    if (this.menuUp || !this.d.presenting()) return;
+    tr.shown = dir.tipDemo(tr.tip, box, true);
+    // Nothing to show on that box (it lacks the mechanic): over at once.
+    if (!tr.shown) this.endTipReplay();
+  }
+
+  private endTipReplay(): void {
+    const saved = this.tipReplay?.saved ?? null;
+    this.tipReplay = null;
+    if (saved) this.d.play.game.play(saved.spec, saved.snap, saved.practice);
+    else if (!this.dropping) go("home");
+  }
+
+  /**
+   * What is in play, as it would be saved now, to put back after a replay; null when there is none or it is done with
+   * (an opened box put back would open again).
+   */
+  private keepInPlay(): Kept | null {
+    const session = this.d.play.session, s = session.stage;
+    if (!session.box || !session.spec || s === "opening" || s === "reward" || s === "offered") return null;
+    return { spec: { ...session.spec }, snap: session.snapshot(), practice: session.practice };
   }
 
   /**
@@ -271,10 +361,9 @@ export class Lessons implements MenuLessons {
   private replayed(_ex: ExampleId, lesson: LessonId, start: boolean): void {
     const { game, session } = this.d.play;
     if (start) {
-      // What was in play, as it would be saved now, unless it is done with (opened: put back, it would open again);
-      // the example's lesson box afresh meanwhile, as practice (nothing it does is saved, solved or collected).
-      const s = session.stage, over = s === "opening" || s === "reward" || s === "offered";
-      this.saved = session.box && session.spec && !over ? { spec: { ...session.spec }, snap: session.snapshot(), practice: session.practice } : null;
+      // What was in play (keepInPlay); the example's lesson box afresh meanwhile, as practice (nothing it does is
+      // saved, solved or collected).
+      this.saved = this.keepInPlay();
       game.play({ kind: "lesson", id: lesson }, null, true);
       return;
     }
@@ -287,6 +376,13 @@ export class Lessons implements MenuLessons {
 
 /** Lesson 2's last step: the drawer. */
 const LESSON_DRAWER_STEP = 3;
+
+/** What was in play when a replay started, put back when it ends. */
+interface Kept {
+  spec: BoxSpec;
+  snap: BoxSnapshot | null;
+  practice: boolean;
+}
 
 let current: Lessons | null = null;
 
