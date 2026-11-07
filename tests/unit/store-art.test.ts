@@ -8,12 +8,17 @@ import {
   ART,
   artHtml,
   boxBoundsFor,
+  centreSquare,
   clearOf,
   eyeBehind,
   ICON_LAYOUT,
+  inside,
   KEY_SCENE,
   keyLantern,
   keySilhouette,
+  lineBound,
+  LINK_CARD,
+  LINK_CARD_MAX_BYTES,
   PLATES,
   project,
   SCREENSHOT_COUNT,
@@ -86,6 +91,31 @@ describe("store art", () => {
       const margin = TITLE_CLEARANCE * Math.min(a.width, a.height);
       expect(clearOf(toPixels(titleBound(a.title!), a.width, a.height), toPixels(box!, a.width, a.height), margin), where).toBeNull();
     }
+  });
+
+  it("makes the website's link card: 1200x630, the box, title and line inside the centre square, the title clear of the box", () => {
+    const a = LINK_CARD;
+    expect([a.file, a.width, a.height, a.alpha]).toEqual(["og-image.jpg", 1200, 630, false]);
+    expect(LINK_CARD_MAX_BYTES).toBe(300 * 1024);
+    // Not store art: it never goes to the planning folder, and the store art stays title-only.
+    expect(ART.map((x) => x.file)).not.toContain(a.file);
+    expect(ownedFiles()).not.toContain(a.file);
+    expect(ART.every((x) => x.line === undefined)).toBe(true);
+    const p = PLATES.find((x) => x.name === a.plate)!;
+    expect(p.width / p.height).toBeCloseTo(a.width / a.height, 3);
+    expect(p.width).toBeGreaterThanOrEqual(a.width);
+    const square = centreSquare(a.width, a.height);
+    expect(toPixels(square, a.width, a.height)).toEqual({ left: 285, right: 915, top: 0, bottom: 630 });
+    const box = boxBoundsFor(p.view!, keyLantern(), p.width, p.height)!;
+    const title = titleBound(a.title!);
+    const line = lineBound(a.line!);
+    const where = `box ${fmt(box)}, title ${fmt(title)}, line ${fmt(line)}`;
+    for (const r of [box, title, line]) expect(inside(r, { ...square, top: 0.02, bottom: 0.98 }), where).toBe(true);
+    expect(clearOf(toPixels(title, a.width, a.height), toPixels(box, a.width, a.height), TITLE_CLEARANCE * a.height), where).toBeNull();
+    expect(title.bottom, where).toBeLessThan(line.top);
+    const html = artHtml(a, { plate: "data:image/png;base64,AA", fontDataUrl: "data:font/ttf;base64,AA" });
+    const text = html.replace(/<style[\s\S]*?<\/style>/, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    expect(text).toBe(`${TITLE} Play on Meta Quest`);
   });
 
   it("finds a title that runs into the box", () => {
