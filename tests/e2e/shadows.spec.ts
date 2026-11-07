@@ -333,7 +333,7 @@ test("box 15 at 4x CPU throttle: one draw call for every shadow, an update withi
 
 test("the heaviest box from 10 to 60 at 4x CPU throttle: the same budgets as box 15", async ({ page, boot }, testInfo) => {
   const heavy = heaviestBox();
-  addRunNote(`shadows: heaviest box from 10 to 60 is box ${heavy.n} (${heavy.kind}): ${heavy.shadows} shadows, ${heavy.corners} corners`);
+  addRunNote(`shadows: heaviest box from 10 to 60 is box ${heavy.n} (${heavy.kind}): ${heavy.shadows} shadows, ${heavy.corners} corners, frame ${heavy.ms.toFixed(3)} ms at 4x by the model`);
   await shadowCost(page, await boot(), testInfo, heavy.n);
 });
 

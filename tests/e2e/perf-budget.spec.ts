@@ -58,7 +58,7 @@ test.use({
   launchOptions: { args: [...CHROME_ARGS, "--js-flags=--invocation-count-for-maglev=5 --invocation-count-for-turbofan=30"] },
 });
 
-// The play case, for box 15 and for the heaviest box from 10 to 60 (helpers/heavy-box.ts: a fingers or silhouettes box).
+// The play case, for box 15 and for the heaviest box from 10 to 60 by the frame cost model (helpers/heavy-box.ts).
 const playCase = (n: number) => async ({ page, boot }: { page: Page; boot: BootFn }, testInfo: TestInfo) => {
   // Box n played through the box session (helpers/perf-play.ts), so its frame ("game") and its view (plate, hint
   // lantern, marks) are timed and drawn as in play.

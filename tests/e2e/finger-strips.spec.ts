@@ -9,7 +9,7 @@
 import { generateBox } from "../../src/core/generator";
 import { SILHOUETTES } from "../../src/core/shapes";
 import type { Box, Lock } from "../../src/core/types";
-import { fingerCoverage } from "../unit/helpers/finger-model";
+import { FINGER_MODEL_MARGIN, fingerCoverage } from "../unit/helpers/finger-model";
 import { axisOf, fingerLocks, onRay, Pointer, worldOf } from "./helpers/finger";
 import { expect, test } from "./helpers/test";
 
@@ -51,7 +51,7 @@ test("a finger laid along each silhouette's strip opens its lock, in the silhoue
   const never = SILHOUETTES.filter((name) => !worst.has(name));
   expect(never, `silhouettes that are never a finger lock in boxes 5 to ${LAST_BOX}, so their strips go unproven`).toEqual([]);
   const app = await boot();
-  const rows: string[] = [], failed: string[] = [];
+  const rows: string[] = [], failed: string[] = [], drift: string[] = [];
   const hand = new Pointer(app, "right");
   for (const name of SILHOUETTES) {
     const { n, lock, spill } = worst.get(name)!;
@@ -81,10 +81,14 @@ test("a finger laid along each silhouette's strip opens its lock, in the silhoue
       `spillAll ${cv.spillAll.toFixed(3)} (model ${spill.toFixed(3)}) gap ${cv.gap.toFixed(3)} meets ${c.meets} -> ${opened ? "opened" : "NOT OPENED"}`;
     rows.push(row);
     if (!opened) failed.push(row);
+    // The generator's finger guard keeps FINGER_MODEL_MARGIN under the rule for the model's error: should IWER's finger
+    // or the hand's shadow drift further from the model than that, the margin is gone.
+    if (Math.abs(cv.spillAll - spill) > FINGER_MODEL_MARGIN) drift.push(`${row}: ${Math.abs(cv.spillAll - spill).toFixed(3)} from the model`);
     const [inBox, out] = await worldOf(page, [[0, 0, FINGER_Z], [0, 0, 1.6]]);
     await hand.shift([out![0] - inBox![0], out![1] - inBox![1], out![2] - inBox![2]]);
     await app.step(3);
   }
   console.log(rows.join("\n"));
   expect(failed).toEqual([]);
+  expect(drift, `spill measured more than ${FINGER_MODEL_MARGIN} from the finger model`).toEqual([]);
 });
