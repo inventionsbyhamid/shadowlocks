@@ -36,16 +36,19 @@ const tmpPos = new Vector3();
 const tmpScale = new Vector3();
 
 /**
- * The box-to-world matrix for a head: the panel centre 0.55 m ahead of the eyes (along the head's
- * heading, flattened) and 0.28 m below them, turned to face the head and leaning back `tiltDeg`,
- * scaled so one box unit is `sizeCm`.
+ * The box-to-world matrix for a head: the panel centre `forwardM` ahead of the eyes (along the head's
+ * heading, flattened; 0.55 m) and `belowM` below them (0.28 m), turned to face the head and leaning
+ * back `tiltDeg`, scaled so one box unit is `sizeCm`.
  */
-export function placeBox(eye: Eye, sizeCm: number, tiltDeg = TILT_DEG, out = new Matrix4()): Matrix4 {
-  tmpPos.set(
-    eye.pos.x - Math.sin(eye.yaw) * BOX_FORWARD_M,
-    eye.pos.y - BOX_BELOW_HEAD_M,
-    eye.pos.z - Math.cos(eye.yaw) * BOX_FORWARD_M,
-  );
+export function placeBox(
+  eye: Eye,
+  sizeCm: number,
+  tiltDeg = TILT_DEG,
+  out = new Matrix4(),
+  forwardM = BOX_FORWARD_M,
+  belowM = BOX_BELOW_HEAD_M,
+): Matrix4 {
+  tmpPos.set(eye.pos.x - Math.sin(eye.yaw) * forwardM, eye.pos.y - belowM, eye.pos.z - Math.cos(eye.yaw) * forwardM);
   tmpQuat.setFromEuler(tmpEuler.set(-tiltDeg * DEG, eye.yaw, 0, "YXZ"));
   const s = sizeCm / 100;
   tmpScale.set(s, s, s);
@@ -82,6 +85,35 @@ export function yawFromQuaternion(x: number, y: number, z: number, w: number): n
   return Math.atan2(-fx, -fz);
 }
 
+/** How far a head (camera) quaternion looks up (positive) or down (negative), in radians: its -Z axis above the floor. */
+export function pitchFromQuaternion(x: number, y: number, z: number, w: number): number {
+  const fx = -2 * (x * z + w * y);
+  const fy = 2 * (w * x - y * z);
+  const fz = -(1 - 2 * (x * x + y * y));
+  return Math.atan2(fy, Math.hypot(fx, fz));
+}
+
+/**
+ * A phone in AR: the box's middle stands this far (m) from the camera along its view, so the whole box is in the
+ * picture when it appears (the seated lap is below a phone's narrower view).
+ */
+export const IN_VIEW_M = 0.65;
+/** A phone pointed steeper than this, down or up (degrees), places the box as if it were not: upright, still ahead. */
+export const IN_VIEW_PITCH_DEG = { down: 60, up: 10 } as const;
+
+/**
+ * Where the panel centre goes so the box's middle (half a box in front of the panel, along the box's own tilted axis)
+ * is IN_VIEW_M along a camera pitched `pitch` radians: how far ahead (flattened) and below the camera, for placeBox.
+ */
+export function inViewOffsets(pitch: number, sizeM: number, tiltDeg = TILT_DEG): { forwardM: number; belowM: number } {
+  const p = Math.min(IN_VIEW_PITCH_DEG.up * DEG, Math.max(-IN_VIEW_PITCH_DEG.down * DEG, pitch));
+  const t = tiltDeg * DEG, half = sizeM / 2;
+  return {
+    forwardM: IN_VIEW_M * Math.cos(p) + half * Math.cos(t),
+    belowM: -IN_VIEW_M * Math.sin(p) + half * Math.sin(t),
+  };
+}
+
 /** The back panel's centre (world) and the box's heading, for what lays itself out around the box. */
 export interface BoxPose {
   position: Vec3;
@@ -93,8 +125,8 @@ export interface HeadPose {
   yaw: number;
 }
 
-/** "default" until a session starts and the box is placed from the head ("head"). */
-export type PlacementSource = "default" | "head";
+/** "default" until a session starts and the box is placed from the head ("head"), or in a phone's view ("view"). */
+export type PlacementSource = "default" | "head" | "view";
 
 /**
  * Where the box sits: the head it was placed from and the box size. Placing again (Recenter) keeps
@@ -106,6 +138,9 @@ export class Placement {
   source: PlacementSource = "default";
   private readonly eye: Eye = { pos: new Vector3(0, DEFAULT_EYE_Y_M, 0), yaw: 0 };
   private sizeCm = DEFAULT_BOX_CM;
+  /** The panel centre ahead of and below the eyes: the lap's, or a phone's view's (startInView). */
+  private forwardM = BOX_FORWARD_M;
+  private belowM = BOX_BELOW_HEAD_M;
   private readonly m = new Matrix4();
   private readonly current: BoxPose = { position: [0, 0, 0], yaw: 0 };
 
@@ -132,7 +167,23 @@ export class Placement {
   start(head: HeadPose): void {
     this.eye.pos.set(head.position[0], head.position[1], head.position[2]);
     this.eye.yaw = head.yaw;
+    this.forwardM = BOX_FORWARD_M;
+    this.belowM = BOX_BELOW_HEAD_M;
     this.source = "head";
+    this.apply();
+  }
+
+  /**
+   * Place the box in a phone's view (session start, Recenter): its middle IN_VIEW_M along the camera's view, `pitch`
+   * radians up or down, upright and facing it. A size change after keeps the panel where it is, as for the lap.
+   */
+  startInView(head: HeadPose, pitch: number): void {
+    const o = inViewOffsets(pitch, this.sizeM);
+    this.eye.pos.set(head.position[0], head.position[1], head.position[2]);
+    this.eye.yaw = head.yaw;
+    this.forwardM = o.forwardM;
+    this.belowM = o.belowM;
+    this.source = "view";
     this.apply();
   }
 
@@ -144,7 +195,7 @@ export class Placement {
   }
 
   private apply(): void {
-    placeBox(this.eye, this.sizeCm, TILT_DEG, this.m);
+    placeBox(this.eye, this.sizeCm, TILT_DEG, this.m, this.forwardM, this.belowM);
     const e = this.m.elements;
     this.current.position[0] = e[12]!;
     this.current.position[1] = e[13]!;

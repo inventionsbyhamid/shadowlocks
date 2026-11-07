@@ -1,9 +1,11 @@
-// Per-frame shell work: place the box in the lap once per XR session (and again on Recenter), lay
-// out what follows the placement, step the box's own motion and the theatre lights, and run debounced
-// saves. Allocation-free per frame.
+// Per-frame shell work: place the box in the lap (on a phone, in the camera's view) once per XR session
+// (and again on Recenter), lay out what follows the placement, step the box's own motion and the theatre
+// lights, and run debounced saves. Allocation-free per frame.
 import { createSystem, Quaternion, Vector3 } from "@iwsdk/core";
-import { placement, yawFromQuaternion } from "../render/placement";
+import { isHandheld } from "../input/touch";
+import { pitchFromQuaternion, placement, yawFromQuaternion } from "../render/placement";
 import type { Shell } from "./shell";
+import { onPhone } from "./touch-system";
 
 let shell: Shell | null = null;
 
@@ -24,20 +26,23 @@ export class ShellSystem extends createSystem({}) {
 
   /**
    * Place the box from the current head pose (Recenter, and the test hooks); the box size stays. False
-   * while the head is not tracked.
+   * while the head is not tracked. A phone's session places it in the camera's view instead of the lap.
    */
   recenter(): boolean {
     if (!shell) return false;
     const head = this.world.player.head;
     head.getWorldPosition(this.headPos);
     head.getWorldQuaternion(this.headQuat);
-    if (this.headPos.y < MIN_HEAD_Y_M) return false;
+    // A phone held low (sitting at a table) can be lower than a seated head: only a head at the origin is untracked.
+    const phone = onPhone() || isHandheld(this.world.session);
+    if (phone ? this.headPos.lengthSq() === 0 : this.headPos.y < MIN_HEAD_Y_M) return false;
     const q = this.headQuat;
     this.headPose.position[0] = this.headPos.x;
     this.headPose.position[1] = this.headPos.y;
     this.headPose.position[2] = this.headPos.z;
     this.headPose.yaw = yawFromQuaternion(q.x, q.y, q.z, q.w);
-    placement.start(this.headPose);
+    if (phone) placement.startInView(this.headPose, pitchFromQuaternion(q.x, q.y, q.z, q.w));
+    else placement.start(this.headPose);
     return true;
   }
 
