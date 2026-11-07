@@ -141,21 +141,25 @@ describe("the lacquer's grain", () => {
     ]) {
       expect(frag, t).toContain(t);
     }
+    // The lantern's body (standard: the same source) and its glow sprite (the ripple's ring after the map).
+    for (const t of ["#include <color_fragment>", "#include <metalnessmap_fragment>", "vec3 totalEmissiveRadiance = emissive;"]) {
+      expect(ShaderLib.standard.fragmentShader, t).toContain(t);
+    }
+    for (const t of ["#include <common>", "#include <map_fragment>"]) expect(ShaderLib.sprite.fragmentShader, t).toContain(t);
   });
 
-  it("the lantern's foot, which shares the lacquer, carries a zero grain: plain lacquer, explicitly", () => {
+  it("whatever draws with the frame's lacquer carries a grain attribute; the lantern no longer does (its body has its own)", () => {
     const lacquer = withGrain(new MeshPhysicalMaterial({ color: COLORS.frame }));
     const lantern = new LanternView({ lacquer, gold: new MeshStandardMaterial() });
-    let parts = 0;
+    let meshes = 0;
     lantern.group.traverse((o) => {
       const m = o as Mesh;
-      if (!m.isMesh || m.material !== lacquer) return;
-      parts++;
-      const g = m.geometry.getAttribute("grain");
-      expect(g, m.name).toBeDefined();
-      expect(g.count).toBe(m.geometry.getAttribute("position").count);
-      expect(Array.from(g.array as Float32Array).every((v) => v === 0)).toBe(true);
+      if (!m.isMesh) return;
+      meshes++;
+      // The lacquer reads a grain direction from every mesh it draws (no GL default attribute state is relied on).
+      if (m.material === lacquer) expect(m.geometry.getAttribute("grain"), m.name).toBeDefined();
+      expect(m.material).not.toBe(lacquer);
     });
-    expect(parts).toBeGreaterThan(0);
+    expect(meshes).toBe(1);
   });
 });

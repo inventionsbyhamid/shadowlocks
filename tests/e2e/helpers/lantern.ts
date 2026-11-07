@@ -100,7 +100,8 @@ export async function startTrail(page: Page): Promise<void> {
             held: l.held,
             mode: l.mode,
             beam: parts.includes("Ring Beam"),
-            ripple: parts.includes("Lantern Ripple"),
+            // The ripple's ring rides on the glow's sprite: it shows as the lantern's ring opacity.
+            ripple: l.ripple > 0,
           });
         }
         return r;

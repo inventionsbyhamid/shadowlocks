@@ -212,6 +212,8 @@ export interface SlLantern {
   holder: "left" | "right" | null;
   /** How bright the hands make it (0 with no hand within 30 cm, 1 within 6 cm or held). */
   glow: number;
+  /** The settle ripple's ring opacity (0: none); drawn in the glow's sprite. */
+  ripple: number;
 }
 
 /** A lock's ring line as the lantern feel sees it this frame (box units): mark on the panel, direction out to the spot. */

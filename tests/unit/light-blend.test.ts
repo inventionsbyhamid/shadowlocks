@@ -109,7 +109,8 @@ describe("light over the room", () => {
       else other.push(`${o.name}: ${f.join(", ")}`);
     });
     expect(other).toEqual([]);
-    const glows = ["Lock Burst", "Lock Sparkle", "Box Burst", "Box Sweep", "Reward Glow", "Lantern Glow", "Lantern Ripple"];
+    // (The settle ripple's ring is drawn in the lantern's glow sprite.)
+    const glows = ["Lock Burst", "Lock Sparkle", "Box Burst", "Box Sweep", "Reward Glow", "Lantern Glow"];
     glows.push("Hint Lantern Glow", "Ghost Lantern Glow", "Hint Beam", "Ring Beam", "Crystal Glitter");
     expect([...light].sort()).toEqual(glows.sort());
     for (const n of ["Plate Face", "Reward Story"]) expect(label.has(n)).toBe(true);

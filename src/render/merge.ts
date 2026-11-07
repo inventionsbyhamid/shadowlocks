@@ -1,6 +1,26 @@
 // Merges built geometries into one (positions and normals, no index), so a set of parts that share a
 // material draws in one call. Used when a box scene is built, never per frame.
-import { BufferAttribute, BufferGeometry } from "@iwsdk/core";
+import { BufferAttribute, BufferGeometry, type Color } from "@iwsdk/core";
+
+/**
+ * `parts` as one geometry, each part with its own vertex colour (linear, the working space vertex colours are read in):
+ * parts that differ only in material can then draw in one call, their material telling them apart by colour.
+ */
+export function mergeColored(parts: readonly (readonly [BufferGeometry, Color])[]): BufferGeometry {
+  const counts = parts.map(([g]) => (g.index ? g.index.count : g.getAttribute("position").count));
+  const out = mergeParts(parts.map(([g]) => g));
+  const col = new Float32Array(out.getAttribute("position").count * 3);
+  let at = 0;
+  parts.forEach(([, c], k) => {
+    for (let i = 0; i < counts[k]!; i++, at++) {
+      col[at * 3] = c.r;
+      col[at * 3 + 1] = c.g;
+      col[at * 3 + 2] = c.b;
+    }
+  });
+  out.setAttribute("color", new BufferAttribute(col, 3));
+  return out;
+}
 
 /** `parts` as one geometry: positions and normals, and the `keep` attributes (3 floats a vertex) every part has. */
 export function mergeParts(parts: BufferGeometry[], keep: readonly string[] = []): BufferGeometry {

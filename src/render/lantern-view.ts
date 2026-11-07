@@ -1,10 +1,11 @@
 // The lantern the player holds: a stepped octagonal deco lantern (gold fins and steps over an ivory
 // glass core on a black lacquer foot), one point light at its core, and a soft glow sprite. Lives in
 // the box root in box units, so it scales with the box. Brightness follows the hand (Task 11), a
-// flare marks a grab and a ripple a settle. Four draw calls (five while a ripple runs, three while it
-// waits quiet in a lesson's cradle); no allocation per frame.
+// flare marks a grab and a ripple a settle. Two draw calls, ripple or not (the body in one mesh, the
+// glow carrying the ripple's ring); one while it waits quiet in a lesson's cradle. No allocation per frame.
 import {
-  BufferGeometry,
+  BoxGeometry,
+  type BufferGeometry,
   Color,
   ConeGeometry,
   CylinderGeometry,
@@ -12,24 +13,28 @@ import {
   Group,
   LinearFilter,
   type Material,
-  type Object3D,
   Matrix4,
   Mesh,
-  MeshBasicMaterial,
+  MeshStandardMaterial,
+  type Object3D,
   PointLight,
   RGBAFormat,
   Sprite,
   SpriteMaterial,
   TorusGeometry,
-  BoxGeometry,
+  Vector2,
 } from "@iwsdk/core";
 import type { V3 } from "../core/types";
 import { clamp01, outCubic } from "./fx/ease";
 import { FlashBudget } from "./fx/flash-budget";
-import { grained } from "./lacquer";
 import { LIGHT_BLEND } from "./light-blend";
-import { mergeParts } from "./merge";
-import { COLORS, LANTERN_GLOW, LIGHTS } from "./theme";
+import { mergeColored } from "./merge";
+import { COLORS, LANTERN_GLOW, LIGHTS, MATERIALS } from "./theme";
+
+/** The body's parts by vertex colour (linear): the lacquer foot, the gold, and the core's mask (blue: it glows). */
+const LACQUER = new Color(COLORS.frame);
+const GOLD = new Color(COLORS.metal);
+const CORE_MASK = new Color(0, 0, 1);
 
 /** A soft round glow (alpha falls from the middle), or a thin ring for the ripple. */
 export function radialTexture(size: number, ring: boolean): DataTexture {
@@ -59,8 +64,10 @@ export class LanternView {
   readonly group = new Group();
   readonly light: PointLight;
   private readonly glow: Sprite;
-  private readonly rippleSprite: Sprite;
-  private readonly core: MeshBasicMaterial;
+  /** The body's material: its emissive is the core's glow. */
+  private readonly bodyMat: MeshStandardMaterial;
+  /** The ripple's ring in the glow's shader: x the ring texture's scale in the sprite's uv, y its opacity (0: none). */
+  private readonly ring = { value: new Vector2(0, 0) };
   private readonly coreColor = new Color(COLORS.lampCore);
   private readonly hotColor = new Color(COLORS.goldHot);
   private brightness = 0;
@@ -78,47 +85,79 @@ export class LanternView {
   private readonly ownBudget: boolean;
 
   /**
-   * Built from the box's own lacquer and gold materials (one shader program each, shared with the frame and trim).
-   * `budget`: the box's one flash budget (its owner steps it), so flares and crystallises share the three-a-second
-   * cap; without one, a budget of its own.
+   * `mats`: the box's materials; the body takes the gold's environment (its warm studio) for its reflections, in a
+   * material of its own (one program) that draws the foot, the gold and the core in one call. `budget`: the box's one
+   * flash budget (its owner steps it), so flares and crystallises share the three-a-second cap; without one, a budget
+   * of its own.
    */
   constructor(mats: { lacquer: Material; gold: Material }, budget?: FlashBudget) {
     this.budget = budget ?? new FlashBudget();
     this.ownBudget = !budget;
     this.group.name = "Lantern";
-    const { lacquer, gold } = mats;
-    // Lacquer foot.
-    // The frame's lacquer reads a grain direction from every mesh it draws: the foot's is zero (plain lacquer).
-    const foot = new Mesh(grained(at(new CylinderGeometry(0.052, 0.058, 0.026, 8), 0, -0.074, 0), null), lacquer);
-    // Gold: a band on the foot, eight fins round the core, three steps, a spire and the ring to hold it by.
-    const parts: BufferGeometry[] = [at(new CylinderGeometry(0.0525, 0.0525, 0.004, 8), 0, -0.06, 0)];
+    // One body for the lacquer foot, the gold (a band on the foot, eight fins round the core, three steps, a spire
+    // and the ring to hold it by) and the ivory glass core: one draw call. Its material tells the parts apart by
+    // vertex colour: gold is metal, the core glows by itself (its colour is the body's emissive, so it brightens with
+    // the hand), the foot is dark lacquer. It reflects the gold's warm studio, as the gold did.
+    const gold: [BufferGeometry, Color][] = [[at(new CylinderGeometry(0.0525, 0.0525, 0.004, 8), 0, -0.06, 0), GOLD]];
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-      parts.push(at(new BoxGeometry(0.005, 0.118, 0.014), Math.cos(a) * 0.041, 0, Math.sin(a) * 0.041, -a));
+      gold.push([at(new BoxGeometry(0.005, 0.118, 0.014), Math.cos(a) * 0.041, 0, Math.sin(a) * 0.041, -a), GOLD]);
     }
-    for (const [r, y] of [[0.05, 0.064], [0.039, 0.078], [0.027, 0.092]] as const) parts.push(at(new CylinderGeometry(r, r, 0.014, 8), 0, y, 0));
-    parts.push(at(new ConeGeometry(0.012, 0.045, 8), 0, 0.121, 0));
-    parts.push(at(new TorusGeometry(0.016, 0.0028, 6, 20), 0, 0.155, 0));
-    const fins = new Mesh(mergeParts(parts), gold);
-    // The ivory glass core glows by itself.
-    this.core = new MeshBasicMaterial({ color: this.coreColor.clone(), toneMapped: false });
-    const core = new Mesh(new CylinderGeometry(0.039, 0.039, 0.112, 8), this.core);
-    this.glow = new Sprite(
-      new SpriteMaterial({ map: radialTexture(64, false), color: COLORS.lamp, ...LIGHT_BLEND, depthWrite: false, transparent: true, toneMapped: false }),
-    );
-    this.rippleSprite = new Sprite(
-      new SpriteMaterial({ map: radialTexture(64, true), color: COLORS.gold, ...LIGHT_BLEND, depthWrite: false, transparent: true, toneMapped: false }),
-    );
-    this.rippleSprite.visible = false;
-    this.light = new PointLight(COLORS.lamp, LIGHTS.lantern.intensity, LIGHTS.lantern.range, LIGHTS.lantern.decay);
-    foot.name = "Lantern Foot";
-    fins.name = "Lantern Gold";
-    core.name = "Lantern Core";
+    for (const [r, y] of [[0.05, 0.064], [0.039, 0.078], [0.027, 0.092]] as const) gold.push([at(new CylinderGeometry(r, r, 0.014, 8), 0, y, 0), GOLD]);
+    gold.push([at(new ConeGeometry(0.012, 0.045, 8), 0, 0.121, 0), GOLD], [at(new TorusGeometry(0.016, 0.0028, 6, 20), 0, 0.155, 0), GOLD]);
+    const geometry = mergeColored([
+      [at(new CylinderGeometry(0.052, 0.058, 0.026, 8), 0, -0.074, 0), LACQUER],
+      ...gold,
+      [new CylinderGeometry(0.039, 0.039, 0.112, 8), CORE_MASK],
+    ]);
+    const g = mats.gold as Partial<MeshStandardMaterial>;
+    this.bodyMat = new MeshStandardMaterial({
+      vertexColors: true,
+      roughness: MATERIALS.gold.roughness,
+      metalness: 1,
+      envMap: g.envMap ?? null,
+      envMapIntensity: g.envMapIntensity ?? 1,
+      emissive: this.coreColor.clone(),
+      emissiveIntensity: 1,
+    });
+    this.bodyMat.onBeforeCompile = (s) => {
+      s.fragmentShader = s.fragmentShader
+        .replace("vec3 totalEmissiveRadiance = emissive;", "vec3 totalEmissiveRadiance = emissive * step( 0.5, vColor.b );")
+        .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - step( 0.5, vColor.b );")
+        .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor *= smoothstep( 0.18, 0.6, vColor.r );");
+    };
+    this.bodyMat.customProgramCacheKey = () => "sl-lantern-body";
+    const body = new Mesh(geometry, this.bodyMat);
+    body.name = "Lantern Body";
+    // The glow, carrying the settle ripple's gold ring in the same sprite (one draw call, ripple or not).
+    const glowMat = new SpriteMaterial({ map: radialTexture(64, false), color: COLORS.lamp, ...LIGHT_BLEND, depthWrite: false, transparent: true, toneMapped: false });
+    const ringMap = radialTexture(64, true), ringColor = new Color(COLORS.gold), ring = this.ring;
+    glowMat.onBeforeCompile = (s) => {
+      s.uniforms.ringMap = { value: ringMap };
+      s.uniforms.ringColor = { value: ringColor };
+      s.uniforms.ring = ring;
+      s.fragmentShader = s.fragmentShader
+        .replace("#include <common>", "#include <common>\nuniform sampler2D ringMap;\nuniform vec3 ringColor;\nuniform vec2 ring;")
+        .replace(
+          "#include <map_fragment>",
+          "#include <map_fragment>\n" +
+            "float ringA = ring.y > 0.0 ? texture2D( ringMap, 0.5 + ( vMapUv - 0.5 ) * ring.x ).a * ring.y : 0.0;\n" +
+            // Both lights as colour, alpha 1: the light blend adds the colour as it is and leaves the page's alpha.
+            "diffuseColor = vec4( diffuseColor.rgb * diffuseColor.a + ringColor * ringA, 1.0 );",
+        );
+    };
+    glowMat.customProgramCacheKey = () => "sl-lantern-glow";
+    this.glow = new Sprite(glowMat);
     this.glow.name = "Lantern Glow";
-    this.rippleSprite.name = "Lantern Ripple";
-    this.group.add(foot, fins, core, this.glow, this.rippleSprite, this.light);
-    this.parts = [foot, fins, core];
+    this.light = new PointLight(COLORS.lamp, LIGHTS.lantern.intensity, LIGHTS.lantern.range, LIGHTS.lantern.decay);
+    this.group.add(body, this.glow, this.light);
+    this.parts = [body];
     this.setBrightness(0);
+  }
+
+  /** The settle ripple's ring opacity now (0: no ripple); it is drawn in the glow's sprite. */
+  get ringOpacity(): number {
+    return this.ring.value.y;
   }
 
   /**
@@ -199,13 +238,13 @@ export class LanternView {
     (this.glow.material as SpriteMaterial).opacity = Math.min(1, g.opacity[0] + (g.opacity[1] - g.opacity[0]) * b + 0.4 * flare);
     // The glow and ripple show only while the lantern is shown (no menu has put it away) and not quiet in a cradle.
     this.glow.visible = this.shown && !this.quiet;
-    this.core.color.copy(this.coreColor).lerp(this.hotColor, Math.min(1, 0.4 * b + flare));
-    const ripple = this.rippleT < g.rippleS && !this.quiet;
-    this.rippleSprite.visible = ripple && this.shown;
-    if (ripple) {
+    this.bodyMat.emissive.copy(this.coreColor).lerp(this.hotColor, Math.min(1, 0.4 * b + flare));
+    // The ring grows to 2 * rippleRadius across (always inside the glow's sprite) and fades: in the sprite's uv, the
+    // ring texture is sampled this many times faster than the sprite is wide.
+    const ring = this.ring.value;
+    if (this.rippleT < g.rippleS && !this.quiet) {
       const q = this.rippleT / g.rippleS, r = 2 * g.rippleRadius * outCubic(q);
-      this.rippleSprite.scale.set(r, r, 1);
-      (this.rippleSprite.material as SpriteMaterial).opacity = 1 - q;
-    }
+      ring.set(r > 1e-4 ? s / r : 0, r > 1e-4 ? 1 - q : 0);
+    } else ring.set(0, 0);
   }
 }
