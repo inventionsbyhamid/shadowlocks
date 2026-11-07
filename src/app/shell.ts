@@ -14,6 +14,8 @@ import type { Behind } from "../ui/menus/types";
 import type { Access } from "./access";
 import { on } from "./bus";
 import { STORE_PAGE_URL } from "./edition";
+import { frameRateFlag } from "./field-flags";
+import { detectHeadset, type Headset, targetFrameRate } from "./headset";
 import { Lifecycle, type LifecycleSession, type XrVisibility } from "./lifecycle";
 import { Panels } from "./panels";
 import type { ProfileStore } from "./profile-store";
@@ -68,6 +70,9 @@ export class Shell {
   room: Object3D | null = null;
   /** Recenter was asked for (a key, or Quest's own recenter); ShellSystem places the box on its next frame. */
   recenterAsked = false;
+  /** The headset the last session was tuned for (headset.ts), and the frame rate it asked for (null: none). */
+  headset: Headset | null = null;
+  frameRateAsked: number | null = null;
   private xrSession: XRSession | null = null;
   private flow: GameFlow | null = null;
   private game: MenuGame | null = null;
@@ -350,12 +355,20 @@ export class Shell {
     }
   }
 
-  /** Ask for 90 Hz and full foveation where the headset supports them; never fail over it. */
+  /**
+   * Ask for the headset's frame rate where it offers it (90 Hz, or 72 Hz on Quest 2 and Quest Pro: headset.ts; `?hz=`
+   * names another) and full foveation where it supports it; never fail over it.
+   */
   private tuneSession(s: XRSession): void {
+    this.headset = detectHeadset(navigator.userAgent, this.world.renderer.getContext());
+    this.frameRateAsked = null;
     try {
-      const rates = s.supportedFrameRates;
-      if (rates && Array.from(rates).includes(90) && s.updateTargetFrameRate) {
-        s.updateTargetFrameRate(90).catch(() => {});
+      const rate = targetFrameRate(this.headset.class, s.supportedFrameRates, frameRateFlag(location.search));
+      if (rate !== null && s.updateTargetFrameRate) {
+        this.frameRateAsked = rate;
+        s.updateTargetFrameRate(rate).catch(() => {
+          if (this.frameRateAsked === rate) this.frameRateAsked = null;
+        });
       }
     } catch {
       // not supported
