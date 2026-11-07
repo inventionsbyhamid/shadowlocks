@@ -364,6 +364,8 @@ export interface SlLessonsState {
   /** A lesson or replay is in the lap (the menus' "Your lesson"), and the drawer may be pulled. */
   running: boolean;
   drawerAllowed: boolean;
+  /** A tip's ghost demo is playing. */
+  tipping: boolean;
   practice: boolean;
   /** The coach line the director asks for, and what the chip shows now (text, opacity). */
   line: string | null;

@@ -436,6 +436,45 @@ test("a lesson 2 left half done opens on Home, and Continue goes on with it at i
   expect((await app.state()).screen).toBe("play");
 });
 
+test("a tip's line comes with a ghost demo of about 6 s, within interactive play's draw calls", async ({ page, boot }) => {
+  const app = await boot();
+  /** Steps through a tip's demo: what it showed, and the most draw calls per eye meanwhile. */
+  const demo = async (key: string, tip: string) => {
+    await untilBox(app, key);
+    await app.stepUntil((_ns, w) => w.__sl.lessons.state().tipping, { maxMs: 2_000, label: `${tip}'s demo` });
+    const seen = { ghost: 0, lamp: 0, light: false, calls: 0 };
+    for (let i = 0; i < 200; i++) {
+      await app.step(6);
+      const s = await lessons(page);
+      seen.ghost = Math.max(seen.ghost, s.ghost);
+      seen.lamp = Math.max(seen.lamp, s.lamp.opacity);
+      seen.light ||= s.ghostLight;
+      seen.calls = Math.max(seen.calls, await callsPerView(app));
+      expect(s.coach.text).toBe(tip);
+      if (!s.tipping) return seen;
+    }
+    throw new Error(`${tip}'s demo never ended`);
+  };
+  // Box 2 brings in decoys: the finger points at them, no ghost lantern.
+  await page.evaluate(() => window.__sl!.session.play({ kind: "box", n: 2 }));
+  const decoys = await demo("shadow-locks/2", C.tips.decoys);
+  expect(decoys.ghost).toBeGreaterThan(0.9);
+  expect([decoys.lamp, decoys.light]).toEqual([0, false]);
+  // Box 4 brings in a lock without rings: the ghost sweeps its lantern near the lock's spot, the shadows cast from it.
+  await page.evaluate(() => window.__sl!.session.play({ kind: "box", n: 4 }));
+  const ringless = await demo("shadow-locks/4", C.tips.ringless);
+  expect(ringless.ghost).toBeGreaterThan(0.9);
+  expect(ringless.lamp).toBeGreaterThan(0.9);
+  expect(ringless.light).toBe(true);
+  // Over: the light back on the player's lantern, the tip's line still up until the player does it.
+  const s = await lessons(page);
+  expect([s.tipping, s.ghostLight, s.ghost]).toEqual([false, false, 0]);
+  const calls = `tip demos, draw calls per eye: decoys at most ${decoys.calls}, ringless at most ${ringless.calls}`;
+  console.log(calls);
+  expect(Math.max(decoys.calls, ringless.calls), calls).toBeLessThanOrEqual(50);
+  expect((await lessons(page)).tipsSeen).toEqual(["decoys", "ringless"]);
+});
+
 test("a hidden headset holds the lesson's clock", async ({ page, boot }) => {
   const app = await boot({ lessons: true, expectScreen: "play" });
   await untilBox(app, "shadow-locks/lesson/l1");

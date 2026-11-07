@@ -56,7 +56,7 @@ const FILES = [
   "/src/audio/hums.ts",
 ];
 /** The box scene's own per-frame shadow path (run by the shell system): reported, not judged here. */
-const SCENE_FILES = ["/src/render/shadow-mesh.ts", "/src/render/box-scene.ts", "/src/render/panel.ts"];
+const SCENE_FILES = ["/src/render/shadow-mesh.ts", "/src/render/box-shadows.ts", "/src/render/box-scene.ts", "/src/render/panel.ts"];
 const NEW_MODULES = FILES.filter((f) => /box-session|session-|game|hints|events|fx\/|reward|plate|hint-lantern|poke-key/.test(f)).map((f) => f.slice(1));
 
 test("the box session costs well under 0.5 ms a frame at 4x CPU throttle and allocates only boxed floats", async ({ page, boot }, testInfo) => {

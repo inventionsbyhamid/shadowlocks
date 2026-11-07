@@ -500,6 +500,7 @@ export function installTestHooks(
         replaying: d.replaying,
         running: les.running,
         drawerAllowed: les.drawerAllowed,
+        tipping: d.tipping,
         practice: les.practice,
         line: f.line,
         coach: { text: les.view.coach.text, opacity: les.view.coach.opacity },
