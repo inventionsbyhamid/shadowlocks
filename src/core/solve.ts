@@ -5,7 +5,7 @@
 // shadowPolys and measure run every frame on the headset, so they are exact, cheap and allocate nothing: shadowPolys
 // writes into arrays the caller keeps (shadowBuffers sizes them once per box), and measure reuses scratch space of its
 // own that only grows when a box casts more shadows than any before it. prepareLock and shadowBuffers run once per box.
-import { bbox, circlePts, inPoly, polyDist, projInto } from "./geom";
+import { bbox, circlePts, inPoly, projInto } from "./geom";
 import type { Element, Lock, Ring, V2, V3 } from "./types";
 
 /**
@@ -69,21 +69,59 @@ export function lockSamples(target: V2[][], step: number, missing = -1): LockSam
   const [x0, y0, x1, y1] = bbox(target.flat());
   const inside: V2[] = [], band: V2[] = [], missingIdx: number[] = [];
   const gap = missing >= 0 ? target[missing] : undefined;
+  // The same points sorted the same way as testing every piece with polyDist (0 inside, the nearest edge outside), only
+  // faster: a piece whose bbox, grown by BAND and a hair, misses the point is further than BAND from it and is skipped;
+  // squared distances replace Math.hypot except within a hair of BAND, where the exact distance decides.
+  const reach = target.map((p) => {
+    const [a, b, c, d] = bbox(p), r = BAND + REACH_SLACK;
+    return [a - r, b - r, c + r, d + r] as const;
+  });
+  const near: number[] = [];
   for (let x = x0 - BAND; x <= x1 + BAND; x += step) {
     for (let y = y0 - BAND; y <= y1 + BAND; y += step) {
-      const pt: V2 = [x, y];
-      let d = Infinity;
-      for (const p of target) {
-        d = Math.min(d, polyDist(pt, p));
-        if (d === 0) break;
+      near.length = 0;
+      for (let k = 0; k < target.length; k++) {
+        const r = reach[k]!;
+        if (x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]) near.push(k);
       }
-      if (d === 0) {
+      if (!near.length) continue;
+      const pt: V2 = [x, y];
+      const where = classify(pt, target, near);
+      if (where === 0) {
         if (gap && inPoly(pt, gap)) missingIdx.push(inside.length);
         inside.push(pt);
-      } else if (d <= BAND) band.push(pt);
+      } else if (where === 1) band.push(pt);
     }
   }
   return { inside, band, missingIdx, box: [x0 - BAND, y0 - BAND, x1 + BAND, y1 + BAND] };
+}
+
+/** How far past BAND (box units) a piece's bbox is grown before a point outside it is skipped: far above rounding. */
+const REACH_SLACK = 1e-9;
+const BAND2_LO = BAND * BAND * (1 - 1e-9), BAND2_HI = BAND * BAND * (1 + 1e-9);
+
+/**
+ * Where pt falls against pieces `near` of target, exactly as the least polyDist over them would say: 0 inside one (or
+ * on an edge), 1 within BAND outside, 2 further.
+ */
+function classify(pt: V2, target: V2[][], near: number[]): 0 | 1 | 2 {
+  for (const k of near) if (inPoly(pt, target[k]!)) return 0;
+  let within = false;
+  for (const k of near) {
+    const poly = target[k]!;
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i]!, b = poly[(i + 1) % poly.length]!;
+      const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+      let t = l2 ? ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / l2 : 0;
+      t = clamp(t, 0, 1);
+      const ex = pt[0] - a[0] - t * dx, ey = pt[1] - a[1] - t * dy, q = ex * ex + ey * ey;
+      if (q === 0) return 0;
+      if (within) continue;
+      if (q < BAND2_LO) within = true;
+      else if (q <= BAND2_HI && Math.hypot(ex, ey) <= BAND) within = true;
+    }
+  }
+  return within ? 1 : 2;
 }
 
 /** A lock's sample points for the solve rule, made once per box: the runtime grid by default. */
