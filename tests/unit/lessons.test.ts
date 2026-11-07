@@ -36,6 +36,7 @@ function bench(o: { presenting?: boolean; autoStart?: boolean } = {}) {
     spec: null as BoxSpec | null,
     box: null as Box | null,
     practice: false,
+    revealed: true,
     isOpen: (i: number) => open.has(i),
     snapshot: () => ({ key: session.box?.key ?? "", lantern: [0, 0, 1], open: [...open], crystal: [], elapsedMs: 1234, hints: 0, hintLevel: {} }) as BoxSnapshot,
   };
@@ -276,6 +277,73 @@ describe("Lessons", () => {
     d.run(500);
     expect(d.lessons.director.tipping).toBe(false);
     expect(d.shown().line).toBe(COPY.lessons.tips.decoys);
+  });
+
+  it("stops a tip's demo when the player does what the tip says, or the box changes", () => {
+    const b = bench();
+    b.play.game.play({ kind: "box", n: 2 });
+    b.run(500);
+    expect(b.lessons.director.tipping).toBe(true);
+    // Decoys: any lock opened past them is the tip done.
+    b.open.add(0);
+    b.run(32);
+    expect(b.lessons.director.tipping).toBe(false);
+    const c = bench();
+    c.play.game.play({ kind: "box", n: 2 });
+    c.run(500);
+    c.play.game.play({ kind: "box", n: 7 });
+    c.run(32);
+    expect(c.lessons.director.tipping).toBe(false);
+  });
+
+  it("waits for the box to be shown before a tip's demo, and never plays a tip worked out for another box", () => {
+    const b = bench();
+    b.play.game.play({ kind: "box", n: 2 });
+    b.session.revealed = false;
+    b.run(500);
+    expect(b.lessons.director.tipping).toBe(false);
+    b.session.revealed = true;
+    b.run(32);
+    expect(b.lessons.director.tipping).toBe(true);
+    // A box arrives while the session's own line holds the coach line (so the tip is not worked out again): the old
+    // box's tip does not play on it.
+    const c = bench();
+    c.play.game.play({ kind: "box", n: 7 });
+    c.run(32);
+    c.play.view.coachLine = "controllerFinger";
+    c.play.game.play({ kind: "box", n: 2 });
+    c.run(500);
+    expect(c.lessons.director.tipping).toBe(false);
+  });
+
+  it("replays a tip's own demo from the Lessons menu on a fresh practice copy of its box, then puts back what was in play", () => {
+    const b = bench();
+    b.play.game.play({ kind: "box", n: 7 });
+    b.profile.tipsSeen = ["decoys"];
+    expect(b.lessons.replayTip!("decoys")).toBe(true);
+    expect(b.plays.at(-1)).toEqual({ spec: { kind: "box", n: 2 }, snap: null, practice: true });
+    expect(b.lessons.running).toBe(true);
+    b.run(500);
+    expect(b.lessons.director.tipping).toBe(true);
+    expect(b.shown().line).toBe(COPY.lessons.tips.decoys);
+    b.run(8000);
+    expect(b.lessons.director.tipping).toBe(false);
+    expect(b.plays.at(-1)!.spec).toEqual({ kind: "box", n: 7 });
+    expect(b.lessons.running).toBe(false);
+    expect(b.profile.tipsSeen).toEqual(["decoys"]);
+    // Over an opened box nothing is put back: Home, where Continue offers the next box.
+    const c = bench();
+    c.play.game.play({ kind: "box", n: 7 });
+    c.session.stage = "offered";
+    c.lessons.replayTip!("decoys");
+    const n = c.plays.length;
+    c.run(9000);
+    expect(c.plays.length).toBe(n);
+    expect(currentScreen()).toBe("home");
+    // The drawer has no box of its own: lesson 2's example teaches it.
+    const d = bench();
+    expect(d.lessons.replayTip!("drawer")).toBe(true);
+    expect(d.lessons.director.replaying).toBe("finger");
   });
 
   it("ends lesson 2 with the drawer's pull at its last step", () => {

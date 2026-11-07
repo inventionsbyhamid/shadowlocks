@@ -254,8 +254,10 @@ export class LessonsDirector {
    * there, in interactive play (no cradle, no swing). False (and nothing happens) during a lesson, an example or
    * another demo, or for a tip with nothing to show on this box.
    */
-  tipDemo(tip: TipId, box: Box): boolean {
-    if (this.script || this.tipS || (this.id && !this.finished)) return false;
+  tipDemo(tip: TipId, box: Box, overLesson = false): boolean {
+    // `overLesson`: a Lessons row's replay, asked for from the menu: a lesson in progress waits under it (its step's
+    // clock runs on only once the demo is over, as under an example).
+    if (this.script || this.tipS || (this.id && !this.finished && !overLesson)) return false;
     // The hand the box was mirrored for (a left-handed player's box), not the live setting.
     const s = buildTipScript(tip, box, box.mirrored);
     if (!s) return false;
