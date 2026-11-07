@@ -142,7 +142,13 @@ describe("the lacquer's grain", () => {
       expect(frag, t).toContain(t);
     }
     // The lantern's body (standard: the same source) and its glow sprite (the ripple's ring after the map).
-    for (const t of ["#include <color_fragment>", "#include <metalnessmap_fragment>", "vec3 totalEmissiveRadiance = emissive;"]) {
+    for (const t of [
+      "#include <color_fragment>",
+      "#include <metalnessmap_fragment>",
+      "vec3 totalEmissiveRadiance = emissive;",
+      "#include <tonemapping_fragment>",
+      "#include <colorspace_fragment>",
+    ]) {
       expect(ShaderLib.standard.fragmentShader, t).toContain(t);
     }
     for (const t of ["#include <common>", "#include <map_fragment>", "#include <colorspace_fragment>"]) {

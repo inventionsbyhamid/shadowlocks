@@ -124,7 +124,13 @@ export class LanternView {
       s.fragmentShader = s.fragmentShader
         .replace("vec3 totalEmissiveRadiance = emissive;", "vec3 totalEmissiveRadiance = emissive * step( 0.5, vColor.b );")
         .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - step( 0.5, vColor.b );")
-        .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor *= smoothstep( 0.18, 0.6, vColor.r );");
+        .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor *= smoothstep( 0.18, 0.6, vColor.r );")
+        // The core shows its own colour exactly, as its unlit material did: no light or reflection on it, and past
+        // the tone mapping (the gold and the foot are lit and tone-mapped as before).
+        .replace(
+          "#include <tonemapping_fragment>",
+          "#include <tonemapping_fragment>\ngl_FragColor.rgb = mix( gl_FragColor.rgb, totalEmissiveRadiance, step( 0.5, vColor.b ) );",
+        );
     };
     this.bodyMat.customProgramCacheKey = () => "sl-lantern-body";
     const body = new Mesh(geometry, this.bodyMat);

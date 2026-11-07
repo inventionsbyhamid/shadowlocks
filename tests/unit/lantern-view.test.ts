@@ -80,6 +80,21 @@ describe("LanternView", () => {
     expect(seen.at(-1)!.scale).toBeCloseTo(rest, 9);
   });
 
+  it("the core shows its own colour exactly, as its unlit material did: no light, no reflection, no tone mapping", () => {
+    // It was a MeshBasicMaterial that skipped tone mapping; in the lit body it came out greyed (lit and tone-mapped).
+    const v = new LanternView(mats());
+    const m = (named(v, "Lantern Body") as Mesh).material as MeshStandardMaterial;
+    const shader = { uniforms: {}, vertexShader: ShaderLib.standard.vertexShader, fragmentShader: ShaderLib.standard.fragmentShader };
+    m.onBeforeCompile(shader as never, undefined as never);
+    const f = shader.fragmentShader;
+    const core = "gl_FragColor.rgb = mix( gl_FragColor.rgb, totalEmissiveRadiance, step( 0.5, vColor.b ) );";
+    expect(f).toContain(core);
+    // After the tone mapping, before the encoding: the core's emissive (masked to the core) goes out as it is.
+    expect(f.indexOf(core)).toBeGreaterThan(f.indexOf("#include <tonemapping_fragment>"));
+    expect(f.indexOf(core)).toBeLessThan(f.indexOf("#include <colorspace_fragment>"));
+    expect(f).toContain("vec3 totalEmissiveRadiance = emissive * step( 0.5, vColor.b );");
+  });
+
   it("the glow and its ring add as the two light sprites did: each term in output colour, added after the encoding", () => {
     // The light blend adds what the shader puts out, and the XR target takes sRGB-encoded colour: two sprites added
     // enc(lamp)·alpha and enc(gold)·ring. Adding lamp·alpha + gold·ring before the encoding (one enc of the sum)
