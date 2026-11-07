@@ -19,6 +19,11 @@ export const WARMTH_RANGE = 0.2;
 /** The sample grid's spacing at runtime: about 3.8 mm at the default 24 cm box. */
 export const RUNTIME_STEP = 0.016;
 /**
+ * The radius (cm) of a finger bone's capsule: the hand's shadow (render/hand-shadow.ts) casts its bones at it, and the
+ * generator's finger guard lays a finger of it in each finger lock's gap.
+ */
+export const FINGER_RADIUS_CM = 0.9;
+/**
  * The margin around an outline that must stay lit. The generator uses it too: a change alters generated boxes, so bump
  * GENERATOR_VERSION and the golden hashes.
  */

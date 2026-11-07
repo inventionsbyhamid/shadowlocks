@@ -1,6 +1,16 @@
 import { createHash } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { BUILDABLE_VERSIONS, buildBox, GENERATOR_VERSION, generateBox, genOf, seedKey, specForSave, specOfKey } from "../../src/core/generator";
+import {
+  BUILDABLE_VERSIONS,
+  buildBox,
+  GENERATOR_VERSION,
+  generateBox,
+  genOf,
+  seedKey,
+  specForSave,
+  specOfKey,
+} from "../../src/core/generator";
+import { mirrorBox } from "../../src/core/mirror";
 import { boxKind, boxParams, boxParamsV3, dailyParams } from "../../src/core/params";
 import { FIRST_SILHOUETTES, SHAPES, SILHOUETTES } from "../../src/core/shapes";
 import { boxSilhouettes, REPEAT_GAP } from "../../src/core/silhouette-deck";
@@ -166,27 +176,33 @@ describe("generateBox", () => {
     expect(fails).toEqual([]);
   });
 
-  it("opens every finger lock with a real finger laid in its gap, with room to spare", () => {
+  it("opens every finger lock with a real finger laid in its gap, with room to spare, for either hand", () => {
     // The finger model (helpers/finger-model.ts) casts IWER's index finger as the e2e specs lay it; against 20 locks
     // measured in the browser it is within 0.029 of the spill measured (rms 0.011), so it is held 0.03 under the rule.
+    // A left-handed player's box is the mirror, sampled on a grid of its own (mirror.ts, prepareLock).
     const fails: string[] = [], worst = new Map<string, { spill: number; at: string }>();
-    for (const { box } of built) {
-      for (const l of box.locks) {
-        if (!l.finger) continue;
-        const c = fingerCoverage(box, l), key = `${l.shape} ${l.size}`;
-        if (!meets(c, true) || c.spillAll > RULE.SPILL_ALL_MAX - FINGER_MODEL_MARGIN) {
-          fails.push(`${box.key} lock ${l.i} ${l.shape}: spill with the finger ${c.spillAll.toFixed(3)}, gap ${c.gap.toFixed(3)}`);
+    let left = 0;
+    for (const { box: right } of built) {
+      for (const box of [right, mirrorBox(right)]) {
+        for (const l of box.locks) {
+          if (!l.finger) continue;
+          const c = fingerCoverage(box, l), key = `${l.shape} ${l.size}`;
+          if (!meets(c, true) || c.spillAll > RULE.SPILL_ALL_MAX - FINGER_MODEL_MARGIN) {
+            fails.push(`${box.key}${box.mirrored ? " (left)" : ""} lock ${l.i} ${l.shape}: spill with the finger ${c.spillAll.toFixed(3)}, gap ${c.gap.toFixed(3)}`);
+          }
+          if (box.mirrored) left = Math.max(left, c.spillAll);
+          if (!worst.has(key) || worst.get(key)!.spill < c.spillAll) worst.set(key, { spill: c.spillAll, at: `${box.key} lock ${l.i}` });
         }
-        if (!worst.has(key) || worst.get(key)!.spill < c.spillAll) worst.set(key, { spill: c.spillAll, at: `${box.key} lock ${l.i}` });
       }
     }
+    console.log(`finger locks, worst spill with the finger in a left-handed box: ${left.toFixed(3)}`);
     console.log(`finger locks, worst spill with the finger by shape and size: ${[...worst].sort((a, b) => b[1].spill - a[1].spill).slice(0, 12).map(([k, v]) => `${k} ${v.spill.toFixed(3)}`).join(", ")}`);
     expect(fails).toEqual([]);
   });
 
-  it("is strictly warmest at each spot along the line in from 0.2 toward the start", () => {
+  it("is strictly warmest at each spot along the line in from 0.2 toward the start, for either hand", () => {
     const fails: string[] = [];
-    for (const { box } of built) {
+    for (const box of built.flatMap(({ box }) => [box, mirrorBox(box)])) {
       for (const l of box.locks) {
         const s = prepareLock(l), d0 = [box.start[0] - l.L[0], box.start[1] - l.L[1], box.start[2] - l.L[2]];
         const len = Math.hypot(d0[0]!, d0[1]!, d0[2]!), cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 0 };
@@ -196,7 +212,7 @@ describe("generateBox", () => {
           return warmth(measure(s, scraps, shadowPolys(box.elements, L, scraps, SKIP_MISSING), [], 0, cov), d);
         };
         const peak = w(0);
-        for (let k = 0; k < 9; k++) if (!(w(WARMTH_RANGE * (1 - k / 9)) < peak)) fails.push(`${box.key} lock ${l.i}, ${k}`);
+        for (let k = 0; k < 9; k++) if (!(w(WARMTH_RANGE * (1 - k / 9)) < peak)) fails.push(`${box.key}${box.mirrored ? " (left)" : ""} lock ${l.i}, ${k}`);
       }
     }
     expect(fails).toEqual([]);

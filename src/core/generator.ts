@@ -11,12 +11,14 @@
 import { ENVELOPE } from "./envelope";
 import { area, bbox, circlePts, elongation, hash, inPoly, polyDist, proj, rng32, segDist } from "./geom";
 import { boxParams, boxParamsV3, dailyParams, KINDS_FROM } from "./params";
+import { mirrorLock } from "./mirror";
 import { isDayKey } from "./profile";
 import { FIRST_SILHOUETTES, SHAPES, SILHOUETTES } from "./shapes";
 import { boxSilhouettes } from "./silhouette-deck";
 import {
   BAND,
   type Coverage,
+  FINGER_RADIUS_CM,
   type LockSamples,
   lockSamples,
   measure,
@@ -264,12 +266,13 @@ const WARM_SAMPLES = 9;
 
 /**
  * A finger laid along a finger lock's gap, as a player (and the e2e specs) lay one: the index finger's last two bones
- * (FINGER.chainCm long, FINGER.radiusCm thick: the solve rule counts only those, src/render/hand-shadow.ts) straight
- * along the gap's long axis, their middle on the ray from the spot through the gap's middle, FINGER.z from the panel,
- * in the default 24 cm box. Its shadow must fill the gap within the rule with FINGER.margin of spill to spare: the
- * same finger measured in the browser came within 0.03 of a model of it (tests/unit/helpers/finger-model.ts).
+ * (FINGER.chainCm long, capsules of radius FINGER_RADIUS_CM: the solve rule counts only those, as
+ * src/render/hand-shadow.ts casts them) straight along the gap's long axis, their middle on the ray from the spot
+ * through the gap's middle, FINGER.z from the panel, in the default 24 cm box. Its shadow must fill the gap within the
+ * rule with FINGER.margin of spill to spare: the same finger measured in the browser came within 0.03 of a model of it
+ * (tests/unit/helpers/finger-model.ts).
  */
-const FINGER = { z: 0.5, chainCm: 4.6, radiusCm: 0.9, boxCm: 24, margin: 0.03 } as const;
+const FINGER = { z: 0.5, chainCm: 4.6, boxCm: 24, margin: 0.03 } as const;
 /** Corners on each end of the finger's shadow outline. */
 const FINGER_END_CORNERS = 8;
 
@@ -293,7 +296,7 @@ function fingerShadow(l: Lock): V2[] {
   const cx = L[0] + (mx - L[0]) * k0, cy = L[1] + (my - L[1]) * k0;
   const end = (s: number): V2 => [L[0] + (cx + ux * s - L[0]) * k, L[1] + (cy + uy * s - L[1]) * k];
   const a = end(-half), b = end(half), step = Math.PI / (FINGER_END_CORNERS - 1);
-  const r = ((FINGER.radiusCm / FINGER.boxCm) * k) / Math.cos(step / 2), t = Math.atan2(uy, ux), out: V2[] = [];
+  const r = ((FINGER_RADIUS_CM / FINGER.boxCm) * k) / Math.cos(step / 2), t = Math.atan2(uy, ux), out: V2[] = [];
   for (let i = 0; i < FINGER_END_CORNERS; i++) out.push([b[0] + r * Math.cos(t - Math.PI / 2 + i * step), b[1] + r * Math.sin(t - Math.PI / 2 + i * step)]);
   for (let i = 0; i < FINGER_END_CORNERS; i++) out.push([a[0] + r * Math.cos(t + Math.PI / 2 + i * step), a[1] + r * Math.sin(t + Math.PI / 2 + i * step)]);
   return out;
@@ -312,7 +315,7 @@ const FINGER_SCREEN = 0.07;
  * lock's own scraps darken none of it, so the finger is all that does). Judged on the play grid (the samples kept in
  * `known` for the warmth check), unless the fine grid the generator already has puts it well clear (FINGER_SCREEN).
  */
-function fingerFits(l: Lock, j: number, fine: LockSamples, known: Map<number, LockSamples>): boolean {
+function fingerFits(l: Lock, j: number, fine: LockSamples, known: Map<number, LockSamples>, bothHands: boolean): boolean {
   const finger = fingerShadow({ ...l, missing: j }), gap = l.target[j]!, limit = RULE.SPILL_ALL_MAX - FINGER.margin;
   let inGap = 0, filled = 0, dark = 0;
   for (const p of fine.inside) {
@@ -322,9 +325,18 @@ function fingerFits(l: Lock, j: number, fine: LockSamples, known: Map<number, Lo
   }
   for (const p of fine.band) if (inPoly(p, finger)) dark++;
   if (inGap > 0 && filled === inGap && dark / fine.band.length <= limit - FINGER_SCREEN) return true;
-  const s = lockSamples(l.target, RUNTIME_STEP, j), cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 0 };
-  measure(s, [], 0, [finger], 1, cov);
-  if (cov.gap < RULE.GAP_MIN || cov.spillAll > limit) return false;
+  const cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 0 };
+  const fits = (f: V2[], s: LockSamples) => {
+    measure(s, [], 0, [f], 1, cov);
+    return cov.gap >= RULE.GAP_MIN && cov.spillAll <= limit;
+  };
+  const s = lockSamples(l.target, RUNTIME_STEP, j);
+  if (!fits(finger, s)) return false;
+  // A left-handed player's box is the mirror, sampled on a grid of its own (mirror.ts): the finger must fit there too.
+  if (bothHands) {
+    const m = mirrorLock({ ...l, missing: j });
+    if (!fits(fingerShadow(m), lockSamples(m.target, RUNTIME_STEP, j))) return false;
+  }
   known.set(l.i, s);
   return true;
 }
@@ -372,6 +384,8 @@ export function buildBox(spec: BoxSpec): BoxBuild {
   // (the wide Crown) is not drawn much less often. Its classic locks take them in order. Later attempts draw them
   // afresh each time, as boxes up to 9 always do, so a set that will not fit never holds a box up.
   const fixedClassics = v3 || (spec.kind === "box" && spec.n < KINDS_FROM) ? null : seededOrder(CLASSICS, key + "/classics");
+  // From box 5 (version 4), a finger lock fits a laid finger for either hand (boxes 1 to 4 stay version 3's byte for byte).
+  const bothHands = !v3 && !(spec.kind === "box" && spec.n <= 4);
   let attemptNow = 0;
   const rng = rng32(hash(key));
   const R = (a: number, b: number) => a + (b - a) * rng();
@@ -460,7 +474,7 @@ export function buildBox(spec: BoxSpec): BoxBuild {
     const candidates = v3 ? sorted.slice(0, P.fingerLocks) : [];
     for (let k = 0; !v3 && k < sorted.length && candidates.length < P.fingerLocks; k++) {
       const c = sorted[k]!;
-      if (fingerFits(c.l, c.j, c.l.samples, runtime)) candidates.push(c);
+      if (fingerFits(c.l, c.j, c.l.samples, runtime, bothHands)) candidates.push(c);
     }
     if (candidates.length < P.fingerLocks) return "finger";
     for (const { l, j, angle } of candidates) {

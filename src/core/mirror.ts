@@ -11,7 +11,8 @@ function mirrorElement(e: Element): Element {
   return { ...e, verts: e.verts.map(flip3) };
 }
 
-function mirrorLock(l: Lock): Lock {
+/** A lock reflected left to right, as mirrorBox reflects it. */
+export function mirrorLock(l: Lock): Lock {
   return {
     ...l,
     center: flip2(l.center),
