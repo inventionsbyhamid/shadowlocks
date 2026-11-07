@@ -114,6 +114,31 @@ test("the Language key changes the menus at once, and a reload keeps the languag
   expect(await page.title()).toBe("Shadow Locks");
 });
 
+test("the layout check finds what it is for on a real panel (negative controls)", async ({ page, boot }) => {
+  const app = await boot();
+  const found = (screen: string) => page.evaluate((s) => window.__sl!.i18n.panelFits(s as any)!, screen);
+  await open(app, "settings");
+  expect(await found("settings")).toEqual([]);
+  // One overlong label on a real key: it runs out of its key (or into its frame, or breaks inside a word).
+  await page.evaluate(() => window.__sl!.i18n.forceText("settings", "toggle-hand-label", "Handedness for players who reach mostly with their left"));
+  await app.step(2);
+  const long = await found("settings");
+  expect(long.filter((p) => p.id === "toggle-hand-label").length, JSON.stringify(long)).toBeGreaterThan(0);
+  // Painted again, the real words are back and nothing is found.
+  await open(app, "home");
+  await open(app, "settings");
+  expect(await found("settings")).toEqual([]);
+
+  // In Japanese, a plain space left on a panel outside PanelView (as Home's title was) draws as nothing: found.
+  await setLanguage(page, "ja");
+  await open(app, "home");
+  expect(await found("home")).toEqual([]);
+  await page.evaluate(() => window.__sl!.i18n.forceText("home", "home-title", "Shadow Locks", true));
+  await app.step(2);
+  const stray = await found("home");
+  expect(stray.some((p) => p.id === "home-title" && /plain space/.test(p.problem)), JSON.stringify(stray)).toBe(true);
+});
+
 test("shots: the menus in each language", async ({ page, boot }) => {
   test.setTimeout(1_200_000);
   const app = await boot({ mode: "visual" });

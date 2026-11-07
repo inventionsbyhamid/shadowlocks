@@ -85,7 +85,15 @@ export class PanelView implements PanelUi {
    * before a closing mark or small kana, never after an opening mark, never inside a Latin word.
    */
   text(id: string, s: string): void {
-    if (this.changed("t", id, s)) this.el(id)?.setProperties({ text: this.japanese ? japaneseBreaks(s) : s });
+    if (!this.changed("t", id, s)) return;
+    const shown = this.japanese ? japaneseBreaks(s) : s;
+    this.written.set(id, shown);
+    this.el(id)?.setProperties({ text: shown });
+  }
+
+  /** What `text` last put on an element (the layout check: on a Japanese panel only these may hold plain spaces). */
+  wrote(id: string): string | null {
+    return this.written.get(id) ?? null;
   }
 
   show(id: string, on: boolean): void {
@@ -111,6 +119,7 @@ export class PanelView implements PanelUi {
 
   /** What each element was last given, per property: a paint writes only what changed (no relayout for nothing). */
   private readonly given = new Map<string, string>();
+  private readonly written = new Map<string, string>();
 
   private changed(kind: string, id: string, value: string): boolean {
     const k = `${kind}:${id}`;

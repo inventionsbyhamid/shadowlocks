@@ -357,6 +357,21 @@ export class Menus {
     return this.byScreen.get(screen)?.asset ?? null;
   }
 
+  /** What PanelView last wrote on an element of a screen's panel (the layout check). */
+  wroteOf(screen: Screen, id: string): string | null {
+    return this.byScreen.get(screen)?.view.wrote(id) ?? null;
+  }
+
+  /**
+   * Write `text` on an element of a screen's panel (tests: the layout check's negative controls): through PanelView,
+   * or `raw`, straight onto the element as the generator's own text sits there.
+   */
+  forceText(screen: Screen, id: string, text: string, raw = false): void {
+    const view = this.byScreen.get(screen)?.view;
+    if (raw) view?.el(id)?.setProperties({ text });
+    else view?.text(id, text);
+  }
+
   /** Text an element of the current screen shows (tests). */
   textOf(id: string): string | null {
     return this.byScreen.get(this.screen)?.view.textOf(id) ?? null;

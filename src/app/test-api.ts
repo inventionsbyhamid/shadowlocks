@@ -460,6 +460,11 @@ export interface SlI18n {
   boxFits(): Promise<BoxTextFit[]>;
   /** The texts of a menu screen's panel, as laid out now, that do not fit (null without that panel). */
   panelFits(screen: Screen): PanelTextProblem[] | null;
+  /**
+   * Write `text` on an element of a screen's panel (the layout check's negative controls): through PanelView, or
+   * `raw`, straight onto the element as the generator's own text sits there.
+   */
+  forceText(screen: Screen, id: string, text: string, raw?: boolean): void;
 }
 
 declare global {

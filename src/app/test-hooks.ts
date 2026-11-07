@@ -641,8 +641,9 @@ export function installTestHooks(
       },
       panelFits: (screen) => {
         const o = shell.panels.panelObject(screen);
-        return o ? panelTextProblems(o) : null;
+        return o ? panelTextProblems(o, { japanese: lang() === "ja", wrote: (id) => shell.panels.wroteOf(screen, id) }) : null;
       },
+      forceText: (screen, id, text, raw) => shell.panels.forceText(screen, id, text, raw),
     },
   };
 }

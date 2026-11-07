@@ -33,6 +33,9 @@ describe("Japanese panel text", () => {
     view.text("box-value", "24 cm");
     view.setLanguage("ja");
     view.text("box-value", "24 cm");
+    // What it put on the element, for the layout check (a plain space it did not put there draws as nothing).
+    expect(view.wrote("box-value")).toBe("24 cm");
+    expect(view.wrote("never-written")).toBeNull();
     view.setLanguage("en");
     view.text("box-value", "24 cm");
     // Between two languages written alike, nothing is written again.
