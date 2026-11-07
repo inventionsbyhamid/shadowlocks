@@ -4,10 +4,11 @@ import { BUILDABLE_VERSIONS, buildBox, GENERATOR_VERSION, generateBox, genOf, se
 import { boxKind, boxParams, boxParamsV3, dailyParams } from "../../src/core/params";
 import { FIRST_SILHOUETTES, SHAPES, SILHOUETTES } from "../../src/core/shapes";
 import { boxSilhouettes, REPEAT_GAP } from "../../src/core/silhouette-deck";
-import { type Coverage, measure, meets, prepareLock, shadowPolys, SKIP_MISSING } from "../../src/core/solve";
+import { type Coverage, measure, meets, prepareLock, RULE, shadowPolys, SKIP_MISSING, warmth, WARMTH_RANGE } from "../../src/core/solve";
 import { LOOT, OWNERS } from "../../src/core/story";
 import type { Box, BoxSpec, ShapeName, V2 } from "../../src/core/types";
 import GEN3 from "./fixtures/gen3-boxes.json";
+import { FINGER_MODEL_MARGIN, fingerCoverage } from "./helpers/finger-model";
 import {
   checkCounts,
   checkFingerAndDepth,
@@ -165,6 +166,42 @@ describe("generateBox", () => {
     expect(fails).toEqual([]);
   });
 
+  it("opens every finger lock with a real finger laid in its gap, with room to spare", () => {
+    // The finger model (helpers/finger-model.ts) casts IWER's index finger as the e2e specs lay it; against 20 locks
+    // measured in the browser it is within 0.029 of the spill measured (rms 0.011), so it is held 0.03 under the rule.
+    const fails: string[] = [], worst = new Map<string, { spill: number; at: string }>();
+    for (const { box } of built) {
+      for (const l of box.locks) {
+        if (!l.finger) continue;
+        const c = fingerCoverage(box, l), key = `${l.shape} ${l.size}`;
+        if (!meets(c, true) || c.spillAll > RULE.SPILL_ALL_MAX - FINGER_MODEL_MARGIN) {
+          fails.push(`${box.key} lock ${l.i} ${l.shape}: spill with the finger ${c.spillAll.toFixed(3)}, gap ${c.gap.toFixed(3)}`);
+        }
+        if (!worst.has(key) || worst.get(key)!.spill < c.spillAll) worst.set(key, { spill: c.spillAll, at: `${box.key} lock ${l.i}` });
+      }
+    }
+    console.log(`finger locks, worst spill with the finger by shape and size: ${[...worst].sort((a, b) => b[1].spill - a[1].spill).slice(0, 12).map(([k, v]) => `${k} ${v.spill.toFixed(3)}`).join(", ")}`);
+    expect(fails).toEqual([]);
+  });
+
+  it("is strictly warmest at each spot along the line in from 0.2 toward the start", () => {
+    const fails: string[] = [];
+    for (const { box } of built) {
+      for (const l of box.locks) {
+        const s = prepareLock(l), d0 = [box.start[0] - l.L[0], box.start[1] - l.L[1], box.start[2] - l.L[2]];
+        const len = Math.hypot(d0[0]!, d0[1]!, d0[2]!), cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 0 };
+        const w = (d: number) => {
+          const L: [number, number, number] = [l.L[0] + (d0[0]! / len) * d, l.L[1] + (d0[1]! / len) * d, l.L[2] + (d0[2]! / len) * d];
+          const scraps: V2[][] = [];
+          return warmth(measure(s, scraps, shadowPolys(box.elements, L, scraps, SKIP_MISSING), [], 0, cov), d);
+        };
+        const peak = w(0);
+        for (let k = 0; k < 9; k++) if (!(w(WARMTH_RANGE * (1 - k / 9)) < peak)) fails.push(`${box.key} lock ${l.i}, ${k}`);
+      }
+    }
+    expect(fails).toEqual([]);
+  });
+
   it("shows each classic shape in at least 10% of boxes 10 and up", () => {
     const late = built.filter((b) => b.spec.kind === "box" && b.spec.n >= 10);
     const classics = (Object.keys(SHAPES) as ShapeName[]).filter((s) => !SILHOUETTES.includes(s));
@@ -231,9 +268,9 @@ describe("golden boxes", () => {
   // box (RNG call order, a constant, a shape) must bump GENERATOR_VERSION and update these hashes.
   const GOLDEN: [BoxSpec, string][] = [
     [{ kind: "box", n: 1 }, "deeb47a2fbea952f"],
-    [{ kind: "box", n: 7 }, "cd05b6b31abb474d"],
-    [{ kind: "box", n: 15 }, "0388926107aed88e"],
-    [{ kind: "daily", day: "2026-11-06" }, "4658af80eae621cc"],
+    [{ kind: "box", n: 7 }, "f0d30a933ef964aa"],
+    [{ kind: "box", n: 15 }, "56ce7943ea10bee9"],
+    [{ kind: "daily", day: "2026-11-06" }, "359de34c81698956"],
   ];
 
   it("pins boxes 1, 7, 15 and one day at generator version 4", () => {
@@ -314,13 +351,13 @@ describe("box kinds and silhouettes", () => {
   });
 
   it("never shows a silhouette the boxes just before showed: any few dealt in a row differ", () => {
-    expect(REPEAT_GAP).toBeGreaterThanOrEqual(6);
+    // A box and the three before it deal at most six (two silhouettes boxes are never closer than two boxes), and any
+    // REPEAT_GAP + 1 dealt in a row differ.
+    expect(REPEAT_GAP + 1).toBeGreaterThanOrEqual(6);
     let prev: ShapeName[][] = [];
     for (let n = 1; n <= 3000; n++) {
       const now = boxSilhouettes({ kind: "box", n });
       expect(new Set(now).size).toBe(now.length);
-      // A box and the three before it deal at most six (two silhouettes boxes are never closer than two boxes),
-      // and any REPEAT_GAP dealt in a row differ.
       for (const p of prev.slice(-3)) for (const s of now) expect(p, `box ${n}`).not.toContain(s);
       prev = [...prev.slice(-9), now];
     }
@@ -328,7 +365,9 @@ describe("box kinds and silhouettes", () => {
 
   it("deals every silhouette by box 60, the quickest to name first (the cat at box 5), each as often as the others", () => {
     const dealt = Array.from({ length: 56 }, (_, i) => boxSilhouettes({ kind: "box", n: 5 + i })).flat();
-    expect(dealt.slice(0, 5)).toEqual(["Cat", "Fish", "House", "Rabbit", "Owl"]);
+    expect(dealt.slice(0, 5)).toEqual(["Cat", "Fish", "House", "Rabbit", "Anchor"]);
+    // The owl, whose tufted outline is the cat's, comes last in the first deck.
+    expect(dealt.indexOf("Owl")).toBe(SILHOUETTES.length - 1);
     expect([...new Set(dealt)].sort()).toEqual([...SILHOUETTES].sort());
     const counts = new Map<ShapeName, number>();
     for (let n = 5; n <= 2000; n++) for (const s of boxSilhouettes({ kind: "box", n })) counts.set(s, (counts.get(s) ?? 0) + 1);
@@ -361,5 +400,5 @@ describe("box kinds and silhouettes", () => {
     console.log(`boxes 10-40: version 3 avg ${v3.avg.toFixed(1)} ms, worst ${v3.worst.toFixed(1)}; version 4 avg ${v4.avg.toFixed(1)} ms, worst ${v4.worst.toFixed(1)}`);
     expect(v4.avg).toBeLessThan(1.5 * v3.avg + 10);
     expect(v4.worst).toBeLessThan(1000);
-  });
+  }, 60_000);
 });

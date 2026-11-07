@@ -85,9 +85,24 @@ export function boxKind(n: number): BoxKind {
   return p ? rhythmBlock(p.k).kinds[p.i]! : "standard";
 }
 
-/** How many of box n's hidden locks are silhouettes: two in a silhouettes box, else one once outlines hide. */
+/** How many of a box's hidden locks are silhouettes, by its kind and hidden locks: two in a silhouettes box, else one. */
+export function kindSilhouettes(kind: BoxKind, hidden: number): number {
+  return hidden <= 0 ? 0 : kind === "silhouettes" ? Math.min(2, hidden) : 1;
+}
+
+/** How many of box n's hidden locks are silhouettes. */
 export function silhouetteCount(n: number): number {
-  return boxKind(n) === "silhouettes" ? 2 : boxParams(n).hidden > 0 ? 1 : 0;
+  return kindSilhouettes(boxKind(n), boxParams(n).hidden);
+}
+
+/**
+ * How many silhouettes block k's boxes show before its i-th, and in all (i = BLOCK): from its kinds and their rows.
+ * Every block holds the same kinds (in another order), so every block shows as many.
+ */
+export function blockSilhouettes(k: number, i: number = BLOCK): number {
+  let sum = 0;
+  for (let j = 0; j < i; j++) sum += silhouetteCount(KINDS_FROM + k * BLOCK + j);
+  return sum;
 }
 
 /** The shared tail of every box's settings: `amp` is the share of the envelope's x range the spots may use. */

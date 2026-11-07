@@ -20,12 +20,9 @@ export type AddedSilhouette =
   | "Whale"
   | "Snail"
   | "Owl"
-  | "Fox"
   | "Rabbit"
-  | "Mouse"
   | "Candle"
   | "Teacup"
-  | "Violin"
   | "Knight"
   | "Cactus"
   | "Tree";

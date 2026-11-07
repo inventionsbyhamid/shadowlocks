@@ -269,10 +269,9 @@ describe("warmth", () => {
   });
 
   it("is warmest at the spot along the line in from 0.2 away (10 samples)", () => {
-    // Every sample from 0.044 out is cooler than the spot. The one 0.022 away may already be as warm (1): a lock
-    // whose scraps hang near the panel, met from the side its rays run, opens a few millimetres early (box 35's
-    // hidden Arrow, a finger lock).
-    const errs: string[] = [], ties: string[] = [];
+    // Strictly: the generator rejects a draw where a lock is as warm a little short of its spot (generator.ts
+    // warmestAtSpots, the same samples).
+    const errs: string[] = [];
     let strict = 0;
     for (const { box, lock: l, s } of locks()) {
       const dir = towardStart(box, l);
@@ -281,12 +280,11 @@ describe("warmth", () => {
         return warmth(coverageAt(box, s, add(l.L, dir, d)), d);
       });
       if (w.slice(0, 9).every((v) => v < w[9]!)) strict++;
-      else if (w.slice(0, 8).every((v) => v < w[9]!) && w[8]! <= w[9]! && w[9] === 1) ties.push(`${box.key} lock ${l.i}`);
       else errs.push(`${box.key} lock ${l.i}: ${w.map((v) => v.toFixed(3)).join(" ")}`);
     }
-    console.log(`strictly warmest at the spot: ${strict}/${locks().length}; as warm 0.022 away: ${ties.join(", ") || "none"}`);
+    console.log(`strictly warmest at the spot: ${strict}/${locks().length}`);
     expect(errs).toEqual([]);
-    expect(ties.length).toBeLessThanOrEqual(Math.ceil(locks().length / 100));
+    expect(strict).toBe(locks().length);
   });
 });
 

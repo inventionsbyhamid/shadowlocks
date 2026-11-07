@@ -1,24 +1,31 @@
 // Which silhouettes a box shows, so a player meets them all and never the same one again a few boxes on. The boxes'
 // silhouettes, one after another from box 5 (two in a silhouettes box), are dealt from decks of every silhouette, each
 // deck shuffled by its own seed; where one deck ends and the next begins, the next one's first cards are swapped for
-// ones the last deck did not just deal. So any REPEAT_GAP silhouettes in a row are all different. The Daily Box deals
-// from decks of its own, one card a day. Pure and cheap: box n's silhouettes come from its number alone, never from
-// building the boxes before it, so the same box number always gives the same box.
+// ones the last deck did not just deal. So any REPEAT_GAP + 1 silhouettes in a row are all different. The Daily Box
+// deals from decks of its own, one card a day. Pure and cheap: box n's silhouettes come from its number alone, never
+// from building the boxes before it, so the same box number always gives the same box.
 import { hash, rng32 } from "./geom";
-import { BLOCK, KINDS_FROM, rhythmBlock, silhouetteCount } from "./params";
+import { BLOCK, blockSilhouettes, KINDS_FROM, silhouetteCount } from "./params";
 import { SILHOUETTES } from "./shapes";
 import type { BoxSpec, ShapeName } from "./types";
 
 const N = SILHOUETTES.length;
-/** Any this many silhouettes in a row are different (a third of the deck, so the swaps always find cards). */
+/**
+ * How many cards at a deck's start never repeat the last as many of the deck before (a third of the deck, so the swaps
+ * always find cards). A deck's own cards all differ, so any REPEAT_GAP + 1 in a row do: such a run that spans two decks
+ * takes at most REPEAT_GAP from each end.
+ */
 export const REPEAT_GAP = Math.floor(N / 3);
-/** The first box with a hidden outline. */
-const FIRST_BOX = 5;
 /**
  * The first silhouettes a player meets, boxes 5 to 9, while hidden outlines are new: the ones named fastest. The cat
- * stays box 5's, the game's first "it's a cat!"; the rest of the first deck is shuffled as any other.
+ * stays box 5's, the game's first "it's a cat!"; the rest of the first deck is shuffled as any other, except the owl,
+ * whose tufted outline is the cat's, which comes last.
  */
-const OPENING: ShapeName[] = ["Cat", "Fish", "House", "Rabbit", "Owl"];
+const OPENING: ShapeName[] = ["Cat", "Fish", "House", "Rabbit", "Anchor"];
+const LATE: ShapeName = "Owl";
+/** Silhouettes shown by boxes 1 to 9, before the rhythm, and by each block of it (every block has the same kinds). */
+const BEFORE_RHYTHM = Array.from({ length: KINDS_FROM - 1 }, (_, i) => silhouetteCount(i + 1)).reduce((a, b) => a + b, 0);
+const PER_BLOCK = blockSilhouettes(0);
 
 function shuffled(seed: string): ShapeName[] {
   const rnd = rng32(hash(seed)), a = SILHOUETTES.slice();
@@ -29,9 +36,9 @@ function shuffled(seed: string): ShapeName[] {
   return a;
 }
 
-/** The boxes' first deck: the opening five, then the others as shuffled. */
+/** The boxes' first deck: the opening five, then the others as shuffled, the owl last. */
 function firstDeck(): ShapeName[] {
-  return [...OPENING, ...shuffled("box/0").filter((s) => !OPENING.includes(s))];
+  return [...OPENING, ...shuffled("box/0").filter((s) => !OPENING.includes(s) && s !== LATE), LATE];
 }
 
 /**
@@ -60,14 +67,15 @@ export function dealt(series: "box" | "daily", k: number): ShapeName {
   return deck(series, Math.floor(k / N))[k % N]!;
 }
 
-/** How many silhouettes the boxes before box n dealt. */
+/** How many silhouettes the boxes before box n dealt: counted from the boxes' kinds, block by block from box 10. */
 function dealtBefore(n: number): number {
-  if (n <= FIRST_BOX) return 0;
-  if (n <= KINDS_FROM) return n - FIRST_BOX;
+  if (n < KINDS_FROM) {
+    let sum = 0;
+    for (let m = 1; m < n; m++) sum += silhouetteCount(m);
+    return sum;
+  }
   const k = Math.floor((n - KINDS_FROM) / BLOCK), i = (n - KINDS_FROM) % BLOCK;
-  // Every block of the rhythm deals seven: one a box, and one more in its silhouettes box.
-  const inBlock = rhythmBlock(k).kinds.slice(0, i).reduce((s, kind) => s + (kind === "silhouettes" ? 2 : 1), 0);
-  return KINDS_FROM - FIRST_BOX + 7 * k + inBlock;
+  return BEFORE_RHYTHM + PER_BLOCK * k + blockSilhouettes(k, i);
 }
 
 /** Days since 1970-01-01 for a day key. */

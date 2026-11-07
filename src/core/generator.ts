@@ -10,11 +10,24 @@
 // the others.
 import { ENVELOPE } from "./envelope";
 import { area, bbox, circlePts, elongation, hash, inPoly, polyDist, proj, rng32, segDist } from "./geom";
-import { boxParams, boxParamsV3, dailyParams } from "./params";
+import { boxParams, boxParamsV3, dailyParams, KINDS_FROM } from "./params";
 import { isDayKey } from "./profile";
 import { FIRST_SILHOUETTES, SHAPES, SILHOUETTES } from "./shapes";
 import { boxSilhouettes } from "./silhouette-deck";
-import { BAND, type Coverage, type LockSamples, lockSamples, measure, RING_SIDES, shadowPolys } from "./solve";
+import {
+  BAND,
+  type Coverage,
+  type LockSamples,
+  lockSamples,
+  measure,
+  RING_SIDES,
+  RULE,
+  RUNTIME_STEP,
+  shadowPolys,
+  SKIP_MISSING,
+  warmth,
+  WARMTH_RANGE,
+} from "./solve";
 import { LOOT, OWNERS } from "./story";
 import type { Box, BoxParams, BoxSpec, Element, Lock, Ring, ShapeName, V2, V3 } from "./types";
 
@@ -50,6 +63,8 @@ const E = ENVELOPE;
 const STEP = 0.008;
 /** Whole-box attempts before giving up, and tries per spot, piece and decoy within one attempt. */
 const ATTEMPTS = 300;
+/** Attempts that keep a box's own classic shapes before drawing them afresh (from box 10, version 4). */
+const FIXED_CLASSIC_TRIES = 3;
 const SPOT_TRIES = 80;
 const PIECE_TRIES = 50;
 const DECOY_TRIES = 40;
@@ -113,6 +128,16 @@ const DECOY_WOBBLE = 0.06;
  * grid (the solve rule's, a mirrored box's), not just the one used here.
  */
 const START_COVER_MAX = 0.45;
+
+/** `items` shuffled by their own seed (Fisher-Yates on mulberry32), a new array. */
+function seededOrder<T>(items: readonly T[], seed: string): T[] {
+  const rnd = rng32(hash(seed)), a = items.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [a[i], a[j]] = [a[j]!, a[i]!];
+  }
+  return a;
+}
 
 /** The shapes that are not silhouettes. */
 const CLASSICS = (Object.keys(SHAPES) as ShapeName[]).filter((s) => !SILHOUETTES.includes(s));
@@ -232,7 +257,98 @@ export function specOfKey(key: string): BoxSpec | null {
   return daily && isDayKey(daily[1]) ? { kind: "daily", day: daily[1]! } : null;
 }
 
-type Reason = "spot" | "finger" | "piece" | "ring" | "decoy" | "start";
+type Reason = "spot" | "finger" | "piece" | "ring" | "decoy" | "start" | "warmth";
+
+/** Points on the way in to a spot where warmth must stay below the spot's own: 0.2 out, nine of them. */
+const WARM_SAMPLES = 9;
+
+/**
+ * A finger laid along a finger lock's gap, as a player (and the e2e specs) lay one: the index finger's last two bones
+ * (FINGER.chainCm long, FINGER.radiusCm thick: the solve rule counts only those, src/render/hand-shadow.ts) straight
+ * along the gap's long axis, their middle on the ray from the spot through the gap's middle, FINGER.z from the panel,
+ * in the default 24 cm box. Its shadow must fill the gap within the rule with FINGER.margin of spill to spare: the
+ * same finger measured in the browser came within 0.03 of a model of it (tests/unit/helpers/finger-model.ts).
+ */
+const FINGER = { z: 0.5, chainCm: 4.6, radiusCm: 0.9, boxCm: 24, margin: 0.03 } as const;
+/** Corners on each end of the finger's shadow outline. */
+const FINGER_END_CORNERS = 8;
+
+/** The laid finger's shadow from the lock's spot: a capsule outline, drawn round the true one (never inside it). */
+function fingerShadow(l: Lock): V2[] {
+  const gap = l.target[l.missing]!, L = l.L;
+  let mx = 0, my = 0;
+  for (const p of gap) {
+    mx += p[0] / gap.length;
+    my += p[1] / gap.length;
+  }
+  let sxx = 0, syy = 0, sxy = 0;
+  for (const p of gap) {
+    const dx = p[0] - mx, dy = p[1] - my;
+    sxx += dx * dx;
+    syy += dy * dy;
+    sxy += dx * dy;
+  }
+  const angle = 0.5 * Math.atan2(2 * sxy, sxx - syy), ux = Math.cos(angle), uy = Math.sin(angle);
+  const z = FINGER.z, k0 = (L[2] - z) / L[2], k = L[2] / (L[2] - z), half = FINGER.chainCm / 2 / FINGER.boxCm;
+  const cx = L[0] + (mx - L[0]) * k0, cy = L[1] + (my - L[1]) * k0;
+  const end = (s: number): V2 => [L[0] + (cx + ux * s - L[0]) * k, L[1] + (cy + uy * s - L[1]) * k];
+  const a = end(-half), b = end(half), step = Math.PI / (FINGER_END_CORNERS - 1);
+  const r = ((FINGER.radiusCm / FINGER.boxCm) * k) / Math.cos(step / 2), t = Math.atan2(uy, ux), out: V2[] = [];
+  for (let i = 0; i < FINGER_END_CORNERS; i++) out.push([b[0] + r * Math.cos(t - Math.PI / 2 + i * step), b[1] + r * Math.sin(t - Math.PI / 2 + i * step)]);
+  for (let i = 0; i < FINGER_END_CORNERS; i++) out.push([a[0] + r * Math.cos(t + Math.PI / 2 + i * step), a[1] + r * Math.sin(t + Math.PI / 2 + i * step)]);
+  return out;
+}
+
+/**
+ * A finger's spill read on the generator's fine grid can sit this much under the play grid's reading (the play grid
+ * samples a small lock's band coarsely); below SPILL_ALL_MAX - FINGER.margin - FINGER_SCREEN there it needs no
+ * second look.
+ */
+const FINGER_SCREEN = 0.07;
+
+/**
+ * True when a finger laid in the gap of `l`'s piece `j` fills it within the solve rule, FINGER.margin to spare: the gap
+ * covered at least GAP_MIN, and no more than SPILL_ALL_MAX less the margin of the lit band darkened (from the spot the
+ * lock's own scraps darken none of it, so the finger is all that does). Judged on the play grid (the samples kept in
+ * `known` for the warmth check), unless the fine grid the generator already has puts it well clear (FINGER_SCREEN).
+ */
+function fingerFits(l: Lock, j: number, fine: LockSamples, known: Map<number, LockSamples>): boolean {
+  const finger = fingerShadow({ ...l, missing: j }), gap = l.target[j]!, limit = RULE.SPILL_ALL_MAX - FINGER.margin;
+  let inGap = 0, filled = 0, dark = 0;
+  for (const p of fine.inside) {
+    if (!inPoly(p, gap)) continue;
+    inGap++;
+    if (inPoly(p, finger)) filled++;
+  }
+  for (const p of fine.band) if (inPoly(p, finger)) dark++;
+  if (inGap > 0 && filled === inGap && dark / fine.band.length <= limit - FINGER_SCREEN) return true;
+  const s = lockSamples(l.target, RUNTIME_STEP, j), cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 0 };
+  measure(s, [], 0, [finger], 1, cov);
+  if (cov.gap < RULE.GAP_MIN || cov.spillAll > limit) return false;
+  known.set(l.i, s);
+  return true;
+}
+
+/**
+ * True when each lock is strictly warmest at its spot along the line in from WARMTH_RANGE toward the start, sampled as
+ * the game measures (its runtime grid, the scraps in the box, no finger): so warmth leads all the way to the spot and
+ * never saturates a few millimetres short of it. tests/unit/solve.test.ts checks the same samples. `known` holds runtime
+ * samples already made (a finger lock's, by fingerFits).
+ */
+function warmestAtSpots(locks: Lock[], elements: Element[], start: V3, known: Map<number, LockSamples>): boolean {
+  const polys: V2[][] = [], cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 0 };
+  for (const l of locks) {
+    const s = known.get(l.i) ?? lockSamples(l.target, RUNTIME_STEP, l.missing);
+    const dir = unit([start[0] - l.L[0], start[1] - l.L[1], start[2] - l.L[2]]);
+    const at = (d: number) => {
+      const L: V3 = [l.L[0] + dir[0] * d, l.L[1] + dir[1] * d, l.L[2] + dir[2] * d];
+      return warmth(measure(s, polys, shadowPolys(elements, L, polys, SKIP_MISSING), [], 0, cov), d);
+    };
+    const peak = at(0);
+    for (let k = 0; k < WARM_SAMPLES; k++) if (!(at(WARMTH_RANGE * (1 - k / WARM_SAMPLES)) < peak)) return false;
+  }
+  return true;
+}
 
 export interface BoxBuild {
   box: Box;
@@ -251,6 +367,12 @@ export function buildBox(spec: BoxSpec): BoxBuild {
   // The silhouettes the box's hidden locks take, in order (version 3 drew one from the first three as it built).
   const silNames = v3 ? null : boxSilhouettes(spec);
   const silCount = v3 ? Math.min(P.hidden, 1) : silNames!.length;
+  // From box 10 and in the Daily Box (version 4), a box's classic shapes are drawn once, by a seed of their own, and
+  // kept for its first FIXED_CLASSIC_TRIES attempts, which retry only the geometry: so a shape that is harder to place
+  // (the wide Crown) is not drawn much less often. Its classic locks take them in order. Later attempts draw them
+  // afresh each time, as boxes up to 9 always do, so a set that will not fit never holds a box up.
+  const fixedClassics = v3 || (spec.kind === "box" && spec.n < KINDS_FROM) ? null : seededOrder(CLASSICS, key + "/classics");
+  let attemptNow = 0;
   const rng = rng32(hash(key));
   const R = (a: number, b: number) => a + (b - a) * rng();
   const pick = <T>(a: T[]): T => a[Math.floor(rng() * a.length)]!;
@@ -275,16 +397,18 @@ export function buildBox(spec: BoxSpec): BoxBuild {
    */
   function pickShapes(n: number, silLocks: number[]): ShapeName[] {
     const classics = shuffle(CLASSICS.slice());
+    const fixed = fixedClassics && attemptNow <= FIXED_CLASSIC_TRIES ? fixedClassics : null;
+    let next = 0;
     return Array.from({ length: n }, (_, i) => {
       const k = silLocks.indexOf(i);
-      if (k < 0) return classics[i]!;
+      if (k < 0) return fixed ? fixed[next++]! : classics[i]!;
       const drawn = pick(FIRST_SILHOUETTES);
       return silNames ? silNames[k]! : drawn;
     });
   }
 
   function tryBuild(): Box | Reason {
-    const lay = LAYOUTS[P.locks], ids = lay.map((_, i) => i);
+    const lay = LAYOUTS[P.locks], ids = lay.map((_, i) => i), runtime = new Map<number, LockSamples>();
     const hiddenOrder = shuffle(ids.slice()).slice(0, P.hidden), hidden = new Set(hiddenOrder);
     const shapes = pickShapes(P.locks, hiddenOrder.slice(0, silCount));
     const locks: Draft[] = [];
@@ -324,15 +448,22 @@ export function buildBox(spec: BoxSpec): BoxBuild {
 
     // Finger locks from a shuffle: locks whose finger piece runs within 45 degrees of horizontal first (a rotated
     // teapot's spout can tip past it), and never a lock with no piece a finger could fill.
-    const candidates = shuffle(locks.slice())
+    const sorted = shuffle(locks.slice())
       .map((l) => {
         const j = fingerPiece(l.target);
         return { l, j, angle: j < 0 ? 0 : elongation(l.target[j]!).angle };
       })
       .filter((c) => c.j >= 0)
       .sort((a, b) => Number(Math.abs(a.angle) > Math.PI / 4) - Number(Math.abs(b.angle) > Math.PI / 4));
+    // From version 4, only a lock a laid finger can fill becomes a finger lock (tried in order, as many as needed);
+    // the samples it was judged by are kept for the warmth check.
+    const candidates = v3 ? sorted.slice(0, P.fingerLocks) : [];
+    for (let k = 0; !v3 && k < sorted.length && candidates.length < P.fingerLocks; k++) {
+      const c = sorted[k]!;
+      if (fingerFits(c.l, c.j, c.l.samples, runtime)) candidates.push(c);
+    }
     if (candidates.length < P.fingerLocks) return "finger";
-    for (const { l, j, angle } of candidates.slice(0, P.fingerLocks)) {
+    for (const { l, j, angle } of candidates) {
       l.finger = true;
       l.missing = j;
       l.fingerAngle = angle;
@@ -406,6 +537,8 @@ export function buildBox(spec: BoxSpec): BoxBuild {
     const fromStart: V2[][] = [], n = shadowPolys(elements, start, fromStart);
     const cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 1 };
     for (const l of locks) if (measure(l.samples, fromStart, n, [], 0, cov).cover >= START_COVER_MAX) return "start";
+    // From version 4, warmth must lead all the way to each spot (version 3's boxes never failed this).
+    if (!v3 && !warmestAtSpots(locks, elements, start, runtime)) return "warmth";
 
     return {
       key,
@@ -422,6 +555,7 @@ export function buildBox(spec: BoxSpec): BoxBuild {
 
   const failures: Partial<Record<Reason, number>> = {};
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    attemptNow = attempt;
     const r = tryBuild();
     if (typeof r !== "string") return { box: r, attempts: attempt, failures };
     failures[r] = (failures[r] ?? 0) + 1;

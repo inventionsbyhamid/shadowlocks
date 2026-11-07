@@ -158,26 +158,6 @@ function owl(): V2[][] {
   return [branch, middle, ...half, ...half.map(mirrorX)];
 }
 
-/** A fox walking right: body, four legs, neck, head, snout, two ears and a bushy tail held out (the finger strip). */
-function fox(): V2[][] {
-  const back: V2[] = [[-0.22, -0.12], [0, -0.14], [0, 0.1], [-0.22, 0.08], [-0.25, -0.02]];
-  const front: V2[] = [[0, -0.14], [0.15, -0.14], [0.21, -0.07], [0.23, 0.05], [0.16, 0.11], [0, 0.1]];
-  const neck: V2[] = [[0.23, 0.05], [0.33, 0.14], [0.26, 0.23], [0.16, 0.11]];
-  const head: V2[] = [[0.33, 0.14], [0.41, 0.12], [0.42, 0.27], [0.37, 0.31], [0.31, 0.32], [0.26, 0.23]];
-  const snout: V2[] = [[0.41, 0.12], [0.56, 0.17], [0.42, 0.27]];
-  const earFront: V2[] = [[0.42, 0.27], [0.45, 0.47], [0.37, 0.31]];
-  const earBack: V2[] = [[0.37, 0.31], [0.32, 0.48], [0.31, 0.32]];
-  const tail: V2[] = [[-0.22, 0.08], [-0.33, 0.15], [-0.46, 0.18], [-0.58, 0.15], [-0.6, 0.08], [-0.5, 0], [-0.37, -0.04], [-0.25, -0.02]];
-  // A trotting fox: legs 0.065 wide on the body's lower edges, the hind leg reaching back and the fore leg forward.
-  const onBack = (x: number) => atX([-0.22, -0.12], [0, -0.14], x);
-  const leg = (x0: number, x1: number, foot: number): V2[] => {
-    const top0 = x0 < 0 ? onBack(x0) : ([x0, -0.14] as V2), top1 = x1 <= 0 ? onBack(x1) : ([x1, -0.14] as V2);
-    return [[foot, -0.34], [foot + 0.065, -0.34], top1, top0];
-  };
-  const legs = [leg(-0.21, -0.145, -0.28), leg(-0.11, -0.045, -0.1), leg(0.01, 0.075, 0.02), leg(0.085, 0.15, 0.16)];
-  return [back, front, neck, head, snout, earFront, earBack, tail, ...legs];
-}
-
 /** A rabbit sitting, facing right: body, head, two long ears, a round tail and the long hind foot (the finger strip). */
 function rabbit(): V2[][] {
   const c: V2 = [-0.06, -0.12], E = (deg: number) => ellAt(c, 0.25, 0.23, deg);
@@ -192,21 +172,6 @@ function rabbit(): V2[][] {
   const tail = cap(E(170), E(200), 0.065, [100, 140, 180, 220, 260]).poly;
   const foot: V2[] = [[-0.3, -0.4], [0.2, -0.4], [0.24, -0.37], [0.21, yf], [-0.22, yf], [-0.32, -0.37]];
   return [back, front, head.poly, earFront, earBack, tail, foot];
-}
-
-/** A mouse facing right: body, a pointed snout, a big round ear, feet and a long tail (the finger strip). */
-function mouse(): V2[][] {
-  const c: V2 = [0, -0.05], E = (deg: number) => ellAt(c, 0.24, 0.15, deg);
-  const top: V2 = [0, 0.1], bottom: V2 = [0, -0.2];
-  const front: V2[] = [bottom, E(290), E(305), E(320), E(335), E(20), E(40), E(55), E(85), top];
-  const back: V2[] = [top, E(110), E(130), E(148), E(165), E(195), E(212), E(226), E(240), E(255), bottom];
-  const snout: V2[] = [E(335), [0.38, -0.075], E(20)];
-  const ear = cap(E(55), E(85), 0.085, [-35, -10, 15, 40, 65, 90, 115, 140, 165, 190]).poly;
-  const tail = strip(E(165), E(195), 182, 0.32, 0.03);
-  const tip = strip(tail[1]!, tail[2]!, 150, 0.09, 0.011);
-  const footFront = strip(E(290), E(305), 280, 0.05, 0.02);
-  const footBack = strip(E(240), E(255), 262, 0.05, 0.02);
-  return [back, front, snout, ear, tail, tip, footFront, footBack];
 }
 
 /** A candle in its holder: the dish (the finger strip), socket, candle, wick, flame and a ring handle. */
@@ -225,35 +190,24 @@ function candle(): V2[][] {
   return [dish, socket, low, high, wick, flame, legL, arch, legR];
 }
 
-/** A teacup on its saucer (the finger strip): foot, a bowl in two halves and a loop handle. */
+/**
+ * A teacup on its saucer: the cup's rim (the finger strip, lit only above, as the bowl lies under it), the bowl in two
+ * halves, a foot, a loop handle, and the saucer in three pieces (each too small to be the finger's: the saucer is lit
+ * on both sides, and a finger laid along it darkens both).
+ */
 function teacup(): V2[][] {
-  const saucer: V2[] = [[-0.36, -0.48], [0.36, -0.48], [0.47, -0.42], [-0.47, -0.42]];
+  const sL: V2[] = [[-0.36, -0.48], [-0.12, -0.48], [-0.12, -0.42], [-0.47, -0.42]];
+  const sM = rect(-0.12, -0.48, 0.12, -0.42);
   const foot: V2[] = [[-0.12, -0.42], [0.12, -0.42], [0.14, -0.38], [-0.14, -0.38]];
   const B = (deg: number) => ellAt([0, 0.04], 0.3, 0.47, deg);
-  const lo = Math.asin(-0.42 / 0.47) / DEG;
-  const right: V2[] = [[0, -0.38], B(lo), B(-50), B(-38), B(-20), B(-8), B(0), [0, 0.04]];
+  const lo = Math.asin(-0.42 / 0.47) / DEG, rimLo = Math.asin(-0.085 / 0.47) / DEG;
+  const right: V2[] = [[0, -0.38], B(lo), B(-50), B(-38), B(-26), B(-14), B(rimLo), [0, B(rimLo)[1]]];
+  const rim: V2[] = [mirrorX([B(rimLo)])[0]!, B(rimLo), B(0), [-0.3, 0.04]];
   const hx = 0.43, y = (deg: number) => B(deg)[1];
-  const armTop: V2[] = [B(-20), [hx, y(-20)], [hx, y(-8)], B(-8)];
+  const armTop: V2[] = [B(-26), [hx, y(-26)], [hx, y(-14)], B(-14)];
   const armLow: V2[] = [B(-50), [hx, y(-50)], [hx, y(-38)], B(-38)];
-  const grip: V2[] = [[hx, y(-50)], [hx + 0.06, y(-50) + 0.035], [hx + 0.06, y(-8) - 0.035], [hx, y(-8)]];
-  return [saucer, foot, mirrorX(right), right, armLow, grip, armTop];
-}
-
-/** A violin lying on its side: two bouts with the waist between, the neck (the finger strip), pegbox and scroll. */
-function violin(): V2[][] {
-  // The bouts are taller than they are long, and meet the short waist in sharp corners, as a violin's do.
-  const E1 = (deg: number) => ellAt([-0.27, 0], 0.16, 0.2, deg);
-  const c1 = Math.acos(0.12 / 0.16) / DEG;
-  const lowerL = [90, 110, 130, 150, 170, 190, 210, 230, 250, 270].map(E1);
-  const lowerR = [270, 290, 360 - c1, c1, 70, 90].map(E1);
-  const waist = rect(-0.15, -0.1, -0.08, 0.1);
-  const E2 = (deg: number) => ellAt([0, 0], 0.13, 0.165, deg);
-  const cl = Math.acos(-0.08 / 0.13) / DEG, cr = Math.acos(0.1 / 0.13) / DEG;
-  const upper = [360 - cl, 250, 270, 290, 360 - cr, cr, 70, 90, 110, cl].map(E2);
-  const neck = rect(0.1, -0.05, 0.4, 0.05);
-  const pegbox = rect(0.4, -0.058, 0.45, 0.058);
-  const scroll = cap([0.45, -0.058], [0.45, 0.058], 0.065, [-90, -60, -30, 0, 30, 60, 90]).poly;
-  return [lowerL, lowerR, waist, upper, neck, pegbox, scroll];
+  const grip: V2[] = [[hx, y(-50)], [hx + 0.06, y(-50) + 0.035], [hx + 0.06, y(-14) - 0.035], [hx, y(-14)]];
+  return [rim, mirrorX(right), right, foot, sL, sM, mirrorX(sL), armLow, grip, armTop];
 }
 
 /** A chess knight facing left: the base (the finger strip), a collar, the neck, head, muzzle, ear and mane. */
@@ -307,12 +261,9 @@ export function newSilhouettes(): Record<AddedSilhouette, V2[][]> {
     Whale: whale(),
     Snail: snail(),
     Owl: owl(),
-    Fox: fox(),
     Rabbit: rabbit(),
-    Mouse: mouse(),
     Candle: candle(),
     Teacup: teacup(),
-    Violin: violin(),
     Knight: knight(),
     Cactus: cactus(),
     Tree: tree(),
