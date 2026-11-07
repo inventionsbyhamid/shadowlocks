@@ -12,7 +12,8 @@
 import {
   BackSide,
   BoxGeometry,
-  type BufferGeometry,
+  BufferAttribute,
+  BufferGeometry,
   Color,
   DirectionalLight,
   DoubleSide,
@@ -63,6 +64,8 @@ const PANEL_Z = 0.002;
  * hide it by depth, since it writes none), and its shadows right after it, darkening it by MIN blending.
  */
 const PANEL_ORDER = 1;
+/** The velvet floor draws before the other opaque parts of the box (order 0), after the hand mask (-10). */
+export const FLOOR_ORDER = -1;
 /** Glass lid height (threads hang just under it). */
 const LID_Y = 0.49;
 /** Plinth under the box: height, depth (to just past the front), centre. */
@@ -107,8 +110,46 @@ const stripe = (len: number, axis: Axis, p: V3, face: Axis) => {
   return new BoxGeometry(size[0], size[1], size[2]).translate(p[0], p[1], p[2]);
 };
 
-/** The black lacquer frame, plinth and back slab as one geometry, each part's grain running along it (lacquer.ts). */
-export function frameGeometry(): BufferGeometry {
+/**
+ * `g` without its flat face at its largest z (the triangles lying in that plane), as positions and normals with no
+ * index. Built once, with the frame.
+ */
+export function withoutFront(g: BufferGeometry): BufferGeometry {
+  const f = g.index ? g.toNonIndexed() : g;
+  if (!f.getAttribute("normal")) f.computeVertexNormals();
+  const p = f.getAttribute("position"), n = f.getAttribute("normal");
+  let zMax = -Infinity;
+  for (let i = 0; i < p.count; i++) zMax = Math.max(zMax, p.getZ(i));
+  const keep: number[] = [];
+  for (let t = 0; t + 2 < p.count; t += 3) {
+    const flat = Math.abs(p.getZ(t) - zMax) < 1e-6 && Math.abs(p.getZ(t + 1) - zMax) < 1e-6 && Math.abs(p.getZ(t + 2) - zMax) < 1e-6;
+    if (!flat) keep.push(t);
+  }
+  const pos = new Float32Array(keep.length * 9), nrm = new Float32Array(keep.length * 9);
+  keep.forEach((t, k) => {
+    for (let v = 0; v < 3; v++) {
+      const i = t + v, o = (k * 3 + v) * 3;
+      pos[o] = p.getX(i);
+      pos[o + 1] = p.getY(i);
+      pos[o + 2] = p.getZ(i);
+      nrm[o] = n.getX(i);
+      nrm[o + 1] = n.getY(i);
+      nrm[o + 2] = n.getZ(i);
+    }
+  });
+  if (f !== g) f.dispose();
+  g.dispose();
+  const out = new BufferGeometry();
+  out.setAttribute("position", new BufferAttribute(pos, 3));
+  out.setAttribute("normal", new BufferAttribute(nrm, 3));
+  return out;
+}
+
+/**
+ * The black lacquer frame, plinth and back slab as one geometry, each part's grain running along it (lacquer.ts).
+ * `keepHidden`: with the slab's covered front face (tests compare the two).
+ */
+export function frameGeometry(keepHidden = false): BufferGeometry {
   const H = 0.5, parts: BufferGeometry[] = [];
   const grainBar = (len: number, axis: Axis, p: V3) => grained(bar(len, axis, p), axis);
   // Four bars front to back along the edges.
@@ -119,8 +160,14 @@ export function frameGeometry(): BufferGeometry {
   // The front: two posts and the sill; no rail across the top (it would cut across the panel).
   parts.push(grainBar(1 - BAR, "x", [0, -H, 1]));
   for (const x of [-H, H]) parts.push(grainBar(1 - BAR, "y", [x, 0, 1]));
-  // The back slab and the plinth: grain across.
-  parts.push(grained(slab(1 + BAR, 1 + BAR, 0.035, 0.012).translate(0, 0, -0.045), "x"));
+  // The back slab and the plinth: grain across. The slab's flat front face lies behind the panel and the back ring
+  // from every side, so it is left out: drawn, it was the frame's most expensive shading (the lacquer) under the
+  // panel, which then covered it (the panel writes no depth, so it cannot hide what is behind it). One trace of it
+  // is left: between the back ring's rear face (z -0.025) and where the face was (z -0.0275) there is a slot 0.0025
+  // deep, open at the box's outer edge. From far to the side, at the back plane's depth, a pixel or two can show
+  // through it where black lacquer was; a seated player in front of the box never sees it from there.
+  const back = slab(1 + BAR, 1 + BAR, 0.035, 0.012).translate(0, 0, -0.045);
+  parts.push(grained(keepHidden ? back : withoutFront(back), "x"));
   parts.push(grained(slab(PLINTH.w, PLINTH.h, PLINTH.d, 0.02).translate(0, PLINTH.y, PLINTH.z), "x"));
   return mergeParts(parts, ["grain"]);
 }
@@ -273,6 +320,9 @@ export class BoxScene {
       new MeshStandardMaterial({ color: COLORS.lining, ...MATERIALS.lining, envMap: dark }),
     );
     floor.name = "Box Floor";
+    // Drawn ahead of the frame (three sorts opaque draws by material before distance): the plinth's top lies under the
+    // floor, so its lacquer fails the depth test there instead of being shaded and covered. The picture is the same.
+    floor.renderOrder = FLOOR_ORDER;
     const glass = new Mesh(glassGeometry(), pane({ color: COLORS.glass, ...MATERIALS.glass }, dark));
     glass.name = "Box Glass";
     glass.renderOrder = 2;

@@ -24,6 +24,9 @@ export const SLAB = {
   sink: 0.6,
 } as const;
 
+/** The slabs' draw order: after the theatre's veil (-100) and the hand mask (-10), before the box (0). */
+export const SLAB_ORDER = -1;
+
 /** Sides and bevels read darker than the face (a cheap stand-in for lighting). */
 const SIDE_SHADE = 0.62;
 
@@ -151,6 +154,10 @@ export class PanelSlabs {
     material.name = "panel-slab";
     const mesh = new Mesh(slabGeometry(100, 100), material);
     mesh.name = "Panel Slab";
+    // Drawn ahead of the box's opaque parts (order 0; three sorts opaque draws by material before distance): the panel
+    // stands in front of the box, so the lacquer behind it fails the depth test instead of being shaded and covered.
+    // The picture is the same either way.
+    mesh.renderOrder = SLAB_ORDER;
     mesh.matrixAutoUpdate = false;
     mesh.matrixWorldAutoUpdate = false;
     mesh.frustumCulled = false;

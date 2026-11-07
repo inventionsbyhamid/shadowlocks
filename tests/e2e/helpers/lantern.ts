@@ -162,8 +162,8 @@ export function expectWithinBudget(j: StallMean, budgetMs: number, what: string)
 }
 
 /** The frame check: the judged window has at most MAX_STALLS stalls and a p95 of at most `budgetMs` without them. */
-export function expectP95WithinBudget(j: StallP95, budgetMs: number, what: string): void {
-  expect(j.stalls, `${what}: stalls (host or ours) over ${STALL_MS} ms in the judged window`).toBeLessThanOrEqual(MAX_STALLS);
+export function expectP95WithinBudget(j: StallP95, budgetMs: number, what: string, stallMs = STALL_MS, maxStalls = MAX_STALLS): void {
+  expect(j.stalls, `${what}: stalls (host or ours) over ${stallMs} ms in the judged window`).toBeLessThanOrEqual(maxStalls);
   expect(
     j.p95Ms,
     `${what}: p95 ms a frame over ${TIMED_FRAMES} frames without stalls (host or ours), the better of ${WINDOWS} windows`,

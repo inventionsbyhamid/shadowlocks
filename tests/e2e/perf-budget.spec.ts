@@ -20,7 +20,7 @@
 // (60 shadows, 32 bytes or more each) would add about 2 KB, past both budgets.
 import type { Page, TestInfo } from "@playwright/test";
 import { CHROME_ARGS } from "./helpers/chromium";
-import { axisOf, fingerLocks, hands, onRay, Pointer, worldOf } from "./helpers/finger";
+import { axisOf, fingerLocks, onRay, Pointer, worldOf } from "./helpers/finger";
 import { Hands } from "./helpers/hands";
 import { heaviestBox } from "./helpers/heavy-box";
 import {
@@ -30,8 +30,6 @@ import {
   grab,
   type HeapProfile,
   judgeWindowsP95,
-  lantern,
-  loadAverage,
   ourAllocations,
   p95WithoutStalls,
   STALL_MS,
@@ -39,8 +37,8 @@ import {
   takeTrail,
   TIMED_FRAMES,
   toWorld,
-  WINDOWS,
 } from "./helpers/lantern";
+import { boxInPlay, timedWindows } from "./helpers/perf-play";
 import { type BootFn, expect, test } from "./helpers/test";
 
 const MAX_CALLS = 50;
@@ -51,7 +49,6 @@ const ALLOC_BUDGET = 1600;
 const FUNCTION_BUDGET = 900;
 /** Test-only modules: they time and log the frames, they are not the game. */
 const TEST_ONLY = ["src/app/test-hooks.ts", "src/app/virtual-clock.ts"];
-const SYSTEMS = ["hand-pinch", "hands", "lantern", "game", "menus", "shell", "sound"];
 /** The busiest frame of a box opening: draw calls at most. */
 const MAX_PEAK_CALLS = 100;
 /** A finger lay this deep in the beam (box units). */
@@ -63,56 +60,14 @@ test.use({
 
 // The play case, for box 15 and for the heaviest box from 10 to 60 (helpers/heavy-box.ts: a fingers or silhouettes box).
 const playCase = (n: number) => async ({ page, boot }: { page: Page; boot: BootFn }, testInfo: TestInfo) => {
-  // Box n played through the box session, so its frame ("game") and its view (plate, hint lantern, marks) are
-  // timed and drawn as in play.
+  // Box n played through the box session (helpers/perf-play.ts), so its frame ("game") and its view (plate, hint
+  // lantern, marks) are timed and drawn as in play.
   const app = await boot();
-  await page.evaluate((n) => window.__sl!.session.play({ kind: "box", n }), n);
-  await app.stepUntil(
-    (_ns, w) => {
-      const s = w.__sl.session.state();
-      return s?.stage === "playing" && s.revealed;
-    },
-    { maxMs: 10_000, label: `box ${n} in play` },
-  );
-  // The lantern in front of the box's middle, picked up by the right hand and carried between two points in front of
-  // the mouth (inside the comfort envelope).
-  const right = new Hands(app, "right");
-  await page.evaluate(() => window.__sl!.placeLantern([0.05, -0.1, 1.25]));
-  await app.step(2);
-  const off = await grab(app, page, right);
-  const a = await toWorld(page, [-0.12, -0.18, 1.2]);
-  const b = await toWorld(page, [0.18, -0.28, 1.38]);
-  // The left hand's fingers in the beam, casting.
-  const left = new Pointer(app, "left");
-  const [tip] = await worldOf(page, [[0.1, 0.05, 0.6]]);
-  await left.point(tip!, [1, 0, 0], [0, 0, -1]);
-  const sweep = async (i: number) => carry(right, off, i % 2 ? a : b, 600);
-  for (let i = 0; i < 8; i++) await sweep(i);
-  const h = await hands(page);
-  expect((await lantern(page)).held).toBe(true);
-  expect(h.left!.outlines).toBeGreaterThan(0);
+  const sweep = await boxInPlay(app, page, n);
+  const windows = await timedWindows(app, page, sweep, 4);
 
   const cdp = await page.context().newCDPSession(page);
-  const windows: { frames: number[]; calls: number; triangles: number; load: number | undefined; systems: Record<string, number> }[] = [];
   try {
-    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
-    for (let w = 0; w < WINDOWS; w++) {
-      const load0 = loadAverage();
-      await page.evaluate(() => window.__ns!.resetPerf());
-      for (let i = 0; (await app.perf()).frames < TIMED_FRAMES; i++) await sweep(i);
-      const frames = (await page.evaluate((s) => window.__ns!.perfFrames(s), SYSTEMS)).slice(-TIMED_FRAMES);
-      // Draw calls and triangles: the most in any one frame of the window, every frame counted.
-      const perf = await app.perf();
-      const loads = [load0, loadAverage()].filter((l): l is number => l !== undefined);
-      windows.push({
-        frames,
-        calls: perf.callsMax,
-        triangles: perf.trianglesMax,
-        load: loads.length ? Math.max(...loads) : undefined,
-        systems: Object.fromEntries(Object.entries(perf.systems).map(([k, v]) => [k, v.p95Ms])),
-      });
-    }
-    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
     await cdp.send("HeapProfiler.enable");
     await cdp.send("HeapProfiler.startSampling", {
       samplingInterval: 64,
@@ -137,7 +92,9 @@ const playCase = (n: number) => async ({ page, boot }: { page: Page; boot: BootF
           `perf-budget, window ${i + 1}: ${w.calls} draw calls, ${w.triangles} triangles at most; our JS over ${TIMED_FRAMES} frames at 4x: ` +
           `mean ${stats[i]!.meanMs.toFixed(3)}, median ${stats[i]!.medianMs.toFixed(3)}, p95 ${stats[i]!.p95Ms.toFixed(2)}, ` +
           `max ${stats[i]!.maxMs.toFixed(2)} ms (${stats[i]!.rule.stalls} stalls (host or ours) over ${STALL_MS} ms; p95 ` +
-          `${stats[i]!.rule.p95Ms.toFixed(2)} without them); server load ${w.load?.toFixed(1) ?? "?"}; ` +
+          `${stats[i]!.rule.p95Ms.toFixed(2)} without them); every system (IWSDK's too) p95 ` +
+          `${p95WithoutStalls(w.update).p95Ms.toFixed(2)} ms, the render's (software GL) ${p95WithoutStalls(w.render).p95Ms.toFixed(2)} ms; ` +
+          `server load ${w.load?.toFixed(1) ?? "?"}; ` +
           `p95 by system: ${Object.entries(w.systems).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")}`,
       ),
       `perf-budget: judged on window ${judged.index + 1}: p95 ${judged.p95Ms.toFixed(2)} ms a frame without stalls ` +

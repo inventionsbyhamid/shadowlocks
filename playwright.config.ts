@@ -10,13 +10,20 @@ const URL = `https://localhost:${PORT}/`;
  */
 export const BOT_SPECS = "**/bot*.spec.ts";
 
+/**
+ * The Quest 2 and Pro CPU gate (tests/e2e/perf-budget-quest2.spec.ts, strict: 5.72x, 3.75 ms): opt in too, because on
+ * this server it sits on its budget line and the server's load decides which side (task-25-report.md, fix round 1).
+ * playwright.quest2.config.ts runs it, at low load; tests/e2e/README.md says how and when.
+ */
+export const QUEST2_GATE_SPECS = "**/perf-budget-quest2.spec.ts";
+
 // Runs on the build server in the shadowlocks-e2e image (scripts/e2e.sh), never on a laptop.
 // Software rendering is slow, so tests run one at a time with long timeouts and always on the
 // virtual clock (tests/e2e/helpers).
 export default defineConfig({
   testDir: "tests/e2e",
   testMatch: "**/*.spec.ts",
-  testIgnore: BOT_SPECS,
+  testIgnore: [BOT_SPECS, QUEST2_GATE_SPECS],
   globalSetup: "./tests/e2e/global-setup.ts",
   outputDir: "test-results/artifacts",
   timeout: 10 * 60_000,

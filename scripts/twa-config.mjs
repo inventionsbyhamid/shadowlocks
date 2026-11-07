@@ -13,8 +13,11 @@
 //                                    [--support-email <address>] [--store-package <id>] [--competition-package <id>]
 //                                    [--store-host <host>] [--competition-host <host>] [--out <dir>]
 //   node scripts/twa-config.mjs check [--allow-placeholders]
+//   node scripts/twa-config.mjs devices <generated project folder>
 // fill reads the current values from the files, applies the options and writes every file, in place or
 // under --out (same layout). A version a later `bubblewrap update` bumped is kept.
+// devices declares the supported headsets (Quest 2, Quest Pro, Quest 3, Quest 3S) in the AndroidManifest.xml that
+// `bubblewrap update` generated, before `bubblewrap build` (Bubblewrap has no setting for it).
 // check fails when a file differs from what the generator makes of its own values (a hand edit), when
 // the values are wrong (two apps on one package or host, a malformed id) and, unless
 // --allow-placeholders, while any placeholder is left: run it before every APK build.
@@ -121,6 +124,27 @@ export function twaManifest(app) {
     retainedBundles: [],
     displayOverride: [],
   };
+}
+
+/**
+ * The headsets both apps run on: the APK manifest's `com.oculus.supportedDevices` (identifiers from Meta's
+ * compatibility-mode page). Bubblewrap writes no such entry, and without one Horizon OS runs the app on a newer headset
+ * in compatibility mode as a Quest 2 (device APIs report Quest 2; refresh rates only those both offer). `devices`
+ * writes it into the generated Gradle project, between `bubblewrap update` and `bubblewrap build`.
+ */
+export const SUPPORTED_DEVICES = ["quest2", "questpro", "quest3", "quest3s"];
+const DEVICES_KEY = "com.oculus.supportedDevices";
+export const ANDROID_MANIFEST = "app/src/main/AndroidManifest.xml";
+
+/** `xml` (a generated AndroidManifest.xml) declaring `devices` in its application element, replacing any such entry. */
+export function withSupportedDevices(xml, devices = SUPPORTED_DEVICES) {
+  const entry = `<meta-data android:name="${DEVICES_KEY}" android:value="${devices.join("|")}" />`;
+  const existing = /<meta-data\s+android:name="com\.oculus\.supportedDevices"[^>]*\/>/;
+  if (existing.test(xml)) return xml.replace(existing, entry);
+  const app = /<application\b[^>]*>/.exec(xml);
+  if (!app) throw new Error("the manifest has no <application> element");
+  const at = app.index + app[0].length;
+  return `${xml.slice(0, at)}\n        ${entry}${xml.slice(at)}`;
 }
 
 /** One statement per package, all with the same signing key: the file both hosts serve. */
@@ -251,6 +275,14 @@ function parseArgs(argv) {
 function main(argv) {
   const [cmd, ...rest] = argv;
   const root = process.cwd();
+  if (cmd === "devices") {
+    if (rest.length !== 1) throw new Error("devices takes the generated project's folder");
+    const f = path.resolve(root, rest[0], ANDROID_MANIFEST);
+    if (!fs.existsSync(f)) throw new Error(`no ${ANDROID_MANIFEST} under ${rest[0]} (run it after bubblewrap update)`);
+    fs.writeFileSync(f, withSupportedDevices(fs.readFileSync(f, "utf8")));
+    console.log(`twa-config: ${path.relative(root, f)} declares ${DEVICES_KEY} = ${SUPPORTED_DEVICES.join("|")}`);
+    return 0;
+  }
   const { opts, flags } = parseArgs(rest);
   const privacyFile = path.join(root, PRIVACY);
   const privacyText = fs.existsSync(privacyFile) ? fs.readFileSync(privacyFile, "utf8") : null;
@@ -293,7 +325,7 @@ function main(argv) {
     );
     return 0;
   }
-  console.error("usage: node scripts/twa-config.mjs fill [options] | check [--allow-placeholders]");
+  console.error("usage: node scripts/twa-config.mjs fill [options] | check [--allow-placeholders] | devices <generated project folder>");
   return 2;
 }
 
