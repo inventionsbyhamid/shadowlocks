@@ -167,7 +167,10 @@ export function checkCounts(box: Box): string[] {
   if (box.locks.length !== P.locks) errs.push(`${box.locks.length} locks, want ${P.locks}`);
   const fingers = box.locks.filter((l) => l.finger).length;
   if (fingers !== P.fingerLocks) errs.push(`${fingers} finger locks, want ${P.fingerLocks}`);
-  if (count((e) => e.kind === "decoy") !== P.decoys) errs.push(`${count((e) => e.kind === "decoy")} decoys, want ${P.decoys}`);
+  // A version 4 box from 10 may give up to half its decoys to the frame cost cap (generator.ts FRAME_COST_CAP).
+  const decoys = count((e) => e.kind === "decoy"), trimmable = box.spec.kind === "box" && box.spec.n >= 10 && box.spec.gen !== 3;
+  const fewest = trimmable ? P.decoys - Math.floor(P.decoys / 2) : P.decoys;
+  if (decoys > P.decoys || decoys < fewest) errs.push(`${decoys} decoys, want ${trimmable ? `${fewest} to ` : ""}${P.decoys}`);
   const ringless = box.locks.filter((l) => !l.rings).length;
   if (ringless !== P.ringless) errs.push(`${ringless} ringless locks, want ${P.ringless}`);
   const hidden = box.locks.filter((l) => l.hidden).length;

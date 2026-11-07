@@ -9,6 +9,7 @@
 // lock or near its ring mark from its spot; the start solves nothing; every spot is inside the envelope and apart from
 // the others.
 import { ENVELOPE } from "./envelope";
+import { frameMs, renderCorners } from "./frame-cost";
 import { area, bbox, circlePts, elongation, hash, inPoly, polyDist, proj, rng32, segDist } from "./geom";
 import { boxParams, boxParamsV3, dailyParams, KINDS_FROM } from "./params";
 import { mirrorLock } from "./mirror";
@@ -130,6 +131,16 @@ const DECOY_WOBBLE = 0.06;
  * grid (the solve rule's, a mirrored box's), not just the one used here.
  */
 const START_COVER_MAX = 0.45;
+/**
+ * From box 10 and in the Daily Box (version 4), a box casts at most this many shadow corners (frame-cost.ts): its frame
+ * in play then costs at most 10% more than box 15's, the box the frame budgets are timed on (192 corners, about 1.12 ms
+ * at 4x by the model; a tenth of that is about 160 corners more). generator.test.ts holds the cap to that.
+ */
+export const FRAME_CORNER_CAP = 350;
+/** A box from 10 may place up to this share fewer decoys to stay within FRAME_CORNER_CAP; the Daily Box none (box 7's). */
+const DECOY_TRIM_MAX = 0.5;
+/** Corners of a decoy's shadow: a triangle. */
+const DECOY_CORNERS = 3;
 
 /** `items` shuffled by their own seed (Fisher-Yates on mulberry32), a new array. */
 function seededOrder<T>(items: readonly T[], seed: string): T[] {
@@ -259,7 +270,7 @@ export function specOfKey(key: string): BoxSpec | null {
   return daily && isDayKey(daily[1]) ? { kind: "daily", day: daily[1]! } : null;
 }
 
-type Reason = "spot" | "finger" | "piece" | "ring" | "decoy" | "start" | "warmth";
+type Reason = "spot" | "finger" | "piece" | "ring" | "decoy" | "start" | "warmth" | "cost";
 
 /** Points on the way in to a spot where warmth must stay below the spot's own: 0.2 out, nine of them. */
 const WARM_SAMPLES = 9;
@@ -362,6 +373,11 @@ function warmestAtSpots(locks: Lock[], elements: Element[], start: V3, known: Ma
   return true;
 }
 
+/** A box's frame in play by the frame cost model (frame-cost.ts): its mean JS at 4x (ms) and its shadow corners. */
+export function boxFrame(box: Pick<Box, "elements">): { ms: number; corners: number } {
+  return { ms: frameMs(box.elements), corners: renderCorners(box.elements) };
+}
+
 export interface BoxBuild {
   box: Box;
   /** Whole-box attempts it took, the successful one included. */
@@ -384,6 +400,9 @@ export function buildBox(spec: BoxSpec): BoxBuild {
   // (the wide Crown) is not drawn much less often. Its classic locks take them in order. Later attempts draw them
   // afresh each time, as boxes up to 9 always do, so a set that will not fit never holds a box up.
   const fixedClassics = v3 || (spec.kind === "box" && spec.n < KINDS_FROM) ? null : seededOrder(CLASSICS, key + "/classics");
+  // The frame cost cap, and how many of its decoys a box may leave out for it (FRAME_CORNER_CAP).
+  const capped = !v3 && (spec.kind === "daily" || (spec.kind === "box" && spec.n >= KINDS_FROM));
+  const fewestDecoys = P.decoys - (spec.kind === "box" ? Math.floor(P.decoys * DECOY_TRIM_MAX) : 0);
   // From box 5 (version 4), a finger lock fits a laid finger for either hand (boxes 1 to 4 stay version 3's byte for byte).
   const bothHands = !v3 && !(spec.kind === "box" && spec.n <= 4);
   let attemptNow = 0;
@@ -486,6 +505,17 @@ export function buildBox(spec: BoxSpec): BoxBuild {
     const ringOrder = shuffle(locks.slice()).sort((a, b) => Number(a.finger) - Number(b.finger));
     for (const l of ringOrder.slice(0, P.ringless)) l.rings = false;
 
+    // The frame cost cap (from box 10 and in the Daily Box): the shadow corners of the scraps and rings are known before
+    // any is placed, so a box that cannot fit FRAME_CORNER_CAP with its fewest decoys is turned down here, and one that
+    // fits places as many decoys as the cap leaves room for, up to its kind's.
+    let decoys = P.decoys;
+    if (capped) {
+      let corners = 0;
+      for (const l of locks) corners += l.target.reduce((n, p) => n + p.length, 0) + (l.rings ? 4 * RING_SIDES : 0);
+      decoys = Math.min(P.decoys, Math.floor((FRAME_CORNER_CAP - corners) / DECOY_CORNERS));
+      if (decoys < fewestDecoys) return "cost";
+    }
+
     const elements: Element[] = [];
     for (const l of locks) {
       const zMax = l.hidden ? Math.min(PZ1, HIDDEN_PIECE_Z_MAX) : PZ1;
@@ -529,7 +559,7 @@ export function buildBox(spec: BoxSpec): BoxBuild {
       if (!done) return "ring";
     }
 
-    for (let n = 0; n < P.decoys; n++) {
+    for (let n = 0; n < decoys; n++) {
       let placed = false;
       for (let t = 0; t < DECOY_TRIES && !placed; t++) {
         const c: V3 = [R(-DECOY_XY, DECOY_XY), R(-DECOY_XY, DECOY_XY), R(PZ0, PZ1)], s = R(DECOY_R[0], DECOY_R[1]);

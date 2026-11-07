@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
+import { FRAME_MS } from "../../src/core/frame-cost";
 import {
   BUILDABLE_VERSIONS,
+  boxFrame,
   buildBox,
+  FRAME_CORNER_CAP,
   GENERATOR_VERSION,
   generateBox,
   genOf,
@@ -399,6 +402,22 @@ describe("box kinds and silhouettes", () => {
     const sil = days.map(({ box }) => box.locks.find((l) => SILHOUETTES.includes(l.shape))!.shape);
     for (let i = 1; i < sil.length; i++) expect(sil[i], DAYS[i]).not.toBe(sil[i - 1]);
     expect(sil.some((s) => !FIRST_SILHOUETTES.includes(s))).toBe(true);
+  });
+
+  it("keeps every box from 10 and every Daily Box within the frame cost cap, at most 10% over box 15's frame", () => {
+    // frame-cost.ts: a frame's mean JS at 4x grows FRAME_MS.corner a shadow corner. A box at the cap costs at most a
+    // tenth more than box 15, the box the frame budgets are timed on.
+    const box15 = boxFrame(built.find((b) => b.spec.kind === "box" && b.spec.n === 15)!.box);
+    expect(FRAME_MS.base + FRAME_MS.corner * FRAME_CORNER_CAP).toBeLessThanOrEqual(1.1 * box15.ms);
+    const late = built.filter((b) => b.spec.kind === "daily" || (b.spec.kind === "box" && b.spec.n >= 10)), over: string[] = [];
+    let most = 0;
+    for (const { box } of late) {
+      const f = boxFrame(box);
+      most = Math.max(most, f.corners);
+      if (f.corners > FRAME_CORNER_CAP) over.push(`${box.key}: ${f.corners}`);
+    }
+    console.log(`frame cost: box 15 ${box15.corners} corners (${box15.ms.toFixed(3)} ms at 4x), the most from box 10 ${most} (cap ${FRAME_CORNER_CAP})`);
+    expect(over).toEqual([]);
   });
 
   it("takes about as long to build boxes 10 to 40 as version 3 did", () => {
