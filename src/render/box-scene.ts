@@ -46,7 +46,8 @@ import { mergeParts } from "./merge";
 import { BOX_ROOT_NAME, DEFAULT_BOX_CM } from "./placement";
 import { Panel } from "./panel";
 import { type ScrapHandle, Scraps, slotOf } from "./scraps";
-import { BoxShadows, MAX_EXTRAS, penumbra } from "./shadow-mesh";
+import { BoxShadows, MAX_EXTRAS } from "./box-shadows";
+import { penumbra } from "./shadow-mesh";
 import { COLORS, ENV, LIGHTS, MATERIALS } from "./theme";
 
 /** Frame bars: thickness and edge radius (box units). The radius gives the clearcoat a rim to catch light. */
