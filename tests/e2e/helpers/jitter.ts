@@ -422,6 +422,12 @@ const FINGER_WAIT_MS = 5000;
 const FINGER_LAYS = 2;
 /** Before its hold, the laid finger is taken this far out (box z, past the mouth at 1: it casts nothing there). */
 const FINGER_OUT_Z = 1.2;
+/**
+ * The finger is aimed (laid) this far to one side of its gap (box units, across the gap, toward the panel's middle),
+ * where its shadow cannot fill the gap, and the aimed pose then moved over it: so the hold never starts while the
+ * finger is being aimed, and every hold the bot counts is the shaken one.
+ */
+const LAY_ASIDE = 0.2;
 /** Lessons: the reward and the drawer handle are carried at this speed (cm/s), the drawer pulled this far (m). */
 const REWARD_CMPS = 15;
 const DRAWER_PULL_M = 0.06;
@@ -877,6 +883,11 @@ export class Bot {
   private async fingerHold(fl: SlFingerLock, r: LockResult, depth: number): Promise<string> {
     const { mid, dir } = this.gapLine(fl, depth);
     const hands = this.input === "hands";
+    // Across the gap, toward the panel's middle: where the finger is aimed before it is moved over the gap.
+    const across: Vec3 = [-dir[1], dir[0], 0], toMiddle = across[0] * mid[0] + across[1] * mid[1] > 0 ? -1 : 1;
+    const aside: Vec3 = [across[0] * toMiddle * LAY_ASIDE, across[1] * toMiddle * LAY_ASIDE, 0];
+    const [o0, o1] = await this.world([mid, add(mid, aside)]);
+    const asideWorld = sub(o1!, o0!);
     let open = false, blocked = "";
     while (!open && !blocked && r.lays < FINGER_LAYS) {
       await this.waitFor((w) => !w.__bot.jit.lost, null, 1000);
@@ -884,44 +895,47 @@ export class Bot {
       let laid: { off: number; angle: number }, at: Vec3, orient: unknown;
       if (hands) {
         const p = new Pointer(this.app, "right");
-        laid = await p.lay(mid, dir);
+        laid = await p.lay(add(mid, aside), dir);
         const t = p as unknown as { fingers: Vec3; palm: Vec3 };
-        at = p.tip;
+        at = sub(p.tip, asideWorld);
         orient = { fingers: { x: t.fingers[0], y: t.fingers[1], z: t.fingers[2] }, palm: { x: t.palm[0], y: t.palm[1], z: t.palm[2] } };
       } else {
         const c = new ControllerFinger(this.app, "right");
         try {
-          laid = await c.lay(mid, dir);
+          laid = await c.lay(add(mid, aside), dir);
         } catch (e) {
           if (!/casts no stand-in/.test(String(e))) throw e;
           blocked = "no controller fingertip: the game casts no stand-in finger for the controller in the box";
           await this.page.evaluate(() => ((window as any).__bot.driving = true));
           break;
         }
-        at = c.pos;
+        at = sub(c.pos, asideWorld);
         orient = c.q;
       }
       r.lays++;
       // The lay's last, unshaken frames can start the hold. So, shaking from here on, the finger goes out of the box
       // until its hold is back at zero (FINGER_GRACE_MS without the gap filled), then back into the gap at 10 cm/s:
-      // the whole hold is shaken.
+      // the whole hold is shaken. It was aimed beside the gap (LAY_ASIDE), so it leaves from there, never crossing the
+      // gap, and comes back in over the gap.
+      const aimedAt = add(at, asideWorld);
       await this.page.evaluate(
-        ({ at, orient, anchor }) => {
+        ({ from, orient, anchor }) => {
           const b = (window as any).__bot;
           b.stop();
           b.anchor = anchor;
           b.orient = orient;
-          b.pos = at;
+          b.pos = from;
           b.sel = 0;
           b.driving = true;
         },
-        { at, orient, anchor: hands ? "index-tip" : null },
+        { from: aimedAt, orient, anchor: hands ? "index-tip" : null },
       );
       const [inBox, outOfMouth] = await this.world([
         [0, 0, depth],
         [0, 0, FINGER_OUT_Z],
       ]);
-      await this.go([{ to: add(at, sub(outOfMouth!, inBox!)), cmps: AWAY_CMPS }], "the finger out of the box before its hold");
+      await this.go([{ to: add(aimedAt, sub(outOfMouth!, inBox!)), cmps: AWAY_CMPS }], "the finger out of the box before its hold");
+      await this.go([{ to: add(at, sub(outOfMouth!, inBox!)), cmps: AWAY_CMPS }], "the finger, out of the box, over its gap");
       const fresh = await this.waitFor(
         (w, i) => {
           const f = w.__sl.fingerLocks().find((x: any) => x.lock === i);
