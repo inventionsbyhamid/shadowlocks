@@ -1,6 +1,6 @@
 import { Matrix4, Vector3 } from "@iwsdk/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildTipScript, SWEEP_CLEAR } from "../../src/app/lesson-scripts";
+import { buildTipScript, gripOf, SWEEP_CLEAR } from "../../src/app/lesson-scripts";
 import { tipLock } from "../../src/app/tips";
 import { generateBox } from "../../src/core/generator";
 import { buildLessonLock, LESSON_1, LESSON_2, lessonPlan } from "../../src/core/lessons-data";
@@ -322,10 +322,11 @@ describe("LessonsDirector: lesson 1", () => {
     r.run(500);
     expect(r.d.frame.hand.opacity).toBeGreaterThan(0);
     r.run(2000);
-    // It reaches for the lantern: within a few centimetres of it at some point of its loop.
+    // It reaches for the lantern: its pinch within a few centimetres of the lantern's handle loop at some point of its
+    // loop.
     let nearest = Infinity;
     r.run(4000, () => {
-      const a = r.d.frame.hand.at, b = r.inp.at;
+      const a = r.d.frame.hand.at, b = gripOf(r.inp.at);
       if (r.d.frame.hand.opacity > 0.5) nearest = Math.min(nearest, Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]));
     });
     expect(nearest).toBeLessThan(0.02);
