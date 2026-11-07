@@ -190,6 +190,8 @@ export class Lessons implements MenuLessons {
 
   /** Show one example alone (a Lessons menu row, "Show me"); false while one is already showing. */
   replay(example: ExampleId): boolean {
+    // Not during a tip replay: its practice box would be the one kept and put back, losing the real one.
+    if (this.tipReplay) return false;
     return this.director.replay(example);
   }
 
@@ -283,6 +285,8 @@ export class Lessons implements MenuLessons {
   private stepTipReplay(session: BoxSession): void {
     const tr = this.tipReplay!, dir = this.director;
     if (tr.shown) {
+      // As in play, a hand taking the lantern stops the demo; the replay is then over.
+      if (dir.tipping && this.d.lantern.grab.holder !== null) dir.stopTip();
       if (!dir.tipping) this.endTipReplay();
       return;
     }

@@ -346,6 +346,35 @@ describe("Lessons", () => {
     expect(d.lessons.director.replaying).toBe("finger");
   });
 
+  it("refuses \"Show me\" during a tip replay: the player ends back on the real box, never a practice copy", () => {
+    const b = bench();
+    b.play.game.play({ kind: "box", n: 7 });
+    b.lessons.replayTip!("decoys");
+    b.run(500);
+    expect(b.lessons.director.tipping).toBe(true);
+    expect(b.lessons.replay("near-far")).toBe(false);
+    b.run(9000);
+    expect(b.lessons.director.replaying).toBeNull();
+    expect(b.plays.at(-1)).toMatchObject({ spec: { kind: "box", n: 7 }, practice: false });
+    expect(b.session.practice).toBe(false);
+  });
+
+  it("keeps the drawer shut through a tip replay, and lets it go with the demo when the player takes the lantern", () => {
+    const b = bench();
+    b.play.game.play({ kind: "box", n: 7 });
+    expect(b.lessons.drawerAllowed).toBe(true);
+    b.lessons.replayTip!("decoys");
+    expect(b.lessons.drawerAllowed).toBe(false);
+    b.run(500);
+    expect([b.lessons.director.tipping, b.lessons.drawerAllowed]).toEqual([true, false]);
+    // A hand takes the lantern: the demo stops, as in play, and the real box comes back.
+    b.lantern.grab.holder = "right";
+    b.run(64);
+    expect(b.lessons.director.tipping).toBe(false);
+    expect(b.plays.at(-1)).toMatchObject({ spec: { kind: "box", n: 7 }, practice: false });
+    expect(b.lessons.drawerAllowed).toBe(true);
+  });
+
   it("ends lesson 2 with the drawer's pull at its last step", () => {
     const b = bench();
     b.lessons.start("l2", { step: 3 });
