@@ -2,17 +2,26 @@
 // the real lantern. Both are capsules drawn as instances of one small mesh in the world (GhostRig: one draw call for
 // the two), in one fresnel colour pass that writes depth, so a capsule behind one already drawn is hidden rather than
 // stacked brighter. Each capsule fades by its own opacity, and one at 0 draws nothing (its pixels are discarded, so
-// it writes no depth either). The rim glows; the body is faint.
+// it writes no depth either). The rim glows; the body is fainter still, so overlapping capsules read as outlines.
+//
+// The hand is built to read as a hand at a glance: fingers in real proportions (each joint's radius from the pose
+// library's, 7 to 10 mm at the knuckles), each bone a tapered capsule so a finger narrows toward its tip; a flat palm
+// (four flattened capsules along the metacarpals, side by side, and a flattened heel to the wrist) rather than round
+// capsules the width of a fist; and a wrist that fades out up the forearm. A capsule can taper (a radius at each end)
+// and be flattened square to a given direction (here the palm's normal).
 //
 // The hand's poses (open, pinch, point, relaxed) are IWER's, exported once into src/lessons/poses.json (scripts/
-// export-poses.mjs): 25 joints in the wrist's frame of a left hand, fingers toward -z, palm toward -y. A right hand
-// is the mirror image (x negated). setPose blends two poses joint by joint; setWorld puts the wrist in the world;
+// export-poses.mjs): 25 joints in the wrist's frame of a left hand, fingers toward -z, palm toward -y; "hold" and
+// "ready" take the thumb and index of one and the other fingers of another. A right hand is the mirror image (x
+// negated). setPose blends two poses joint by joint; setWorld puts the wrist in the world;
 // place() works out that matrix so the pinch point, the index fingertip or the wrist lands on a point with the
-// fingers and palm turned as asked. `world` holds the joints in the world for whatever casts the ghost's shadow.
+// fingers and palm turned as asked. `world` holds the joints in the world for whatever casts the ghost's shadow, and
+// GHOST_SHADOW_BONES the bones it casts, the hand's own (so a slimmer hand casts a slimmer shadow).
 //
 // The ghost lantern is placed in box units like the real one (sync() puts it in the world through the box's
-// matrix): a cage of thin capsules round a glowing core, with no glow sprite of its own. Both fade by opacity alone
-// (reduced motion keeps them). No allocation per frame.
+// matrix): a cage of capsules round a glowing pale-blue core, with no glow sprite of its own. The ghost holds it by
+// its handle loop (GHOST_LANTERN_GRIP), as the real lantern's loop sits. Both fade by opacity alone (reduced motion
+// keeps them). No allocation per frame.
 import {
   BufferAttribute,
   Color,
@@ -30,61 +39,120 @@ import {
 import type { V3 } from "../core/types";
 import { HAND_JOINTS, JOINT_COUNT } from "../input/hand-joints";
 import POSES from "../lessons/poses.json";
+import type { ShadowBones } from "./hand-shadow";
 import { COLORS } from "./theme";
 
-export type GhostPose = "open" | "pinch" | "point" | "relaxed";
+/**
+ * The library's poses (open, pinch, point, relaxed), and two made from them: "hold", the pinch's thumb and index with
+ * the other fingers tucked into the palm as in the point (a lantern held by its loop, the pinch plain to see and
+ * nothing reaching on into the box), and "ready", the relaxed thumb and index open to take it, the others tucked.
+ */
+export type GhostPose = "open" | "pinch" | "point" | "relaxed" | "hold" | "ready";
 /** The point of the hand that place() puts on its target. */
 export type GhostAnchor = "grasp" | "tip" | "wrist";
 
 export const GHOST_LOOK = {
   color: COLORS.ghost,
-  /** The faint body and the glowing rim (alpha), how fast the rim falls off, and how bright it glows. */
-  bodyAlpha: 0.14,
-  rimAlpha: 0.92,
-  rimPower: 2.2,
-  rimGlow: 1.35,
-  /** Capsule radii (m): the palm's from the wrist to each knuckle, and the knuckles' bar. */
-  palmRadius: 0.016,
-  knuckleRadius: 0.011,
-  /** A finger bone is this much of its joints' mean radius: a ghost is a little slimmer than a hand. */
-  fingerScale: 0.9,
+  /** The hand's faint body and the glowing rim (alpha), how fast the rim falls off, and how bright it glows. */
+  bodyAlpha: 0.07,
+  rimAlpha: 1,
+  rimPower: 1.8,
+  rimGlow: 1.45,
+  /** The ghost lantern's cage, a little more solid than the hand so it reads in the ghost's fingers... */
+  lampBody: 0.42,
+  lampBright: 1.2,
+  /** ...round a glowing core: pale blue, never the real lantern's warm gold. */
+  coreBody: 0.6,
+  coreBright: 1.75,
+  /**
+   * A finger joint's radius is the pose library's times this (by the joint's place along the finger): about 7 to 10
+   * mm at the knuckles, narrowing toward the tips. The thumb's base is its metacarpal joint, slimmed most (the pose
+   * library's radius there is the ball of the thumb).
+   */
+  fingerScale: { metacarpal: 0.58, proximal: 0.85, intermediate: 0.85, distal: 0.82, tip: 0.7 },
+  /** The palm's metacarpals: flattened capsules this wide (radius across the palm, m), this thick for their width. */
+  palmWidth: 0.0125,
+  palmFlat: 0.6,
+  /** The heel of the hand and the wrist: as wide (m) and as flat; the forearm fades out this far past the wrist. */
+  wristWidth: 0.022,
+  wristFlat: 0.58,
+  forearm: 0.05,
+  forearmWidth: 0.024,
   /** Drawn after the box and its glass. */
   renderOrder: 996,
 } as const;
 
+type LibraryPose = "open" | "pinch" | "point" | "relaxed";
 interface PoseFile {
   joints: string[];
   radius: number[];
-  poses: Record<GhostPose, number[]>;
+  poses: Record<LibraryPose, number[]>;
 }
 const DATA = POSES as PoseFile;
-export const GHOST_POSES: readonly GhostPose[] = ["open", "pinch", "point", "relaxed"];
+/** The wrist, thumb and index finger are the first ten joints (WebXR order); the other three fingers follow. */
+const THUMB_AND_INDEX = 10;
+/** A pose with the wrist, thumb and index of `a` and the other fingers of `b`. */
+const compose = (a: LibraryPose, b: LibraryPose): number[] => [...DATA.poses[a].slice(0, THUMB_AND_INDEX * 3), ...DATA.poses[b].slice(THUMB_AND_INDEX * 3)];
+const POSE_DATA: Readonly<Record<GhostPose, number[]>> = { ...DATA.poses, hold: compose("pinch", "point"), ready: compose("relaxed", "point") };
+export const GHOST_POSES: readonly GhostPose[] = ["open", "pinch", "point", "relaxed", "hold", "ready"];
+/** Each pose's joints (wrist frame, a left hand), as setPose blends them. */
+export const GHOST_POSE_DATA: Readonly<Record<GhostPose, readonly number[]>> = POSE_DATA;
 
 const J = (name: XRHandJoint): number => HAND_JOINTS.indexOf(name);
 const WRIST = J("wrist"), THUMB_TIP = J("thumb-tip"), INDEX_TIP = J("index-finger-tip"), INDEX_MID = J("index-finger-phalanx-intermediate");
+/** A bone's far end that is no joint: the point up the forearm GHOST_LOOK.forearm from the wrist. */
+export const FOREARM = -1;
 
-/** A ghost bone: a capsule between two joints. */
+/** A ghost bone: a capsule between two joints (or the wrist and FOREARM). */
 export interface GhostBone {
   a: number;
   b: number;
-  r: number;
+  /** Radius (m) at a and at b (a finger tapers toward its tip); across the palm for a flattened bone. */
+  ra: number;
+  rb: number;
+  /** Thickness for width: 1 round; under 1 flattened square to the palm (the palm, the heel and the wrist). */
+  flat: number;
+  /** Opacity at a and at b (the forearm fades out). */
+  fadeA: number;
+  fadeB: number;
+}
+
+/** A joint's radius on the ghost (m): the pose library's, scaled by the joint's place along its finger. */
+export function ghostRadius(j: number): number {
+  const name = HAND_JOINTS[j]!, s = GHOST_LOOK.fingerScale;
+  const k = name.endsWith("-tip")
+    ? s.tip
+    : name.endsWith("-distal")
+      ? s.distal
+      : name.endsWith("-intermediate")
+        ? s.intermediate
+        : name.endsWith("-proximal")
+          ? s.proximal
+          : s.metacarpal;
+  return DATA.radius[j]! * k;
 }
 
 function bones(): GhostBone[] {
-  const R = DATA.radius, s = GHOST_LOOK.fingerScale;
-  const finger = (a: XRHandJoint, b: XRHandJoint): GhostBone => ({ a: J(a), b: J(b), r: ((R[J(a)]! + R[J(b)]!) / 2) * s });
-  const palm = (b: XRHandJoint): GhostBone => ({ a: WRIST, b: J(b), r: GHOST_LOOK.palmRadius });
+  const L = GHOST_LOOK;
+  const finger = (a: XRHandJoint, b: XRHandJoint): GhostBone => ({ a: J(a), b: J(b), ra: ghostRadius(J(a)), rb: ghostRadius(J(b)), flat: 1, fadeA: 1, fadeB: 1 });
+  const flat = (a: number, b: number, ra: number, rb: number, k: number, fadeB = 1): GhostBone => ({ a, b, ra, rb, flat: k, fadeA: 1, fadeB });
+  const metacarpal = (n: "index" | "middle" | "ring" | "pinky"): GhostBone =>
+    flat(J(`${n}-finger-metacarpal`), J(`${n}-finger-phalanx-proximal`), L.palmWidth, L.palmWidth, L.palmFlat);
   const digit = (n: "index" | "middle" | "ring" | "pinky"): GhostBone[] => [
     finger(`${n}-finger-phalanx-proximal`, `${n}-finger-phalanx-intermediate`),
     finger(`${n}-finger-phalanx-intermediate`, `${n}-finger-phalanx-distal`),
     finger(`${n}-finger-phalanx-distal`, `${n}-finger-tip`),
   ];
   return [
-    palm("index-finger-phalanx-proximal"),
-    palm("middle-finger-phalanx-proximal"),
-    palm("ring-finger-phalanx-proximal"),
-    palm("pinky-finger-phalanx-proximal"),
-    { a: J("index-finger-phalanx-proximal"), b: J("pinky-finger-phalanx-proximal"), r: GHOST_LOOK.knuckleRadius },
+    // The palm: the heel from the wrist to the middle of the metacarpals' bases, then the four metacarpals side by
+    // side to the knuckles (overlapping a little, so they read as one plate).
+    flat(WRIST, J("middle-finger-metacarpal"), L.wristWidth, L.wristWidth, L.wristFlat),
+    metacarpal("index"),
+    metacarpal("middle"),
+    metacarpal("ring"),
+    metacarpal("pinky"),
+    // The wrist, fading out up the forearm.
+    flat(WRIST, FOREARM, L.wristWidth, L.forearmWidth, L.wristFlat, 0),
     finger("thumb-metacarpal", "thumb-phalanx-proximal"),
     finger("thumb-phalanx-proximal", "thumb-phalanx-distal"),
     finger("thumb-phalanx-distal", "thumb-tip"),
@@ -95,15 +163,32 @@ function bones(): GhostBone[] {
   ];
 }
 
-/** The hand's capsules: the palm (four from the wrist and the knuckles' bar), the thumb and every finger bone. */
+/** The hand's capsules: the palm (heel and four metacarpals), the wrist, the thumb and every finger bone. */
 export const GHOST_BONES: readonly GhostBone[] = bones();
+
+/**
+ * The bones the ghost hand's shadow is cast from (HandShadow's table): every bone between two joints at its drawn
+ * radii (a flattened one at its width), the index finger's last two bones as the finger. The fading forearm casts
+ * nothing.
+ */
+export const GHOST_SHADOW_BONES: ShadowBones = (() => {
+  const cast = GHOST_BONES.filter((b) => b.b !== FOREARM);
+  const fingerBones = [J("index-finger-phalanx-intermediate"), J("index-finger-phalanx-distal")];
+  return {
+    a: Int32Array.from(cast, (b) => b.a),
+    b: Int32Array.from(cast, (b) => b.b),
+    ra: Float64Array.from(cast, (b) => b.ra),
+    rb: Float64Array.from(cast, (b) => b.rb),
+    finger: Uint8Array.from(cast, (b) => (fingerBones.includes(b.a) ? 1 : 0)),
+  };
+})();
 
 /**
  * A unit sphere cut at its middle, for a capsule drawn as an instance: `aTop` is 0 on the half at the capsule's
  * start and 1 on the half at its end; the middle ring is there twice, once per half, and the band between them is
  * the capsule's side once the shader moves the halves apart. Faces wind outward.
  */
-export function capsuleGeometry(radial = 10, cap = 3): InstancedBufferGeometry {
+export function capsuleGeometry(radial = 12, cap = 4): InstancedBufferGeometry {
   const rings: [number, number, number][] = [];
   for (let i = 0; i <= cap; i++) {
     const a = -Math.PI / 2 + (i / cap) * (Math.PI / 2);
@@ -140,26 +225,46 @@ export function capsuleGeometry(radial = 10, cap = 3): InstancedBufferGeometry {
   return g;
 }
 
+// Per capsule: its ends (iA, iB), its radius at each (iR), its opacity (iO), the direction it is flattened square to
+// and its thickness for its width (iF: xyz, w; w 1 is round), and its look (iL: opacity at a and at b, body alpha,
+// brightness).
 const VERTEX = /* glsl */ `
 attribute float aTop;
 attribute vec3 iA;
 attribute vec3 iB;
-attribute float iR;
+attribute vec2 iR;
 attribute float iO;
+attribute vec4 iF;
+attribute vec4 iL;
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
 varying float vO;
+varying vec2 vLook;
 void main() {
-  vO = iO;
+  vO = iO * mix(iL.x, iL.y, aTop);
+  vLook = iL.zw;
   vec3 ax = iB - iA;
   float len = length(ax);
   vec3 d = len > 1e-6 ? ax / len : vec3(0.0, 1.0, 0.0);
-  vec3 h = abs(d.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-  // A right-handed frame with y along the bone, so the sphere's faces keep their winding.
-  vec3 u = normalize(cross(h, d));
-  vec3 w = cross(u, d);
-  vec3 n = u * position.x + d * position.y + w * position.z;
-  vec4 wp = modelMatrix * vec4(mix(iA, iB, aTop) + n * iR, 1.0);
+  // A right-handed frame with y along the bone (so the sphere's faces keep their winding), z along the direction it
+  // is flattened square to when it has one.
+  vec3 fn = iF.xyz - d * dot(iF.xyz, d);
+  vec3 u;
+  vec3 w;
+  if (dot(fn, fn) > 1e-8) {
+    w = normalize(fn);
+    u = cross(d, w);
+  } else {
+    vec3 h = abs(d.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    u = normalize(cross(h, d));
+    w = cross(u, d);
+  }
+  float k = iF.w;
+  float r = mix(iR.x, iR.y, aTop);
+  vec3 off = u * position.x + d * position.y + w * (position.z * k);
+  // An ellipsoid's normal: the flattened axis's component grows as the shape thins.
+  vec3 n = u * position.x + d * position.y + w * (position.z / k);
+  vec4 wp = modelMatrix * vec4(mix(iA, iB, aTop) + off * r, 1.0);
   vWorldPos = wp.xyz;
   vWorldNormal = normalize(mat3(modelMatrix) * n);
   gl_Position = projectionMatrix * viewMatrix * wp;
@@ -168,21 +273,21 @@ void main() {
 
 const FRAGMENT = /* glsl */ `
 uniform vec3 uColor;
-uniform float uBodyAlpha;
 uniform float uRimAlpha;
 uniform float uRimPower;
 uniform float uRimGlow;
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
 varying float vO;
+varying vec2 vLook;
 void main() {
   vec3 n = normalize(vWorldNormal);
   vec3 v = normalize(cameraPosition - vWorldPos);
   float rim = pow(1.0 - clamp(abs(dot(n, v)), 0.0, 1.0), uRimPower);
-  float a = mix(uBodyAlpha, uRimAlpha, rim) * vO;
+  float a = mix(vLook.x, uRimAlpha, rim) * vO;
   // A capsule faded out (or nearly) draws nothing and writes no depth.
   if (a < 0.004) discard;
-  gl_FragColor = vec4(uColor * mix(0.7, uRimGlow, rim), a);
+  gl_FragColor = vec4(uColor * mix(0.7, uRimGlow, rim) * vLook.y, a);
   #include <colorspace_fragment>
 }
 `;
@@ -197,6 +302,8 @@ export class CapsuleSet {
   private readonly b: InstancedBufferAttribute;
   private readonly r: InstancedBufferAttribute;
   private readonly o: InstancedBufferAttribute;
+  private readonly f: InstancedBufferAttribute;
+  private readonly l: InstancedBufferAttribute;
 
   constructor(
     readonly n: number,
@@ -207,17 +314,22 @@ export class CapsuleSet {
     const attr = (size: number) => new InstancedBufferAttribute(new Float32Array(n * size), size).setUsage(DynamicDrawUsage);
     this.a = attr(3);
     this.b = attr(3);
-    this.r = attr(1);
+    this.r = attr(2);
     this.o = attr(1);
+    this.f = attr(4);
+    this.l = attr(4);
     g.setAttribute("iA", this.a);
     g.setAttribute("iB", this.b);
     g.setAttribute("iR", this.r);
     g.setAttribute("iO", this.o);
+    g.setAttribute("iF", this.f);
+    g.setAttribute("iL", this.l);
     const L = GHOST_LOOK;
+    // Every capsule round and at the hand's look until told otherwise.
+    for (let i = 0; i < n; i++) this.look(i, 1, 1, 1, L.bodyAlpha, 1);
     const material = new ShaderMaterial({
       uniforms: {
         uColor: { value: new Color(L.color) },
-        uBodyAlpha: { value: L.bodyAlpha },
         uRimAlpha: { value: L.rimAlpha },
         uRimPower: { value: L.rimPower },
         uRimGlow: { value: L.rimGlow },
@@ -248,29 +360,54 @@ export class CapsuleSet {
     this.mesh.visible = any;
   }
 
-  /** Capsule i from a to b (metres, in the world), radius r. */
-  set(i: number, ax: number, ay: number, az: number, bx: number, by: number, bz: number, r: number): void {
-    const A = this.a.array as Float32Array, B = this.b.array as Float32Array, o = i * 3;
+  /**
+   * Capsule i's look, set once: its thickness for its width (1 round), its opacity at each end (times its fade), its
+   * body's alpha (the rim's is GHOST_LOOK.rimAlpha) and its brightness.
+   */
+  look(i: number, flat: number, fadeA: number, fadeB: number, body: number, bright: number): void {
+    const F = this.f.array as Float32Array, Lk = this.l.array as Float32Array, o = i * 4;
+    F[o + 3] = flat;
+    Lk[o] = fadeA;
+    Lk[o + 1] = fadeB;
+    Lk[o + 2] = body;
+    Lk[o + 3] = bright;
+    this.f.needsUpdate = true;
+    this.l.needsUpdate = true;
+  }
+
+  /** Capsule i from a to b (metres, in the world), radius ra at a and rb at b. */
+  set(i: number, ax: number, ay: number, az: number, bx: number, by: number, bz: number, ra: number, rb: number): void {
+    const A = this.a.array as Float32Array, B = this.b.array as Float32Array, R = this.r.array as Float32Array, o = i * 3;
     A[o] = ax;
     A[o + 1] = ay;
     A[o + 2] = az;
     B[o] = bx;
     B[o + 1] = by;
     B[o + 2] = bz;
-    (this.r.array as Float32Array)[i] = r;
+    R[i * 2] = ra;
+    R[i * 2 + 1] = rb;
   }
 
-  /** Upload what set() wrote. */
+  /** The direction capsule i is flattened square to (world; unused while it is round). */
+  flatten(i: number, nx: number, ny: number, nz: number): void {
+    const F = this.f.array as Float32Array, o = i * 4;
+    F[o] = nx;
+    F[o + 1] = ny;
+    F[o + 2] = nz;
+  }
+
+  /** Upload what set() and flatten() wrote. */
   commit(): void {
     this.a.needsUpdate = true;
     this.b.needsUpdate = true;
     this.r.needsUpdate = true;
+    this.f.needsUpdate = true;
   }
 }
 
 /** A blend of two poses at t (0: a, 1: b), side sign applied to x, into out. */
 function blend(a: GhostPose, b: GhostPose, t: number, sign: number, out: Float32Array): void {
-  const A = DATA.poses[a], B = DATA.poses[b];
+  const A = POSE_DATA[a], B = POSE_DATA[b];
   if (!A || !B) throw new Error(`GhostHand: no pose "${!A ? a : b}"`);
   for (let i = 0; i < out.length; i++) {
     const v = A[i]! + (B[i]! - A[i]!) * t;
@@ -310,6 +447,10 @@ export class GhostHand {
   ) {
     this.sign = side === "right" ? -1 : 1;
     this.caps = caps ?? new CapsuleSet(GHOST_BONES.length, "Ghost Hand");
+    for (let i = 0; i < GHOST_BONES.length; i++) {
+      const b = GHOST_BONES[i]!;
+      this.caps.look(from + i, b.flat, b.fadeA, b.fadeB, GHOST_LOOK.bodyAlpha, 1);
+    }
     this.object.name = "Ghost Hand";
     this.object.matrixAutoUpdate = false;
     this.setPose("relaxed", "relaxed", 0);
@@ -410,7 +551,7 @@ export class GhostHand {
     this.caps.fade(this.from, this.from + GHOST_BONES.length, this.wanted ? this.alpha : 0);
   }
 
-  /** The joints in the world, and each bone's capsule between its two. */
+  /** The joints in the world, and each bone's capsule between its two (flattened square to the palm). */
   private toWorld(): void {
     const e = this.object.matrix.elements, L = this.local, W = this.world;
     for (let j = 0; j < JOINT_COUNT; j++) {
@@ -419,9 +560,17 @@ export class GhostHand {
       W[o + 1] = e[1]! * x + e[5]! * y + e[9]! * z + e[13]!;
       W[o + 2] = e[2]! * x + e[6]! * y + e[10]! * z + e[14]!;
     }
+    // The palm's normal is the wrist frame's y; the forearm runs up its z from the wrist.
+    const nx = e[4]!, ny = e[5]!, nz = e[6]!, f = GHOST_LOOK.forearm, w = WRIST * 3;
     for (let i = 0; i < GHOST_BONES.length; i++) {
-      const bone = GHOST_BONES[i]!, a = bone.a * 3, b = bone.b * 3;
-      this.caps.set(this.from + i, W[a]!, W[a + 1]!, W[a + 2]!, W[b]!, W[b + 1]!, W[b + 2]!, bone.r);
+      const bone = GHOST_BONES[i]!, a = bone.a * 3, k = this.from + i;
+      if (bone.b === FOREARM) {
+        this.caps.set(k, W[a]!, W[a + 1]!, W[a + 2]!, W[w]! + e[8]! * f, W[w + 1]! + e[9]! * f, W[w + 2]! + e[10]! * f, bone.ra, bone.rb);
+      } else {
+        const b = bone.b * 3;
+        this.caps.set(k, W[a]!, W[a + 1]!, W[a + 2]!, W[b]!, W[b + 1]!, W[b + 2]!, bone.ra, bone.rb);
+      }
+      if (bone.flat < 1) this.caps.flatten(k, nx, ny, nz);
     }
     this.caps.commit();
   }
@@ -437,26 +586,38 @@ function square(v: Vector3, n: Readonly<Vector3>): Vector3 {
   return v.normalize();
 }
 
-/** The ghost lantern's capsules: eight fins, a ring above and below them, the spire, its handle loop and the core. */
+/**
+ * Where the ghost holds a lantern (box units, from its light): the middle of its handle loop, as the real lantern's
+ * loop sits (lantern-view.ts) and the ghost lantern's below.
+ */
+export const GHOST_LANTERN_GRIP: V3 = [0, 0.155, 0];
+/** The handle loop's radius (box units). */
+const LOOP_R = 0.016;
+
+/**
+ * The ghost lantern's capsules: eight fins, a ring above and below them, the spire, its handle loop round the grip,
+ * and the core (last).
+ */
 function lanternCapsules(): [V3, V3, number][] {
   const out: [V3, V3, number][] = [];
   const oct = (r: number, y: number, i: number): V3 => {
     const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
     return [Math.cos(a) * r, y, Math.sin(a) * r];
   };
-  for (let i = 0; i < 8; i++) out.push([oct(0.041, -0.058, i), oct(0.041, 0.058, i), 0.0035]);
-  for (let i = 0; i < 8; i++) out.push([oct(0.05, 0.064, i), oct(0.05, 0.064, i + 1), 0.004]);
-  for (let i = 0; i < 8; i++) out.push([oct(0.052, -0.062, i), oct(0.052, -0.062, i + 1), 0.004]);
-  out.push([[0, 0.07, 0], [0, 0.135, 0], 0.006]);
+  for (let i = 0; i < 8; i++) out.push([oct(0.041, -0.058, i), oct(0.041, 0.058, i), 0.005]);
+  for (let i = 0; i < 8; i++) out.push([oct(0.05, 0.064, i), oct(0.05, 0.064, i + 1), 0.0055]);
+  for (let i = 0; i < 8; i++) out.push([oct(0.052, -0.062, i), oct(0.052, -0.062, i + 1), 0.0055]);
+  out.push([[0, 0.07, 0], [0, GHOST_LANTERN_GRIP[1] - LOOP_R, 0], 0.008]);
+  const g = GHOST_LANTERN_GRIP;
   for (let i = 0; i < 6; i++) {
     const a0 = (i / 6) * Math.PI * 2, a1 = ((i + 1) / 6) * Math.PI * 2;
-    out.push([[Math.cos(a0) * 0.016, 0.155 + Math.sin(a0) * 0.016, 0], [Math.cos(a1) * 0.016, 0.155 + Math.sin(a1) * 0.016, 0], 0.003]);
+    out.push([[g[0] + Math.cos(a0) * LOOP_R, g[1] + Math.sin(a0) * LOOP_R, g[2]], [g[0] + Math.cos(a1) * LOOP_R, g[1] + Math.sin(a1) * LOOP_R, g[2]], 0.0042]);
   }
-  out.push([[0, -0.03, 0], [0, 0.03, 0], 0.03]);
+  out.push([[0, -0.036, 0], [0, 0.036, 0], 0.032]);
   return out;
 }
 const LANTERN_PARTS = lanternCapsules();
-/** The ghost lantern's capsules (box units, about its light): from, to, radius. */
+/** The ghost lantern's capsules (box units, about its light): from, to, radius. The core is the last. */
 export const GHOST_LANTERN_PARTS: readonly (readonly [V3, V3, number])[] = LANTERN_PARTS;
 export const GHOST_LANTERN_CAPSULES = LANTERN_PARTS.length;
 
@@ -472,6 +633,10 @@ export class GhostLantern {
     private readonly from = 0,
   ) {
     this.caps = caps ?? new CapsuleSet(LANTERN_PARTS.length, "Ghost Lantern");
+    const L = GHOST_LOOK, core = LANTERN_PARTS.length - 1;
+    for (let i = 0; i < LANTERN_PARTS.length; i++) {
+      this.caps.look(this.from + i, 1, 1, 1, i === core ? L.coreBody : L.lampBody, i === core ? L.coreBright : L.lampBright);
+    }
     this.sync(IDENTITY);
     this.caps.fade(this.from, this.from + LANTERN_PARTS.length, this.alpha);
   }
@@ -492,7 +657,7 @@ export class GhostLantern {
   sync(m: Readonly<Matrix4>): void {
     const e = m.elements, s = Math.hypot(e[0]!, e[1]!, e[2]!), P = this.pos;
     for (let i = 0; i < LANTERN_PARTS.length; i++) {
-      const part = LANTERN_PARTS[i]!, a = part[0], b = part[1], r = part[2];
+      const part = LANTERN_PARTS[i]!, a = part[0], b = part[1], r = part[2] * s;
       const ax = P[0] + a[0], ay = P[1] + a[1], az = P[2] + a[2], bx = P[0] + b[0], by = P[1] + b[1], bz = P[2] + b[2];
       this.caps.set(
         this.from + i,
@@ -502,7 +667,8 @@ export class GhostLantern {
         e[0]! * bx + e[4]! * by + e[8]! * bz + e[12]!,
         e[1]! * bx + e[5]! * by + e[9]! * bz + e[13]!,
         e[2]! * bx + e[6]! * by + e[10]! * bz + e[14]!,
-        r * s,
+        r,
+        r,
       );
     }
     this.caps.commit();
