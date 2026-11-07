@@ -1,7 +1,17 @@
 // Text and small painted faces for things in the box (the plate, its keys, the hint lantern, the reward's story
 // card): a 2D canvas as a texture, repainted only when what it shows changes (never per frame). The game's
 // lettering on canvases is a serif in the brass-and-ivory look; Task 18's look pass may swap it.
-import { CanvasTexture, LinearFilter, SRGBColorSpace } from "@iwsdk/core";
+import {
+  CanvasTexture,
+  CustomBlending,
+  LinearFilter,
+  MeshBasicMaterial,
+  type MeshBasicMaterialParameters,
+  OneFactor,
+  OneMinusSrcAlphaFactor,
+  SRGBColorSpace,
+  type Texture,
+} from "@iwsdk/core";
 
 /** The face for painted lettering (canvas fonts; UIKit panels have their own). */
 export const LABEL_FONT = "Georgia, 'Times New Roman', serif";
@@ -28,6 +38,9 @@ export class LabelCanvas {
     this.texture.colorSpace = SRGBColorSpace;
     this.texture.minFilter = LinearFilter;
     this.texture.generateMipmaps = false;
+    // Uploaded premultiplied (the canvas keeps it so): filtering then never mixes a transparent pixel's black into a
+    // face's edge, the faint dark fringe round a key's rounded corners. Draw it with labelMaterial.
+    this.texture.premultiplyAlpha = true;
   }
 
   /** Repaint (clears first) and upload on the next render. Nothing where there is no 2D canvas (unit tests). */
@@ -38,6 +51,25 @@ export class LabelCanvas {
     draw(g, this.width, this.height);
     this.texture.needsUpdate = true;
   }
+}
+
+/**
+ * The material for a LabelCanvas face: its colour comes premultiplied from the upload, so it blends as
+ * premultiplied (source times one, not times alpha again) and the shader leaves it as it is.
+ */
+export function labelMaterial(map: Texture, extra: MeshBasicMaterialParameters = {}): MeshBasicMaterial {
+  return new MeshBasicMaterial({
+    map,
+    transparent: true,
+    toneMapped: false,
+    premultipliedAlpha: false,
+    blending: CustomBlending,
+    blendSrc: OneFactor,
+    blendDst: OneMinusSrcAlphaFactor,
+    blendSrcAlpha: OneFactor,
+    blendDstAlpha: OneMinusSrcAlphaFactor,
+    ...extra,
+  });
 }
 
 /** A rounded rectangle path. */

@@ -1,6 +1,6 @@
 // Per-frame shell work: place the box in the lap once per XR session (and again on Recenter), lay
-// out what follows the placement, step the box's own motion, and run debounced saves. Allocation-free
-// per frame.
+// out what follows the placement, step the box's own motion and the theatre lights, and run debounced
+// saves. Allocation-free per frame.
 import { createSystem, Quaternion, Vector3 } from "@iwsdk/core";
 import { placement, yawFromQuaternion } from "../render/placement";
 import type { Shell } from "./shell";
@@ -46,10 +46,12 @@ export class ShellSystem extends createSystem({}) {
     if (!s) return;
     const now = performance.now();
     const xrSession = this.world.session ?? null;
-    // Once per XR session, on its first frame with a tracked head.
+    // Once per XR session, on its first frame with a tracked head: place the box, and compile every shader for the
+    // session's render target (set only inside its frames) so nothing compiles the first time it shows.
     if (xrSession && this.placedFor !== xrSession && this.world.xrFrame && this.recenter()) {
       this.placedFor = xrSession;
       s.recenterAsked = false;
+      void s.prewarm();
     }
     // A Recenter waits for a frame with a tracked head.
     if (s.recenterAsked && this.recenter()) s.recenterAsked = false;
@@ -57,7 +59,10 @@ export class ShellSystem extends createSystem({}) {
       this.laidOut = placement.version;
       s.layout();
     }
-    s.box.update(Math.min(Math.max(delta, 0), 0.1));
+    const dt = Math.min(Math.max(delta, 0), 0.1);
+    s.box.update(dt);
+    // The theatre's veil stays round the head wherever it goes.
+    s.theatre.update(dt, this.world.player.head.getWorldPosition(this.headPos));
     s.lifecycle.tick(now);
   }
 }

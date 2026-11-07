@@ -66,6 +66,8 @@ export interface PlayOptions {
   gain?: number;
   /** Start this many seconds from now, exactly on the audio clock (layered sounds). */
   delay?: number;
+  /** Dip the music this many dB while this sound plays (the box's tune); the deeper of this and the manifest's duck. */
+  duckDb?: number;
 }
 
 /**
@@ -176,6 +178,8 @@ export class AudioEngine {
   private vol = { music: 1, sfx: 1 };
   private duckDepth = 1;
   private duckUntil = 0;
+  /** When the current duck starts going down (it may still be to come). */
+  private duckFrom = 0;
 
   constructor(opts: EngineOptions = {}) {
     this.random = opts.random ?? Math.random;
@@ -512,7 +516,8 @@ export class AudioEngine {
     src.onended = v.onEnded;
     src.start(at);
 
-    if (e.duckMusicDb > 0) this.duckMusic(e.duckMusicDb, buffer.duration / rate, at);
+    const duckDb = o.duckDb !== undefined && o.duckDb > e.duckMusicDb ? o.duckDb : e.duckMusicDb;
+    if (duckDb > 0) this.duckMusic(duckDb, buffer.duration / rate, at);
     return v.handle;
   }
 
@@ -742,19 +747,22 @@ export class AudioEngine {
 
   /**
    * Lower music by `dbDown` for `hold` seconds from `from` (default now), then release. Overlapping
-   * ducks merge.
+   * ducks merge: the deeper depth, the later end, and the earlier start while the one before has not
+   * begun (sounds handed over ahead of time, as a whole tune at once).
    */
   private duckMusic(dbDown: number, hold: number, from?: number): void {
     const now = this.ctx.currentTime;
-    const start = from !== undefined && from > now ? from : now;
+    let start = from !== undefined && from > now ? from : now;
     let depth = db(-dbDown);
     let end = start + DUCK_ATTACK + hold;
     if (now < this.duckUntil) {
       depth = Math.min(depth, this.duckDepth);
       end = Math.max(end, this.duckUntil);
+      if (this.duckFrom > now && this.duckFrom < start) start = this.duckFrom;
     }
     this.duckDepth = depth;
     this.duckUntil = end;
+    this.duckFrom = start;
     const g = this.duck.gain;
     g.cancelScheduledValues(now);
     g.setValueAtTime(g.value, now);

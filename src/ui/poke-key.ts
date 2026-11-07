@@ -3,9 +3,9 @@
 // follows the finger, `press` at 80% of its travel, the action as the finger comes back out). Sizes are in metres
 // (the key lives in a group that cancels the box's scale), so a key is at least 40 mm whatever the box size. One
 // draw call; per frame it allocates nothing and repaints nothing.
-import { Group, Mesh, MeshBasicMaterial, PlaneGeometry, Vector3 } from "@iwsdk/core";
+import { Group, Mesh, PlaneGeometry, Vector3 } from "@iwsdk/core";
 import { FingerKey, KEY_EVENT, nearestFinger } from "../render/finger-key";
-import { brassFace, LABEL_FONT, LabelCanvas } from "../render/label";
+import { brassFace, LABEL_FONT, LabelCanvas, labelMaterial } from "../render/label";
 import type { Tips } from "./key-view";
 
 /** How far the face travels under the finger (m). */
@@ -47,7 +47,7 @@ export class PokeKey {
   ) {
     this.group.name = id;
     this.label = new LabelCanvas(Math.round(width * PX_PER_M), Math.round(height * PX_PER_M));
-    this.face = new Mesh(new PlaneGeometry(width, height), new MeshBasicMaterial({ map: this.label.texture, transparent: true, toneMapped: false }));
+    this.face = new Mesh(new PlaneGeometry(width, height), labelMaterial(this.label.texture));
     this.face.name = `${id} face`;
     this.group.add(this.face);
     this.setText(text);

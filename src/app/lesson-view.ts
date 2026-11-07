@@ -7,7 +7,6 @@
 // Reduced motion: the lantern goes to and from its cradle in one cut (no flight), the swing takes the director's
 // no-overshoot curve, and every fade is opacity only. One click (one flash) per example. Allocation-free per frame.
 import {
-  AdditiveBlending,
   Color,
   type Matrix4,
   Mesh,
@@ -26,6 +25,7 @@ import { crystallise } from "../render/fx/crystallise";
 import { type GhostHand, type GhostLantern, GhostRig } from "../render/ghost-hand";
 import { HandShadow, MAX_HAND_OUTLINES } from "../render/hand-shadow";
 import { radialTexture } from "../render/lantern-view";
+import { LIGHT_BLEND } from "../render/light-blend";
 import { boxToWorld } from "../render/placement";
 import { COLORS } from "../render/theme";
 import { CoachLine, CoachLineView } from "../ui/coach-line";
@@ -121,7 +121,8 @@ export class LessonView {
     this.cradle.visible = false;
     scene.root.add(this.cradle);
     this.formGlow = new Sprite(
-      new SpriteMaterial({ map: radialTexture(64, false), color: new Color(COLORS.lamp), blending: AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }),
+      // Light over the room (light-blend.ts): it adds colour and leaves the page's alpha alone.
+      new SpriteMaterial({ map: radialTexture(64, false), color: new Color(COLORS.lamp), ...LIGHT_BLEND, depthWrite: false, transparent: true, toneMapped: false }),
     );
     this.formGlow.name = "Box Forming";
     this.formGlow.position.set(0, 0, 0.5);

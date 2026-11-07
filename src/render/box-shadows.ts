@@ -6,7 +6,7 @@
 import { circlePts, projInto } from "../core/geom";
 import { RING_SIDES } from "../core/solve";
 import type { Box, Element as BoxElement, Piece, V2, V3 } from "../core/types";
-import { penumbra, SOFT_MIN, ShadowMesh, type ShadowShape, triangulate } from "./shadow-mesh";
+import { LANTERN_RADIUS, PENUMBRA_MAX, SOFT_MIN, ShadowMesh, type ShadowShape, triangulate } from "./shadow-mesh";
 
 /** Shadow casters in a box: 3 locks of up to 16 pieces, 20 decoys, 8 rings (as Scraps sizes them). */
 export const MAX_CASTERS = 3 * 16 + 20 + 8;
@@ -184,14 +184,17 @@ export class BoxShadows {
     at[0] = L[0];
     at[1] = L[1];
     at[2] = L[2] > LZ_MIN ? L[2] : LZ_MIN;
-    const soft = this.soft;
+    const soft = this.soft, Lz = at[2];
     let k = 0;
     for (let i = 0; i < cs.length; i++) {
       const c = cs[i]!;
       if (!c.on) continue;
       const pts = c.pts, poly = c.poly;
       for (let j = 0; j < pts.length; j++) projInto(pts[j]!, at, poly[j]!);
-      const pen = penumbra(c.z, at[2]);
+      // penumbra(c.z, Lz), written out: a float returned from a call the engine did not inline is boxed.
+      const z = c.z, d = Lz - z;
+      let pen = d > 0 ? (LANTERN_RADIUS * z) / d : PENUMBRA_MAX;
+      if (pen > PENUMBRA_MAX) pen = PENUMBRA_MAX;
       soft[k++] = pen > SOFT_MIN ? pen : SOFT_MIN;
     }
     const polys = this.polys;

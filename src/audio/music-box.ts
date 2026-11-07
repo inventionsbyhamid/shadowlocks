@@ -36,7 +36,12 @@ export const DIAL_TICK_SEMITONES: readonly number[] = [0, 2, 4, 7];
 export interface Scheduled {
   id: string;
   atMs: number;
+  /** The music dips this many dB while this sound plays (the box's tune). */
+  duckDb?: number;
 }
+
+/** The music dips this many dB under the box's tune: down in 50 ms with its first note, up 300 ms after its last. */
+export const TUNE_DUCK_DB = 4;
 
 // ------------------------------------------------------------------------------------- notes
 
@@ -142,11 +147,12 @@ export function scheduleLockOpen(lock: number, atMs: number, key: string = KEY):
 /**
  * The box opening, in time order: the chord resolves (G4 B4 D5 G5 rolled 80 ms apart from +500 ms),
  * the walls hinge open at +700, the drawer slides out at +1300, and the box's tune plays in eighth
- * notes from +1700.
+ * notes from +1700, each note dipping the music TUNE_DUCK_DB (the notes ring on into the next, so
+ * their dips join into one, from the first note until the last has rung).
  */
 export function scheduleBoxOpen(seed: string, atMs: number): Scheduled[] {
   const out: Scheduled[] = RESOLVE_CHORD.map((id, i) => ({ id, atMs: atMs + BOX_OPEN_MS.chord + i * BOX_OPEN_MS.chordStep }));
   out.push({ id: "walls_hinge", atMs: atMs + BOX_OPEN_MS.walls }, { id: "drawer_slide", atMs: atMs + BOX_OPEN_MS.drawer });
-  tuneFor(seed).forEach((id, i) => out.push({ id, atMs: atMs + BOX_OPEN_MS.tune + i * EIGHTH_MS }));
+  tuneFor(seed).forEach((id, i) => out.push({ id, atMs: atMs + BOX_OPEN_MS.tune + i * EIGHTH_MS, duckDb: TUNE_DUCK_DB }));
   return out.sort((a, b) => a.atMs - b.atMs);
 }

@@ -232,7 +232,7 @@ export function planMix(frames: FrameEvents[], m: AudioManifest, o: PlanOptions)
     }
   };
 
-  const playSfx = (t: number, id: string, c: { position?: readonly number[]; pitch?: number; gain?: number; variant?: number }) => {
+  const playSfx = (t: number, id: string, c: { position?: readonly number[]; pitch?: number; gain?: number; variant?: number; duckDb?: number }) => {
     const r = resolveSfx(m, id);
     if (!r || r.files.length === 0) {
       plan.log.push({ t, cue: id, note: "no such sound in the manifest" });
@@ -274,7 +274,9 @@ export function planMix(frames: FrameEvents[], m: AudioManifest, o: PlanOptions)
       duration: length,
     });
     plan.log.push({ t, cue: id, note: azimuth === null ? undefined : `azimuth ${azimuth.toFixed(0)}` });
-    if (e.duckMusicDb > 0) duck(t, e.duckMusicDb, length);
+    // As the engine: the deeper of the sound's own duck and its cue's (the box's tune).
+    const duckDb = c.duckDb !== undefined && c.duckDb > e.duckMusicDb ? c.duckDb : e.duckMusicDb;
+    if (duckDb > 0) duck(t, duckDb, length);
     if (r.with) playSfx(t, r.with, c.position ? { position: c.position } : {});
   };
 

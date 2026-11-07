@@ -96,6 +96,27 @@ const ART = {
   frost: { blotches: 70, speckles: 16000, edge: 74, edgeAlpha: 0.26 },
 } as const;
 
+/** How the shader reads the etching and draws shadows and an open lock. */
+export const LOOK = {
+  /**
+   * The gold lines, by how far the albedo's warmth runs from ivory (0) to the etch gold (1), eased from lineFrom to
+   * lineTo. A line laid at alpha a over ivory reads about 0.06 at the inside tint (a 0.08), 0.17 for a fan ray
+   * (0.22), 0.29 for a fan's ring (0.36), 0.47 for the faint border (0.55), 0.58 for the inner line (0.65) and 1 for
+   * the outline, numerals, marks and dots: the first three drop out, the rest keep most of their sheen.
+   */
+  lineFrom: 0.35,
+  lineTo: 0.75,
+  /**
+   * The outer share of a shadow's skirt left clear: its half-shadow line sits 0.35 of the penumbra past the scrap's
+   * edge instead of 0.5, so a lock filled from its spot overhangs its outline by 30% less.
+   */
+  skirtClear: 0.3,
+  /** How much of an open lock's colour is its gold foil (over its shadows, which fill it at its spot). */
+  openFoil: 0.85,
+  /** How much of the open outline's hot burn is held back inside the shape, so the foil's bands show. */
+  openBurnInside: 0.75,
+} as const;
+
 /** Display-space RGB of a #rrggbb colour (no colour management: the shader works in display values). */
 function rgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
@@ -160,12 +181,19 @@ varying float vCov;
 // How warm the ivory and the etch gold are ((red - blue) / red), to find the gold lines in the albedo.
 const float IVORY_WARM = ${warmthOf(COLORS.panel).toFixed(4)};
 const float ETCH_WARM = ${warmthOf(COLORS.etch).toFixed(4)};
+const float LINE_FROM = ${LOOK.lineFrom.toFixed(3)};
+const float LINE_TO = ${LOOK.lineTo.toFixed(3)};
+const float SKIRT_CLEAR = ${LOOK.skirtClear.toFixed(3)};
+const float OPEN_FOIL = ${LOOK.openFoil.toFixed(3)};
+const float OPEN_BURN_INSIDE = ${LOOK.openBurnInside.toFixed(3)};
 ${foilGlsl()}
 void main() {
 #ifdef SHADOW
   // Shadows fall on the panel only.
   if (abs(vP.x) > 0.5 || abs(vP.y) > 0.5) discard;
-  float cov = smoothstep(0.0, 1.0, vCov);
+  // The skirt runs from full shadow at the scrap's edge (1) to none at the penumbra's reach (0); its outer part
+  // stays clear, so a shape filled from its spot overhangs its outline by less, and soft and crisp pieces step less.
+  float cov = smoothstep(SKIRT_CLEAR, 1.0, vCov);
 #else
   float cov = 0.0;
 #endif
@@ -175,7 +203,9 @@ void main() {
   // The glow band: crisp along the outline, a soft halo round it.
   float band = min(1.0, m.g + texture2D(uHalo, uv).a);
   // The gold lines: where the albedo is as warm as the etch gold (frost and shading change brightness, not warmth).
-  float line = clamp(((albedo.r - albedo.b) / max(albedo.r, 0.01) - IVORY_WARM) / (ETCH_WARM - IVORY_WARM), 0.0, 1.0);
+  // Only the strong gold leaf counts (outlines, inner lines, numerals, marks, dots, the border): the whisper of gold
+  // inside an outline and the faint fan and ring behind a lock neither glint in shadow nor light up with warmth.
+  float line = smoothstep(LINE_FROM, LINE_TO, clamp(((albedo.r - albedo.b) / max(albedo.r, 0.01) - IVORY_WARM) / (ETCH_WARM - IVORY_WARM), 0.0, 1.0));
   // The lantern's pool: inverse square and cosine falloff, gathered toward the spot under it.
   vec2 d = vP - uLantern.xy;
   float r2 = dot(d, d), z2 = uLantern.z * uLantern.z, q = z2 / (r2 + z2);
@@ -194,12 +224,14 @@ void main() {
   float inFrame = 1.0 - smoothstep(sh.y + 0.01, sh.y + 0.03, max(abs(rel.x), abs(rel.y)));
   float glow = mix(band, line * inFrame, sh.z);
   c += clamp(1.2 * w, 0.0, 1.0) * glow * uGold;
-  // Open: banded gold foil fills the shape and its outline burns bright.
+  // Open: banded gold foil fills the shape, over its shadows (the outline fills with light), the etching showing
+  // through it as engraving, and its outline burns bright. The burn is the band's, mostly outside the shape: inside
+  // a small shape the band's soft halo would wash the foil's bands out to white.
   if (o > 0.0) {
     float f = m.r * o;
-    c = mix(c, foil(0.5 + (rel.x - rel.y) / (2.2 * sh.x)), 0.5 * f);
+    c = mix(c, foil(0.5 + (rel.x - rel.y) / (2.2 * sh.x)), OPEN_FOIL * f);
     c *= mix(vec3(1.0), albedo, 0.85 * f);
-    c += 0.55 * o * band * uGoldHot;
+    c += 0.55 * o * band * (1.0 - OPEN_BURN_INSIDE * m.r) * uGoldHot;
   }
   gl_FragColor = sRGBTransferEOTF(vec4(clamp(c, 0.0, 1.0), 1.0));
   #include <colorspace_fragment>
@@ -623,7 +655,11 @@ export class Panel {
 
   /** Where the lantern is (box units): its pool of light follows. */
   setLantern(L: V3): void {
-    this.uniforms.uLantern.value.set(L[0], L[1], L[2]);
+    // Written field by field: no float crosses a call (Vector3.set would take three, boxed when not inlined).
+    const u = this.uniforms.uLantern.value;
+    u.x = L[0];
+    u.y = L[1];
+    u.z = L[2];
   }
 
   /** How warm lock `lock` is (0..1, unsmoothed); the glow eases toward it. */

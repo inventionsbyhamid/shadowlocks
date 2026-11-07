@@ -38,6 +38,9 @@ export interface NsState {
 export interface NsPerf {
   calls: number;
   triangles: number;
+  /** The most draw calls and triangles any one frame drew since resetPerf (the last frame included). */
+  callsMax: number;
+  trianglesMax: number;
   /** Last frame. Chromium's timer has 0.1 ms steps here, so prefer the average for small numbers. */
   frameMs: number;
   frameMsAvg: number;
