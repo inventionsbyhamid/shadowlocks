@@ -67,6 +67,16 @@ describe("canvas lettering per language", () => {
     expect(wrapLabel(g, "Off the desk of the Clockmaker.", 100, 2)).toEqual(["Off the", "desk of the Clockmaker."]);
   });
 
+  it("keeps ¿ and ¡ with the word after them, and ° and º with the one before", () => {
+    expect(breakUnits("¿Listo? ¡Vamos!")).toEqual(["¿Listo? ", "¡Vamos!"]);
+    expect(breakUnits("Caja n.º 3")).toEqual(["Caja ", "n.º ", "3"]);
+    expect(breakUnits("a 20° hoy")).toEqual(["a ", "20° ", "hoy"]);
+    // Beside Japanese characters too: never a line ending on ¿ ¡, never one starting with ° º.
+    expect(breakUnits("気温20°の日")).toEqual(["気", "温", "20°", "の", "日"]);
+    expect(breakUnits("箱¿箱").join("|")).not.toMatch(/¿\|/);
+    expect(breakUnits("箱º箱").join("|")).not.toMatch(/\|º/);
+  });
+
   it("captions a sound in the language now shown", () => {
     expect(captionFor("brass_clunk")).toBe("Lock opens");
     setLang("fr");
@@ -162,6 +172,24 @@ describe("the box's labels follow the language", () => {
     expect(painted).toEqual([["[Watch.]"]]);
     c.repaint();
     expect(painted).toEqual([["[Watch.]"], ["[Watch.]"]]);
+  });
+
+  it("the coach chip paints once when the language changes: the new line, never the old one again", () => {
+    const painted: string[] = [];
+    const c = new CoachLine({ paint: (l) => void painted.push(l.join(" ")), wrap: (t) => [t] });
+    c.show("Watch.");
+    c.update(16);
+    // A new language: the next frame brings the line in it; the old one fades out unpainted, the new one is painted.
+    c.relettered();
+    c.show("Mira.");
+    for (let t = 0; t < 1000; t += 16) c.update(16);
+    expect(painted).toEqual(["Watch.", "Mira."]);
+    // A font arriving (same words): the line up is painted again, once.
+    c.relettered();
+    c.show("Mira.");
+    c.update(16);
+    c.update(16);
+    expect(painted).toEqual(["Watch.", "Mira.", "Mira."]);
   });
 
   it("the hint lantern's choices", () => {

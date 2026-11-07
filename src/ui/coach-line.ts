@@ -141,6 +141,7 @@ export class CoachLine {
   private shown: string | null = null;
   private target: string | null = null;
   private alpha = 0;
+  private reletter = false;
 
   constructor(private readonly painter: CoachPainter) {}
 
@@ -149,8 +150,20 @@ export class CoachLine {
     this.target = text;
   }
 
+  /**
+   * The lettering changed (a new language, a font arriving): at the next update the line up is painted again if it
+   * is still the line asked for. A line in the new language replaces it instead and is painted once, as itself.
+   */
+  relettered(): void {
+    this.reletter = true;
+  }
+
   /** Advance the fades by dtMs; paints when a new line takes over. */
   update(dtMs: number): void {
+    if (this.reletter) {
+      this.reletter = false;
+      if (this.target === this.shown) this.repaint();
+    }
     const dt = Math.max(0, dtMs);
     if (this.target !== this.shown) {
       if (this.shown !== null && this.alpha > 0) {

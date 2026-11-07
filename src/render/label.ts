@@ -48,10 +48,13 @@ export function fitLabel(g: Measure, text: string, style: LabelStyle, max: numbe
   return { size, width, room, squeezed: width > room };
 }
 
-/** Japanese characters a line may not start with (closing marks, small kana, the long vowel mark). */
-export const NO_START: ReadonlySet<string> = new Set([..."、。，．・：；？！ー」』）］｝〕〉》】ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ々〜»"]);
-/** Japanese characters a line may not end with (opening marks; French « too). */
-export const NO_END: ReadonlySet<string> = new Set([..."「『（［｛〔〈《【«"]);
+/**
+ * Characters a line may not start with: Japanese closing marks, small kana and the long vowel mark; French »; the
+ * degree sign and the ordinal º ("20°", "n.º").
+ */
+export const NO_START: ReadonlySet<string> = new Set([..."、。，．・：；？！ー」』）］｝〕〉》】ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ々〜»°º"]);
+/** Characters a line may not end with: Japanese opening marks; French «; Spanish ¿ and ¡. */
+export const NO_END: ReadonlySet<string> = new Set([..."「『（［｛〔〈《【«¿¡"]);
 
 /**
  * The places a line may break in `text`: between words where there are spaces, and between Japanese characters
@@ -60,7 +63,8 @@ export const NO_END: ReadonlySet<string> = new Set([..."「『（［｛〔〈《
  */
 export function breakUnits(text: string): string[] {
   const units: string[] = [];
-  const re = /[A-Za-z0-9À-ÿŒœ.,'’:;!?%() -]+ ?| +|./gsu;
+  // A Latin run: letters, digits, their punctuation (Spanish ¿ ¡ and ° º with it) and no-break spaces.
+  const re = /[A-Za-z0-9À-ÿŒœ.,'’:;!?%()¿¡°º -]+ ?| +|./gsu;
   for (const m of text.matchAll(re)) {
     const u = m[0];
     const last = units.length - 1;
