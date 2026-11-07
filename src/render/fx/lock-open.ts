@@ -2,13 +2,17 @@
 // and settle to a warm glow that stays (the panel fills the shape with gold foil itself, Panel.setOpen). One flash
 // from the shared FlashBudget: an opening that comes within a third of a second of another flash plays at half
 // strength, so the box never strobes. Reduced motion: the rays fade in place, no growth. Restored locks (a resumed
-// box) just glow. Lives in the box root in box units; one draw call per lock while its burst shows, none after.
-// Per frame it allocates nothing. Task 18's look pass adds the glints and glitter.
-import { AdditiveBlending, BufferAttribute, BufferGeometry, Group, Mesh, MeshBasicMaterial, type Object3D } from "@iwsdk/core";
+// box) just glow. Then the sparkle (fx/sparkle.ts): four-point glints at the shape's tips, each taking the same
+// budget in turn after the opening's flash, and star glitter rising from the shape (none with reduced motion). Lives
+// in the box root in box units; one draw call per lock while its burst shows and one for every lock's sparkle while
+// it runs, none after. Per frame it allocates nothing.
+import { BufferAttribute, BufferGeometry, Group, Mesh, MeshBasicMaterial, type Object3D } from "@iwsdk/core";
 import type { Box } from "../../core/types";
+import { LIGHT_BLEND } from "../light-blend";
 import { COLORS } from "../theme";
 import { clamp01, outCubic } from "./ease";
 import type { FlashBudget } from "./flash-budget";
+import { Sparkle } from "./sparkle";
 
 export const LOCK_OPEN_FX = {
   /** The burst's length (s). */
@@ -75,12 +79,19 @@ export class LockOpenFx {
   private readonly t = new Float64Array(SLOTS).fill(1e9);
   private readonly strength = new Float64Array(SLOTS);
   private box: Box | null = null;
+  /** Glints at the opened shape's tips and glitter rising from it (one draw for every lock, while it runs). */
+  readonly sparkle: Sparkle;
+  /** Reduced motion as the last frame had it (an opening between frames takes it). */
+  private reduced = false;
 
   constructor(
     private readonly scene: LockOpenScene,
     private readonly budget: FlashBudget,
   ) {
     this.group.name = "Lock Open";
+    // The glints take the same budget in turn, after each opening's own flash.
+    this.sparkle = new Sparkle(budget);
+    this.group.add(this.sparkle.points);
     const g = sunburstGeometry(LOCK_OPEN_FX.rays, LOCK_OPEN_FX.rayShare, LOCK_OPEN_FX.inner);
     for (let i = 0; i < SLOTS; i++) {
       const mat = new MeshBasicMaterial({
@@ -88,7 +99,7 @@ export class LockOpenFx {
         vertexColors: true,
         transparent: true,
         opacity: 0,
-        blending: AdditiveBlending,
+        ...LIGHT_BLEND,
         depthWrite: false,
         toneMapped: false,
       });
@@ -108,10 +119,14 @@ export class LockOpenFx {
     this.box = box;
     this.t.fill(1e9);
     for (const b of this.bursts) b.visible = false;
+    this.sparkle.setBox(box);
   }
 
   /** Lock `lock` opened: its burst and flare, or (restored) only its resting glow. */
-  open(lock: number, restored: boolean): void {
+  open(lock: number, restored: boolean, boxOpensInS = 0): void {
+    // The box's last lock: its opening's flash is kept clear, whatever this lock's own burst can do (a lock past the
+    // burst slots still reserves it). A restored lock opens nothing.
+    if (!restored && boxOpensInS > 0) this.budget.reserve(boxOpensInS);
     const l = this.box?.locks[lock];
     if (!l || lock >= SLOTS) return;
     if (restored) {
@@ -123,17 +138,25 @@ export class LockOpenFx {
     const b = this.bursts[lock]!;
     b.position.set(l.center[0], l.center[1], BURST_Z);
     b.visible = true;
-    this.apply(lock, false);
+    this.apply(lock, this.reduced);
+    this.sparkle.burst(lock, this.strength[lock]!, this.reduced);
   }
 
-  /** True while any burst or flare runs. */
+  /** The box is opening: every lock's glints still waiting their turn are dropped (the bursts and glitter play on). */
+  quiet(): void {
+    this.sparkle.quiet();
+  }
+
+  /** True while any burst, flare or sparkle runs. */
   get running(): boolean {
     for (let i = 0; i < SLOTS; i++) if (this.t[i]! < LOCK_OPEN_FX.burstS) return true;
-    return false;
+    return this.sparkle.running;
   }
 
   /** Advance by `dt` seconds. */
   update(dt: number, reduced: boolean): void {
+    this.reduced = reduced;
+    this.sparkle.update(dt);
     for (let i = 0; i < SLOTS; i++) {
       if (this.t[i]! >= LOCK_OPEN_FX.burstS) continue;
       this.t[i] = this.t[i]! + (dt > 0 ? dt : 0);

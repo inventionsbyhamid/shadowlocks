@@ -6,6 +6,7 @@ import type { Page, TestInfo } from "@playwright/test";
 import type { SlLantern } from "../../../src/app/test-api";
 import type { V2, V3, Vec3 } from "../../../src/core/types";
 import { Hands } from "./hands";
+import { judgeWindows, MAX_STALLS, STALL_MS, type StallMean, type StallP95, withoutStalls } from "./stall-rule";
 import { type BootFn, expect } from "./test";
 import type { XrApp } from "./xr-app";
 
@@ -145,38 +146,21 @@ export const WINDOWS = 2;
  */
 export const MEAN_BUDGET_MS = 0.5;
 
-// The stall rule, the one place both cost checks take it from. A frame this long (ms, at 4x) is a host stall, not
-// our code: about seven times the whole 3 ms budget of all our systems. This shared server stalls 40-60 ms now and
-// then, one or two in 200 frames of late and often both in one window, which leaving out a window's single worst
-// frame cannot absorb (a check failed at 0.56 ms with a median of 0.15). So stalls are left out of the mean and
-// counted; a window with more than MAX_STALLS of them is no measure at all, and a regression that slow would show in
-// every frame anyway.
-export const STALL_MS = 20;
-export const MAX_STALLS = 5;
-
-/** A window judged by the stall rule: its mean without host stalls and how many there were. */
-export interface StallMean {
-  meanMs: number;
-  stalls: number;
-}
-
-/** A window's frame times (ms) by the stall rule. */
-export function withoutStalls(frames: readonly number[]): StallMean {
-  const kept = frames.filter((ms) => ms < STALL_MS);
-  return { meanMs: kept.reduce((a, b) => a + b, 0) / Math.max(1, kept.length), stalls: frames.length - kept.length };
-}
-
-/** Of WINDOWS windows' frame times, the one the cost is judged on (the lower mean without stalls) and its index. */
-export function judgeWindows(windows: readonly (readonly number[])[]): StallMean & { index: number } {
-  const judged = windows.map(withoutStalls);
-  const index = judged.reduce((best, w, i) => (w.meanMs < judged[best]!.meanMs ? i : best), 0);
-  return { ...judged[index]!, index };
-}
+// The stall rule lives in helpers/stall-rule.ts (pure, so the unit tests hold it); every cost check takes it from there.
+export { judgeWindows, judgeWindowsP95, MAX_STALLS, p95WithoutStalls, STALL_MS, type StallMean, type StallP95, withoutStalls } from "./stall-rule";
 
 /** The cost check: the judged window has at most MAX_STALLS host stalls and a mean of at most `budgetMs`. */
 export function expectWithinBudget(j: StallMean, budgetMs: number, what: string): void {
   expect(j.stalls, `${what}: host stalls over ${STALL_MS} ms in the judged window`).toBeLessThanOrEqual(MAX_STALLS);
   expect(j.meanMs, `${what}: mean ms a frame over ${TIMED_FRAMES} frames without host stalls, the better of ${WINDOWS} windows`).toBeLessThanOrEqual(
+    budgetMs,
+  );
+}
+
+/** The frame check: the judged window has at most MAX_STALLS host stalls and a p95 of at most `budgetMs` without them. */
+export function expectP95WithinBudget(j: StallP95, budgetMs: number, what: string): void {
+  expect(j.stalls, `${what}: host stalls over ${STALL_MS} ms in the judged window`).toBeLessThanOrEqual(MAX_STALLS);
+  expect(j.p95Ms, `${what}: p95 ms a frame over ${TIMED_FRAMES} frames without host stalls, the better of ${WINDOWS} windows`).toBeLessThanOrEqual(
     budgetMs,
   );
 }

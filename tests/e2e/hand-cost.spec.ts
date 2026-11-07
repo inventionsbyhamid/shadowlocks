@@ -55,14 +55,14 @@ const FILES = [
 ];
 /**
  * The box's shadow update (box-scene.ts's syncShadows, and the shadow mesh's cast, which runs inside it and may be
- * inlined into it), which now casts every frame while hands are in the beam. It makes no object or array a frame,
- * but boxes floats where they cross a call: each caster's depth and penumbra, each polygon's skirt width, a ring
- * edge's working values, the lantern's position to the panel. Measured about 2.2 KB a frame with box 3's casters and
- * 36 hand outlines (1.8 KB in shadow-mesh.ts, 0.4 KB in syncShadows); boxed floats are accepted (Ruling 58). Held
- * under MESH_BUDGET, which an array or object per shadow a frame (some 60 shadows) would break.
+ * inlined into it), which casts every frame while hands are in the beam. It makes no object or array a frame, and
+ * no longer hands a float to a call per shadow (skirt widths go as their array and an index, the penumbra is
+ * written out): measured about 1.0 KB a frame with box 3's casters and 36 hand outlines (it was 2.2 KB); boxed
+ * floats are accepted (Ruling 58). Held under MESH_BUDGET, which an array or object per shadow a frame (some 60
+ * shadows, 32 bytes or more each) would break.
  */
 const MESH_FILES = ["/src/render/box-scene.ts", "/src/render/shadow-mesh.ts"];
-const MESH_BUDGET = 3500;
+const MESH_BUDGET = 1600;
 const NEW_MODULES = [
   "src/render/hand-shadow.ts",
   "src/render/hand-mask.ts",

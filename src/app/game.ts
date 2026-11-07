@@ -21,7 +21,7 @@ import { type FrameTips, frameTips } from "../ui/fingertips";
 import { HINT_ASK, HintLantern } from "../ui/hint-lantern";
 import { NO_TIPS } from "../ui/key-view";
 import { Plate } from "../ui/plate";
-import { BoxSession } from "./box-session";
+import { BoxSession, LOCK_TO_BOX_MS } from "./box-session";
 import { FingerLockLoop } from "./finger-lock";
 import type { FingerSource } from "./session-fingers";
 import { emit } from "./bus";
@@ -66,11 +66,11 @@ export class GameView implements SessionView {
   constructor(private readonly d: GameViewDeps) {
     const scene = d.scene, root = scene.root;
     this.marks = new HintMarks(scene);
-    // The box's one flash budget (the scene steps it): lock and box celebrations, the lantern's flares and the
-    // crystallises share the three-a-second cap.
+    // The box's one flash budget (the scene steps it): lock and box celebrations (sunbursts, glints), the reward's
+    // bloom, the lantern's flares and the crystallises share the three-a-second cap.
     this.lockFx = new LockOpenFx(scene, scene.flashes);
     this.boxFx = new BoxOpenFx(root, scene.flashes);
-    this.reward = new Reward(root);
+    this.reward = new Reward(root, scene.flashes);
     this.plate = new Plate(root);
     this.hintLantern = new HintLantern(root, d.canShowMe);
     this.tips = frameTips(d.world);
@@ -89,6 +89,8 @@ export class GameView implements SessionView {
 
   setBox(box: Box, spec: BoxSpec, practice = false): void {
     this.box = box;
+    // A new box: the flash budget starts afresh (a box left at its opening leaves no reservation behind).
+    this.d.scene.flashes.reset();
     this.marks.setBox(box);
     this.lockFx.setBox(box);
     this.boxFx.reset();
@@ -102,9 +104,11 @@ export class GameView implements SessionView {
     this.hold(false);
   }
 
-  lockOpened(lock: number, _order: number, restored: boolean): void {
+  lockOpened(lock: number, order: number, restored: boolean): void {
     this.plate.latch(lock, true);
-    this.lockFx.open(lock, restored);
+    // The last lock: the box opens LOCK_TO_BOX_MS after it, and its flash is reserved so the climax is never refused.
+    const last = this.box !== null && order === this.box.locks.length;
+    this.lockFx.open(lock, restored, last ? LOCK_TO_BOX_MS / 1000 : 0);
   }
 
   focus(lock: number | null): void {
@@ -126,6 +130,8 @@ export class GameView implements SessionView {
   boxOpened(): void {
     // The drawer opens on the side away from the lantern, so reaching for the reward never grabs the lantern.
     const L = this.d.scene.lantern.getPos(this.lanternAt);
+    // The climax: the glints still waiting are let go, so the opening and then the reward's bloom have their flashes.
+    this.lockFx.quiet();
     this.boxFx.start(L[0] >= 0 ? -1 : 1);
     this.reward.rise(this.boxFx.drawerTop(this.drawer));
     this.marks.focus(null);
@@ -219,6 +225,8 @@ export interface GameShell {
   readonly lifecycle: Lifecycle;
   readonly profiles: ProfileStore;
   continueSaved(): boolean;
+  /** A box (or lesson) is about to start: the box opened before it is done with (the room's light comes down). */
+  boxBegins(): void;
 }
 
 /** How boxes start, and the flow the shell hands saved boxes to. */
@@ -231,6 +239,9 @@ export class Game implements GameFlow {
   /** Play `spec` now (from `snap` when it is that box's save): the play screen, the lifecycle saving it. */
   play(spec: BoxSpec, snap: BoxSnapshot | null = null, practice = false): void {
     if (this.shell.lifecycle.session !== this.session) this.shell.lifecycle.attach(this.session, performance.now());
+    // Before the play screen: the session's box-start comes only once the box is built, and the last box's opened
+    // light must not come back up meanwhile.
+    this.shell.boxBegins();
     go("play");
     this.run(spec, snap, practice);
   }
@@ -260,6 +271,8 @@ export class Game implements GameFlow {
   resume(snapshot: BoxSnapshot): LifecycleSession {
     const spec = specOfKey(snapshot.key);
     if (!spec) throw new Error(`a saved box with no box to play: "${snapshot.key}"`);
+    // The shell moves to the play screen once this returns (as play() does, the last box's light first).
+    this.shell.boxBegins();
     this.run(spec, snapshot);
     return this.session;
   }

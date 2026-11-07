@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { FakeGain, FakePanner, FakeSource } from "./helpers/fake-audio";
+import type { FakeGain, FakePanner, FakeParam, FakeSource } from "./helpers/fake-audio";
 import { makeRig } from "./helpers/audio-fixture";
 import type { AudioManifest, SfxId } from "../../src/audio/manifest";
 
@@ -299,6 +299,64 @@ describe("ducking from sounds", () => {
     const ev = r.duckEvents();
     const lows = ev.filter((e) => e.type === "linear" && e.value !== 1);
     expect(lows[0]!.value).toBeCloseTo(10 ** (-4 / 20), 5);
+  });
+});
+
+describe("a sound that asks the music to duck (the box's tune)", () => {
+  const DOWN = 10 ** (-4 / 20);
+  /** mb_g5 rings 1.9 s, as the pack's does (played 7 cents flat, so a little longer), with voices for a whole tune. */
+  const rig = () => makeRig({ lengths: { note_g5: 1.9 }, tweak: (m) => (m.sfx.mb_g5!.maxVoices = 16) });
+  const RING = 1.9 / 2 ** (-7 / 1200);
+  const STEP = 0.4166667;
+  const NOTES = 7;
+  /** The music's duck gain, read on the audio clock. */
+  const duck = (r: Awaited<ReturnType<typeof makeRig>>) => r.engine.duckGain().gain as unknown as FakeParam;
+
+  it("dips 4 dB with a 50 ms ramp from when the sound starts, and is back 300 ms after it ends", async () => {
+    const r = await rig();
+    r.ctx.currentTime = 2;
+    r.engine.play("mb_g5", { duckDb: 4, delay: 0.05 });
+    const g = duck(r), end = 2.05 + 0.05 + RING;
+    expect(g.at(2.05)).toBeCloseTo(1, 9);
+    expect(g.at(2.075)).toBeCloseTo((1 + DOWN) / 2, 6);
+    expect(g.at(2.1)).toBeCloseTo(DOWN, 9);
+    expect(g.at(end)).toBeCloseTo(DOWN, 9);
+    expect(g.at(end + 0.15)).toBeCloseTo((1 + DOWN) / 2, 6);
+    expect(g.at(end + 0.3)).toBeCloseTo(1, 9);
+  });
+
+  it("the deeper of the sound's own manifest duck and the ask", async () => {
+    const r = await rig();
+    // walls_hinge's manifest entry ducks 4 dB; it rings 0.1 s here.
+    r.engine.play("walls_hinge", { duckDb: 2 });
+    expect(duck(r).at(0.1)).toBeCloseTo(DOWN, 9);
+    const s = await rig();
+    s.engine.play("walls_hinge", { duckDb: 6 });
+    expect(duck(s).at(0.1)).toBeCloseTo(10 ** (-6 / 20), 9);
+  });
+
+  /** From the first note's ramp until the last note has rung the music stays 4 dB down; before and after, it is up. */
+  const heldThroughTheTune = (g: FakeParam, first: number) => {
+    const lastEnd = first + (NOTES - 1) * STEP + 0.05 + RING;
+    expect(g.at(first - 0.01)).toBeCloseTo(1, 9);
+    for (let t = first + 0.05; t <= lastEnd; t += 0.01) expect(g.at(t)).toBeCloseTo(DOWN, 6);
+    expect(g.at(lastEnd + 0.3)).toBeCloseTo(1, 9);
+  };
+
+  it("a tune whose notes come one by one, just before their time (the game's scheduler): down from the first note until the last has rung", async () => {
+    const r = await rig();
+    for (let i = 0; i < NOTES; i++) {
+      r.ctx.currentTime = 3.7 + i * STEP - 0.05;
+      r.engine.play("mb_g5", { duckDb: 4, delay: 0.05 });
+    }
+    heldThroughTheTune(duck(r), 3.7);
+  });
+
+  it("a tune whose notes come all at once with their delays (a full scheduler queue): the dip still starts with the first note", async () => {
+    const r = await rig();
+    r.ctx.currentTime = 2;
+    for (let i = 0; i < NOTES; i++) r.engine.play("mb_g5", { duckDb: 4, delay: 1.7 + i * STEP });
+    heldThroughTheTune(duck(r), 3.7);
   });
 });
 

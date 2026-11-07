@@ -109,6 +109,11 @@ async function main(): Promise<void> {
   const sound = new Sound({ world, settings, lifecycle: shell.lifecycle, menuButtons: (screen) => shell.panels.buttons(screen), box: shell.box });
   useSound(sound);
   registerAppSystem(world, SoundSystem, { name: "sound" });
+  // The theatre lights' own sounds: the room going down for a box in play, coming up when the box opens (none when
+  // room dimming is off, or for a menu's half light: menus have their own sounds).
+  shell.onRoomLight = (_from, to) => {
+    if (settings.get().dimming && (to === "play" || to === "up")) sound.game.theatre(to === "up");
+  };
   // The game (priority -2.8, after the hands): the box session (its finger locks fed by the hands), its
   // celebrations, the plate and the hint lantern.
   // Endless boxes ask the entitlement (pending until it is worked out; a trial over keeps the Daily Box and lessons).
@@ -166,7 +171,8 @@ async function main(): Promise<void> {
     },
     away: (away) => {
       lantern.setAway(away, performance.now());
-      shell.box.lantern.group.visible = !away;
+      // Hidden, its light kept (dark) in the scene: the box's shaders stay the ones compiled ahead (LanternView).
+      shell.box.lantern.setShown(!away);
     },
   });
   hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play, drawer, access, fakeBilling: bill.fake, menuGame, lessons });
