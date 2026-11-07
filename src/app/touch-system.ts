@@ -8,10 +8,10 @@
 // - a live key (a menu key, the plate's Next, the hint lantern and its choices): a fingertip pokes it, in along its
 //   face and back out when the finger lifts, so the keys' own rules press it; a quick second tap pokes after the first;
 // - the reward, once it can be taken: taken (a screen cannot carry it toward the player);
-// - the lantern, over its drawn size (over its body alone when the touch reaches a finger lock's gap, which is often
-//   seen just past it): held by the touch, as a hand would hold it (a stand-in for the right hand, setVirtualHand), at
-//   the depth it was touched at: it follows the finger across the screen and nearer or farther as the phone moves;
-//   lifting the finger lets it go;
+// - the lantern, over its drawn shape from foot to ring (over its body alone when the touch reaches a finger lock's
+//   gap, which is often seen just past it): held by the touch, as a hand would hold it (a stand-in for the right hand,
+//   setVirtualHand), at the depth it was touched at: it follows the finger across the screen and nearer or farther as
+//   the phone moves; lifting the finger lets it go;
 // - the drawer's handle: opens it, as a pull would;
 // - anything else: a finger in the light, cast so its shadow lies under the touch (the hands' TouchFinger), so a
 //   finger lock's gap is filled by touching it and holding still.
@@ -35,6 +35,7 @@ import {
   pokeOffset,
   type Prong,
   prongOf,
+  rayNearSegment,
   TOUCH_GRAB,
   TOUCH_POKE,
 } from "../input/touch";
@@ -164,6 +165,8 @@ export class Touches implements TouchFinger {
   private readonly hit = newKeyHit();
   private readonly drag: V3 = [0, 0, 0];
   private readonly at: V3 = [0, 0, 0];
+  private readonly top: V3 = [0, 0, 0];
+  private readonly bottom: V3 = [0, 0, 0];
   private readonly ob: V3 = [0, 0, 0];
   private readonly db: V3 = [0, 0, 0];
   private readonly q: V2 = [0, 0];
@@ -451,20 +454,29 @@ export class Touches implements TouchFinger {
   }
 
   /**
-   * Along the ray to the lantern when it passes over the lantern's drawn size (over its body alone when the touch
-   * reaches a finger lock's gap) and the lantern can be taken now; else NaN.
+   * Along the ray to the lantern's light when the ray passes over the lantern's drawn shape, foot to ring (over its body
+   * alone when the touch reaches a finger lock's gap) and the lantern can be taken now; else NaN.
    */
   private lanternDepth(o: Readonly<Vec3>, d: Readonly<Vec3>): number {
     const l = this.d.lantern;
     if (l.frozen || l.away || l.grab.holder !== null || this.down("lantern")) return Number.NaN;
     const gap = this.panelOf(o, d, this.q) && onProng(this.boxProngs(), this.q, TOUCH_GRAB.gapMargin);
-    const radiusM = (gap ? TOUCH_GRAB.bodyRadius : TOUCH_GRAB.radius) * this.d.scene.size;
-    const p = l.ctrl.pos, m = this.d.scene.root.matrixWorld;
+    const size = this.d.scene.size, p = l.ctrl.pos, m = this.d.scene.root.matrixWorld;
     const w = this.v.set(p[0], p[1], p[2]).applyMatrix4(m);
     this.at[0] = w.x;
     this.at[1] = w.y;
     this.at[2] = w.z;
-    return grabDepth(o, d, this.at, radiusM);
+    // Over a gap, its body alone (a sphere round the light).
+    if (gap) return grabDepth(o, d, this.at, TOUCH_GRAB.bodyRadius * size);
+    // Elsewhere, its drawn shape: the capsule up its axis (the box's own up: it stands in the box).
+    const R = TOUCH_GRAB.reach, e = m.elements;
+    for (let i = 0; i < 3; i++) {
+      this.bottom[i] = this.at[i]! - e[4 + i]! * R.down;
+      this.top[i] = this.at[i]! + e[4 + i]! * R.up;
+    }
+    if (!rayNearSegment(o, d, this.bottom, this.top, R.radius * size)) return Number.NaN;
+    // The drag holds the ray's nearest point to the light: in front of the phone, within the controller's grab radius.
+    return grabDepth(o, d, this.at, (R.up + R.radius) * size);
   }
 
   private find(role: TouchRole): Slot | null {
