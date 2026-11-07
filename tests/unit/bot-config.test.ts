@@ -12,9 +12,9 @@ const specs = readdirSync(E2E).filter((f) => f.endsWith(".spec.ts"));
 const botSpecs = specs.filter((f) => /^bot.*\.spec\.ts$/.test(f));
 
 describe("the bot specs are opt in", () => {
-  it("names one pattern: the three bot specs and nothing else of the suite", () => {
+  it("names one pattern: the four bot specs and nothing else of the suite", () => {
     expect(BOT_SPECS).toBe("**/bot*.spec.ts");
-    expect(botSpecs.sort()).toEqual(["bot-controllers.spec.ts", "bot-sweeps.spec.ts", "bot.spec.ts"]);
+    expect(botSpecs.sort()).toEqual(["bot-controllers.spec.ts", "bot-lessons.spec.ts", "bot-sweeps.spec.ts", "bot.spec.ts"]);
   });
 
   it("leaves them out of the routine suite", () => {
