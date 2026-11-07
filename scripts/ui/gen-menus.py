@@ -154,9 +154,10 @@ def slider(prefix, label, value):
       </div>"""
 
 def toggle(id, label, sub):
-    # Latching key: lit gold cap, a gold LED and "On" when on; black glass and "Off" when off.
+    # Latching key: lit gold cap, a gold LED and "On" when on; black glass and "Off" when off. A little taller than
+    # the other keys: a name that takes two lines (es, fr, de, pt "Less motion") stays clear of the gold hairline.
     return key(id, "graphite", f"""<div id="{id}-label" class="label-sm">{label}</div>
-          <div class="toggle-row"><div id="{id}-led" class="toggle-led"></div><div id="{id}-state" class="toggle-state">Off</div><div id="{id}-sub" class="sub ink-dim toggle-sub">{sub}</div></div>""", "slot slot-sm", "toggle-cap")
+          <div class="toggle-row"><div id="{id}-led" class="toggle-led"></div><div id="{id}-state" class="toggle-state">Off</div><div id="{id}-sub" class="sub ink-dim toggle-sub">{sub}</div></div>""", "slot slot-toggle", "toggle-cap")
 
 def language_row():
     # One key: poke it for the next language (Automatic, then each language in its own name, and round). The
@@ -177,6 +178,7 @@ settings = HEADER + head("""
   .meter { flex-direction: row; gap: 1.2; }
   .seg { flex-grow: 1; height: 4; border-radius: 0.6; background-color: #3A3236; }
   .keys2 { flex-grow: 1; flex-basis: 0; flex-direction: row; gap: 12; }
+  .slot-toggle { height: 48; }
   .toggle-cap { padding-left: 9; padding-right: 9; }
   .toggle-row { flex-direction: row; align-items: center; gap: 4; }
   .toggle-led { width: 6; height: 6; border-radius: 3; background-color: #3A3236; }
@@ -211,7 +213,7 @@ settings = HEADER + head("""
   <div class="row">
     {toggle("toggle-dimming", "Dim room", "In play")}
     {toggle("toggle-hand", "Left hand", "Mirrored")}
-    {key("settings-done", "putty", '<div id="settings-done-label" class="label-sm">Done</div>', "slot slot-sm", "cap-center")}
+    {key("settings-done", "putty", '<div id="settings-done-label" class="label-sm">Done</div>', "slot slot-toggle", "cap-center")}
   </div>
 </div>
 """

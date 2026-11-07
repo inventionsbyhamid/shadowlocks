@@ -59,6 +59,7 @@
   .meter { flex-direction: row; gap: 1.2; }
   .seg { flex-grow: 1; height: 4; border-radius: 0.6; background-color: #3A3236; }
   .keys2 { flex-grow: 1; flex-basis: 0; flex-direction: row; gap: 12; }
+  .slot-toggle { height: 48; }
   .toggle-cap { padding-left: 9; padding-right: 9; }
   .toggle-row { flex-direction: row; align-items: center; gap: 4; }
   .toggle-led { width: 6; height: 6; border-radius: 3; background-color: #3A3236; }
@@ -196,7 +197,7 @@
     </div>
   </div>
   <div class="row">
-    <div id="toggle-warmth-slot" class="slot slot-sm">
+    <div id="toggle-warmth-slot" class="slot slot-toggle">
       <div id="toggle-warmth-glow" class="glow"></div>
       <div id="toggle-warmth" class="key key-graphite">
         <div id="toggle-warmth-cap" class="cap cap-graphite toggle-cap">
@@ -206,7 +207,7 @@
         </div>
       </div>
     </div>
-    <div id="toggle-captions-slot" class="slot slot-sm">
+    <div id="toggle-captions-slot" class="slot slot-toggle">
       <div id="toggle-captions-glow" class="glow"></div>
       <div id="toggle-captions" class="key key-graphite">
         <div id="toggle-captions-cap" class="cap cap-graphite toggle-cap">
@@ -216,7 +217,7 @@
         </div>
       </div>
     </div>
-    <div id="toggle-motion-slot" class="slot slot-sm">
+    <div id="toggle-motion-slot" class="slot slot-toggle">
       <div id="toggle-motion-glow" class="glow"></div>
       <div id="toggle-motion" class="key key-graphite">
         <div id="toggle-motion-cap" class="cap cap-graphite toggle-cap">
@@ -228,7 +229,7 @@
     </div>
   </div>
   <div class="row">
-    <div id="toggle-dimming-slot" class="slot slot-sm">
+    <div id="toggle-dimming-slot" class="slot slot-toggle">
       <div id="toggle-dimming-glow" class="glow"></div>
       <div id="toggle-dimming" class="key key-graphite">
         <div id="toggle-dimming-cap" class="cap cap-graphite toggle-cap">
@@ -238,7 +239,7 @@
         </div>
       </div>
     </div>
-    <div id="toggle-hand-slot" class="slot slot-sm">
+    <div id="toggle-hand-slot" class="slot slot-toggle">
       <div id="toggle-hand-glow" class="glow"></div>
       <div id="toggle-hand" class="key key-graphite">
         <div id="toggle-hand-cap" class="cap cap-graphite toggle-cap">
@@ -248,7 +249,7 @@
         </div>
       </div>
     </div>
-    <div id="settings-done-slot" class="slot slot-sm">
+    <div id="settings-done-slot" class="slot slot-toggle">
       <div id="settings-done-glow" class="glow"></div>
       <div id="settings-done" class="key key-putty">
         <div id="settings-done-cap" class="cap cap-putty cap-center">
