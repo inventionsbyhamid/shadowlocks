@@ -127,7 +127,7 @@ function whale(): V2[][] {
 
 /** A snail facing right: the shell in four pieces, the foot under it (the finger strip), the head and two eye stalks. */
 function snail(): V2[][] {
-  const foot: V2[] = [[-0.36, -0.38], [0.34, -0.38], [0.42, -0.31], [0.36, -0.26], [-0.42, -0.26], [-0.54, -0.33]];
+  const foot: V2[] = [[-0.32, -0.38], [0.34, -0.38], [0.42, -0.31], [0.36, -0.26], [-0.36, -0.26], [-0.46, -0.32]];
   const sc: V2 = [-0.12, -0.03], r = 0.26, S = (deg: number) => onCircle(sc, r, deg);
   const lo = Math.asin((-0.26 - sc[1]) / r) / DEG;
   const a0 = 180 - lo, a1 = 360 + lo;
@@ -135,15 +135,15 @@ function snail(): V2[][] {
   const top: V2[] = [sc, S(60), S(78), S(96), S(114), S(132), S(150), S(170)];
   const left: V2[] = [sc, S(170), S(188), S(206), S(224), S(a0)];
   const under: V2[] = [sc, S(a0), S(a1)];
-  const head: V2[] = [[0.17, -0.26], [0.34, -0.26], [0.38, -0.18], [0.36, -0.11], [0.33, -0.08], [0.28, -0.05], [0.23, -0.05], [0.19, -0.09], [0.17, -0.16]];
+  const head: V2[] = [[0.12, -0.26], [0.34, -0.26], [0.38, -0.18], [0.36, -0.11], [0.33, -0.08], [0.28, -0.05], [0.23, -0.05], [0.18, -0.09], [0.14, -0.16]];
   const stalkFront = strip([0.33, -0.08], [0.28, -0.05], 62, 0.19, 0.024);
-  const stalkBack = strip([0.23, -0.05], [0.19, -0.09], 88, 0.17, 0.024);
+  const stalkBack = strip([0.23, -0.05], [0.18, -0.09], 88, 0.17, 0.024);
   return [foot, under, left, top, right, head, stalkFront, stalkBack];
 }
 
 /** An owl on a branch, from the front: body, a face with two eye holes, ear tufts, and the branch (the finger strip). */
 function owl(): V2[][] {
-  const branch: V2[] = [[-0.46, -0.49], [0.46, -0.49], [0.5, -0.44], [0.47, -0.39], [-0.47, -0.39], [-0.5, -0.44]];
+  const branch: V2[] = [[-0.3, -0.49], [0.3, -0.49], [0.34, -0.44], [0.31, -0.39], [-0.31, -0.39], [-0.34, -0.44]];
   const bc: V2 = [0, -0.15], B = (deg: number) => ellAt(bc, 0.22, 0.3, deg);
   const lo = Math.asin(-0.24 / 0.3) / DEG, hi = Math.asin(0.15 / 0.3) / DEG;
   const bodyR: V2[] = [[0, -0.39], B(360 + lo), B(320), B(335), B(350), B(5), B(18), B(hi), [0, 0]];
@@ -202,7 +202,7 @@ function mouse(): V2[][] {
   const back: V2[] = [top, E(110), E(130), E(148), E(165), E(195), E(212), E(226), E(240), E(255), bottom];
   const snout: V2[] = [E(335), [0.38, -0.075], E(20)];
   const ear = cap(E(55), E(85), 0.085, [-35, -10, 15, 40, 65, 90, 115, 140, 165, 190]).poly;
-  const tail = strip(E(165), E(195), 182, 0.4, 0.026);
+  const tail = strip(E(165), E(195), 182, 0.32, 0.03);
   const tip = strip(tail[1]!, tail[2]!, 150, 0.09, 0.011);
   const footFront = strip(E(290), E(305), 280, 0.05, 0.02);
   const footBack = strip(E(240), E(255), 262, 0.05, 0.02);
@@ -250,9 +250,9 @@ function violin(): V2[][] {
   const E2 = (deg: number) => ellAt([0, 0], 0.13, 0.165, deg);
   const cl = Math.acos(-0.08 / 0.13) / DEG, cr = Math.acos(0.1 / 0.13) / DEG;
   const upper = [360 - cl, 250, 270, 290, 360 - cr, cr, 70, 90, 110, cl].map(E2);
-  const neck = rect(0.1, -0.042, 0.4, 0.042);
-  const pegbox = rect(0.4, -0.05, 0.45, 0.05);
-  const scroll = cap([0.45, -0.05], [0.45, 0.05], 0.055, [-90, -60, -30, 0, 30, 60, 90]).poly;
+  const neck = rect(0.1, -0.05, 0.4, 0.05);
+  const pegbox = rect(0.4, -0.058, 0.45, 0.058);
+  const scroll = cap([0.45, -0.058], [0.45, 0.058], 0.065, [-90, -60, -30, 0, 30, 60, 90]).poly;
   return [lowerL, lowerR, waist, upper, neck, pegbox, scroll];
 }
 
@@ -281,32 +281,19 @@ function cactus(): V2[][] {
   return [low, middle, top, elbowL, armL, elbowR, armR];
 }
 
-/** A fir tree on a snowy mound (the finger strip): the trunk and three tiers of branches. */
+/**
+ * A fir tree: the trunk and three tiers of branches, the lowest tier's hem (the finger strip) under the rest of it,
+ * so a finger laid along it darkens the lit band on one side only.
+ */
 function tree(): V2[][] {
-  const ground: V2[] = [[-0.48, -0.53], [0.48, -0.53], [0.44, -0.47], [0.3, -0.43], [-0.3, -0.43], [-0.44, -0.47]];
   const trunk = rect(-0.06, -0.43, 0.06, -0.27);
-  const lowL: V2[] = [[-0.38, -0.27], [0, -0.27], [0, -0.02], [-0.17, -0.02]];
-  const lowR: V2[] = [[0, -0.27], [0.38, -0.27], [0.17, -0.02], [0, -0.02]];
+  const bl: V2 = [-0.38, -0.27], br: V2 = [0.38, -0.27], tl: V2 = [-0.17, -0.02], tr: V2 = [0.17, -0.02];
+  const hl = atY(bl, tl, -0.17), hr = atY(br, tr, -0.17);
+  const hem: V2[] = [bl, br, hr, hl];
+  const low: V2[] = [hl, hr, tr, tl];
   const middle: V2[] = [[-0.3, -0.02], [0.3, -0.02], [0.12, 0.2], [-0.12, 0.2]];
   const top: V2[] = [[-0.22, 0.2], [0.22, 0.2], [0, 0.48]];
-  return [ground, trunk, lowL, lowR, middle, top];
-}
-
-/** A turtle walking right: a domed shell in three slices on its rim (the finger strip), head, two legs and a tail. */
-function turtle(): V2[][] {
-  // The rim is thick enough that a finger's shadow laid along it stays mostly on it (a thin one floods its band).
-  const rim: V2[] = [[-0.34, -0.16], [0.3, -0.16], [0.37, -0.07], [-0.4, -0.07]];
-  const D = (deg: number) => ellAt([-0.02, -0.07], 0.34, 0.27, deg);
-  const al = Math.acos(-0.11 / 0.34) / DEG, ar = Math.acos(0.11 / 0.34) / DEG;
-  const right: V2[] = [[0.09, -0.07], D(0), D(15), D(30), D(45), D(60), D(ar)];
-  const middle: V2[] = [[-0.13, -0.07], [0.09, -0.07], D(ar), D(80), D(90), D(100), D(al)];
-  const left: V2[] = [D(180), [-0.13, -0.07], D(al), D(125), D(140), D(155), D(168)];
-  // The head and tail come out from under the shell's ends; the rim keeps its ends and most of its underside free.
-  const head: V2[] = [D(0), [0.44, -0.07], [0.52, -0.04], [0.53, 0.01], [0.49, 0.045], [0.41, 0.035], D(15)];
-  const tail: V2[] = [D(168), [-0.48, -0.05], D(180)];
-  const legFront: V2[] = [[0.12, -0.3], [0.22, -0.3], [0.21, -0.16], [0.12, -0.16]];
-  const legBack: V2[] = [[-0.28, -0.3], [-0.18, -0.3], [-0.18, -0.16], [-0.27, -0.16]];
-  return [rim, left, middle, right, head, legFront, legBack, tail];
+  return [trunk, hem, low, middle, top];
 }
 
 /** The added silhouettes, built (not yet centred and scaled), in the order the library lists them. */
@@ -329,6 +316,5 @@ export function newSilhouettes(): Record<AddedSilhouette, V2[][]> {
     Knight: knight(),
     Cactus: cactus(),
     Tree: tree(),
-    Turtle: turtle(),
   };
 }

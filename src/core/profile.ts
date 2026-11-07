@@ -115,7 +115,6 @@ const SHAPE_NAMES: Record<ShapeName, true> = {
   Knight: true,
   Cactus: true,
   Tree: true,
-  Turtle: true,
 };
 
 export function defaultSettings(): Settings {

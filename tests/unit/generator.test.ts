@@ -233,7 +233,7 @@ describe("golden boxes", () => {
     [{ kind: "box", n: 1 }, "deeb47a2fbea952f"],
     [{ kind: "box", n: 7 }, "cd05b6b31abb474d"],
     [{ kind: "box", n: 15 }, "0388926107aed88e"],
-    [{ kind: "daily", day: "2026-11-06" }, "e8c5bbc792a2b100"],
+    [{ kind: "daily", day: "2026-11-06" }, "4658af80eae621cc"],
   ];
 
   it("pins boxes 1, 7, 15 and one day at generator version 4", () => {
@@ -314,14 +314,14 @@ describe("box kinds and silhouettes", () => {
   });
 
   it("never shows a silhouette the boxes just before showed: any few dealt in a row differ", () => {
-    expect(REPEAT_GAP).toBeGreaterThanOrEqual(7);
+    expect(REPEAT_GAP).toBeGreaterThanOrEqual(6);
     let prev: ShapeName[][] = [];
     for (let n = 1; n <= 3000; n++) {
       const now = boxSilhouettes({ kind: "box", n });
       expect(new Set(now).size).toBe(now.length);
-      // A box and the four before it deal at most seven (two silhouettes boxes are never closer than two boxes),
+      // A box and the three before it deal at most six (two silhouettes boxes are never closer than two boxes),
       // and any REPEAT_GAP dealt in a row differ.
-      for (const p of prev.slice(-4)) for (const s of now) expect(p, `box ${n}`).not.toContain(s);
+      for (const p of prev.slice(-3)) for (const s of now) expect(p, `box ${n}`).not.toContain(s);
       prev = [...prev.slice(-9), now];
     }
   });
