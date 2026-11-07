@@ -72,6 +72,28 @@ describe("GameMenus", () => {
     expect(c.menus.behind()).toEqual({ kind: "lesson" });
   });
 
+  it("a lesson left half done waits behind Home when no box is in the lap, and Continue goes on with it", () => {
+    const l = { ...fakeLessons(), waiting: true, resumed: 0 };
+    const lessons = Object.assign(l, {
+      resume: () => {
+        l.resumed++;
+        l.waiting = false;
+        l.running = true;
+        return true;
+      },
+    });
+    const b = bench({ lessons });
+    expect(b.menus.behind()).toEqual({ kind: "lesson" });
+    b.menus.back();
+    expect(l.resumed).toBe(1);
+    expect(b.said).toEqual(["toPlay"]);
+    // A box in the lap comes first: Continue goes back to it, and the lesson keeps waiting.
+    const c = bench({ lessons: Object.assign({ ...fakeLessons(), waiting: true }, { resume: () => true }) });
+    c.session.spec = { kind: "box", n: 3 };
+    c.session.stage = "playing";
+    expect(c.menus.behind()).toEqual({ kind: "box", n: 3 });
+  });
+
   it("a lesson's box waits behind the menus only while the lessons run it", () => {
     const l = fakeLessons();
     const b = bench({ lessons: l });
