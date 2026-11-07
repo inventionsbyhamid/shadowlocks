@@ -12,6 +12,19 @@
 # new Japanese line needs this run again (tests/unit/i18n-fonts.test.ts fails until it is).
 # Runs on the build server (network for the fonts and tools; Python without pip, so fontTools comes as a wheel):
 #   scripts/remote.sh i18n --pull dist -- bash scripts/fonts/build-fonts.sh
+#
+# Adding a font (the brand faces, say), OFL or alike only:
+#   1. Fetch it into $WORK from a pinned source (the google/fonts commit below, or a release URL checked by sha256)
+#      and its licence into $OUT/OFL-<name>.txt; make one static instance with `instance` if it is variable.
+#   2. For canvas lettering: `subset <ttf> "$WORK/latin.txt" "$OUT/<name>.woff2" --flavor=woff2`, then a row in
+#      FACES (src/ui/fonts.ts, loaded by loadCanvasFonts) and its family in labelFont (src/render/label.ts).
+#   3. For UIKit panels: `subset <ttf> "$WORK/latin.txt" "$WORK/<name>.ttf" --layout-features=kern`,
+#      `atlas <name> <px> msdf 1024,1024 latin.txt`, and `<name>:latin.txt` on the finish-atlas line; then a family in
+#      FONT_FAMILIES (src/ui/fonts.ts). Japanese keeps Noto Sans JP for every family (a Latin face has no kana).
+#   4. A row in THIRD_PARTY_NOTICES.md, and the glyph checks in tests/unit/i18n-fonts.test.ts cover it (latin.txt
+#      already holds every character the Latin languages show, so a face subset to it can draw them all).
+# Outputs are copied to public/fonts/ with cp (binary); a rebuild that changes only the WOFF2 build time stamp
+# (head.modified) need not be committed.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 OUT=dist/fonts-build
