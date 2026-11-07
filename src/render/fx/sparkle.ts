@@ -242,12 +242,15 @@ export class Sparkle {
     this.write();
   }
 
-  /** Lock `lock` opened: its sparkle, at `strength` (1, or less when the flash budget refused the opening). */
-  /** Let go of every glint still waiting its turn (the box opening takes over); flaring ones and the glitter play on. */
+  /**
+   * The box is opening: every lock's glints still waiting their turn are dropped (not only the last lock's), so the
+   * opening's flash and the reward's bloom after it have theirs. Glints already flaring, and all the glitter, play on.
+   */
   quiet(): void {
     for (const s of this.slots) for (let k = 0; k < s.glintState.length; k++) if (s.glintState[k] === PENDING) s.glintState[k] = DROPPED;
   }
 
+  /** Lock `lock` opened: its sparkle, at `strength` (1, or less when the flash budget refused the opening). */
   burst(lock: number, strength: number, reduced: boolean): void {
     const s = this.slots[lock];
     if (!s?.on) return;

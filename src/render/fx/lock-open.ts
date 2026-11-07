@@ -141,7 +141,7 @@ export class LockOpenFx {
     this.sparkle.burst(lock, this.strength[lock]!, this.reduced);
   }
 
-  /** The box is opening: glints still waiting their turn are let go (the bursts and glitter play on). */
+  /** The box is opening: every lock's glints still waiting their turn are dropped (the bursts and glitter play on). */
   quiet(): void {
     this.sparkle.quiet();
   }

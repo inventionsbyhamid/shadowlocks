@@ -102,6 +102,30 @@ describe("an opened lock's sparkle", () => {
     expect(s.running).toBe(false);
   });
 
+  it("quiet() drops every lock's glints still waiting, not only the last lock's; one already flaring plays on", () => {
+    const budget = new FlashBudget();
+    const s = new Sparkle(budget);
+    s.setBox(box5);
+    expect(budget.take()).toBe(true);
+    s.burst(0, 1, false);
+    s.burst(2, 1, false);
+    // Up to the first glint flaring (one gap after the opening's flash), the rest still waiting.
+    for (let t = 0; t < MIN_GAP_S + 2 * DT; t += DT) {
+      budget.step(DT);
+      s.update(DT);
+    }
+    const before = budget.started;
+    expect(before).toBe(2);
+    s.quiet();
+    for (let t = 0; t < 3 * SPARKLE_S; t += DT) {
+      budget.step(DT);
+      s.update(DT);
+    }
+    // No glint of either lock started after quiet(); the one flaring finished.
+    expect(budget.started).toBe(before);
+    expect(s.running).toBe(false);
+  });
+
   it("shares the box's flash budget: glints wait their turn after the opening's own flash and other locks' glints", () => {
     const budget = new FlashBudget();
     const s = new Sparkle(budget);
