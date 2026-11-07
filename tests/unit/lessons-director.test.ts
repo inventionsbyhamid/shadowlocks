@@ -1,5 +1,6 @@
 import { Matrix4, Vector3 } from "@iwsdk/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildTipScript, SWEEP_CLEAR } from "../../src/app/lesson-scripts";
 import { tipLock } from "../../src/app/tips";
 import { generateBox } from "../../src/core/generator";
 import { buildLessonLock, LESSON_1, LESSON_2, lessonPlan } from "../../src/core/lessons-data";
@@ -744,6 +745,37 @@ describe("LessonsDirector: tip demos", () => {
     }
     expect(sweeps).toBeGreaterThan(20);
   });
+
+  it("keeps the sweep 0.3 from every spot on every box: a floor, whatever the seed (300 Daily Boxes)", () => {
+    const seg = (p: V3, a: V3, b: V3) => {
+      const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], l2 = ab[0]! ** 2 + ab[1]! ** 2 + ab[2]! ** 2;
+      const u = l2 > 0 ? Math.min(1, Math.max(0, ((p[0] - a[0]) * ab[0]! + (p[1] - a[1]) * ab[1]! + (p[2] - a[2]) * ab[2]!) / l2)) : 0;
+      return Math.hypot(a[0] + ab[0]! * u - p[0], a[1] + ab[1]! * u - p[1], a[2] + ab[2]! * u - p[2]);
+    };
+    let sweeps = 0, worst = Infinity, where = "";
+    const day0 = Date.UTC(2026, 10, 1);
+    for (let i = 0; i < 300; i++) {
+      const day = new Date(day0 + i * 86_400_000).toISOString().slice(0, 10);
+      const base = generateBox({ kind: "daily", day });
+      for (const left of [false, true]) {
+        const box = left ? mirrorBox(base) : base;
+        for (const tip of ["ringless", "hidden"] as const) {
+          const s = buildTipScript(tip, box, left);
+          if (!s) continue;
+          sweeps++;
+          // The ghost lantern moves along its keys in straight lines (eased in time only): every leg, against every spot.
+          for (let k = 1; k < s.lamp.length; k++) {
+            for (const l of box.locks) {
+              const d = seg(l.L, s.lamp[k - 1]!.at, s.lamp[k]!.at);
+              if (d < worst) [worst, where] = [d, `${tip} on ${day}, ${left ? "left" : "right"}-handed`];
+            }
+          }
+        }
+      }
+    }
+    expect(sweeps).toBeGreaterThan(100);
+    expect(worst, where).toBeGreaterThanOrEqual(SWEEP_CLEAR);
+  }, 120_000);
 
   it("keeps a tip demo's ghost hand out of the glass sides (boxes 2 to 30 and dailies, 18 and 24 cm, both hands)", () => {
     let demos = 0;

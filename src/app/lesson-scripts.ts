@@ -583,15 +583,21 @@ function sweepClearance(pts: [V3, V3, V3], spots: readonly V3[]): number {
 
 function sweepTip(box: Box, lock: number, side: "left" | "right"): TipScript {
   const s = side === "left" ? -1 : 1, L = box.locks[lock]!.L, spots = box.locks.map((l) => l.L);
-  // The first offset whose whole path keeps clear of every spot (else the clearest of them).
-  let pts = sweepPoints(L, s), best = -1;
+  // The first offset whose whole path keeps clear of every spot.
+  let pts: [V3, V3, V3] | null = null;
   for (const o of SWEEP_OFFSETS) {
-    const p = sweepPoints(add(L, o[0] * s, o[1], o[2]), s), d = sweepClearance(p, spots);
-    if (d > best) {
-      best = d;
+    const p = sweepPoints(add(L, o[0] * s, o[1], o[2]), s);
+    if (sweepClearance(p, spots) >= SWEEP_CLEAR + SWEEP_MARGIN) {
       pts = p;
+      break;
     }
-    if (d >= SWEEP_CLEAR + SWEEP_MARGIN) break;
+  }
+  // None did (no box so far): above every spot by more than SWEEP_CLEAR, which holds by construction whatever the
+  // box, as the z and x limits move the path only across, never down.
+  if (!pts) {
+    let top = -Infinity;
+    for (const p of spots) top = Math.max(top, p[1]);
+    pts = sweepPoints([L[0], top + SWEEP_CLEAR + 0.1, L[2]], s);
   }
   const [A, B, C] = pts;
   const from = sweepFrom(A, s), away = sweepFrom(C, s);
