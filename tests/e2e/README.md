@@ -58,6 +58,10 @@ Helpers:
   (out of tracking, then back), `disconnect()` / `reconnect()`. Built on IWER's remote API; each
   gesture is stepped until IWER's queue is empty.
 - Page helpers in `helpers/page-scripts.ts`: `setHeadset`, `loadRoom`, `storedInProgress`, ...
+- `emulateHeadset(page, "metaQuest2")` (`helpers/headset.ts`), before `boot()`: IWER's Quest 2 (or Pro) profile instead of
+  the project's Quest 3, with its user agent and frame rates (the game then takes the older Quests' 72 Hz path).
+  `perf-budget-quest2.spec.ts` times the play case on it at 6x; `gpu-census.spec.ts` counts what each moment asks of
+  its GPU (`__ns.gpu.census`, `src/app/gpu-census.ts`); `quest2-look.spec.ts` shows the look over its grey passthrough.
 
 ## For app code
 
