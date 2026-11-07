@@ -72,7 +72,8 @@ test("a phone's session places the box in the camera's view", async ({ page, boo
   const h = await head(page);
   const mid = await toWorld(page, [0, 0, 0.5]);
   const view = unit([PHONE.lookAt.x - PHONE.position.x, PHONE.lookAt.y - PHONE.position.y, PHONE.lookAt.z - PHONE.position.z]);
-  expect(dist(mid, h)).toBeGreaterThan(0.4);
+  // At least the nearest the placement allows (IWER's wide view puts it right there).
+  expect(dist(mid, h)).toBeGreaterThanOrEqual(0.4 - 1e-6);
   expect(dist(mid, h)).toBeLessThan(1.6);
   expect(dist(unit(sub(mid, h)), view)).toBeLessThan(0.02);
   // The whole box, plinth and drawer handle included, inside the XR camera's view (with its margin).
