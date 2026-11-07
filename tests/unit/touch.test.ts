@@ -19,6 +19,7 @@ import {
   panelPoint,
   pokeOffset,
   prongOf,
+  rayNearSegment,
   TOUCH_FINGER,
   TOUCH_POKE,
 } from "../../src/input/touch";
@@ -34,6 +35,7 @@ import {
   Placement,
   placeBox,
   pitchFromQuaternion,
+  viewOf,
   worldToBox,
 } from "../../src/render/placement";
 import { COPY } from "../../src/ui/copy";
@@ -126,14 +128,17 @@ const RIG = { matrixWorld: new Matrix4() };
  * The touch system over a fake box scene and lantern, and a fake phone whose session has had its first frame (a
  * session's first frame tells a phone; touches come after).
  */
-function bench(box: Box | null = null, lanternAt: V3 = [0.1, 0.05, 1.3], mode = "screen-space") {
+function bench(box: Box | null = null, lanternAt: V3 = [0.1, 0.05, 1.3], mode = "screen-space", sizeCm = 24) {
   const lantern = { ctrl: { pos: lanternAt }, grab: { holder: null as "left" | "right" | null }, frozen: false, away: false };
-  const scene = { root: { matrixWorld: BOX }, box, size: 0.24 };
+  const m = sizeCm === 24 ? BOX : placeBox({ pos: EYE.clone(), yaw: 0 }, sizeCm);
+  const scene = { root: { matrixWorld: m }, box, size: sizeCm / 100 };
   const t = new Touches({ scene, lantern } as unknown as TouchDeps);
   const phone = new FakePhone(mode);
   const step = () => t.update(phone.frame, REF, RIG, EYE);
   step();
-  return { t, phone, step, lantern };
+  /** A box point (box units) in the world, for this bench's box size. */
+  const toWorld = (v: V3) => boxToWorld(m, v, new Vector3());
+  return { t, phone, step, lantern, toWorld };
 }
 
 const newHand = (): HandPinch => ({
@@ -213,6 +218,20 @@ describe("telling a phone's session", () => {
 });
 
 describe("dragging the lantern by touch", () => {
+  it("tells whether a ray passes within a radius of a segment, in front of the phone only", () => {
+    const a: V3 = [0, 0, -1], b: V3 = [0, 0.2, -1];
+    expect(rayNearSegment([0, 0.1, 0], [0, 0, -1], a, b, 0.01)).toBe(true);
+    expect(rayNearSegment([0.05, 0.1, 0], [0, 0, -1], a, b, 0.04)).toBe(false);
+    expect(rayNearSegment([0.03, 0.1, 0], [0, 0, -1], a, b, 0.04)).toBe(true);
+    // Past either end: the end's round cap.
+    expect(rayNearSegment([0, 0.23, 0], [0, 0, -1], a, b, 0.04)).toBe(true);
+    expect(rayNearSegment([0, 0.25, 0], [0, 0, -1], a, b, 0.04)).toBe(false);
+    // Behind the phone: never.
+    expect(rayNearSegment([0, 0.1, -2], [0, 0, -1], a, b, 0.04)).toBe(false);
+    // Along the segment's own line (parallel): its nearest end.
+    expect(rayNearSegment([0, 0.5, -1], [0, -1, 0], a, b, 0.01)).toBe(true);
+  });
+
   it("finds the lantern on a touch ray within the grab radius, at its depth; misses it otherwise", () => {
     const o: V3 = [0, 1.2, 0], L: V3 = [0.1, 1, -0.6];
     const len = Math.hypot(0.1, -0.2, -0.6), d: V3 = [0.1 / len, -0.2 / len, -0.6 / len];
@@ -277,6 +296,54 @@ describe("dragging the lantern by touch", () => {
       step();
       expect(t.roles(), k).toEqual(["finger"]);
     }
+  });
+
+  it("takes the lantern over its whole drawn shape: the ring it hangs by, the spire, the foot, at every box size", () => {
+    // Box units from the light, up the lantern's axis (lantern-view.ts): the ring's top, its middle, the spire's tip, a
+    // fin's edge, the foot's rim.
+    const parts: [string, V3][] = [
+      ["the ring's top", [0, 0.172, 0]],
+      ["the ring", [0.016, 0.155, 0]],
+      ["the spire's tip", [0, 0.14, 0]],
+      ["a fin", [0.045, 0, 0]],
+      ["the foot", [0.05, -0.08, 0]],
+    ];
+    const L: V3 = [0.1, 0.05, 1.3];
+    for (const cm of [18, 24, 30]) {
+      for (const [name, off] of parts) {
+        const { t, phone, step, toWorld } = bench(null, L, "screen-space", cm);
+        phone.touch(toWorld([L[0] + off[0], L[1] + off[1], L[2] + off[2]]));
+        step();
+        expect(t.roles(), `${name}, ${cm} cm box`).toEqual(["lantern"]);
+        // The drag holds from within the lantern controller's own 6 cm grab radius, so it really takes it.
+        const hand = newHand();
+        expect(t.virtualHand(TOUCH_SIDE, hand)).toBe(true);
+        expect(hand.point.distanceTo(toWorld(L)), `${name}, ${cm} cm box`).toBeLessThanOrEqual(0.06);
+      }
+      // Above the ring, and well clear of its side: a finger, not the lantern.
+      for (const off of [[0, 0.3, 0], [0.2, 0, 0]] as V3[]) {
+        const { t, phone, step, toWorld } = bench(null, L, "screen-space", cm);
+        phone.touch(toWorld([L[0] + off[0], L[1] + off[1], L[2] + off[2]]));
+        step();
+        expect(t.roles(), `${off.join(", ")} from the light, ${cm} cm box`).toEqual(["finger"]);
+      }
+    }
+  });
+
+  it("a touch on a gap behind the lantern stays a finger even where the ring or spire stands in front of it", () => {
+    // The lantern on the line from the phone to the gap, lowered so its spire and ring cover the gap on screen: over a
+    // gap only its body takes it.
+    const box = { locks: [fingerLock(0)], elements: [] } as unknown as Box;
+    const gap = w([0.1, -0.05, 0]);
+    const toGap = gap.clone().sub(EYE).normalize();
+    const onLine = EYE.clone().addScaledVector(toGap, gap.distanceTo(EYE) * 0.55);
+    const up = new Vector3(0, 1, 0).addScaledVector(toGap, -toGap.y).normalize();
+    // The light 3 cm below the line: the spire (3.4 cm up) and the ring (4.2 cm up) on it.
+    const L = worldToBox(BOX, onLine.clone().addScaledVector(up, -0.03), [0, 0, 0]);
+    const { t, phone, step } = bench(box, L);
+    phone.touch(gap);
+    step();
+    expect(t.roles()).toEqual(["finger"]);
   });
 
   it("takes the lantern over its drawn size only, not a hand's 6 cm reach", () => {
@@ -608,6 +675,21 @@ describe("the box in a phone's view", () => {
     }
     // Not placed far off for nothing: some corner comes right to the margin.
     expect(worst).toBeCloseTo(IN_VIEW_FILL, 6);
+  });
+
+  it("reads the camera's view from its projection, the narrower side of an off-centre one, a phone's without one", () => {
+    const out = { tanH: 0, tanV: 0 };
+    // Symmetric: 1 / P[0] and 1 / P[5].
+    viewOf(new Matrix4().makePerspective(-0.03, 0.03, 0.05, -0.05, 0.1, 100).elements, out);
+    expect(out.tanH).toBeCloseTo(0.3, 9);
+    expect(out.tanV).toBeCloseTo(0.5, 9);
+    // Off centre: right 0.5 and left 0.3 across, up 0.6 and down 0.4: the narrower each way.
+    viewOf(new Matrix4().makePerspective(-0.03, 0.05, 0.06, -0.04, 0.1, 100).elements, out);
+    expect(out.tanH).toBeCloseTo(0.3, 9);
+    expect(out.tanV).toBeCloseTo(0.4, 9);
+    // No projection yet (or a broken one): a phone's narrow view.
+    expect(viewOf(undefined, out)).toEqual({ tanH: PHONE_VIEW.tanH, tanV: PHONE_VIEW.tanV });
+    expect(viewOf(new Array(16).fill(0), out)).toEqual({ tanH: PHONE_VIEW.tanH, tanV: PHONE_VIEW.tanV });
   });
 
   it("stands farther for a bigger box and a narrower view", () => {

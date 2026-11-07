@@ -49,19 +49,44 @@ export function grabDepth(o: Readonly<V3>, d: Readonly<V3>, p: Readonly<V3>, rad
 }
 
 /**
- * How near a touch ray must pass the lantern (box units) to take it. A hand's 6 cm grab radius is far too wide for a
- * ray from a phone: at 45 cm it covers a third of the screen, and the gap a finger lock waits on is often seen just past
- * the lantern. So a touch takes it only over its drawn size, and only over its body when the touch reaches a finger
- * lock's gap.
+ * Where a touch ray must pass the lantern (box units, from its light) to take it. A hand's 6 cm grab radius is far too
+ * wide for a ray from a phone: at 45 cm it covers a third of the screen, and the gap a finger lock waits on is often
+ * seen just past the lantern. So a touch takes it only over its drawn shape, and only over its body when the touch
+ * reaches a finger lock's gap.
  */
 export const TOUCH_GRAB = {
-  /** The lantern's drawn size, its spire and foot, with a fingertip's slop: 2.6 cm at the 24 cm box. */
-  radius: 0.11,
-  /** Its body alone (the glass core and the fins round it): 1.4 cm at the 24 cm box. */
+  /**
+   * The lantern as drawn (lantern-view.ts), with a fingertip's slop: a capsule up its axis from `down` below the light
+   * to `up` above it, `radius` round. It holds the foot (its rim at 0.058 out, 0.087 down), the core and fins (out to
+   * 0.058), the spire (tip at 0.14) and the ring it hangs by (top at 0.174). Every point of it is within up + radius =
+   * 0.19 of the light, so the drag's pinch point (the ray's nearest point to the light) is within 5.7 cm of it even at
+   * the 30 cm box, and the lantern controller's own 6 cm grab check always passes. 2.2 cm round at the 24 cm box.
+   */
+  reach: { down: 0.03, up: 0.1, radius: 0.09 },
+  /** Its body alone (the glass core and the fins round it), when the touch reaches a gap: 1.4 cm at the 24 cm box. */
   bodyRadius: 0.06,
   /** A touch this near a finger lock's missing piece (box units, on the panel) reaches its gap. */
   gapMargin: 0.03,
 } as const;
+
+const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
+
+/**
+ * The ray (origin `o`, unit direction `d`) passes within `r` of the segment from `a` to `b`, in front of its origin.
+ * The nearest points: the segment's to the ray's line, then the ray's (in front) to that, then the segment's again.
+ */
+export function rayNearSegment(o: Readonly<V3>, d: Readonly<V3>, a: Readonly<V3>, b: Readonly<V3>, r: number): boolean {
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+  const wx = o[0] - a[0], wy = o[1] - a[1], wz = o[2] - a[2];
+  const uu = ux * ux + uy * uy + uz * uz, ud = ux * d[0] + uy * d[1] + uz * d[2];
+  const wd = wx * d[0] + wy * d[1] + wz * d[2], wu = wx * ux + wy * uy + wz * uz;
+  const denom = uu - ud * ud;
+  let s = uu > 0 ? clamp01(denom > 1e-12 ? (wu - ud * wd) / denom : 0) : 0;
+  const t = Math.max(0, s * ud - wd);
+  if (uu > 0) s = clamp01((wu + t * ud) / uu);
+  const px = o[0] + d[0] * t - (a[0] + ux * s), py = o[1] + d[1] * t - (a[1] + uy * s), pz = o[2] + d[2] * t - (a[2] + uz * s);
+  return t > 0 && px * px + py * py + pz * pz <= r * r;
+}
 
 /** The panel point `q` (box units) is on one of these prongs, or within `margin` of it. */
 export function onProng(prongs: readonly Prong[], q: Readonly<V2>, margin: number): boolean {
