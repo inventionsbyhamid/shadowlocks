@@ -117,7 +117,7 @@ export class Shell {
   }
 
   /** Continue on Home: back to what waits behind the menus, else the box in progress, else the next. */
-  continueBox(to: Exclude<ContinueTo, { kind: "trial" }>): void {
+  continueBox(to: Extract<ContinueTo, { kind: "back" | "box" }>): void {
     const g = this.game;
     if (to.kind === "back") {
       if (g) g.back();

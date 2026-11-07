@@ -5,7 +5,8 @@ import { generateBox } from "../../src/core/generator";
 import type { V3 } from "../../src/core/types";
 import { KEY_EVENT } from "../../src/render/finger-key";
 import { REWARD, Reward, type RewardHands } from "../../src/render/reward";
-import { PLATE, plateLayout } from "../../src/ui/plate";
+import { COPY } from "../../src/ui/copy";
+import { PLATE, plateLayout, plateText } from "../../src/ui/plate";
 import { PokeKey } from "../../src/ui/poke-key";
 
 const DT = 1 / 72;
@@ -133,6 +134,12 @@ describe("the plate", () => {
     }
   });
 
+  it("names the box, and a practice box (the ?box flag) says so under its name", () => {
+    expect(plateText({ kind: "box", n: 3 }, false)).toEqual({ name: "Box No. 3", cue: "" });
+    expect(plateText({ kind: "box", n: 3 }, true)).toEqual({ name: "Box No. 3", cue: COPY.game.practice });
+    expect(plateText({ kind: "daily", day: "2026-11-06" }, false)).toEqual({ name: "Daily Box", cue: "" });
+    expect(COPY.game.practice).toBe("Practice");
+  });
 });
 
 describe("a key on the box", () => {

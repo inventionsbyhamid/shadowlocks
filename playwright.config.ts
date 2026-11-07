@@ -4,12 +4,19 @@ import { CHROME_ARGS } from "./tests/e2e/helpers/chromium";
 const PORT = 8081;
 const URL = `https://localhost:${PORT}/`;
 
+/**
+ * The jitter bot's specs (tests/e2e/bot*.spec.ts): opt in, so the routine suite leaves them out (each takes about 25
+ * minutes of exclusive server time). playwright.bot.config.ts runs them; tests/e2e/README.md says how.
+ */
+export const BOT_SPECS = "**/bot*.spec.ts";
+
 // Runs on the build server in the shadowlocks-e2e image (scripts/e2e.sh), never on a laptop.
 // Software rendering is slow, so tests run one at a time with long timeouts and always on the
 // virtual clock (tests/e2e/helpers).
 export default defineConfig({
   testDir: "tests/e2e",
   testMatch: "**/*.spec.ts",
+  testIgnore: BOT_SPECS,
   globalSetup: "./tests/e2e/global-setup.ts",
   outputDir: "test-results/artifacts",
   timeout: 10 * 60_000,

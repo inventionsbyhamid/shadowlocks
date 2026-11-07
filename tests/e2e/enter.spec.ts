@@ -67,6 +67,16 @@ test("the installed Quest app (Digital Goods API present) skips the landing page
     (window as unknown as { getDigitalGoodsService: () => Promise<never> }).getDigitalGoodsService = () => Promise.reject(new Error("no billing in tests"));
   });
   const app = await boot({ enterXR: false });
+  // No landing art as a splash: before XR (in-xr off) only the status shows.
+  const shown = await page.evaluate(() => {
+    const inXr = document.body.classList.contains("in-xr");
+    document.body.classList.remove("in-xr");
+    const seen = (sel: string) => getComputedStyle(document.querySelector(sel)!).display !== "none";
+    const r = { installed: document.body.classList.contains("installed"), art: seen(".art"), name: seen("#landing h1"), status: seen("#status") };
+    if (inXr) document.body.classList.add("in-xr");
+    return r;
+  });
+  expect(shown).toEqual({ installed: true, art: false, name: false, status: true });
   // The app requested the session by itself: no click and no answer to an offer.
   await app.stepUntil((ns) => ns.state().xr.presenting, { maxMs: 5_000, label: "XR presenting without a tap" });
   expect((await app.state()).xr.sessionMode).toBe("immersive-ar");

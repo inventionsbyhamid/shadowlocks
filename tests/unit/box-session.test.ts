@@ -6,12 +6,13 @@ import { ACT_HINT, ACT_NEXT, ACT_TAKE, type BoxSessionDeps, type SessionView } f
 import { COACH_HOLD_MS, CRYSTAL_MS, type FingerLoop } from "../../src/app/session-fingers";
 import type { FeedbackEvent } from "../../src/app/bus";
 import { GENERATOR_VERSION, generateBox } from "../../src/core/generator";
-import { type BoxSnapshot, defaultSettings, newProfile, type Profile } from "../../src/core/profile";
-import { meets } from "../../src/core/solve";
+import { type BoxSnapshot, defaultSettings, newProfile, type Profile, type Settings } from "../../src/core/profile";
+import { type Coverage, measure, meets, prepareLock, SKIP_MISSING, shadowBuffers, shadowPolys } from "../../src/core/solve";
 import type { Box, BoxSpec, Lock, V2, V3, Vec3 } from "../../src/core/types";
-import { GAZE_DWELL_MS, OPEN_DWELL_MS, STUCK_MS } from "../../src/feel/constants";
+import { GAZE_DWELL_MS, LANTERN_MIN_Z, OPEN_DWELL_MS, STUCK_MS } from "../../src/feel/constants";
 import { FingerHold } from "../../src/feel/finger-hold";
-import type { FeelEvent } from "../../src/feel/lantern-controller";
+import { type FeelEvent, LanternController } from "../../src/feel/lantern-controller";
+import { LanternCtxBuilder } from "../../src/feel/lantern-ctx";
 
 const DT = 1000 / 72;
 const BOX = (n: number): BoxSpec => ({ kind: "box", n });
@@ -39,6 +40,10 @@ interface Harness {
   events: FeedbackEvent[];
   calls: string[];
   profile: Profile;
+  /** The settings the session reads (change them as the settings screen does). */
+  settings: Settings;
+  /** Times Next asked for a box the entitlement refused. */
+  refused: () => number;
   /** Every warmth the panel was given, by lock. */
   panelWarmth: Map<number, number[]>;
   panelOpen: Set<number>;
@@ -59,7 +64,8 @@ interface Harness {
   head: { hit: V3 | null };
   view: { acts: number; calls: string[] };
   saves: () => number;
-  holder: { side: "left" | "right" | null };
+  /** Which hand holds the lantern, and whether it is at rest (LanternController.atRest). */
+  holder: { side: "left" | "right" | null; rest: boolean };
   feel(e: FeelEvent): void;
   place(p: readonly number[]): void;
   frames(n: number): void;
@@ -69,7 +75,8 @@ interface Harness {
   types(type: string): FeedbackEvent[];
 }
 
-function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "right" } = {}): Harness {
+function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "right"; canPlayBox?: () => boolean } = {}): Harness {
+  let refused = 0;
   const events: FeedbackEvent[] = [];
   const calls: string[] = [];
   const panelWarmth = new Map<number, number[]>();
@@ -78,7 +85,7 @@ function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "ri
   const aligned = new Set<number>();
   const pos: V3 = [0.35, -0.3, 1.35];
   const listeners: ((e: FeelEvent) => void)[] = [];
-  const holder = { side: null as "left" | "right" | null };
+  const holder = { side: null as "left" | "right" | null, rest: true };
   const profile = o.profile ?? newProfile(0, "test");
   let saves = 0;
   const settings = { ...defaultSettings(), warmth: o.warmth ?? true, handed: o.handed ?? "right" };
@@ -121,6 +128,10 @@ function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "ri
       get holder() {
         return holder.side;
       },
+    },
+    // Put where the test puts it, as by the test hooks: at rest unless the test says it moves.
+    get atRest() {
+      return holder.rest;
     },
     feel: {
       setOpen: (lock: number, open: boolean) => (open ? feelOpen.add(lock) : feelOpen.delete(lock)),
@@ -229,6 +240,10 @@ function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "ri
     makeFingerLoop: fingerLoop,
     crystals: { crystallise: rec("crystals.crystallise"), place: rec("crystals.place") },
     view: fakeView,
+    canPlayBox: o.canPlayBox,
+    boxRefused: () => {
+      refused++;
+    },
   };
   const session = new BoxSession(deps);
   let t = 1000;
@@ -237,6 +252,8 @@ function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "ri
     events,
     calls,
     profile,
+    settings,
+    refused: () => refused,
     panelWarmth,
     panelOpen,
     feelOpen,
@@ -288,6 +305,64 @@ function setFinger(h: Harness, poly: V2[] | null, z = 0.45): void {
   h.finger.version++;
 }
 
+/**
+ * A real lantern (LanternController) held by a scripted hand, run each frame before the session's frame (as the
+ * lantern system runs before the game), the session reading where it is and whether it is at rest. Without `spots`
+ * the feel knows none of the box's spots, so nothing settles.
+ */
+function heldLantern(h: Harness, o: { spots?: boolean } = {}) {
+  const feel = new LanternCtxBuilder();
+  feel.setBox(o.spots === false ? null : h.session.box);
+  const ctl = new LanternController([h.pos[0], h.pos[1], h.pos[2]]);
+  const out: FeelEvent[] = [];
+  let hand: V3 = [h.pos[0], h.pos[1], h.pos[2]];
+  /** Called after every frame. */
+  let watch: (() => void) | null = null;
+  const frame = (pinching = true) => {
+    ctl.update({ tMs: h.now() + DT, pinching, pinchPos: [hand[0], hand[1], hand[2]] }, feel.update(ctl.pos, 24));
+    ctl.drain(out);
+    h.place(ctl.pos);
+    h.holder.rest = ctl.atRest;
+    h.frames(1);
+    watch?.();
+  };
+  frame(false);
+  frame(true);
+  return {
+    ctl,
+    set watch(fn: (() => void) | null) {
+      watch = fn;
+    },
+    hold(ms: number) {
+      for (let i = Math.round(ms / DT); i > 0; i--) frame();
+    },
+    /** The hand in a straight line to `to` at `cmps` (24 cm box units). */
+    moveTo(to: V3, cmps: number) {
+      const from = hand;
+      const n = Math.max(1, Math.ceil((Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]) * 24) / cmps / (DT / 1000)));
+      for (let i = 1; i <= n; i++) {
+        const k = i / n;
+        hand = [from[0] + (to[0] - from[0]) * k, from[1] + (to[1] - from[1]) * k, from[2] + (to[2] - from[2]) * k];
+        frame();
+      }
+    },
+  };
+}
+
+/** Whether plain lock `lock`'s rule holds with the lantern at `L` (measured as the session measures it). */
+function ruleAt(box: Box, lock: Lock): (L: Readonly<V3>) => boolean {
+  const s = prepareLock(lock), polys = shadowBuffers(box.elements, SKIP_MISSING);
+  const c: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 0 };
+  return (L) => meets(measure(s, polys, shadowPolys(box.elements, [L[0], L[1], L[2]], polys, SKIP_MISSING), [], 0, c), false);
+}
+
+/** The point `cm` centimetres out along lock `lock`'s ray (from its outline's centre on the panel through its spot). */
+function onRay(lock: Lock, cm: number): V3 {
+  const L = lock.L, d = [L[0] - lock.center[0], L[1] - lock.center[1], L[2]], n = Math.hypot(d[0]!, d[1]!, d[2]!);
+  const k = cm / 24 / n;
+  return [L[0] + d[0]! * k, L[1] + d[1]! * k, L[2] + d[2]! * k];
+}
+
 /** Open a finger lock: the lantern on its spot and a finger whose shadow is exactly the missing piece. */
 function openFingerLock(h: Harness, l: Lock): void {
   h.place(l.L);
@@ -317,6 +392,83 @@ describe("box session", () => {
     expect(h.calls).toContain("lockOpened 0");
     expect(h.panelOpen.has(0)).toBe(true);
     expect(h.feelOpen.has(0)).toBe(true);
+  });
+
+  it("a held lantern swept along a lock's exact ray at 5 to 30 cm/s never opens it, though the rule holds there", async () => {
+    for (const cmps of [5, 10, 20, 30]) {
+      const h = harness();
+      await h.session.start(BOX(1));
+      const box = h.session.box!, lock = box.locks[0]!, rule = ruleAt(box, lock);
+      // In along the ray from 8 cm out to as far past the spot as the box front allows (up to 4 cm).
+      let inCm = 4;
+      while (onRay(lock, -inCm)[2] < LANTERN_MIN_Z + 0.005) inCm -= 0.1;
+      const lan = heldLantern(h);
+      lan.moveTo(onRay(lock, 8), 10);
+      lan.hold(600);
+      expect(h.holder.rest).toBe(true);
+      let run = 0, longest = 0;
+      lan.watch = () => {
+        run = rule(h.pos) ? run + DT : 0;
+        longest = Math.max(longest, run);
+      };
+      lan.moveTo(onRay(lock, -inCm), cmps);
+      expect(h.session.isOpen(0), `${cmps} cm/s`).toBe(false);
+      expect(h.types("lock-open")).toEqual([]);
+      // The rule held along the way: at 5 cm/s for longer than the dwell, which once opened such sweeps.
+      expect(longest, `${cmps} cm/s`).toBeGreaterThan(0);
+      if (cmps === 5) expect(longest).toBeGreaterThan(OPEN_DWELL_MS);
+    }
+  });
+
+  it("a settled lantern opens its lock about 150 ms after the rule holds", async () => {
+    const h = harness();
+    await h.session.start(BOX(1));
+    const box = h.session.box!, lock = box.locks[0]!, rule = ruleAt(box, lock);
+    const lan = heldLantern(h);
+    // Brought in at 8 cm/s from 6 cm off, to 1 cm short of the spot, and held there: it settles onto the spot.
+    lan.moveTo([lock.L[0] + 6 / 24, lock.L[1] + 1 / 24, lock.L[2] + 2 / 24], 10);
+    lan.hold(300);
+    let lastNot = Number.NaN, openAt = Number.NaN, settled = false;
+    lan.watch = () => {
+      if (!h.session.isOpen(0) && !(h.holder.rest && rule(h.pos))) lastNot = h.now();
+      if (h.session.isOpen(0) && Number.isNaN(openAt)) {
+        openAt = h.now();
+        settled = lan.ctl.mode === "settled";
+      }
+    };
+    lan.moveTo([lock.L[0] + 1 / 24, lock.L[1], lock.L[2]], 8);
+    lan.hold(1500);
+    expect(settled).toBe(true);
+    expect(openAt - lastNot).toBeGreaterThanOrEqual(OPEN_DWELL_MS);
+    expect(openAt - lastNot).toBeLessThan(OPEN_DWELL_MS + DT);
+    expect(OPEN_DWELL_MS).toBe(150);
+  });
+
+  it("a held, still lantern that is not settled but meets the rule opens 150 ms after it is at rest", async () => {
+    const h = harness();
+    await h.session.start(BOX(1));
+    const box = h.session.box!, lock = box.locks[0]!, rule = ruleAt(box, lock);
+    // A feel with no spots: nothing settles; the lantern is at rest by the speed gate alone.
+    const lan = heldLantern(h, { spots: false });
+    lan.moveTo([lock.L[0] + 6 / 24, lock.L[1] + 1 / 24, lock.L[2] + 2 / 24], 10);
+    lan.hold(300);
+    let lastNot = Number.NaN, openAt = Number.NaN, mode = "", metMoving = 0;
+    lan.watch = () => {
+      const met = rule(h.pos);
+      if (met && !h.holder.rest) metMoving += DT;
+      if (!h.session.isOpen(0) && !(h.holder.rest && met)) lastNot = h.now();
+      if (h.session.isOpen(0) && Number.isNaN(openAt)) {
+        openAt = h.now();
+        mode = lan.ctl.mode;
+      }
+    };
+    lan.moveTo(lock.L, 8);
+    lan.hold(1500);
+    expect([mode, lan.ctl.held]).toEqual(["free", true]);
+    expect(openAt - lastNot).toBeGreaterThanOrEqual(OPEN_DWELL_MS);
+    expect(openAt - lastNot).toBeLessThan(OPEN_DWELL_MS + DT);
+    // It met the rule for longer than the dwell before it was at rest (the gate catching up), and did not open then.
+    expect(metMoving).toBeGreaterThan(OPEN_DWELL_MS);
   });
 
   it("opening locks persists through snapshot() round trips", async () => {
@@ -637,6 +789,76 @@ describe("box session", () => {
     expect(h.pos[0]).toBeLessThan(0);
     openPlainLocks(h);
     expect(h.session.isOpen(0)).toBe(true);
+  });
+
+  it("a save keeps which way its box was mirrored; resumed for the other hand, the lantern crosses to the same side of its box", async () => {
+    const h = harness();
+    await h.session.start(BOX(2));
+    h.place(h.session.box!.locks[0]!.L);
+    h.until(() => h.session.isOpen(0), 1000);
+    h.place([0.2, -0.3, 1.3]);
+    h.frames(2);
+    const s1 = h.session.snapshot();
+    expect(s1.mirrored).toBe(false);
+    const left = harness({ handed: "left" });
+    await left.session.start(BOX(2), JSON.parse(JSON.stringify(s1)) as BoxSnapshot);
+    expect(left.session.box!.mirrored).toBe(true);
+    expect(left.pos).toEqual([-0.2, -0.3, 1.3]);
+    expect(left.session.isOpen(0)).toBe(true);
+    expect(left.session.snapshot().mirrored).toBe(true);
+    // A save from before saves said (no `mirrored`) is taken as it is.
+    const old: BoxSnapshot = { ...s1 };
+    delete old.mirrored;
+    const l2 = harness({ handed: "left" });
+    await l2.session.start(BOX(2), old);
+    expect(l2.pos).toEqual([0.2, -0.3, 1.3]);
+  });
+
+  it("the Left hand setting mirrors the box in play from its own save: the same open locks, time and hints", async () => {
+    const h = harness();
+    await h.session.start(BOX(2));
+    h.place(h.session.box!.locks[0]!.L);
+    h.until(() => h.session.isOpen(0), 1000);
+    h.place([0.15, -0.25, 1.3]);
+    h.frames(30);
+    const before = h.session.snapshot();
+    h.settings.handed = "left";
+    await h.session.rehand();
+    expect(h.session.box!.mirrored).toBe(true);
+    expect(h.pos).toEqual([-0.15, -0.25, 1.3]);
+    expect(h.session.isOpen(0)).toBe(true);
+    expect(h.session.isOpen(1)).toBe(false);
+    expect(h.session.snapshot()).toMatchObject({ key: before.key, open: [0], elapsedMs: before.elapsedMs, mirrored: true });
+    // Nothing to do when the box already matches the hand, or none plays.
+    const box = h.session.box;
+    await h.session.rehand();
+    expect(h.session.box).toBe(box);
+    await harness().session.rehand();
+  });
+
+  it("Next asks the entitlement: when endless boxes are not allowed (a trial over) it starts none and says so", async () => {
+    const profile = newProfile(0, "test");
+    let allowed = true;
+    const h = harness({ profile, canPlayBox: () => allowed });
+    await h.session.start({ kind: "daily", day: "2026-11-06" });
+    openPlainLocks(h);
+    for (const l of h.session.box!.locks) if (l.finger) openFingerLock(h, l);
+    h.until(() => h.session.stage === "reward", LOCK_TO_BOX_MS + REWARD_UP_MS + 100);
+    h.view.acts = ACT_TAKE;
+    h.frames(1);
+    allowed = false;
+    const daily = h.session.box;
+    h.view.acts = ACT_NEXT;
+    h.frames(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.refused()).toBe(1);
+    expect(h.session.box).toBe(daily);
+    expect(h.session.stage).toBe("offered");
+    allowed = true;
+    h.view.acts = ACT_NEXT;
+    h.frames(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.session.box?.key).toBe(generateBox(BOX(1)).key);
   });
 
   it("a practice box never touches the player's progress, and its Next is the next practice box", async () => {

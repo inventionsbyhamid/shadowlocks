@@ -84,6 +84,11 @@ export class Lantern {
     };
   }
 
+  /** The lantern is at rest (LanternController.atRest): not held, settled, or held by a deliberate hand. */
+  get atRest(): boolean {
+    return this.ctrl.atRest;
+  }
+
   /** Put away while a menu is up over the box. */
   get away(): boolean {
     return this.awayNow;

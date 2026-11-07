@@ -36,6 +36,8 @@ export interface SessionScene {
 /** What the session needs of the lantern (the app's Lantern has it all). */
 export interface SessionLantern {
   readonly grab: { readonly holder: "left" | "right" | null };
+  /** At rest (LanternController.atRest): a lock's open dwell counts only then. */
+  readonly atRest: boolean;
   readonly feel: { setOpen(lock: number, open: boolean): void; aligned(lock: number): boolean };
   onFeel(fn: (e: FeelEvent) => void): () => void;
 }
@@ -57,8 +59,11 @@ export interface HeadRay {
 
 /** What the player sees of the session beyond the panel: celebrations, the plate, the hint lantern, the reward. */
 export interface SessionView {
-  /** A new box: the plate's number and latch lights, the last box's celebration put away, its scraps held back until the panel is etched. */
-  setBox(box: Box, spec: BoxSpec): void;
+  /**
+   * A new box: the plate's number and latch lights (and "Practice" for a practice box), the last box's celebration put
+   * away, its scraps held back until the panel is etched.
+   */
+  setBox(box: Box, spec: BoxSpec, practice?: boolean): void;
   /** The panel shows this box's etching: what hangs in the box appears. */
   reveal(): void;
   /** Lock `lock` opened, the `order`-th: its latch light, and (unless restored) its celebration. */
@@ -100,6 +105,10 @@ export interface BoxSessionDeps {
   view?: SessionView;
   /** Something worth saving changed: the lifecycle saves within its debounce. */
   saveSoon?: (nowMs: number) => void;
+  /** Endless boxes may be played now (the entitlement: false once a trial is over, or while it is pending). */
+  canPlayBox?: () => boolean;
+  /** The plate's Next asked for a box the entitlement does not allow (the app shows the trial screen). */
+  boxRefused?: () => void;
 }
 
 const NOOP = () => {};
