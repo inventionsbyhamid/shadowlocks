@@ -17,8 +17,6 @@ import {
   PlaneGeometry,
   RGBAFormat,
   Shape,
-  Sprite,
-  SpriteMaterial,
   Vector3,
 } from "@iwsdk/core";
 import type { Box, V2, V3 } from "../core/types";
@@ -139,7 +137,7 @@ export class Reward {
   private readonly hand: V3 = [0, 0, 0];
   private holder = -1;
   /** The glow behind the plaque (its opacity: the bloom as it rises, then a soft glow). */
-  readonly glow: Sprite;
+  readonly glow: Mesh;
   /** The glow's strength: 1, or half when the flash budget refused its bloom; NaN until it rises. */
   private glowStrength = Number.NaN;
 
@@ -156,9 +154,11 @@ export class Reward {
     this.card = new Mesh(new PlaneGeometry(REWARD.card.w, REWARD.card.h), labelMaterial(this.label.texture, { depthWrite: false }));
     this.card.name = "Reward Story";
     this.card.position.set(0, REWARD.card.above, 0);
-    // A gold glow behind the plaque, added as light.
-    this.glow = new Sprite(
-      new SpriteMaterial({
+    // A gold glow behind the plaque, added as light: flat and parallel to the plaque, behind its back face. A
+    // camera-facing sprite would tilt through the plaque seen from above or aside and lay a bright wedge across it.
+    this.glow = new Mesh(
+      new PlaneGeometry(1, 1),
+      new MeshBasicMaterial({
         map: glowTexture(64),
         color: COLORS.gold,
         ...LIGHT_BLEND,
@@ -312,7 +312,7 @@ export class Reward {
     const G = REWARD.glow;
     if (this.glowStrength !== this.glowStrength) this.glowStrength = !this.budget || this.budget.take() ? 1 : G.refused;
     const env = k < 0.5 ? smoothstep(0, 0.5, k) : 1 - (1 - G.rest) * smoothstep(0.5, 1, k);
-    (this.glow.material as SpriteMaterial).opacity = G.peak * this.glowStrength * env;
+    (this.glow.material as MeshBasicMaterial).opacity = G.peak * this.glowStrength * env;
     const s = G.size * (reduced ? 1 : G.growFrom + (1 - G.growFrom) * outCubic(k));
     this.glow.scale.set(s, s, 1);
     this.glow.visible = true;

@@ -1,6 +1,6 @@
 // The reward's rise, pinch and drop, and a key on the box pressed by a fingertip, without a renderer.
 import { describe, expect, it } from "vitest";
-import { Group, type SpriteMaterial, Vector3 } from "@iwsdk/core";
+import { Group, type Mesh, type MeshBasicMaterial, Vector3 } from "@iwsdk/core";
 import { generateBox } from "../../src/core/generator";
 import type { V3 } from "../../src/core/types";
 import { KEY_EVENT } from "../../src/render/finger-key";
@@ -68,7 +68,7 @@ describe("reward", () => {
       for (let t = 0; t < REWARD.riseAtS + REWARD.riseS + 0.5; t += DT) {
         budget.step(DT);
         r.update(DT, hands, true, CM, reduced);
-        const m = r.glow.material as SpriteMaterial;
+        const m = r.glow.material as MeshBasicMaterial;
         seen.push({ o: r.glow.visible && r.group.visible ? m.opacity : 0, s: r.glow.scale.x });
       }
       // Nothing before it rises; one flash when it does; a peak, then a softer glow that stays.
@@ -85,13 +85,28 @@ describe("reward", () => {
     }
   });
 
+  it("the glow is a flat glow behind the plaque, parallel to it, so it never cuts across the plaque from any side", () => {
+    const r = new Reward(new Group());
+    r.setBox(generateBox({ kind: "box", n: 3 }));
+    // A camera-facing sprite tilts through a plaque seen from above or aside (a bright wedge across it); a plane
+    // parallel to the plaque, behind its back, cannot.
+    const glow = r.glow as Mesh, plaque = r.group.getObjectByName("Reward Trinket") as Mesh;
+    expect(glow.isMesh).toBe(true);
+    expect((glow as unknown as { isSprite?: boolean }).isSprite).toBeUndefined();
+    expect(glow.rotation.toArray().slice(0, 3)).toEqual(plaque.rotation.toArray().slice(0, 3));
+    plaque.geometry.computeBoundingBox();
+    expect(glow.position.z).toBeLessThan(plaque.position.z + plaque.geometry.boundingBox!.min.z - 0.01);
+    // Its material adds light (light-blend.test.ts holds the blend), drawn without writing depth.
+    expect((glow.material as MeshBasicMaterial).depthWrite).toBe(false);
+  });
+
   it("the glow shows round the plaque, not only behind it: bright at its sides at the peak, soft there at rest", () => {
     const budget = new FlashBudget();
     const r = new Reward(new Group(), budget);
     r.setBox(generateBox({ kind: "box", n: 3 }));
     r.rise([0.22, -0.55, 1.27]);
     const { hands } = hand();
-    const m = r.glow.material as SpriteMaterial;
+    const m = r.glow.material as MeshBasicMaterial;
     const img = m.map!.image as { data: Uint8Array; width: number };
     // The glow's own alpha at the plaque's side edge (radius 0..1 across the sprite), read from its texture.
     const atSide = () => {
