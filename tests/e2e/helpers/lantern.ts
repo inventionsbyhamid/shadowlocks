@@ -149,20 +149,24 @@ export const MEAN_BUDGET_MS = 0.5;
 // The stall rule lives in helpers/stall-rule.ts (pure, so the unit tests hold it); every cost check takes it from there.
 export { judgeWindows, judgeWindowsP95, MAX_STALLS, p95WithoutStalls, STALL_MS, type StallMean, type StallP95, withoutStalls } from "./stall-rule";
 
-/** The cost check: the judged window has at most MAX_STALLS host stalls and a mean of at most `budgetMs`. */
+// A frame over STALL_MS may be the host's or our own (a GC pause, a shader compile): the messages blame neither.
+
+/** The cost check: the judged window has at most MAX_STALLS stalls and a mean of at most `budgetMs` without them. */
 export function expectWithinBudget(j: StallMean, budgetMs: number, what: string): void {
-  expect(j.stalls, `${what}: host stalls over ${STALL_MS} ms in the judged window`).toBeLessThanOrEqual(MAX_STALLS);
-  expect(j.meanMs, `${what}: mean ms a frame over ${TIMED_FRAMES} frames without host stalls, the better of ${WINDOWS} windows`).toBeLessThanOrEqual(
-    budgetMs,
-  );
+  expect(j.stalls, `${what}: stalls (host or ours) over ${STALL_MS} ms in the judged window`).toBeLessThanOrEqual(MAX_STALLS);
+  expect(
+    j.meanMs,
+    `${what}: mean ms a frame over ${TIMED_FRAMES} frames without stalls (host or ours), the better of ${WINDOWS} windows`,
+  ).toBeLessThanOrEqual(budgetMs);
 }
 
-/** The frame check: the judged window has at most MAX_STALLS host stalls and a p95 of at most `budgetMs` without them. */
+/** The frame check: the judged window has at most MAX_STALLS stalls and a p95 of at most `budgetMs` without them. */
 export function expectP95WithinBudget(j: StallP95, budgetMs: number, what: string): void {
-  expect(j.stalls, `${what}: host stalls over ${STALL_MS} ms in the judged window`).toBeLessThanOrEqual(MAX_STALLS);
-  expect(j.p95Ms, `${what}: p95 ms a frame over ${TIMED_FRAMES} frames without host stalls, the better of ${WINDOWS} windows`).toBeLessThanOrEqual(
-    budgetMs,
-  );
+  expect(j.stalls, `${what}: stalls (host or ours) over ${STALL_MS} ms in the judged window`).toBeLessThanOrEqual(MAX_STALLS);
+  expect(
+    j.p95Ms,
+    `${what}: p95 ms a frame over ${TIMED_FRAMES} frames without stalls (host or ours), the better of ${WINDOWS} windows`,
+  ).toBeLessThanOrEqual(budgetMs);
 }
 /** The systems on the path, as the perf hook names them. */
 const PATH_SYSTEMS = ["hand-pinch", "lantern"];
