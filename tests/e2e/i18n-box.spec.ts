@@ -1,10 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// The box's own lettering in every language (the plate, the box's keys, the story card): every piece fits at a
-// readable size with the fonts the game ships; changing the Language setting repaints it at once; a reload keeps
-// the language; and shots of the box in each language for the owner. IWER's headset on the virtual clock.
+// The box's own lettering in every language (the plate, the box's keys, the lessons' coach chip, the story card):
+// every piece fits at a readable size with the fonts the game ships; changing the Language setting repaints it at
+// once, a lesson's coach line too; a reload keeps the language; and shots of the box in each language for the owner.
+// IWER's headset on the virtual clock.
 import type { Page } from "@playwright/test";
 import type { SlSessionState } from "../../src/app/test-api";
 import type { BoxSpec, V3 } from "../../src/core/types";
+import { tableFor } from "../../src/i18n";
+import { COPY } from "../../src/ui/copy";
 import { expect, test } from "./helpers/test";
 import type { XrApp } from "./helpers/xr-app";
 
@@ -39,8 +42,9 @@ async function fontsIn(app: XrApp, page: Page, l: string): Promise<void> {
 test("every piece of the box's lettering fits at a readable size in every language", async ({ page, boot }, testInfo) => {
   await boot();
   const fits = await page.evaluate(() => window.__sl!.i18n.boxFits());
-  // Every language, every piece: the plate's four names and its Practice cue, three keys, 24 owners and 22 loot lines.
-  expect(fits).toHaveLength(LANGS.length * (4 + 1 + 3 + 24 + 22));
+  // Every language, every piece: the plate's four names and its Practice cue, three keys, the coach chip's 14 lines
+  // (ten lesson lines, three tips, the controller line), 24 owners and 22 loot lines.
+  expect(fits).toHaveLength(LANGS.length * (4 + 1 + 3 + 14 + 24 + 22));
   const squeezed = fits.filter((f) => f.squeezed).map((f) => `${f.lang} ${f.where}: "${f.text}" at ${f.size} px`);
   // What had to be set smaller than full size, or a story sentence that wrapped (allowed; listed for the report).
   const full = (where: string) => Math.max(...fits.filter((x) => x.where === where).map((x) => x.size));
@@ -88,6 +92,20 @@ test("changing the language repaints the box's lettering at once, and a reload k
   await setLanguage(page, "auto");
   await app.step(1);
   expect((await texts(page)).plate).toBe("Box No. 5");
+});
+
+test("a lesson's coach line changes language at once", async ({ page, boot }) => {
+  // Lesson 2 as practice: its first line, the shadow puppets.
+  const app = await boot({ url: "/?lesson=l2", expectScreen: "play" });
+  const shows = (text: string, label: string) =>
+    app.stepUntil((_ns, w, t) => w.__sl.lessons.state().coach.text === t, { arg: text, maxMs: 4_000, label });
+  await shows(COPY.lessons.puppets, "the puppets line");
+  for (const l of ["de", "ja", "pt-BR"] as const) {
+    await setLanguage(page, l);
+    await shows(tableFor(l).lessons.puppets, `the puppets line in ${l}`);
+  }
+  // The director still speaks English underneath; only the chip changed.
+  expect(await page.evaluate(() => window.__sl!.lessons.state().line)).toBe(COPY.lessons.puppets);
 });
 
 test("shots: the box's plate and story card in each language", async ({ page, boot }) => {

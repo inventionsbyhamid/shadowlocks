@@ -1,9 +1,10 @@
 // Every piece of lettering the box draws, in every language, measured with the same fits its painters use (the
-// plate's name beside three latch lights, the box's keys, the controller coach card, both story sentences for every
-// owner and every loot): the
-// layout check (tests/e2e/i18n-box.spec.ts) fails on any that does not fit at a readable size. Test builds only.
-import { LANGS, type Lang, storyLoot, storyOwner, tableFor } from "../i18n";
+// plate's name beside three latch lights, the box's keys, every line the lessons' coach chip shows, both story
+// sentences for every owner and every loot): the layout check (tests/e2e/i18n-box.spec.ts) fails on any that does
+// not fit at a readable size. Test builds only.
+import { type Copy, LANGS, type Lang, storyLoot, storyOwner, tableFor } from "../i18n";
 import { storyLayout } from "../render/reward";
+import { coachLayout } from "./coach-line";
 import { COPY, fill } from "./copy";
 import { HINT_LANTERN } from "./hint-lantern";
 import { keyLabelFit } from "./poke-key";
@@ -22,6 +23,12 @@ export interface BoxTextFit {
 
 type Measure = Parameters<typeof keyLabelFit>[0];
 
+/** Every line the coach chip shows: each lesson's lines (not the lessons' names), the tips, the session's suggestion. */
+export function coachLines(c: Copy): string[] {
+  const said = Object.values(c.lessons).filter((v): v is string => typeof v === "string");
+  return [...said, ...Object.values(c.lessons.tips), c.game.controllerFinger];
+}
+
 /** Measure every piece of the box's lettering in every language with `g` (its fonts loaded). */
 export function boxTextFits(g: Measure): BoxTextFit[] {
   const out: BoxTextFit[] = [];
@@ -33,6 +40,8 @@ export function boxTextFits(g: Measure): BoxTextFit[] {
     for (const name of [fill(G.boxNo, { n: 1 }), fill(G.boxNo, { n: 88 }), fill(G.boxNo, { n: 888 }), G.daily]) add("plate", name, plateNameFit(g, name, 3, l));
     add("plate cue", G.practice, plateCueFit(g, G.practice, 3, l));
     add("plate-next", G.next, keyLabelFit(g, G.next, PLATE.key.w, PLATE.key.h, l));
+    // The coach chip: one size, at most two lines, never condensed.
+    for (const s of coachLines(t)) add("coach", s, coachLayout(g, s, l));
     for (const [id, s] of [
       ["hint-choice", G.hint],
       ["hint-show-me", G.showMe],

@@ -20,6 +20,7 @@ import {
 } from "@iwsdk/core";
 import { type LessonId, type LessonPlan, lessonPlan } from "../core/lessons-data";
 import type { Box, V2, V3 } from "../core/types";
+import { onLangChange } from "../i18n";
 import type { HandJoints, HandSide } from "../input/hand-joints";
 import type { BoxScene } from "../render/box-scene";
 import { crystallise } from "../render/fx/crystallise";
@@ -111,6 +112,9 @@ export class LessonView {
     this.coachView.object.rotation.x = LESSON_LOOK.coachTilt;
     scene.root.add(this.coachView.object);
     this.coach = new CoachLine(this.coachView);
+    // A font the chip letters with arrived (or the language changed): the line up is painted again. Its words in a new
+    // language come with the next frame's line.
+    onLangChange(() => this.coach.repaint());
     this.cradle = new Mesh(
       new TorusGeometry(0.05, 0.007, 6, 24).rotateX(Math.PI / 2),
       new MeshBasicMaterial({ color: COLORS.metal, transparent: true, opacity: 0, depthWrite: false, toneMapped: false }),

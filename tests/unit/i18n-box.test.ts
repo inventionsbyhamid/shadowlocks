@@ -6,10 +6,12 @@ import { Group } from "@iwsdk/core";
 import { followLanguage } from "../../src/app/language";
 import { generateBox } from "../../src/core/generator";
 import { BOX_SIZE_CM, defaultSettings } from "../../src/core/profile";
-import { type LanguageSetting, lang, setLang, tableFor } from "../../src/i18n";
+import { type LanguageSetting, lang, localLine, setLang, tableFor } from "../../src/i18n";
 import { breakUnits, fitLabel, labelFont, wrapLabel } from "../../src/render/label";
 import { Reward } from "../../src/render/reward";
 import { captionFor } from "../../src/ui/captions";
+import { COACH, CoachLine, coachLayout, coachWrap } from "../../src/ui/coach-line";
+import { COPY } from "../../src/ui/copy";
 import { HintLantern } from "../../src/ui/hint-lantern";
 import { PLATE, Plate } from "../../src/ui/plate";
 
@@ -112,6 +114,54 @@ describe("the box's labels follow the language", () => {
     setLang("ja");
     p.relabel();
     expect([p.title, p.cueText]).toEqual(["第4の箱", "練習"]);
+  });
+
+  it("the coach line splits Japanese into two lines without spaces, by the rules, and keeps a Latin word whole", () => {
+    const text = tableFor("ja").game.controllerFinger;
+    // A character an em wide, 12 to a line: two lines, neither starting with a closing mark.
+    const lines = coachWrap(text, (s) => [...s].length, 12);
+    expect(lines).toHaveLength(2);
+    expect(lines.join("")).toBe(text);
+    for (const l of lines) expect(l).not.toMatch(/^[、。ー]/);
+    // English splits between words, after a sentence where both halves fit, else balanced.
+    expect(coachWrap("Or set a controller down and use your finger.", (s) => s.length, 30)).toEqual(["Or set a controller down", "and use your finger."]);
+    expect(coachWrap("One piece is missing. Your finger can cast it.", (s) => s.length, 30)).toEqual(["One piece is missing.", "Your finger can cast it."]);
+    // So does Japanese, after 。 where both halves fit.
+    expect(coachWrap("輪郭が隠れている。影はどんな形？", (s) => [...s].length, 10)).toEqual(["輪郭が隠れている。", "影はどんな形？"]);
+    // A line that fits stays whole.
+    expect(coachWrap("Watch.", (s) => s.length, 30)).toEqual(["Watch."]);
+  });
+
+  it("the coach line is set in the shipped fonts at its one size, and says when a line does not fit two lines", () => {
+    const g = fakeCtx();
+    const fit = coachLayout(g, tableFor("de").lessons.slide, "de");
+    expect(g.font).toBe(labelFont("bold", COACH.fontMm * COACH.pxPerMm, "de"));
+    expect(fit.size).toBe(COACH.fontMm * COACH.pxPerMm);
+    expect(fit.squeezed).toBe(false);
+    expect(coachLayout(g, "word ".repeat(200).trim(), "en").squeezed).toBe(true);
+  });
+
+  it("every lesson, tip and coach line is shown in the language now shown", () => {
+    setLang("fr");
+    expect(localLine(COPY.lessons.puppets)).toBe(tableFor("fr").lessons.puppets);
+    expect(localLine(COPY.lessons.drawer)).toBe(tableFor("fr").lessons.drawer);
+    expect(localLine(COPY.lessons.tips.hidden)).toBe(tableFor("fr").lessons.tips.hidden);
+    expect(localLine(COPY.game.controllerFinger)).toBe(tableFor("fr").game.controllerFinger);
+    setLang("ja");
+    expect(localLine(COPY.lessons.yourTurn)).toBe(tableFor("ja").lessons.yourTurn);
+    // Nothing shown stays nothing; words the tables lack stay as given.
+    expect(localLine(null)).toBeNull();
+    expect(localLine("Not a line")).toBe("Not a line");
+  });
+
+  it("the coach chip paints the line it is given wrapped by its own measure, and paints it again on request", () => {
+    const painted: string[][] = [];
+    const c = new CoachLine({ paint: (l) => void painted.push([...l]), wrap: (t) => [`[${t}]`] });
+    c.show("Watch.");
+    c.update(16);
+    expect(painted).toEqual([["[Watch.]"]]);
+    c.repaint();
+    expect(painted).toEqual([["[Watch.]"], ["[Watch.]"]]);
   });
 
   it("the hint lantern's choices", () => {

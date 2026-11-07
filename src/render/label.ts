@@ -29,7 +29,7 @@ export interface LabelFit {
   squeezed: boolean;
 }
 
-type Measure = Pick<CanvasRenderingContext2D, "font" | "measureText">;
+export type Measure = Pick<CanvasRenderingContext2D, "font" | "measureText">;
 
 /**
  * Set `g`'s font for `text`: `max` px where it fits `room`, else smaller in 2 px steps but never below `floor` (the

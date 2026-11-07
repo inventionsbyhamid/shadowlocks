@@ -5,7 +5,11 @@
 //
 // CoachLine is the pure part (what is shown, how faded; it hands the painter the wrapped lines); CoachLineView
 // paints a canvas texture on a plane sized in metres (it cancels the box's scale when parented to the box root).
+// The chip letters in the shipped fonts of the language shown and wraps by measured width, so Japanese (no spaces)
+// breaks between characters by the kinsoku rules; the lessons hand it lines already in that language (`localLine`).
 import { CanvasTexture, LinearFilter, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace } from "@iwsdk/core";
+import type { Lang } from "../i18n";
+import { breakUnits, labelFont, type Measure, wrapLabel } from "../render/label";
 
 export const COACH = {
   /** The old line fades out over this long (ms), the new one in over this long. */
@@ -31,7 +35,6 @@ export const COACH = {
   chip: "rgba(28, 25, 29, 0.86)",
   edge: "#b08732",
   ink: "#efe8da",
-  font: "Georgia, 'Times New Roman', serif",
   /** Drawn after the box, before the ghost. */
   renderOrder: 995,
 } as const;
@@ -69,6 +72,45 @@ export function wrapCoach(text: string, maxChars: number): string[] {
   return lines;
 }
 
+/** A break after this ends a sentence (the best place), or a clause (a better one). */
+const SENTENCE_END = /[.?!。？！]$/;
+const CLAUSE_END = /[,;:、，；：]$/;
+
+/**
+ * `text` in lines no wider than `room` as `width` measures them: whole if it fits, else two, broken only where a line
+ * may break (between words; between Japanese characters by the kinsoku rules, a Latin word kept whole), after a
+ * sentence where both halves fit, else where the two come out most even (a clause's end a little preferred). A text
+ * no break can fit is filled line by line instead, at most COACH.maxLines lines (the last takes the rest).
+ */
+export function coachWrap(text: string, width: (s: string) => number, room: number): string[] {
+  if (width(text) <= room) return [text];
+  const units = breakUnits(text);
+  let best: string[] | null = null, bestScore = Number.POSITIVE_INFINITY;
+  for (let k = 1; k < units.length; k++) {
+    const a = units.slice(0, k).join("").replace(/ +$/, ""), b = units.slice(k).join("").replace(/^ +| +$/g, "");
+    const wa = width(a), wb = width(b);
+    if (wa > room || wb > room) continue;
+    const score = Math.max(wa, wb) - (SENTENCE_END.test(a) ? 1e9 : CLAUSE_END.test(a) ? room * 0.15 : 0);
+    if (score < bestScore) {
+      bestScore = score;
+      best = [a, b];
+    }
+  }
+  return best ?? wrapLabel({ font: "", measureText: (s) => ({ width: width(s) }) as TextMetrics }, text, room, COACH.maxLines);
+}
+
+/**
+ * How `text` sits on the coach chip in language `l` (canvas px): its one size (13 mm, the shipped serif, or the
+ * Japanese font), its lines, and whether it is too long for two lines at that size (the layout check fails on it;
+ * the chip would condense it).
+ */
+export function coachLayout(g: Measure, text: string, l?: Lang): { size: number; lines: string[]; squeezed: boolean } {
+  const size = COACH.fontMm * COACH.pxPerMm, room = COACH.maxWidthMm * COACH.pxPerMm;
+  g.font = labelFont("bold", size, l);
+  const lines = coachWrap(text, (s) => g.measureText(s).width, room);
+  return { size, lines, squeezed: lines.length > COACH.maxLines || lines.some((x) => g.measureText(x).width > room) };
+}
+
 /**
  * A line that comes and goes as play does (the session's "set a controller down" while a finger lock is short): shown
  * as soon as it is asked for, kept until it has not been asked for COACH.holdMs, so a condition crossing its
@@ -91,6 +133,8 @@ export class LineHold {
 export interface CoachPainter {
   /** Paint these lines (the line shown changed). */
   paint(lines: readonly string[]): void;
+  /** `text` in lines as this painter measures them; without it, lines are estimated by characters (`wrapCoach`). */
+  wrap?(text: string): readonly string[];
 }
 
 export class CoachLine {
@@ -115,10 +159,17 @@ export class CoachLine {
       }
       this.shown = this.target;
       this.alpha = 0;
-      if (this.shown !== null) this.painter.paint(wrapCoach(this.shown, coachChars()));
+      this.repaint();
       return;
     }
     this.alpha = this.shown === null ? 0 : Math.min(1, this.alpha + dt / COACH.fadeInMs);
+  }
+
+  /** Paint the line shown again (a font it is drawn with has arrived). Never per frame. */
+  repaint(): void {
+    const t = this.shown;
+    if (t === null) return;
+    this.painter.paint(this.painter.wrap ? this.painter.wrap(t) : wrapCoach(t, coachChars()));
   }
 
   /** The line painted now (it may be fading out), or null. */
@@ -175,12 +226,18 @@ export class CoachLineView implements CoachPainter {
     this.object.visible = false;
   }
 
+  /** `text` in lines measured in the font the chip paints with (the language shown); by characters without a canvas. */
+  wrap(text: string): readonly string[] {
+    return this.g ? coachLayout(this.g, text).lines : wrapCoach(text, coachChars());
+  }
+
   paint(lines: readonly string[]): void {
     const g = this.g;
     if (!g) return;
     const C = COACH, k = C.pxPerMm, font = C.fontMm * k, gap = C.lineGapMm * k;
     g.clearRect(0, 0, this.w, this.h);
-    g.font = `600 ${font}px ${C.font}`;
+    // The shipped serif in the Latin languages, the Japanese font in Japanese (the layout check measures the same).
+    g.font = labelFont("bold", font);
     let wide = 0;
     for (const l of lines) wide = Math.max(wide, g.measureText(l).width);
     const cw = Math.min(this.w - 4, wide + 2 * C.padXMm * k), ch = Math.min(this.h - 4, lines.length * font + (lines.length - 1) * gap + 2 * C.padYMm * k);
@@ -195,7 +252,8 @@ export class CoachLineView implements CoachPainter {
     g.textAlign = "center";
     g.textBaseline = "middle";
     const top = this.h / 2 - ((lines.length - 1) * (font + gap)) / 2;
-    lines.forEach((l, i) => g.fillText(l, this.w / 2, top + i * (font + gap)));
+    // A line wider than the room (the layout check fails on one) is condensed into it rather than cut at the edge.
+    lines.forEach((l, i) => g.fillText(l, this.w / 2, top + i * (font + gap), C.maxWidthMm * k));
     this.texture.needsUpdate = true;
   }
 

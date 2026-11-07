@@ -142,6 +142,35 @@ export function localNotice(text: string): string {
   return text;
 }
 
+/** Each language's coach lines by their English words, made when first asked for. */
+const lines = new Map<Lang, Map<string, string>>();
+
+/** Pair every string under `en` (by key, so a table's own order does not matter) with its words in `to`. */
+function pairLines(en: unknown, to: unknown, out: Map<string, string>): void {
+  if (typeof en === "string") {
+    if (typeof to === "string" && !out.has(en)) out.set(en, to);
+  } else if (en && typeof en === "object" && to && typeof to === "object") {
+    for (const k of Object.keys(en)) pairLines((en as Record<string, unknown>)[k], (to as Record<string, unknown>)[k], out);
+  }
+}
+
+/**
+ * A coach line in the language shown: a lesson's line, a tip or the session's suggestion, which the lessons and the
+ * session give in English (COPY.lessons, COPY.game). A line the tables lack stays as given; null stays null. Read every
+ * frame: a map lookup, nothing allocated once the language's map is made.
+ */
+export function localLine(en: string | null, l: Lang = current): string | null {
+  if (en === null || l === "en") return en;
+  let m = lines.get(l);
+  if (!m) {
+    m = new Map();
+    pairLines(COPY.lessons, TABLES[l].lessons, m);
+    pairLines(COPY.game, TABLES[l].game, m);
+    lines.set(l, m);
+  }
+  return m.get(en) ?? en;
+}
+
 /** A saved reward's owner (stored in English) in the active language; words the game no longer has stay as given. */
 export function storyOwner(en: string, c: Copy = table): string {
   const i = COPY.story.owners.indexOf(en as (typeof COPY.story.owners)[number]);
