@@ -19,7 +19,7 @@
 import { createSystem, type World } from "@iwsdk/core";
 import type { LessonId } from "../core/lessons-data";
 import type { BoxSnapshot, TipId } from "../core/profile";
-import type { Box, BoxSpec } from "../core/types";
+import type { BoxSpec } from "../core/types";
 import type { BoxScene } from "../render/box-scene";
 import type { BoxSession } from "./box-session";
 import { on as onBus } from "./bus";
@@ -51,10 +51,12 @@ export interface LessonsDeps {
   hands: HandsInBox;
   sound: { game: { lessonStep(): void; settle(): void; crystallise(lock: number): void } };
   play: { game: Game; session: BoxSession; view: { readonly coachLine: CoachLine | null } };
-  /** The player is in XR: lessons wait outside it (the box forms as they enter). */
+  /** The player is in XR and can see it: lessons wait otherwise (the box forms as they enter; a hidden headset holds). */
   presenting(): boolean;
   /** A first launch may go into lesson 1 now (false: a field flag picked what plays, or a test keeps Home). */
   autoStart?: () => boolean;
+  /** What draws the lessons (tests pass their own; the real one needs a world and the box scene). */
+  view?: LessonView;
 }
 
 export class Lessons implements MenuLessons {
@@ -72,7 +74,8 @@ export class Lessons implements MenuLessons {
   private dropping = false;
   private starting = false;
   private tip: TipId | null = null;
-  private tipBox: Box | null = null;
+  /** The box the tip was worked out for, by key: the same box put back after "Show me" keeps its tip. */
+  private tipKey: string | null = null;
   private lastT = Number.NaN;
   /** Made once: the frame passes them every frame. */
   private readonly onScreen: { lesson: LessonId | null } = { lesson: null };
@@ -115,7 +118,7 @@ export class Lessons implements MenuLessons {
       onDone: (id) => this.finished(id),
       onReplay: (ex, lesson, start) => this.replayed(ex, lesson, start),
     });
-    this.view = new LessonView({ world: d.world, scene: d.scene, lantern, sound: d.sound.game, reducedMotion: () => settings.get().reducedMotion });
+    this.view = d.view ?? new LessonView({ world: d.world, scene: d.scene, lantern, sound: d.sound.game, reducedMotion: () => settings.get().reducedMotion });
   }
 
   /**
@@ -150,6 +153,23 @@ export class Lessons implements MenuLessons {
   get running(): boolean {
     const dir = this.director;
     return dir.replaying !== null || (dir.lesson !== null && !dir.done && !this.drawerOpen);
+  }
+
+  /**
+   * A lesson left half done waits to go on (a later launch opens on Home, where Continue reads "Your lesson"): its
+   * step is saved and it is not done, and it is not in the lap now.
+   */
+  get waiting(): boolean {
+    const l = this.d.profiles.profile.lessons, s = l.step;
+    return !this.running && s !== null && !l[s.id];
+  }
+
+  /** Go on with the lesson left half done, at the start of its saved step (Continue); false when none waits. */
+  resume(): boolean {
+    const s = this.d.profiles.profile.lessons.step;
+    if (!this.waiting || !s) return false;
+    this.start(s.id, { step: s.index });
+    return true;
   }
 
   /** The menus' first launch (the shell asks while lesson 1 is not done). */
@@ -196,19 +216,24 @@ export class Lessons implements MenuLessons {
     const held = this.hold.update(asked ? COPY.game[asked] : null, dt);
     const shown = this.menuUp ? null : on;
     this.onScreen.lesson = shown;
-    const line = this.menuUp ? null : shown ? dir.frame.line : (held ?? this.tipLine(session));
+    // A lesson's own line first; when it has none (and no example is showing), the session's suggestion, so the
+    // controller line is never lost under a lesson.
+    const line = this.menuUp ? null : shown ? (dir.frame.line ?? (dir.showing ? null : held)) : (held ?? this.tipLine(session));
     this.view.update(dir.frame, this.onScreen, line, dt, tMs);
   }
 
-  /** The tip for the box in play: shown the first time its mechanic matters, until the player has done it. */
+  /**
+   * The tip for the box in play: shown the first time its mechanic matters, until the player has done it. A practice
+   * box shows it but never counts it seen.
+   */
   private tipLine(session: BoxSession): string | null {
     const box = session.box;
     if (!box || box.spec.kind === "lesson" || session.stage !== "playing") return null;
-    if (box !== this.tipBox) {
-      this.tipBox = box;
+    if (box.key !== this.tipKey) {
+      this.tipKey = box.key;
       const p = this.d.profiles.profile;
       this.tip = tipFor(box, p.tipsSeen);
-      if (this.tip) {
+      if (this.tip && !session.practice) {
         p.tipsSeen.push(this.tip);
         void this.d.profiles.save();
       }
@@ -243,9 +268,10 @@ export class Lessons implements MenuLessons {
   private replayed(_ex: ExampleId, lesson: LessonId, start: boolean): void {
     const { game, session } = this.d.play;
     if (start) {
-      // What was in play, as it would be saved now; the example's lesson box afresh meanwhile, as practice (nothing
-      // it does is saved, solved or collected).
-      this.saved = session.box && session.spec ? { spec: { ...session.spec }, snap: session.snapshot(), practice: session.practice } : null;
+      // What was in play, as it would be saved now, unless it is done with (opened: put back, it would open again);
+      // the example's lesson box afresh meanwhile, as practice (nothing it does is saved, solved or collected).
+      const s = session.stage, over = s === "opening" || s === "reward" || s === "offered";
+      this.saved = session.box && session.spec && !over ? { spec: { ...session.spec }, snap: session.snapshot(), practice: session.practice } : null;
       game.play({ kind: "lesson", id: lesson }, null, true);
       return;
     }
