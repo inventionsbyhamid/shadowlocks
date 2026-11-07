@@ -15,7 +15,8 @@
 // line put away; the drawer stays shut while an example shows; a progress reset lets the lesson or replay go.
 //
 // Tips: the first time a box brings in a mechanic (decoys, a lock without rings, a hidden outline), its line shows
-// on the coach line until the player has done what it says.
+// on the coach line until the player has done what it says, with a ghost demo of about 6 s as it first shows (the
+// finger pointing at decoys, or a ghost lantern swept near the lock's spot; lesson-scripts.ts).
 import { createSystem, type World } from "@iwsdk/core";
 import type { LessonId } from "../core/lessons-data";
 import type { BoxSnapshot, TipId } from "../core/profile";
@@ -76,9 +77,11 @@ export class Lessons implements MenuLessons {
   private tip: TipId | null = null;
   /** The box the tip was worked out for, by key: the same box put back after "Show me" keeps its tip. */
   private tipKey: string | null = null;
+  /** The box whose tip demo has had its one chance to play (by key). */
+  private tipDemoKey: string | null = null;
   private lastT = Number.NaN;
   /** Made once: the frame passes them every frame. */
-  private readonly onScreen: { lesson: LessonId | null } = { lesson: null };
+  private readonly onScreen: { lesson: LessonId | null; tip: boolean } = { lesson: null, tip: false };
   private readonly isOpen = (lock: number) => this.d.play.session.isOpen(lock);
   /** The session's suggestion, held through brief drops (a finger lock's coverage crossing its threshold). */
   private readonly hold = new LineHold();
@@ -209,8 +212,8 @@ export class Lessons implements MenuLessons {
       if (!s || s.kind !== "lesson" || s.id !== lesson) dir.stop();
     }
     const on = dir.replaying ? EXAMPLES[dir.replaying].lesson : dir.done ? null : dir.lesson;
-    // Under a menu the lesson waits, but for the pull that ends lesson 2.
-    if (on && this.d.presenting() && (!this.menuUp || this.drawerOpen)) dir.update(tMs);
+    // Under a menu the lesson waits, but for the pull that ends lesson 2. A tip's demo runs on the director's clock too.
+    if ((on || dir.tipping) && this.d.presenting() && (!this.menuUp || this.drawerOpen)) dir.update(tMs);
     // One coach line: a lesson's, else the session's suggestion (held through brief drops), else a tip; none under a
     // menu (the lesson's ghost is put away there too).
     const asked = this.d.play.view.coachLine;
@@ -220,7 +223,24 @@ export class Lessons implements MenuLessons {
     // Outside an example, the session's suggestion wins over a lesson's own line: it only exists while a controller
     // player faces a short finger lock (lesson 2's turn), who needs it; hand players lose nothing.
     const line = this.menuUp ? null : shown ? (dir.showing ? dir.frame.line : (held ?? dir.frame.line)) : (held ?? this.tipLine(session));
+    if (!shown) this.tipDemo(session);
+    this.onScreen.tip = dir.tipping && !this.menuUp;
     this.view.update(dir.frame, this.onScreen, line, dt, tMs);
+  }
+
+  /**
+   * A tip's ghost demo (about 6 s): once a box, tried as its tip first shows, and skipped if the lantern is in hand
+   * then. It stops when the player takes the lantern, the tip is done, a menu comes up or the box goes.
+   */
+  private tipDemo(session: BoxSession): void {
+    const dir = this.director, box = session.box, held = this.d.lantern.grab.holder !== null;
+    if (dir.tipping) {
+      if (!this.tip || held || this.menuUp || !box || box.key !== this.tipDemoKey) dir.stopTip();
+      return;
+    }
+    if (!this.tip || !box || box.key === this.tipDemoKey || this.menuUp || !this.d.presenting()) return;
+    this.tipDemoKey = box.key;
+    if (!held) dir.tipDemo(this.tip, box);
   }
 
   /**

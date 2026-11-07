@@ -63,6 +63,8 @@ export interface LessonViewDeps {
 /** Which lesson's box the frame is about now: the lesson's, or a replay's. */
 export interface LessonOnScreen {
   lesson: LessonId | null;
+  /** A tip's ghost demo is playing on the box in play (its ghost hand, lantern and light; nothing else). */
+  tip?: boolean;
 }
 
 export class LessonView {
@@ -164,14 +166,16 @@ export class LessonView {
 
     // The swing, and where the shadows are cast from.
     if (this.layout && box) for (let k = 0; k < box.locks.length && k < f.layout.length; k++) this.layout.set(k, f.layout[k]!, this.sink);
-    scene.setLightFrom(ours && f.ghostLight ? f.lamp.at : null);
+    // A tip's demo shows its ghost (and casts from its lantern) on whatever box is in play.
+    const ghostly = ours || on.tip === true;
+    scene.setLightFrom(ghostly && f.ghostLight ? f.lamp.at : null);
 
     // The ghost lantern and hand.
     this.lamp.setPos(f.lamp.at);
-    this.lamp.opacity = ours ? f.lamp.opacity : 0;
+    this.lamp.opacity = ghostly ? f.lamp.opacity : 0;
     if (this.lamp.opacity > 0) this.lamp.sync(m as Matrix4);
-    // The ghost hand only while a lesson or replay is on screen (a menu over the lesson puts it away).
-    const h = f.hand, ho = on.lesson !== null ? h.opacity : 0;
+    // The ghost hand only while a lesson, a replay or a tip's demo is on screen (a menu over the lesson puts it away).
+    const h = f.hand, ho = on.lesson !== null || on.tip === true ? h.opacity : 0;
     if (ho > 0) {
       const g = this.ghost;
       g.side = h.side;

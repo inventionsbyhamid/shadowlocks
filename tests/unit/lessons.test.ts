@@ -20,8 +20,11 @@ const box2 = (): Box =>
   ({
     key: "shadow-locks/2",
     spec: { kind: "box", n: 2 },
-    locks: [{ i: 0, rings: true, hidden: false }],
-    elements: [{ kind: "decoy" }],
+    locks: [{ i: 0, rings: true, hidden: false, L: [0.2, -0.2, 1.3] }],
+    elements: [
+      { kind: "decoy", verts: [[0.1, 0.1, 0.5], [0.2, 0.1, 0.5], [0.15, 0.2, 0.5]] },
+      { kind: "decoy", verts: [[-0.2, -0.1, 0.4], [-0.1, -0.1, 0.4], [-0.15, 0, 0.4]] },
+    ],
   }) as unknown as Box;
 
 function bench(o: { presenting?: boolean; autoStart?: boolean } = {}) {
@@ -72,7 +75,10 @@ function bench(o: { presenting?: boolean; autoStart?: boolean } = {}) {
     const c = view.update.mock.calls.at(-1)!;
     return { lesson: (c[1] as { lesson: string | null }).lesson, line: c[2] as string | null };
   };
-  return { lessons, profile, session, plays, open, env, run, shown, play };
+  /** Whether the view was last told a tip's demo is on screen. */
+  const tipShown = () => (view.update.mock.calls.at(-1)![1] as { tip?: boolean }).tip === true;
+  const lantern = (deps as unknown as { lantern: { grab: { holder: string | null } } }).lantern;
+  return { lessons, profile, session, plays, open, env, run, shown, tipShown, play, lantern };
 }
 
 describe("Lessons", () => {
@@ -229,6 +235,47 @@ describe("Lessons", () => {
     c.open.add(0);
     c.run(32);
     expect(c.shown().line).toBeNull();
+  });
+
+  it("plays a tip's ghost demo once, as the tip first shows on its box, and on a practice box too", () => {
+    for (const practice of [false, true]) {
+      const b = bench();
+      b.play.game.play({ kind: "box", n: 2 }, null, practice);
+      b.run(32);
+      expect(b.shown().line).toBe(COPY.lessons.tips.decoys);
+      expect(b.lessons.director.tipping).toBe(true);
+      expect(b.tipShown()).toBe(true);
+      b.run(7000);
+      expect(b.lessons.director.tipping).toBe(false);
+      expect(b.tipShown()).toBe(false);
+      // Once a box: the tip's line stays until done, the demo does not come back.
+      b.run(3000);
+      expect(b.shown().line).toBe(COPY.lessons.tips.decoys);
+      expect(b.lessons.director.tipping).toBe(false);
+    }
+  });
+
+  it("stops a tip's demo when the player takes the lantern, or a menu comes up, and skips it with the lantern held", () => {
+    const b = bench();
+    b.play.game.play({ kind: "box", n: 2 });
+    b.run(500);
+    expect(b.lessons.director.tipping).toBe(true);
+    b.lantern.grab.holder = "right";
+    b.run(32);
+    expect(b.lessons.director.tipping).toBe(false);
+    const c = bench();
+    c.play.game.play({ kind: "box", n: 2 });
+    c.run(500);
+    go("home");
+    c.run(32);
+    expect(c.lessons.director.tipping).toBe(false);
+    go("play");
+    const d = bench();
+    d.lantern.grab.holder = "left";
+    d.play.game.play({ kind: "box", n: 2 });
+    d.run(500);
+    expect(d.lessons.director.tipping).toBe(false);
+    expect(d.shown().line).toBe(COPY.lessons.tips.decoys);
   });
 
   it("ends lesson 2 with the drawer's pull at its last step", () => {
