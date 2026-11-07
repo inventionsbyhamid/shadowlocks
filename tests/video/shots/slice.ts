@@ -62,8 +62,8 @@ export default defineShot<Data>({
     await app.stepUntil((_ns, w) => w.__sl.session.state()?.key === "shadow-locks/lesson/l1", { maxMs: 3_000, label: "lesson 1's box" });
     return { box: (await app.state()).boxPose.position as Vec3 };
   },
-  // From the seated eye, the whole box and the lantern beside it.
-  firstView: ({ box }): View => ({ from: offset(EYE, 0.02, 0, 0.02), at: offset(box, 0.02, -0.02, 0.1) }),
+  // From the seated eye, the whole box, the lantern beside it and the coach line above it.
+  firstView: ({ box }): View => ({ from: offset(EYE, 0.02, 0, 0.02), at: offset(box, 0.02, 0.03, 0.1) }),
   async play({ app, page, hand, until, time, wait }) {
     const right = hand("right");
     // The box forms; the line; after 4 s without input the ghost hand shows the pinch.
