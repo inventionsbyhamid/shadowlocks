@@ -1,8 +1,8 @@
 // The lantern the player holds: a stepped octagonal deco lantern (gold fins and steps over an ivory
 // glass core on a black lacquer foot), one point light at its core, and a soft glow sprite. Lives in
 // the box root in box units, so it scales with the box. Brightness follows the hand (Task 11), a
-// flare marks a grab and a ripple a settle. Four draw calls (five while a ripple runs); no allocation
-// per frame.
+// flare marks a grab and a ripple a settle. Four draw calls (five while a ripple runs, three while it
+// waits quiet in a lesson's cradle); no allocation per frame.
 import {
   BufferGeometry,
   Color,
@@ -64,12 +64,14 @@ export class LanternView {
   private readonly coreColor = new Color(COLORS.lampCore);
   private readonly hotColor = new Color(COLORS.goldHot);
   private brightness = 0;
+  /** Waiting in a lesson's cradle: no glow, no ripple (two draw calls the example needs more). */
+  private quiet = false;
   private flareT = 1e9;
   private rippleT = 1e9;
   private sizeM = 0.24;
   /** Put away (a menu is up): its parts hidden, its light dark but still in the scene. */
   private shown = true;
-  /** The parts that hide when it is put away (the ripple follows its own timing). */
+  /** The parts that hide when it is put away (the glow and ripple follow it in apply, with the cradle's quiet). */
   private readonly parts: Object3D[];
   private readonly budget: FlashBudget;
   /** The budget is this view's own (it steps it), not the box's shared one. */
@@ -115,7 +117,7 @@ export class LanternView {
     this.glow.name = "Lantern Glow";
     this.rippleSprite.name = "Lantern Ripple";
     this.group.add(foot, fins, core, this.glow, this.rippleSprite, this.light);
-    this.parts = [foot, fins, core, this.glow];
+    this.parts = [foot, fins, core];
     this.setBrightness(0);
   }
 
@@ -149,6 +151,13 @@ export class LanternView {
   /** 0 (no hand near) to 1 (hand on it): the glow and core brighten; the light always lights the panel. */
   setBrightness(v: number): void {
     this.brightness = clamp01(v);
+    this.apply();
+  }
+
+  /** Quiet (true) while it waits in a lesson's cradle: its glow and ripple are not drawn; the lantern itself is. */
+  setQuiet(on: boolean): void {
+    if (on === this.quiet) return;
+    this.quiet = on;
     this.apply();
   }
 
@@ -188,8 +197,10 @@ export class LanternView {
     const s = g.size * (0.85 + 0.15 * b) * (1 + g.flareGain * flare);
     this.glow.scale.set(s, s, 1);
     (this.glow.material as SpriteMaterial).opacity = Math.min(1, g.opacity[0] + (g.opacity[1] - g.opacity[0]) * b + 0.4 * flare);
+    // The glow and ripple show only while the lantern is shown (no menu has put it away) and not quiet in a cradle.
+    this.glow.visible = this.shown && !this.quiet;
     this.core.color.copy(this.coreColor).lerp(this.hotColor, Math.min(1, 0.4 * b + flare));
-    const ripple = this.rippleT < g.rippleS;
+    const ripple = this.rippleT < g.rippleS && !this.quiet;
     this.rippleSprite.visible = ripple && this.shown;
     if (ripple) {
       const q = this.rippleT / g.rippleS, r = 2 * g.rippleRadius * outCubic(q);

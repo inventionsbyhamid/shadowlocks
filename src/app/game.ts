@@ -20,7 +20,6 @@ import { Reward, type RewardHands } from "../render/reward";
 import { type FrameTips, frameTips } from "../ui/fingertips";
 import { HINT_ASK, HintLantern } from "../ui/hint-lantern";
 import { NO_TIPS } from "../ui/key-view";
-import { COPY } from "../ui/copy";
 import { Plate } from "../ui/plate";
 import { BoxSession, LOCK_TO_BOX_MS } from "./box-session";
 import { FingerLockLoop } from "./finger-lock";
@@ -29,6 +28,7 @@ import { emit } from "./bus";
 import type { CoachLine, HintLevel } from "./events";
 import { HintMarks } from "./hints";
 import type { Lantern } from "./lantern-system";
+import { withLessons } from "./lesson-boxes";
 import type { Lifecycle, LifecycleSession } from "./lifecycle";
 import type { ProfileStore } from "./profile-store";
 import { go } from "./screens";
@@ -150,9 +150,9 @@ export class GameView implements SessionView {
     return this.hintLantern.worldPos(out);
   }
 
+  /** The session's suggestion: the lessons' coach line shows it (the one place coach text shows). */
   coach(line: CoachLine | null): void {
     this.coachLine = line;
-    this.plate.coach(line ? COPY.game[line] : null);
   }
 
   update(dtMs: number, stage: Stage): number {
@@ -333,7 +333,8 @@ export function attachGame(d: GameDeps): { game: Game; session: BoxSession; view
     },
     scene: shell.box,
     lantern: d.lantern,
-    boxes: createBoxClient(),
+    // Generated boxes from the worker; the lessons' hand-built boxes for lesson specs.
+    boxes: withLessons(createBoxClient()),
     profiles: shell.profiles,
     settings: shell.settings,
     sound: d.sound.game,

@@ -42,8 +42,11 @@ export const SOFT_MIN = 0.002;
 export const REFLEX_MITER_LIMIT = 2;
 /** Shadow casters in a box: 3 locks of up to 16 pieces, 20 decoys, 8 rings (as Scraps sizes them). */
 export const MAX_CASTERS = 3 * 16 + 20 + 8;
-/** Extra shadows after the box's: a hand's bones as capsules, about 22 a hand, two hands. */
-export const MAX_EXTRAS = 48;
+/**
+ * Extra shadows after the box's: crystallised pieces, then hands' bones as capsules (18 a hand): two hands and a
+ * lesson's ghost hand.
+ */
+export const MAX_EXTRAS = 60;
 /** Corners in one caster's polygon: a ring's outer and inner RING_SIDES-gons. */
 export const MAX_CASTER_CORNERS = 2 * RING_SIDES;
 /** Shadows are cast with the lantern at least this far from the panel (every scrap is nearer). */
@@ -464,6 +467,35 @@ const EMPTY: V2[] = [];
 const NO_SHAPE: ShadowShape = { count: 0, tris: null, ring: false };
 
 /**
+ * circlePts (core/geom.ts) written into out[from..from + RING_SIDES): the same corners, made without allocating.
+ */
+function circleInto(c: Readonly<V3>, n: Readonly<V3>, r: number, out: V3[], from: number): void {
+  // e1 = unit(n x helper), e2 = n x e1, the helper +y unless n runs near it.
+  const hy = Math.abs(n[1]) < 0.9;
+  let ax: number, ay: number, az: number;
+  if (hy) {
+    ax = -n[2];
+    ay = 0;
+    az = n[0];
+  } else {
+    ax = 0;
+    ay = n[2];
+    az = -n[1];
+  }
+  const l = Math.sqrt(ax * ax + ay * ay + az * az) || 1;
+  ax /= l;
+  ay /= l;
+  az /= l;
+  const bx = n[1] * az - n[2] * ay, by = n[2] * ax - n[0] * az, bz = n[0] * ay - n[1] * ax;
+  for (let i = 0; i < RING_SIDES; i++) {
+    const a = (i / RING_SIDES) * Math.PI * 2, ca = Math.cos(a) * r, sa = Math.sin(a) * r, p = out[from + i]!;
+    p[0] = c[0] + ax * ca + bx * sa;
+    p[1] = c[1] + ay * ca + by * sa;
+    p[2] = c[2] + az * ca + bz * sa;
+  }
+}
+
+/**
  * A box's shadows on the panel: every scrap, decoy and ring, cast from the lantern into a ShadowMesh,
  * then up to MAX_EXTRAS extra shadows (a hand's bones) after them. `shown(piece)` says whether a lock
  * piece is there (a finger lock's missing piece is not, until it crystallises); by default every piece
@@ -523,6 +555,21 @@ export class BoxShadows {
       this.n = 0;
       this.mesh.setShapes(this.shapes, 0);
     }
+  }
+
+  /**
+   * The box's elements were moved in place (a lesson's scraps swinging): pieces cast from their own corners already,
+   * rings' circles are made again here, and the next refresh casts. Allocation-free.
+   */
+  moved(): void {
+    for (const c of this.casters) {
+      const el = c.el;
+      if (el.kind !== "ring") continue;
+      c.z = el.c[2];
+      circleInto(el.c, el.nrm, el.rOut, c.pts, 0);
+      circleInto(el.c, el.nrm, el.rIn, c.pts, RING_SIDES);
+    }
+    this.last[0] = NaN;
   }
 
   /** The mesh slot an element's shadow is in now, or -1 (not cast, or not in this box). */

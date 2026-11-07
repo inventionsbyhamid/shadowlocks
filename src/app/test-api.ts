@@ -350,10 +350,54 @@ export interface SlFingerLock {
   crystal: { z: number; verts: V3[]; formed: boolean; ms: number; shown: boolean } | null;
 }
 
+/** The lessons now (copies). */
+export interface SlLessonsState {
+  /** The lesson running (null: none), its step, whether it is done, and the example a replay is showing. */
+  lesson: "l1" | "l2" | null;
+  step: number;
+  done: boolean;
+  replaying: string | null;
+  /** A lesson or replay is in the lap (the menus' "Your lesson"), and the drawer may be pulled. */
+  running: boolean;
+  drawerAllowed: boolean;
+  practice: boolean;
+  /** The coach line the director asks for, and what the chip shows now (text, opacity). */
+  line: string | null;
+  coach: { text: string | null; opacity: number };
+  /** The ghost hand as drawn now (its opacity; the frame's `hand` is what the director asks for). */
+  ghost: number;
+  form: number;
+  /** The ghost hand: its opacity, pose, side, anchor and where that is (box units). */
+  hand: { opacity: number; pose: string; side: string; anchor: string; at: V3 };
+  lamp: { opacity: number; at: V3 };
+  ghostLight: boolean;
+  park: number;
+  layout: number[];
+  clicks: number;
+  /** The lesson box a replay shows. */
+  box: string | null;
+  /** The player's lantern is frozen in its cradle. */
+  frozen: boolean;
+  /** Profile.lessons and the tips seen. */
+  progress: { l1: boolean; l2: boolean; step: { id: string; index: number } | null };
+  tipsSeen: string[];
+}
+
+/** The lessons, for tests. */
+export interface SlLessons {
+  /** Start a lesson at a step (practice: nothing about progress changes). */
+  start(id: "l1" | "l2", step?: number, practice?: boolean): void;
+  state(): SlLessonsState;
+  /** Show one example alone; false while one is showing. */
+  replay(example: "move" | "near-far" | "rings" | "finger"): boolean;
+}
+
 /** `window.__sl`: Shadow Locks' own test hooks, present only in builds made with VITE_TEST_HOOKS=1. */
 export interface SlApi {
   /** The box session (play, state, saves, the box's keys and reward). */
   session: SlSession;
+  /** The lessons (start, state, replay). */
+  lessons: SlLessons;
   /** The game's state for a video frame's fingerprint, or null while no box is in play. */
   frameState(): SlFrameState | null;
   /** The lantern now: a copy of where it is (`pos`, box units), held or not, by which hand, its mode and glow. */
