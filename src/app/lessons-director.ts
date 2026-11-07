@@ -256,7 +256,8 @@ export class LessonsDirector {
    */
   tipDemo(tip: TipId, box: Box): boolean {
     if (this.script || this.tipS || (this.id && !this.finished)) return false;
-    const s = buildTipScript(tip, box, this.deps.leftHanded());
+    // The hand the box was mirrored for (a left-handed player's box), not the live setting.
+    const s = buildTipScript(tip, box, box.mirrored);
     if (!s) return false;
     this.tipS = s;
     this.tipMs = 0;
@@ -498,7 +499,6 @@ export class LessonsDirector {
     this.advance();
   }
 
-  /** Everything an example shows, back to rest. Keeps the frame's objects. */
   /** The tip demo at its clock into the frame; over at its end (nothing left showing). */
   private runTip(): void {
     const s = this.tipS!, f = this.frame, t = this.tipMs;
@@ -517,6 +517,7 @@ export class LessonsDirector {
     f.ghostLight = t >= s.light[0] && t < s.light[1];
   }
 
+  /** Everything an example or a tip demo shows, back to rest (no line, no ghost, no light). Keeps the frame's objects. */
   private resetFrame(): void {
     const f = this.frame;
     f.line = null;

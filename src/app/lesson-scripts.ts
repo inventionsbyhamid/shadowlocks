@@ -447,9 +447,10 @@ export function buildScript(ex: ExampleId, plan: LessonPlan, left: boolean, repl
 // --- Tip demos: about 6 s of ghost the first time a box brings in a mechanic, in interactive play ---------------
 //
 // No cradle and no swing: the player's lantern stays where it is. Decoys: the ghost finger points at two of them,
-// straight in through the mouth. A lock without rings, a hidden outline: the ghost carries its lantern in a sweep a
-// little above the lock's spot, the shadows cast from it, so they nearly form and never quite fill (the demo shows
-// how to read them; it never solves the lock).
+// straight in through the mouth (Ruling 124). A lock without rings, a hidden outline: the ghost carries its lantern
+// in a sweep at least SWEEP_CLEAR from every lock's spot, the shadows cast from it, so they visibly slide and never
+// form (the demo shows how to read them; it never shows the answer). Nothing flies or swings and the ghost only
+// glides and fades, so a demo needs no reduced-motion variant.
 
 /** A tip's ghost demo lasts this long. */
 export const TIP_DEMO_MS = 6000;
@@ -517,14 +518,83 @@ function decoyTip(box: Box, side: "left" | "right"): TipScript | null {
   };
 }
 
-/** How far above a lock's spot the sweep runs: the shadows nearly form, never fill. */
-const SWEEP_ABOVE = 0.14;
+/**
+ * The ghost lantern keeps at least this far from every lock's spot (Ruling 123; past WARMTH_RANGE, 0.2), so the
+ * shadows visibly slide and never form: the demo teaches reading them, never the answer. Planned with a margin.
+ */
+export const SWEEP_CLEAR = 0.3;
+const SWEEP_MARGIN = 0.02;
+/**
+ * Where the sweep's middle may sit from the tip's lock's spot (x toward the dominant side), tried in order: above
+ * it, above and nearer the eye, nearer the eye, below, then further out.
+ */
+const SWEEP_OFFSETS: readonly V3[] = [
+  [0, 0.36, 0.05],
+  [0, 0.28, 0.24],
+  [0, 0.1, 0.38],
+  [0, -0.36, 0.05],
+  [0, 0.44, 0.2],
+  [0, 0.3, 0.42],
+  [0.38, 0.12, 0.12],
+  [-0.38, 0.12, 0.12],
+  [0, 0.55, 0.3],
+  [0, 0.2, 0.6],
+];
+
+/** The distance from p to the segment ab. */
+function segDist(p: Readonly<V3>, a: Readonly<V3>, b: Readonly<V3>): number {
+  const ab0 = b[0] - a[0], ab1 = b[1] - a[1], ab2 = b[2] - a[2];
+  const l2 = ab0 * ab0 + ab1 * ab1 + ab2 * ab2;
+  const u = l2 > 0 ? clamp01(((p[0] - a[0]) * ab0 + (p[1] - a[1]) * ab1 + (p[2] - a[2]) * ab2) / l2) : 0;
+  return Math.hypot(a[0] + ab0 * u - p[0], a[1] + ab1 * u - p[1], a[2] + ab2 * u - p[2]);
+}
+
+/**
+ * The sweep stays at least this far out from the panel: well in front of the box mouth (1), so the hand holding the
+ * ghost lantern (an open hand reaches about 0.3 below its pinch in the smallest box) never comes inside the glass.
+ */
+const SWEEP_MIN_Z = 1.4;
+/** ...and in front of the box, never beside it (the fingers past the pinch then stay within the glass sides). */
+const SWEEP_MAX_X = 0.3;
+
+/**
+ * The sweep's three points around `mid`: from the dominant side across, then up and nearer the eye; moved out to
+ * SWEEP_MIN_Z if any is nearer the panel, and in to SWEEP_MAX_X if any is further to a side.
+ */
+function sweepPoints(mid: V3, s: number): [V3, V3, V3] {
+  const pts: [V3, V3, V3] = [add(mid, 0.16 * s, 0, 0.04), add(mid, -0.16 * s, 0, -0.04), add(mid, 0, 0.04, 0.06)];
+  const out = SWEEP_MIN_Z - Math.min(pts[0][2], pts[1][2], pts[2][2]);
+  if (out > 0) for (const p of pts) p[2] += out;
+  const hi = Math.max(pts[0][0], pts[1][0], pts[2][0]), lo = Math.min(pts[0][0], pts[1][0], pts[2][0]);
+  const dx = hi > SWEEP_MAX_X ? SWEEP_MAX_X - hi : lo < -SWEEP_MAX_X ? -SWEEP_MAX_X - lo : 0;
+  if (dx !== 0) for (const p of pts) p[0] += dx;
+  return pts;
+}
+
+/** Where the ghost hand comes from and goes to around a sweep: up and well out in front, never through the mouth. */
+const sweepFrom = (p: V3, s: number): V3 => add(p, 0.1 * s, 0.12, 0.45);
+
+/** How near the sweep A to B to C comes to any of `spots`. */
+function sweepClearance(pts: [V3, V3, V3], spots: readonly V3[]): number {
+  let d = Infinity;
+  for (const p of spots) d = Math.min(d, segDist(p, pts[0], pts[1]), segDist(p, pts[1], pts[2]));
+  return d;
+}
 
 function sweepTip(box: Box, lock: number, side: "left" | "right"): TipScript {
-  const s = side === "left" ? -1 : 1, L = box.locks[lock]!.L;
-  // From the dominant side across to the other, then up a little: always above the spot.
-  const A = add(L, 0.16 * s, SWEEP_ABOVE, 0.06), B = add(L, -0.16 * s, SWEEP_ABOVE, -0.04), C = add(L, 0, SWEEP_ABOVE + 0.04, 0.08);
-  const from = handFrom(A, s), away = handFrom(C, s);
+  const s = side === "left" ? -1 : 1, L = box.locks[lock]!.L, spots = box.locks.map((l) => l.L);
+  // The first offset whose whole path keeps clear of every spot (else the clearest of them).
+  let pts = sweepPoints(L, s), best = -1;
+  for (const o of SWEEP_OFFSETS) {
+    const p = sweepPoints(add(L, o[0] * s, o[1], o[2]), s), d = sweepClearance(p, spots);
+    if (d > best) {
+      best = d;
+      pts = p;
+    }
+    if (d >= SWEEP_CLEAR + SWEEP_MARGIN) break;
+  }
+  const [A, B, C] = pts;
+  const from = sweepFrom(A, s), away = sweepFrom(C, s);
   return {
     end: TIP_DEMO_MS,
     anchor: "grasp",
