@@ -147,7 +147,8 @@ async function main(): Promise<void> {
     },
     away: (away) => {
       lantern.setAway(away, performance.now());
-      shell.box.lantern.group.visible = !away;
+      // Hidden, its light kept (dark) in the scene: the box's shaders stay the ones compiled ahead (LanternView).
+      shell.box.lantern.setShown(!away);
     },
   });
   hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play, drawer, access, fakeBilling: bill.fake, menuGame });

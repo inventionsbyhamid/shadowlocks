@@ -12,6 +12,7 @@ import {
   Group,
   LinearFilter,
   type Material,
+  type Object3D,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -66,6 +67,10 @@ export class LanternView {
   private flareT = 1e9;
   private rippleT = 1e9;
   private sizeM = 0.24;
+  /** Put away (a menu is up): its parts hidden, its light dark but still in the scene. */
+  private shown = true;
+  /** The parts that hide when it is put away (the ripple follows its own timing). */
+  private readonly parts: Object3D[];
   private readonly budget: FlashBudget;
   /** The budget is this view's own (it steps it), not the box's shared one. */
   private readonly ownBudget: boolean;
@@ -110,7 +115,21 @@ export class LanternView {
     this.glow.name = "Lantern Glow";
     this.rippleSprite.name = "Lantern Ripple";
     this.group.add(foot, fins, core, this.glow, this.rippleSprite, this.light);
+    this.parts = [foot, fins, core, this.glow];
     this.setBrightness(0);
+  }
+
+  /**
+   * Shown, or put away while a menu is up. Put away, its parts hide but its light stays in the scene, dark: three
+   * builds each lit shader for the number of visible lights, so hiding the light would make every lit material in the
+   * box compile again the first time it showed lit after a menu, and the shaders compiled ahead (on the session's
+   * first frame, home menu up) would not be the ones play uses.
+   */
+  setShown(shown: boolean): void {
+    if (shown === this.shown) return;
+    this.shown = shown;
+    for (const p of this.parts) p.visible = shown;
+    this.apply();
   }
 
   /** Where the lantern is, in box units. */
@@ -163,15 +182,15 @@ export class LanternView {
     const g = LANTERN_GLOW, b = this.brightness;
     const flare = this.flareT < g.flareS ? 1 - outCubic(this.flareT / g.flareS) : 0;
     const k = g.lightFloor + (1 - g.lightFloor) * b;
-    // Physical point light: intensity scales with area (size squared), range with size.
-    this.light.intensity = LIGHTS.lantern.intensity * k * (1 + 0.3 * flare) * this.sizeM * this.sizeM;
+    // Physical point light: intensity scales with area (size squared), range with size. Dark while put away.
+    this.light.intensity = this.shown ? LIGHTS.lantern.intensity * k * (1 + 0.3 * flare) * this.sizeM * this.sizeM : 0;
     this.light.distance = LIGHTS.lantern.range * this.sizeM;
     const s = g.size * (0.85 + 0.15 * b) * (1 + g.flareGain * flare);
     this.glow.scale.set(s, s, 1);
     (this.glow.material as SpriteMaterial).opacity = Math.min(1, g.opacity[0] + (g.opacity[1] - g.opacity[0]) * b + 0.4 * flare);
     this.core.color.copy(this.coreColor).lerp(this.hotColor, Math.min(1, 0.4 * b + flare));
     const ripple = this.rippleT < g.rippleS;
-    this.rippleSprite.visible = ripple;
+    this.rippleSprite.visible = ripple && this.shown;
     if (ripple) {
       const q = this.rippleT / g.rippleS, r = 2 * g.rippleRadius * outCubic(q);
       this.rippleSprite.scale.set(r, r, 1);
