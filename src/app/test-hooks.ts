@@ -36,6 +36,7 @@ import type { Lantern } from "./lantern-system";
 import type { Lessons } from "./lessons";
 import type { Sound } from "./sound";
 import { appSystemName, onAppSystem } from "./systems";
+import type { Touches } from "./touch-system";
 import type { NsApi, NsButton, NsClock, NsPerf, NsScene, NsSound, NsState, SlApi, SlFeelEvent, SlHand, SlLantern, SlLessons, SlSession } from "./test-api";
 import { installVirtualClock, type VirtualClock } from "./virtual-clock";
 
@@ -247,6 +248,7 @@ export function installTestHooks(
     fakeBilling: FakeBillingState | null;
     menuGame: GameMenus;
     lessons: Lessons;
+    touch: Touches;
   },
 ): void {
   const w = window as unknown as { __vt?: VirtualClock; __ns?: NsApi; __sl?: SlApi };
@@ -704,6 +706,11 @@ export function installTestHooks(
     },
     sound: app.sound.game,
     captions: () => app.sound.captionsShown(),
+    touch: {
+      phone: () => app.touch.phone,
+      set: (list) => app.touch.inject(list === null ? null : list.map((t) => ({ id: t.id, at: [t.at[0], t.at[1], t.at[2]] }))),
+      roles: () => app.touch.roles(),
+    },
     i18n: {
       lang: () => ({ shown: lang(), doc: document.documentElement.lang }),
       texts: () => view.texts(),

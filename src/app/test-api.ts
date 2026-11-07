@@ -474,6 +474,18 @@ export interface SlApi {
   captions(): string[];
   /** The game's languages (set one with __ns.ui.setSettings({ language })). */
   i18n: SlI18n;
+  /** A phone's touches (AR on a phone: the screen is the only input). */
+  touch: SlTouch;
+}
+
+/** A phone's touches, for tests: IWER has no screen input, so touches go in as rays from the head. */
+export interface SlTouch {
+  /** The session is a phone's (the AR module's screen-space mode, or a screen touch). */
+  phone(): boolean;
+  /** The fingers on the screen now: each a ray from the head through `at` (world), by id; null: the session's own. */
+  set(list: { id: number; at: Vec3 }[] | null): void;
+  /** What each touch does (decided as it starts): key, reward, lantern, drawer, finger, or null. */
+  roles(): (string | null)[];
 }
 
 /** The game's languages, for tests. */

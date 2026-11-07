@@ -3,7 +3,8 @@
 // to the box scene, which draws them in the panel's shadow mesh when it updates later in the frame (the hand holding
 // the lantern casts none). With controllers and no free hand's finger in the beam, a held controller casts a
 // fingertip-sized stand-in finger along its aim (HandShadow.castStandIn), so every finger lock can be done with
-// controllers too.
+// controllers too. On a phone (no hands, no controllers) a touch on the box casts that finger, its shadow under the
+// touch (TouchFinger).
 //
 // It is also the box session's finger source (session-fingers.ts): this frame's finger shadow, a counter that moves
 // only when that shadow changed, whether a hand that can cast it is in tracking, whether controllers are in use, the
@@ -20,6 +21,14 @@ import type { Lantern } from "./lantern-system";
 import type { FingerSource } from "./session-fingers";
 import { registerAppSystem } from "./systems";
 
+/** A phone's touch as a finger in the light (the touch system). */
+export interface TouchFinger {
+  /** The session is a phone's: the screen is its only input. */
+  readonly phone: boolean;
+  /** This frame's touch finger: its two ends (box units, front then back) into `out` for lantern `L`; false with none. */
+  ends(L: Readonly<V3>, out: Float64Array): boolean;
+}
+
 export interface HandsDeps {
   scene: BoxScene;
   lantern: Lantern;
@@ -27,7 +36,12 @@ export interface HandsDeps {
   passthrough: () => boolean;
   /** Each controller's target ray (the player's ray spaces): its origin is the controller's front, it aims along -z. */
   rays?: { readonly left: Object3D; readonly right: Object3D };
+  /** A phone's touch finger: on a phone it casts the finger instead of a controller's stand-in. */
+  touch?: TouchFinger;
 }
+
+/** The hand index a phone's touch finger casts as (any: a phone has no hands). */
+const TOUCH_HAND = 1;
 
 /** The finger outlines whose corners the change counter compares, at most (both hands' two bones, or a stand-in). */
 const MAX_COMPARED = 4;
@@ -94,9 +108,12 @@ export class HandsInBox implements FingerSource {
     this.mask.update(handJoints);
     const L = lantern.ctrl.pos, m = scene.root.matrixWorld;
     const r = this.shadow.update(handJoints, holder, m, L, this.outlines, this.finger);
-    this.controllers = hands[0].kind === "controller" || hands[1].kind === "controller";
+    const touch = this.deps.touch, phone = !!touch?.phone;
+    // A phone counts as controllers (no hands): a short finger lock then suggests its own way to fill it.
+    this.controllers = phone || hands[0].kind === "controller" || hands[1].kind === "controller";
     this.standInBy = -1;
-    if (r.nFinger === 0 && this.controllers) this.standIn(holder === "left" ? 0 : holder === "right" ? 1 : -1, L);
+    if (r.nFinger === 0 && phone) this.touchFinger(touch!, L);
+    else if (r.nFinger === 0 && this.controllers) this.standIn(holder === "left" ? 0 : holder === "right" ? 1 : -1, L);
     this.n = r.n;
     this.nFinger = r.nFinger;
     this.fingerZ = r.fingerZ;
@@ -105,6 +122,15 @@ export class HandsInBox implements FingerSource {
     this.countChange();
     // Drawn in the panel's shadow mesh when the box updates, later this frame.
     scene.setHandShadows(this.outlines, r.n, this.shadow.depth);
+  }
+
+  /** A phone's touch on the box casts the finger, its shadow under the touch (touch.ts fingerEnds). */
+  private touchFinger(touch: TouchFinger, L: Readonly<V3>): void {
+    const s = this.shadow.standIn, m = this.deps.scene.root.matrixWorld;
+    if (!touch.ends(L, s)) return;
+    if (this.shadow.castStandIn(TOUCH_HAND, m, L, this.outlines, this.finger).nFinger === 0) return;
+    this.standInBy = TOUCH_HAND;
+    this.front.set(s[0]!, s[1]!, s[2]!).applyMatrix4(m);
   }
 
   /**

@@ -34,6 +34,7 @@ import { Shell } from "./shell";
 import { ShellSystem, useShell } from "./shell-system";
 import { Sound, SoundSystem, useSound } from "./sound";
 import { registerAppSystem } from "./systems";
+import { attachTouch } from "./touch-system";
 import { addUrlRewrite, installUrlRewrites } from "./url-rewrites";
 
 const TEST_HOOKS = import.meta.env.VITE_TEST_HOOKS === "1";
@@ -94,6 +95,9 @@ async function main(): Promise<void> {
   attachInput(world);
   // The lantern (priority -3, right after the hands): held, carried, let go, settled on a spot.
   const lantern = attachLantern(world, shell.box);
+  // A phone's touches in AR (priority -3.3, before the hands; off on a headset): the lantern dragged, keys tapped, a
+  // finger cast in the light.
+  const touch = attachTouch(world, { scene: shell.box, lantern });
   // The hands in the box (priority -2.9): the real hand in front of the box, the hands' shadows, the finger's shadow
   // for the finger locks (the game measures them).
   const hands = attachHands(world, {
@@ -101,6 +105,7 @@ async function main(): Promise<void> {
     lantern,
     passthrough: () => shell.sessionMode === "immersive-ar",
     rays: world.player.raySpaces,
+    touch,
   });
   // The rays' cursor in the game's look (rays press keys too).
   styleRayCursors(world);
@@ -135,6 +140,7 @@ async function main(): Promise<void> {
     // In XR and seen: a hidden headset (or page) holds the lesson's clock, as the lifecycle holds the box's.
     presenting: () => shell.sessionMode !== null && shell.lifecycle.active,
     autoStart: () => !box && !lesson && !skipLessons,
+    phone: () => touch.phone,
   });
   // What the menus play through: the box session and the lessons. A progress reset lets a lesson or replay in the
   // lap go as well as the box.
@@ -174,7 +180,8 @@ async function main(): Promise<void> {
       shell.box.lantern.setShown(!away);
     },
   });
-  hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play, drawer, access, fakeBilling: bill.fake, menuGame, lessons });
+  touch.connect({ keys: [shell.panels, play.view], reward: play.view, drawer });
+  hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play, drawer, access, fakeBilling: bill.fake, menuGame, lessons, touch });
   // The entitlement from the start (a first launch goes into a lesson, never through Home, which also asks it).
   void access.refresh();
   // A first launch goes straight into its lesson (the shell asks the lessons); a field flag's box or lesson after.

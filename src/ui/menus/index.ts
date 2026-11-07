@@ -10,6 +10,8 @@ import { go, type Screen } from "../../app/screens";
 import type { SettingsStore } from "../../app/settings";
 import { DRAWER_PANEL_ANCHOR } from "../../render/drawer";
 import type { BoxPose } from "../../render/placement";
+import type { Vec3 } from "../../core/types";
+import type { KeyHit } from "../../input/touch";
 import { batch } from "@preact/signals-core";
 import { copy, type Lang, lang, localNotice, onLangChange } from "../../i18n";
 import { type FrameTips, frameTips } from "../fingertips";
@@ -304,6 +306,21 @@ export class Menus {
   /** The screen shown now. */
   get current(): Screen {
     return this.screen;
+  }
+
+  /**
+   * A phone's touch ray (world) against the live keys of the panel up: the nearest hit goes into `out`. True when it
+   * hits one (its poke then comes as a fingertip, through the keys' own rules). Allocation free.
+   */
+  tapHit(o: Readonly<Vec3>, d: Readonly<Vec3>, out: KeyHit): boolean {
+    const p = this.byScreen.get(this.screen);
+    if (!p || !p.motion.visible) return false;
+    let hit = false;
+    for (let i = 0; i < p.keys.length; i++) {
+      const k = p.keys[i] as KeyView;
+      if (this.isLive(k) && k.tapHit(o, d, out)) hit = true;
+    }
+    return hit;
   }
 
   /** Pokeable keys of a screen (shown ones only). For test hooks. */
