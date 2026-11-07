@@ -10,7 +10,8 @@ import { go, type Screen } from "../../app/screens";
 import type { SettingsStore } from "../../app/settings";
 import { DRAWER_PANEL_ANCHOR } from "../../render/drawer";
 import type { BoxPose } from "../../render/placement";
-import { copy, lang, localNotice, onLangChange } from "../../i18n";
+import { batch } from "@preact/signals-core";
+import { copy, type Lang, lang, localNotice, onLangChange } from "../../i18n";
 import { type FrameTips, frameTips } from "../fingertips";
 import { KeyView, NO_TIPS } from "../key-view";
 import { MOTION } from "../motion";
@@ -77,6 +78,8 @@ interface LivePanel {
   view: PanelView;
   motion: PanelMotion;
   keys: KeyView[];
+  /** The language whose fonts the panel draws with (it follows the language shown when it is next painted). */
+  lang: Lang;
 }
 
 const anchor = new Vector3();
@@ -124,7 +127,8 @@ export class Menus {
       }
       asset.visible = false;
       const view = new PanelView(asset, spec);
-      view.setLanguage(lang());
+      const shown = lang();
+      view.setLanguage(shown);
       // Numbers counting up: their ticks and landings are sounds. One event object, refilled for
       // every step (a count-up steps on many frames); listeners keep a copy if they need one.
       view.onRoll = (id, k, done) => {
@@ -140,7 +144,7 @@ export class Menus {
         if (!el) continue;
         keys.push(new KeyView(id, spec.screen, el, view.el(`${id}-cap`), view.el(`${id}-glow`), hooks));
       }
-      const p: LivePanel = { spec, asset, view, motion: new PanelMotion(), keys };
+      const p: LivePanel = { spec, asset, view, motion: new PanelMotion(), keys, lang: shown };
       this.live.push(p);
       this.byScreen.set(spec.screen, p);
     }
@@ -151,12 +155,9 @@ export class Menus {
     on("notice", () => {
       if (this.screen === "home") this.paint("home");
     });
-    // A new language: every panel's fonts and wrapping, and the screen up painted again (the others are
-    // painted when they open). Once per change, never per frame.
-    onLangChange((l) => {
-      for (const p of this.live) p.view.setLanguage(l);
-      this.refresh();
-    });
+    // A new language: the screen up is painted again in it, fonts and words together (the others take theirs
+    // when they open). Once per change, never per frame.
+    onLangChange(() => this.refresh());
   }
 
   /** The screen changed: the old panel leaves, the new one is painted and springs in. */
@@ -397,6 +398,17 @@ export class Menus {
   private paint(screen: Screen): void {
     const p = this.byScreen.get(screen);
     if (!p) return;
+    // A panel takes a new language's fonts only as it is painted in that language, and both change in one batch:
+    // UIKit lays it out once, never with one language's words in another's font.
+    batch(() => this.paintPanel(p, screen));
+  }
+
+  private paintPanel(p: LivePanel, screen: Screen): void {
+    const l = lang();
+    if (p.lang !== l) {
+      p.view.setLanguage(l);
+      p.lang = l;
+    }
     const profile = this.deps.profiles.profile;
     const data = this.deps.data;
     // The fixed words first, in the language shown (PanelView writes only what changed).
