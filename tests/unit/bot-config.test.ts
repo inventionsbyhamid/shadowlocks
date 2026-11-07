@@ -20,7 +20,8 @@ describe("the bot specs are opt in", () => {
   it("leaves them out of the routine suite", () => {
     expect(suite.testDir).toBe("tests/e2e");
     expect(suite.testMatch).toBe("**/*.spec.ts");
-    expect(suite.testIgnore).toBe(BOT_SPECS);
+    // Beside the Quest 2 and Pro gate, opt in too (quest2-config.test.ts).
+    expect(suite.testIgnore).toContain(BOT_SPECS);
   });
 
   it("runs only them with the bot config, the browser, server and fixtures as the suite has them", () => {

@@ -60,7 +60,8 @@ Helpers:
 - Page helpers in `helpers/page-scripts.ts`: `setHeadset`, `loadRoom`, `storedInProgress`, ...
 - `emulateHeadset(page, "metaQuest2")` (`helpers/headset.ts`), before `boot()`: IWER's Quest 2 (or Pro) profile instead of
   the project's Quest 3, with its user agent and frame rates (the game then takes the older Quests' 72 Hz path).
-  `perf-budget-quest2.spec.ts` times the play case on it at a Quest 2's 5.33x; `gpu-census.spec.ts` counts what each moment asks of
+  `perf-budget-quest2.spec.ts` times the play case on it at a Quest Pro's 5.72x (opt in: see "The Quest 2 and Pro gate"
+  below); `gpu-census.spec.ts` counts what each moment asks of
   its GPU (`__ns.gpu.census`, `src/app/gpu-census.ts`); `quest2-look.spec.ts` shows the look over its grey passthrough.
 
 ## For app code
@@ -153,3 +154,28 @@ summary in the run notes. A bot run waits for an exclusive slot; behind another 
 an hour, hence `NS_LOCK_WAIT=7200` (the default gives up after one). The three box and sweep specs took 1.4 h
 together, and the lessons add to that, near enough the default two-hour container limit (`NS_MAX_RUN` 7200) on a
 loaded server that `NS_MAX_RUN=10800` is the safer setting.
+
+## The Quest 2 and Pro gate (opt in)
+
+`perf-budget-quest2.spec.ts` is perf-budget's play case on IWER's Quest 2 profile at a Quest Pro's CPU speed (5.72x,
+the slower of the two older Quests), with our JS held to a p95 of 3.75 ms (27% of a 72 Hz frame). It is strict, and
+it is not part of the routine suite (Ruling 142): on this server it sits on that line, and the server's load decides
+which side (3.30 ms in one run, 3.90 ms in the other, on the same code: `plan/sdd/sl-v1/task-25-report.md`, fix
+round 1). perf-budget's 3 ms at 4x does not cover it (3.75 ms at 5.72x is 2.62 ms at 4x). Run it through its own
+config, at low load:
+
+```sh
+# About 2 minutes once it starts; waits for load 8 or less, then for the exclusive slot.
+NS_MAX_LOAD=8 NS_LOCK_WAIT=7200 scripts/e2e.sh -c playwright.quest2.config.ts
+```
+
+Run it before ship step 34a (adding Quest 2 and Pro to the listing), and before merging a change to the per-frame
+code of `PLAY_SYSTEMS` (`helpers/perf-play.ts`: hand-pinch, hands, lantern, game, menus, shell, sound). The hot paths
+there are the lock measure (`src/core/solve.ts`), the shadow cast and mesh (`src/render/box-shadows.ts`,
+`src/render/shadow-mesh.ts`), and the fingertip and key reads. The run is exclusive (its name says perf-budget, and
+it carries `// e2e: exclusive`). With `NS_MAX_LOAD=8`, scripts/e2e.sh waits up to `NS_E2E_PREWAIT` (1800 s) for the
+load to come down, and scripts/remote.sh refuses the run (exit 3) if it is still over 8 then: try again later. A
+failure on a quiet server is a real regression. A pass or fail on a busy one says little. Each window's line in the
+output gives the server load and how many times the kernel paused the test container. Naming the spec with the
+default config finds no tests. It moves into the routine set only after a real Quest Pro run (Part 4 of the report)
+shows where the true line is.

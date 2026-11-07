@@ -1,4 +1,6 @@
 // e2e: exclusive (times real milliseconds at a Quest Pro's throttle: scripts/e2e.sh runs this spec alone on the server)
+// Opt in, outside the routine suite (Ruling 142), at low load: NS_MAX_LOAD=8 scripts/e2e.sh -c playwright.quest2.config.ts
+// (tests/e2e/README.md says when).
 // The performance budget on the older Quests: perf-budget.spec.ts's play case (helpers/perf-play.ts: box 15 played
 // through the box session, the lantern carried back and forth in the right hand, the left hand's fingers casting in
 // the beam) on IWER's Quest 2 profile (helpers/headset.ts), with the CPU throttled for the slower of Quest 2 and Pro.
