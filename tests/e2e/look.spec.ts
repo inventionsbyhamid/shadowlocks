@@ -307,8 +307,8 @@ test("owner's look shots: lesson 1 forming, its idle ghost hand, and Example 1 w
   page,
   boot,
 }, testInfo) => {
-  // A first launch goes straight into lesson 1.
-  const app = await boot({ lessons: true, expectScreen: "play" });
+  // A first launch goes straight into lesson 1 (visual mode: the full-size canvas and the room, as the other shots).
+  const app = await boot({ lessons: true, expectScreen: "play", mode: "visual" });
   const inLesson = () =>
     app.stepUntil(
       (_ns, w) => {
@@ -322,13 +322,15 @@ test("owner's look shots: lesson 1 forming, its idle ghost hand, and Example 1 w
   const at = { x: panel[0], y: panel[1], z: panel[2] };
   // The box forming out of light.
   await app.stepUntil((_ns, w) => w.__sl.lessons.state().form >= 0.5, { maxMs: 3_000, label: "the box half formed" });
-  await app.captureHeadset("look-owner-lesson1-forming-headset", at);
-  // Idle: the ghost hand shows how to take the lantern.
+  await app.captureHeadset("look-owner-lesson1-forming-headset", at, 14);
+  // Idle: the ghost hand shows how to take the lantern (framed between the box and the lantern it reaches for).
   await app.stepUntil((_ns, w) => w.__sl.lessons.state().hand.opacity > 0.9, { maxMs: 8_000, label: "the idle ghost hand" });
   await page.evaluate(() => window.__ns!.resetPerf());
   await app.step(30);
   const idle = await app.perf();
-  await app.captureHeadset("look-owner-lesson1-ghost-headset", at);
+  const L = (await page.evaluate(() => window.__sl!.lantern())).pos;
+  const [mid] = await page.evaluate((p) => window.__ns!.scene.toWorld([[p[0] / 2, (p[1] - 0.1) / 2, (p[2] + 0.5) / 2]]), L);
+  await app.captureHeadset("look-owner-lesson1-ghost-headset", { x: mid![0], y: mid![1], z: mid![2] }, 14);
   await app.capture("look-owner-lesson1-ghost-wide");
   // Example 1 (practice, from its step): the ghost lantern swings over the twin while the player's waits in its cradle.
   await page.evaluate(() => window.__sl!.lessons.start("l1", 2, true));
@@ -342,7 +344,8 @@ test("owner's look shots: lesson 1 forming, its idle ghost hand, and Example 1 w
   await page.evaluate(() => window.__ns!.resetPerf());
   await app.step(30);
   const example = await app.perf();
-  await app.captureHeadset("look-owner-lesson1-example-headset", at);
+  // The box and the cradle at the frame's side together.
+  await app.captureHeadset("look-owner-lesson1-example-headset", at, 11);
   await app.capture("look-owner-lesson1-example-wide");
   // Draw calls, both views counted as perf-budget counts them (the busiest frame of 30).
   const line = `look, lesson 1 draw calls (both views): idle ghost ${idle.callsMax}, Example 1 ${example.callsMax}`;
