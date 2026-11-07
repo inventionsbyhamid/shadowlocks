@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { CustomBlending, Group, type Mesh, type MeshBasicMaterial, OneFactor, OneMinusSrcAlphaFactor } from "@iwsdk/core";
 import { LabelCanvas, labelMaterial } from "../../src/render/label";
 import { Reward } from "../../src/render/reward";
+import { CoachLineView } from "../../src/ui/coach-line";
 import { Plate } from "../../src/ui/plate";
 import { PokeKey } from "../../src/ui/poke-key";
 
@@ -36,5 +37,18 @@ describe("painted faces", () => {
     const faces = [key.face, ...["Plate Face", "Reward Story"].map((n) => root.getObjectByName(n) as Mesh)];
     expect(faces.every((f) => !!f)).toBe(true);
     for (const f of faces) premultiplied(f.material as MeshBasicMaterial);
+  });
+
+  it("the coach line's chip paints that way too, and fades as premultiplied colour does (colour and alpha together)", () => {
+    const chip = new CoachLineView();
+    const m = chip.object.material as MeshBasicMaterial;
+    premultiplied(m);
+    // Half faded: the blend adds the texel's colour as it is (One), so the colour must fade with the alpha.
+    chip.opacity = 0.5;
+    expect(m.opacity).toBe(0.5);
+    expect([m.color.r, m.color.g, m.color.b]).toEqual([0.5, 0.5, 0.5]);
+    expect(chip.object.visible).toBe(true);
+    chip.opacity = 0;
+    expect(chip.object.visible).toBe(false);
   });
 });

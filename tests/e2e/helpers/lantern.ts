@@ -100,7 +100,8 @@ export async function startTrail(page: Page): Promise<void> {
             held: l.held,
             mode: l.mode,
             beam: parts.includes("Ring Beam"),
-            ripple: parts.includes("Lantern Ripple"),
+            // The ripple's ring rides on the glow's sprite: it shows as the lantern's ring opacity.
+            ripple: l.ripple > 0,
           });
         }
         return r;
@@ -141,7 +142,7 @@ export const WINDOWS = 2;
 /**
  * A per-frame path (the lantern's two systems together, or the hands system) costs at most this (ms a frame) at 4x
  * CPU throttle on optimised code, by the stall rule (judgeWindows): the mean of a window of TIMED_FRAMES frames
- * without its host stalls, in the better of WINDOWS windows. The mean only: p95 moves in the timer's 0.1 ms steps
+ * without its stalls (host or ours), in the better of WINDOWS windows. The mean only: p95 moves in the timer's 0.1 ms steps
  * (times 4) and is reported, not held to a limit.
  */
 export const MEAN_BUDGET_MS = 0.5;
@@ -149,20 +150,24 @@ export const MEAN_BUDGET_MS = 0.5;
 // The stall rule lives in helpers/stall-rule.ts (pure, so the unit tests hold it); every cost check takes it from there.
 export { judgeWindows, judgeWindowsP95, MAX_STALLS, p95WithoutStalls, STALL_MS, type StallMean, type StallP95, withoutStalls } from "./stall-rule";
 
-/** The cost check: the judged window has at most MAX_STALLS host stalls and a mean of at most `budgetMs`. */
+// A frame over STALL_MS may be the host's or our own (a GC pause, a shader compile): the messages blame neither.
+
+/** The cost check: the judged window has at most MAX_STALLS stalls and a mean of at most `budgetMs` without them. */
 export function expectWithinBudget(j: StallMean, budgetMs: number, what: string): void {
-  expect(j.stalls, `${what}: host stalls over ${STALL_MS} ms in the judged window`).toBeLessThanOrEqual(MAX_STALLS);
-  expect(j.meanMs, `${what}: mean ms a frame over ${TIMED_FRAMES} frames without host stalls, the better of ${WINDOWS} windows`).toBeLessThanOrEqual(
-    budgetMs,
-  );
+  expect(j.stalls, `${what}: stalls (host or ours) over ${STALL_MS} ms in the judged window`).toBeLessThanOrEqual(MAX_STALLS);
+  expect(
+    j.meanMs,
+    `${what}: mean ms a frame over ${TIMED_FRAMES} frames without stalls (host or ours), the better of ${WINDOWS} windows`,
+  ).toBeLessThanOrEqual(budgetMs);
 }
 
-/** The frame check: the judged window has at most MAX_STALLS host stalls and a p95 of at most `budgetMs` without them. */
+/** The frame check: the judged window has at most MAX_STALLS stalls and a p95 of at most `budgetMs` without them. */
 export function expectP95WithinBudget(j: StallP95, budgetMs: number, what: string): void {
-  expect(j.stalls, `${what}: host stalls over ${STALL_MS} ms in the judged window`).toBeLessThanOrEqual(MAX_STALLS);
-  expect(j.p95Ms, `${what}: p95 ms a frame over ${TIMED_FRAMES} frames without host stalls, the better of ${WINDOWS} windows`).toBeLessThanOrEqual(
-    budgetMs,
-  );
+  expect(j.stalls, `${what}: stalls (host or ours) over ${STALL_MS} ms in the judged window`).toBeLessThanOrEqual(MAX_STALLS);
+  expect(
+    j.p95Ms,
+    `${what}: p95 ms a frame over ${TIMED_FRAMES} frames without stalls (host or ours), the better of ${WINDOWS} windows`,
+  ).toBeLessThanOrEqual(budgetMs);
 }
 /** The systems on the path, as the perf hook names them. */
 const PATH_SYSTEMS = ["hand-pinch", "lantern"];
@@ -276,7 +281,7 @@ export interface CostWindow {
 export interface Cost {
   /** The WINDOWS timed windows, in order. */
   windows: CostWindow[];
-  /** The window the stall rule judges the path on (judgeWindows): its mean without host stalls is the lower. */
+  /** The window the stall rule judges the path on (judgeWindows): its mean without stalls is the lower. */
   best: CostWindow;
   judged: StallMean & { index: number };
   /** Frames per window. */
@@ -351,12 +356,12 @@ export async function measureCost(boot: BootFn, page: Page, testInfo: TestInfo, 
     const lines = [
       ...windows.flatMap((w, i) => [
         `${label}, window ${i + 1}: hand-pinch + lantern over ${TIMED_FRAMES} frames at 4x CPU throttle: ${fmt(w.path)}; ` +
-          `${w.pathRule.stalls} host stalls over ${STALL_MS} ms, mean ${w.pathRule.meanMs.toFixed(3)} ms without them; ` +
+          `${w.pathRule.stalls} stalls (host or ours) over ${STALL_MS} ms, mean ${w.pathRule.meanMs.toFixed(3)} ms without them; ` +
           `server load ${w.load?.toFixed(1) ?? "?"}`,
         `${label}, window ${i + 1}: hand-pinch ${fmt(w.pinch)}; lantern ${fmt(w.lan)}`,
       ]),
       `${label}: judged on window ${judged.index + 1}, hand-pinch + lantern ${judged.meanMs.toFixed(3)} ms a frame ` +
-        `(mean without host stalls, ${judged.stalls} of them)`,
+        `(mean without stalls (host or ours), ${judged.stalls} of them)`,
       `${label}: allocated in our per-frame files, about ${allocs.bytesPerFrame.toFixed(0)} bytes a frame over ${frames} frames ` +
         `(heap sampler, one sample per ${SAMPLE_BYTES} bytes, collected objects included)` +
         (allocs.byFunction.size ? `: ${[...allocs.byFunction].map(([k, b]) => `${k} ${b.toFixed(0)}`).join("; ")}` : ""),

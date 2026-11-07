@@ -104,7 +104,7 @@ test("the hands in the box cost well under 0.5 ms a frame at 4x CPU throttle and
   const cdp = await page.context().newCDPSession(page);
   const series = async (names: string[]) => (await page.evaluate((s) => window.__ns!.perfFrames(s), names)).slice(-TIMED_FRAMES);
   // WINDOWS windows of TIMED_FRAMES frames one after the other, judged by the stall rule (helpers/lantern.ts, as the
-  // lantern's cost is): host stalls left out and counted, the better window held to the budget.
+  // lantern's cost is): stalls (host or ours) left out and counted, the better window held to the budget.
   const windows: { hands: number[]; game: number[]; shell: number[]; load: number | undefined }[] = [];
   try {
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
@@ -154,13 +154,13 @@ test("the hands in the box cost well under 0.5 ms a frame at 4x CPU throttle and
       ...stats.map(
         (w, i) =>
           `hands cost, window ${i + 1}: hands over ${TIMED_FRAMES} frames at 4x CPU throttle: ${fmt(w.hands)}; ` +
-          `${w.rule.stalls} host stalls over ${STALL_MS} ms, mean ${w.rule.meanMs.toFixed(3)} ms without them; shell (the box's update, ` +
+          `${w.rule.stalls} stalls (host or ours) over ${STALL_MS} ms, mean ${w.rule.meanMs.toFixed(3)} ms without them; shell (the box's update, ` +
           `casting the hands' shadows) ${fmt(w.shell)}; game (the box session, measuring the finger lock) ${fmt(w.game)}; ` +
           `server load ${w.load?.toFixed(1) ?? "?"}`,
       ),
-      `hands cost: judged on window ${judged.index + 1}: ${judged.meanMs.toFixed(3)} ms a frame without host stalls (${judged.stalls} of them)`,
+      `hands cost: judged on window ${judged.index + 1}: ${judged.meanMs.toFixed(3)} ms a frame without stalls (host or ours; ${judged.stalls} of them)`,
       `hands cost: game (a finger in the beam) judged on window ${judgedGame.index + 1}: ${judgedGame.meanMs.toFixed(3)} ms a frame ` +
-        `without host stalls (${judgedGame.stalls} of them), budget ${GAME_BUDGET_MS} ms`,
+        `without stalls (host or ours; ${judgedGame.stalls} of them), budget ${GAME_BUDGET_MS} ms`,
       `hands cost: ${h.outlines.length} outlines, ${h.mask} mask capsules; allocated in the hands' per-frame files, about ` +
         `${allocs.bytesPerFrame.toFixed(0)} bytes a frame over ${frames} frames` +
         (allocs.byFunction.size ? `: ${[...allocs.byFunction].map(([k, v]) => `${k} ${v.toFixed(0)}`).join("; ")}` : ""),

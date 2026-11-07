@@ -1,5 +1,7 @@
+import path from "node:path";
 import { COPY } from "../../src/ui/copy";
 import { expect, test } from "./helpers/test";
+import { SHOTS_DIR } from "./helpers/xr-app";
 
 const FAILED = COPY.page.enterFailed;
 
@@ -16,6 +18,16 @@ test("the landing page shows the box art, the name and one button, and Open the 
   await expect(enter).toHaveText(COPY.landing.open);
   await expect(page.locator("#tagline")).toHaveText(COPY.landing.tagline);
   await expect(status).toHaveText("");
+  // The brand faces come from our own origin (the page's font policy allows nothing else) and set the name, the
+  // button and the facts.
+  const faces = await page.evaluate(async () => {
+    const brand = ["Shadow Locks Display", "Shadow Locks Sans"];
+    const all = [...document.fonts].filter((f) => brand.includes(f.family.replace(/"/g, "")));
+    await Promise.allSettled(all.map((f) => f.load()));
+    return all.map((f) => `${f.family.replace(/"/g, "")} ${f.weight} ${f.status}`).sort();
+  });
+  expect(faces).toEqual(["Shadow Locks Display 400 loaded", "Shadow Locks Sans 700 loaded"]);
+  await page.screenshot({ path: path.join(SHOTS_DIR, "landing.png") });
   await enter.click();
   await app.stepUntil((ns) => ns.state().xr.presenting, { maxMs: 5_000, label: "XR after Open the box" });
   expect((await app.state()).xr.sessionMode).toBe("immersive-ar");

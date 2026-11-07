@@ -18,7 +18,9 @@ if (!work || !out || specs.length === 0) {
 const FACES = {
   "inter-md": "Inter Medium",
   "inter-bd": "Inter Bold",
-  "archivo-xb": "Archivo Expanded ExtraBold",
+  // Renamed copies (their reserved names may not be used by a cut-down version; scripts/fonts/build-fonts.sh).
+  limelight: "Shadow Locks Display",
+  "josefin-bd": "Shadow Locks Sans Bold",
   "noto-jp": "Noto Sans JP Bold",
 };
 fs.mkdirSync(out, { recursive: true });
