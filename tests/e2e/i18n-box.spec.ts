@@ -95,17 +95,18 @@ test("changing the language repaints the box's lettering at once, and a reload k
 });
 
 test("a lesson's coach line changes language at once", async ({ page, boot }) => {
-  // Lesson 2 as practice: its first line, the shadow puppets.
-  const app = await boot({ url: "/?lesson=l2", expectScreen: "play" });
-  const shows = (text: string, label: string) =>
-    app.stepUntil((_ns, w, t) => w.__sl.lessons.state().coach.text === t, { arg: text, maxMs: 4_000, label });
-  await shows(COPY.lessons.puppets, "the puppets line");
+  // Lesson 1 as practice: its first line stays up until the lantern is lifted (lesson 2 would not do: with IWER's
+  // controllers its finger lock brings the session's "set a controller down" line, which wins the chip).
+  const app = await boot({ url: "/?lesson=l1", expectScreen: "play" });
+  const shows = (text: string, label: string, maxMs = 4_000) =>
+    app.stepUntil((_ns, w, t) => w.__sl.lessons.state().coach.text === t, { arg: text, maxMs, label });
+  await shows(COPY.lessons.pickUp, "the first line", 10_000);
   for (const l of ["de", "ja", "pt-BR"] as const) {
     await setLanguage(page, l);
-    await shows(tableFor(l).lessons.puppets, `the puppets line in ${l}`);
+    await shows(tableFor(l).lessons.pickUp, `the first line in ${l}`);
   }
   // The director still speaks English underneath; only the chip changed.
-  expect(await page.evaluate(() => window.__sl!.lessons.state().line)).toBe(COPY.lessons.puppets);
+  expect(await page.evaluate(() => window.__sl!.lessons.state().line)).toBe(COPY.lessons.pickUp);
 });
 
 test("shots: the box's plate and story card in each language", async ({ page, boot }) => {
