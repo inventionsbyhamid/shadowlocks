@@ -2,7 +2,7 @@
 // (and again on Recenter), lay out what follows the placement, step the box's own motion and the theatre
 // lights, and run debounced saves. Allocation-free per frame.
 import { createSystem, Quaternion, Vector3 } from "@iwsdk/core";
-import { PHONE_VIEW, pitchFromQuaternion, placement, type ViewTangents, yawFromQuaternion } from "../render/placement";
+import { PHONE_VIEW, pitchFromQuaternion, placement, type ViewTangents, viewOf, yawFromQuaternion } from "../render/placement";
 import type { Shell } from "./shell";
 import { onPhone } from "./touch-system";
 
@@ -49,15 +49,12 @@ export class ShellSystem extends createSystem({}) {
 
   /**
    * The XR camera's view as half-angle tangents, from this frame's projection (three sets it from the session's view
-   * before our systems run): 1 / its x and y scales. A phone's default where the projection is not there yet.
+   * before our systems run), the narrower side each way (viewOf). A phone's default where the projection is not there
+   * yet.
    */
   private cameraView(): ViewTangents {
     const xr = this.renderer.xr.getCamera() as { cameras?: { projectionMatrix: { elements: ArrayLike<number> } }[] };
-    const e = xr.cameras?.[0]?.projectionMatrix.elements;
-    const sx = e ? e[0]! : Number.NaN, sy = e ? e[5]! : Number.NaN;
-    this.view.tanH = sx > 0 && Number.isFinite(sx) ? 1 / sx : PHONE_VIEW.tanH;
-    this.view.tanV = sy > 0 && Number.isFinite(sy) ? 1 / sy : PHONE_VIEW.tanV;
-    return this.view;
+    return viewOf(xr.cameras?.[0]?.projectionMatrix.elements, this.view);
   }
 
   update(delta: number): void {
