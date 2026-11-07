@@ -4,7 +4,6 @@
 // flare marks a grab and a ripple a settle. Four draw calls (five while a ripple runs, three while it
 // waits quiet in a lesson's cradle); no allocation per frame.
 import {
-  AdditiveBlending,
   BufferGeometry,
   Color,
   ConeGeometry,
@@ -13,6 +12,7 @@ import {
   Group,
   LinearFilter,
   type Material,
+  type Object3D,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -26,6 +26,8 @@ import {
 import type { V3 } from "../core/types";
 import { clamp01, outCubic } from "./fx/ease";
 import { FlashBudget } from "./fx/flash-budget";
+import { grained } from "./lacquer";
+import { LIGHT_BLEND } from "./light-blend";
 import { mergeParts } from "./merge";
 import { COLORS, LANTERN_GLOW, LIGHTS } from "./theme";
 
@@ -67,6 +69,10 @@ export class LanternView {
   private flareT = 1e9;
   private rippleT = 1e9;
   private sizeM = 0.24;
+  /** Put away (a menu is up): its parts hidden, its light dark but still in the scene. */
+  private shown = true;
+  /** The parts that hide when it is put away (the glow and ripple follow it in apply, with the cradle's quiet). */
+  private readonly parts: Object3D[];
   private readonly budget: FlashBudget;
   /** The budget is this view's own (it steps it), not the box's shared one. */
   private readonly ownBudget: boolean;
@@ -82,7 +88,8 @@ export class LanternView {
     this.group.name = "Lantern";
     const { lacquer, gold } = mats;
     // Lacquer foot.
-    const foot = new Mesh(at(new CylinderGeometry(0.052, 0.058, 0.026, 8), 0, -0.074, 0), lacquer);
+    // The frame's lacquer reads a grain direction from every mesh it draws: the foot's is zero (plain lacquer).
+    const foot = new Mesh(grained(at(new CylinderGeometry(0.052, 0.058, 0.026, 8), 0, -0.074, 0), null), lacquer);
     // Gold: a band on the foot, eight fins round the core, three steps, a spire and the ring to hold it by.
     const parts: BufferGeometry[] = [at(new CylinderGeometry(0.0525, 0.0525, 0.004, 8), 0, -0.06, 0)];
     for (let i = 0; i < 8; i++) {
@@ -97,10 +104,10 @@ export class LanternView {
     this.core = new MeshBasicMaterial({ color: this.coreColor.clone(), toneMapped: false });
     const core = new Mesh(new CylinderGeometry(0.039, 0.039, 0.112, 8), this.core);
     this.glow = new Sprite(
-      new SpriteMaterial({ map: radialTexture(64, false), color: COLORS.lamp, blending: AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }),
+      new SpriteMaterial({ map: radialTexture(64, false), color: COLORS.lamp, ...LIGHT_BLEND, depthWrite: false, transparent: true, toneMapped: false }),
     );
     this.rippleSprite = new Sprite(
-      new SpriteMaterial({ map: radialTexture(64, true), color: COLORS.gold, blending: AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }),
+      new SpriteMaterial({ map: radialTexture(64, true), color: COLORS.gold, ...LIGHT_BLEND, depthWrite: false, transparent: true, toneMapped: false }),
     );
     this.rippleSprite.visible = false;
     this.light = new PointLight(COLORS.lamp, LIGHTS.lantern.intensity, LIGHTS.lantern.range, LIGHTS.lantern.decay);
@@ -110,7 +117,21 @@ export class LanternView {
     this.glow.name = "Lantern Glow";
     this.rippleSprite.name = "Lantern Ripple";
     this.group.add(foot, fins, core, this.glow, this.rippleSprite, this.light);
+    this.parts = [foot, fins, core];
     this.setBrightness(0);
+  }
+
+  /**
+   * Shown, or put away while a menu is up. Put away, its parts hide but its light stays in the scene, dark: three
+   * builds each lit shader for the number of visible lights, so hiding the light would make every lit material in the
+   * box compile again the first time it showed lit after a menu, and the shaders compiled ahead (on the session's
+   * first frame, home menu up) would not be the ones play uses.
+   */
+  setShown(shown: boolean): void {
+    if (shown === this.shown) return;
+    this.shown = shown;
+    for (const p of this.parts) p.visible = shown;
+    this.apply();
   }
 
   /** Where the lantern is, in box units. */
@@ -170,16 +191,17 @@ export class LanternView {
     const g = LANTERN_GLOW, b = this.brightness;
     const flare = this.flareT < g.flareS ? 1 - outCubic(this.flareT / g.flareS) : 0;
     const k = g.lightFloor + (1 - g.lightFloor) * b;
-    // Physical point light: intensity scales with area (size squared), range with size.
-    this.light.intensity = LIGHTS.lantern.intensity * k * (1 + 0.3 * flare) * this.sizeM * this.sizeM;
+    // Physical point light: intensity scales with area (size squared), range with size. Dark while put away.
+    this.light.intensity = this.shown ? LIGHTS.lantern.intensity * k * (1 + 0.3 * flare) * this.sizeM * this.sizeM : 0;
     this.light.distance = LIGHTS.lantern.range * this.sizeM;
     const s = g.size * (0.85 + 0.15 * b) * (1 + g.flareGain * flare);
     this.glow.scale.set(s, s, 1);
     (this.glow.material as SpriteMaterial).opacity = Math.min(1, g.opacity[0] + (g.opacity[1] - g.opacity[0]) * b + 0.4 * flare);
-    this.glow.visible = !this.quiet;
+    // The glow and ripple show only while the lantern is shown (no menu has put it away) and not quiet in a cradle.
+    this.glow.visible = this.shown && !this.quiet;
     this.core.color.copy(this.coreColor).lerp(this.hotColor, Math.min(1, 0.4 * b + flare));
     const ripple = this.rippleT < g.rippleS && !this.quiet;
-    this.rippleSprite.visible = ripple;
+    this.rippleSprite.visible = ripple && this.shown;
     if (ripple) {
       const q = this.rippleT / g.rippleS, r = 2 * g.rippleRadius * outCubic(q);
       this.rippleSprite.scale.set(r, r, 1);

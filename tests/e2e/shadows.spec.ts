@@ -546,7 +546,8 @@ test("look shots: box 5 (a hidden silhouette, three locks) at each spot, warmth 
   const setGlass = (v: boolean) =>
     page.evaluate((v) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (window.__ns!.world as any).scene.getObjectByName("Box Glass").visible = v;
+      const scene = (window.__ns!.world as any).scene;
+      for (const name of ["Box Glass", "Box Lid"]) scene.getObjectByName(name).visible = v;
     }, v);
   const band: V3[] = [];
   for (const y of [0.3, 0.34, 0.38, 0.42, 0.46]) for (let x = -0.44; x <= 0.441; x += 0.02) band.push([x, y, 0]);

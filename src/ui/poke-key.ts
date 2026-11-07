@@ -6,7 +6,7 @@
 import { Group, Mesh, MeshBasicMaterial, PlaneGeometry, Vector3 } from "@iwsdk/core";
 import type { Lang } from "../i18n";
 import { FingerKey, KEY_EVENT, nearestFinger } from "../render/finger-key";
-import { brassFace, fitLabel, LabelCanvas, type LabelFit } from "../render/label";
+import { brassFace, fitLabel, LabelCanvas, type LabelFit, labelMaterial } from "../render/label";
 import type { Tips } from "./key-view";
 
 /** How far the face travels under the finger (m). */
@@ -58,7 +58,7 @@ export class PokeKey {
   ) {
     this.group.name = id;
     this.label = new LabelCanvas(Math.round(width * PX_PER_M), Math.round(height * PX_PER_M));
-    this.face = new Mesh(new PlaneGeometry(width, height), new MeshBasicMaterial({ map: this.label.texture, transparent: true, toneMapped: false }));
+    this.face = new Mesh(new PlaneGeometry(width, height), labelMaterial(this.label.texture));
     this.face.name = `${id} face`;
     this.group.add(this.face);
     this.setText(text);

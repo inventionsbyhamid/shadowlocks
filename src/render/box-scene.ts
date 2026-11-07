@@ -4,9 +4,9 @@
 // matrix is the placement, so a new placement or box size moves and scales it all around the panel.
 //
 // The frame has no rail across the top of the open front: from a seated eye the box's lid is seen
-// from above, and a rail there would cut across the panel. Draw calls: frame, trim, floor, glass,
-// panel, shadows, scraps, threads, rings, and four for the lantern; thirteen for any box, plus one
-// for each crystallised piece (three more while one forms). The panel shader and the shadows live in
+// from above, and a rail there would cut across the panel. Draw calls: frame, trim, floor, side
+// glass, lid, panel, shadows, scraps, threads, rings, and four for the lantern; fourteen for any box,
+// plus one for each crystallised piece (three more while one forms). The panel shader and the shadows live in
 // panel.ts and shadow-mesh.ts. The hands' shadows and the crystallised pieces' join the box's own in
 // the one shadow mesh, after them.
 import {
@@ -41,16 +41,19 @@ import { ENVELOPE } from "../core/envelope";
 import type { Box, V2, V3 } from "../core/types";
 import { Crystals } from "./fx/crystallise";
 import { FlashBudget } from "./fx/flash-budget";
+import { grained, withGrain } from "./lacquer";
 import { LanternView } from "./lantern-view";
 import { mergeParts } from "./merge";
 import { BOX_ROOT_NAME, DEFAULT_BOX_CM } from "./placement";
 import { Panel } from "./panel";
 import { type ScrapHandle, Scraps, slotOf } from "./scraps";
-import { BoxShadows, MAX_EXTRAS, penumbra } from "./shadow-mesh";
-import { COLORS, ENV, LIGHTS, MATERIALS } from "./theme";
+import { BoxShadows, LANTERN_RADIUS, MAX_EXTRAS, PENUMBRA_MAX } from "./shadow-mesh";
+import { COLORS, ENV, type EnvPanel, LIGHTS, MATERIALS } from "./theme";
 
 /** Frame bars: thickness and edge radius (box units). The radius gives the clearcoat a rim to catch light. */
 const BAR = 0.05;
+/** The frame's bars' thickness (box units): the front posts' inner faces are at x = ±(0.5 - FRAME_BAR / 2). */
+export const FRAME_BAR = BAR;
 const BAR_R = 0.008;
 /** The back panel sits just in front of the back slab; its shadows lie exactly on it. */
 const PANEL_Z = 0.002;
@@ -103,19 +106,22 @@ const stripe = (len: number, axis: Axis, p: V3, face: Axis) => {
   return new BoxGeometry(size[0], size[1], size[2]).translate(p[0], p[1], p[2]);
 };
 
-function frameGeometry(): BufferGeometry {
+/** The black lacquer frame, plinth and back slab as one geometry, each part's grain running along it (lacquer.ts). */
+export function frameGeometry(): BufferGeometry {
   const H = 0.5, parts: BufferGeometry[] = [];
+  const grainBar = (len: number, axis: Axis, p: V3) => grained(bar(len, axis, p), axis);
   // Four bars front to back along the edges.
-  for (const x of [-H, H]) for (const y of [-H, H]) parts.push(bar(1 + BAR, "z", [x, y, 0.5]));
+  for (const x of [-H, H]) for (const y of [-H, H]) parts.push(grainBar(1 + BAR, "z", [x, y, 0.5]));
   // The back ring around the panel.
-  for (const y of [-H, H]) parts.push(bar(1 - BAR, "x", [0, y, 0]));
-  for (const x of [-H, H]) parts.push(bar(1 - BAR, "y", [x, 0, 0]));
+  for (const y of [-H, H]) parts.push(grainBar(1 - BAR, "x", [0, y, 0]));
+  for (const x of [-H, H]) parts.push(grainBar(1 - BAR, "y", [x, 0, 0]));
   // The front: two posts and the sill; no rail across the top (it would cut across the panel).
-  parts.push(bar(1 - BAR, "x", [0, -H, 1]));
-  for (const x of [-H, H]) parts.push(bar(1 - BAR, "y", [x, 0, 1]));
-  parts.push(slab(1 + BAR, 1 + BAR, 0.035, 0.012).translate(0, 0, -0.045));
-  parts.push(slab(PLINTH.w, PLINTH.h, PLINTH.d, 0.02).translate(0, PLINTH.y, PLINTH.z));
-  return mergeParts(parts);
+  parts.push(grainBar(1 - BAR, "x", [0, -H, 1]));
+  for (const x of [-H, H]) parts.push(grainBar(1 - BAR, "y", [x, 0, 1]));
+  // The back slab and the plinth: grain across.
+  parts.push(grained(slab(1 + BAR, 1 + BAR, 0.035, 0.012).translate(0, 0, -0.045), "x"));
+  parts.push(grained(slab(PLINTH.w, PLINTH.h, PLINTH.d, 0.02).translate(0, PLINTH.y, PLINTH.z), "x"));
+  return mergeParts(parts, ["grain"]);
 }
 
 /** Gold pinstripes along the frame's edges and stepped gold corners, so black lacquer never vanishes in the dark. */
@@ -141,20 +147,36 @@ function trimGeometry(): BufferGeometry {
   return mergeParts(parts);
 }
 
+/** The two side panes of smoked glass. */
 function glassGeometry(): BufferGeometry {
   const s = 1 - BAR;
   return mergeParts([
     new PlaneGeometry(s, s).rotateY(Math.PI / 2).translate(-0.5, 0, 0.5),
     new PlaneGeometry(s, s).rotateY(-Math.PI / 2).translate(0.5, 0, 0.5),
-    new PlaneGeometry(s, s).rotateX(Math.PI / 2).translate(0, LID_Y, 0.5),
   ]);
 }
 
-/** Soft studio reflections for the lacquer and gold, rendered once. Null where it cannot be made. */
-function studioEnvironment(renderer: WebGLRenderer): Texture | null {
+/** A see-through pane: both faces in one pass (three draws a transparent double-sided mesh twice otherwise). */
+function pane(o: { color: string; roughness: number; metalness: number; opacity: number; envMapIntensity: number }, env: Texture | null) {
+  return new MeshPhysicalMaterial({
+    color: o.color,
+    roughness: o.roughness,
+    metalness: o.metalness,
+    envMapIntensity: o.envMapIntensity,
+    envMap: env,
+    transparent: true,
+    opacity: o.opacity,
+    depthWrite: false,
+    side: DoubleSide,
+    forceSinglePass: true,
+  });
+}
+
+/** Soft studio reflections (theme.ts ENV), rendered once. Null where they cannot be made. */
+function studioEnvironment(renderer: WebGLRenderer, studio: { base: string; panels: readonly EnvPanel[] }): Texture | null {
   const scene = new Scene();
-  scene.add(new Mesh(new SphereGeometry(10, 16, 8), new MeshBasicMaterial({ color: ENV.base, side: BackSide })));
-  for (const p of ENV.panels) {
+  scene.add(new Mesh(new SphereGeometry(10, 16, 8), new MeshBasicMaterial({ color: studio.base, side: BackSide })));
+  for (const p of studio.panels) {
     const m = new Mesh(new PlaneGeometry(p.w, p.h), new MeshBasicMaterial({ color: new Color(p.color).multiplyScalar(p.k), side: DoubleSide }));
     m.position.set(p.pos[0], p.pos[1], p.pos[2]);
     m.lookAt(0, 0, 0);
@@ -234,8 +256,12 @@ export class BoxScene {
 
   constructor(world: World) {
     this.root.name = BOX_ROOT_NAME;
-    const env = studioEnvironment(world.renderer);
-    const lacquer = new MeshPhysicalMaterial({ color: COLORS.frame, ...MATERIALS.lacquer, envMap: env });
+    // Gold reflects a warm studio (a scrap is never black on the black frame); lacquer and glass a dark one (the
+    // top bars stay black at a grazing angle, the lid adds no haze).
+    const env = studioEnvironment(world.renderer, ENV.gold);
+    const dark = studioEnvironment(world.renderer, ENV.lacquer);
+    // Black lacquer with its grain (the owner's pick), drawn in its own shader: one program, one draw call as before.
+    const lacquer = withGrain(new MeshPhysicalMaterial({ color: COLORS.frame, ...MATERIALS.lacquer, envMap: dark }));
     const gold = new MeshStandardMaterial({ color: COLORS.metal, ...MATERIALS.gold, envMap: env });
     const frame = new Mesh(frameGeometry(), lacquer);
     frame.name = "Box Frame";
@@ -243,27 +269,16 @@ export class BoxScene {
     trim.name = "Box Trim";
     const floor = new Mesh(
       new PlaneGeometry(1 - BAR, 1).rotateX(-Math.PI / 2).translate(0, -0.5 + BAR / 2 + 0.001, 0.5),
-      new MeshStandardMaterial({ color: COLORS.lining, ...MATERIALS.lining, envMap: env }),
+      new MeshStandardMaterial({ color: COLORS.lining, ...MATERIALS.lining, envMap: dark }),
     );
     floor.name = "Box Floor";
-    const glass = new Mesh(
-      glassGeometry(),
-      new MeshPhysicalMaterial({
-        color: COLORS.glass,
-        roughness: MATERIALS.glass.roughness,
-        metalness: MATERIALS.glass.metalness,
-        envMapIntensity: MATERIALS.glass.envMapIntensity,
-        envMap: env,
-        transparent: true,
-        opacity: MATERIALS.glass.opacity,
-        depthWrite: false,
-        side: DoubleSide,
-        // One pass for both faces (three draws a transparent double-sided mesh twice otherwise).
-        forceSinglePass: true,
-      }),
-    );
+    const glass = new Mesh(glassGeometry(), pane({ color: COLORS.glass, ...MATERIALS.glass }, dark));
     glass.name = "Box Glass";
     glass.renderOrder = 2;
+    const inner = 1 - BAR;
+    const lid = new Mesh(new PlaneGeometry(inner, inner).rotateX(Math.PI / 2).translate(0, LID_Y, 0.5), pane(MATERIALS.lid, dark));
+    lid.name = "Box Lid";
+    lid.renderOrder = 2;
     // The panel draws after everything opaque in front of it (it writes no depth), then the shadows on it.
     this.panelArt = new Panel();
     this.panel = new Mesh(new PlaneGeometry(1, 1).translate(0, 0, PANEL_Z), this.panelArt.material);
@@ -278,7 +293,7 @@ export class BoxScene {
     shadowMesh.renderOrder = PANEL_ORDER + 1;
     this.lantern = new LanternView({ lacquer, gold }, this.flashes);
     this.crystals = new Crystals(env, this.flashes);
-    this.root.add(frame, trim, floor, glass, this.panel, shadowMesh, this.scraps.mesh, this.scraps.threads, this.scraps.rings, this.lantern.group);
+    this.root.add(frame, trim, floor, glass, lid, this.panel, shadowMesh, this.scraps.mesh, this.scraps.threads, this.scraps.rings, this.lantern.group);
     this.root.add(this.crystals.group);
     this.root.add(directional(LIGHTS.key.color, LIGHTS.key.intensity, LIGHTS.key.from, this.root));
     this.root.add(directional(LIGHTS.fill.color, LIGHTS.fill.intensity, LIGHTS.fill.from, this.root));
@@ -295,6 +310,9 @@ export class BoxScene {
   /** The box shown (its scraps, threads, rings, etching and shadows; the lantern goes to its start), or none. */
   setBox(box: Box | null): void {
     this.current = box;
+    // A new box (or none): the flash budget starts afresh, so a box left at its opening leaves no reservation behind
+    // (the game view resets it too; this is the backstop for every other way a box changes).
+    this.flashes.reset();
     this.scraps.setBox(box);
     this.crystals.setBox(box);
     this.panelArt.setBox(box);
@@ -363,16 +381,23 @@ export class BoxScene {
     const L = this.lightOn ? this.lightAt : this.lantern.getPos(this.lanternAt);
     const extras = this.extras, soft = this.extraSoft;
     let n = this.crystals.castShadows(L, extras, soft);
-    const hands = Math.min(this.handCount, MAX_EXTRAS - n);
+    const room = MAX_EXTRAS - n, hands = this.handCount < room ? this.handCount : room;
+    const Lz = L[2], depth = this.handDepth;
     for (let i = 0; i < hands; i++) {
       extras[n] = this.handOutlines[i]!;
-      soft[n] = penumbra(this.handDepth[i]!, L[2]);
+      // penumbra(depth, Lz) written out: no float crosses a call, so none is boxed (36 of them a frame for two hands).
+      const z = depth[i]!, d = Lz - z;
+      const pen = d > 0 ? (LANTERN_RADIUS * z) / d : PENUMBRA_MAX;
+      soft[n] = pen < PENUMBRA_MAX ? pen : PENUMBRA_MAX;
       n++;
     }
     const ghost = Math.min(this.ghostCount, MAX_EXTRAS - n);
     for (let i = 0; i < ghost; i++) {
       extras[n] = this.ghostOutlines[i]!;
-      soft[n] = penumbra(this.ghostDepth[i]!, L[2]);
+      // As the hands': penumbra(depth, Lz) written out, so no float is boxed per outline.
+      const z = this.ghostDepth[i]!, d = Lz - z;
+      const pen = d > 0 ? (LANTERN_RADIUS * z) / d : PENUMBRA_MAX;
+      soft[n] = pen < PENUMBRA_MAX ? pen : PENUMBRA_MAX;
       n++;
     }
     const changed = hands > 0 || ghost > 0 || this.crystals.version !== this.castCrystals;

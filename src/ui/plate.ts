@@ -3,11 +3,11 @@
 // After the reward is taken it offers the next box with a key above it. On the back of the box it is far more than
 // 10 cm from the box mouth (the comfort rule for live keys). Sizes are in metres whatever the box size (the plate's
 // group cancels the box's scale). Repainted only when the box or a latch changes; per frame only the key feels.
-import { Group, Mesh, MeshBasicMaterial, type Object3D, PlaneGeometry } from "@iwsdk/core";
+import { Group, Mesh, type Object3D, PlaneGeometry } from "@iwsdk/core";
 import type { Box, BoxSpec } from "../core/types";
 import { KEY_EVENT } from "../render/finger-key";
 import { copy, type Lang } from "../i18n";
-import { brassFace, fitLabel, LabelCanvas, type LabelFit, labelFont } from "../render/label";
+import { brassFace, fitLabel, LabelCanvas, type LabelFit, labelFont, labelMaterial } from "../render/label";
 import { fill } from "./copy";
 import type { Tips } from "./key-view";
 import { PokeKey } from "./poke-key";
@@ -91,7 +91,7 @@ export class Plate {
     this.group.name = "Plate";
     this.group.position.set(PLATE.at[0], PLATE.at[1], PLATE.at[2]);
     this.group.rotation.x = PLATE.lean;
-    this.face = new Mesh(new PlaneGeometry(PLATE.w, PLATE.h), new MeshBasicMaterial({ map: this.label.texture, transparent: true, toneMapped: false }));
+    this.face = new Mesh(new PlaneGeometry(PLATE.w, PLATE.h), labelMaterial(this.label.texture));
     this.face.name = "Plate Face";
     this.face.position.y = PLATE.h / 2;
     this.next.group.position.set(0, PLATE.h + PLATE.key.above + PLATE.key.h / 2, 0.002);

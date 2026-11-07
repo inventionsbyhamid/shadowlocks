@@ -1,7 +1,7 @@
 // The menu drawer in the front of the box's plinth: a black lacquer front with a gold-leaf inlay and
 // a gold bar pull, and behind it a short velvet-lined drawer that shows as it slides out. One mesh,
 // one draw call (vertex colours; the gold glows when a hand comes near, as the lantern does, so the
-// handle says "pinch here"). It lives in box units under the box root, so it follows the placement
+// handle says "pinch here"). The lacquer is the plinth's: its clearcoat and its grain (lacquer.ts). It lives in box units under the box root, so it follows the placement
 // and the box size. The menu panels stand on its front edge when it is open (DRAWER_PANEL_ANCHOR).
 // Per frame it allocates nothing.
 import {
@@ -11,14 +11,15 @@ import {
   CylinderGeometry,
   Float32BufferAttribute,
   Mesh,
-  MeshStandardMaterial,
+  MeshPhysicalMaterial,
   type Object3D,
   type Texture,
   type Vector3,
 } from "@iwsdk/core";
 import { MOTION, type SpringState, stepToward } from "../ui/motion";
+import { grainShader } from "./lacquer";
 import { mergeParts } from "./merge";
-import { COLORS } from "./theme";
+import { COLORS, MATERIALS } from "./theme";
 
 /** The drawer in box units: its front's size and centre when shut, and how far it opens. */
 export const DRAWER = {
@@ -47,24 +48,28 @@ export const DRAWER_PANEL_ANCHOR: readonly [number, number, number] = [0, DRAWER
 /** Gold glow at full nearness (emissive intensity on the gold parts). */
 const GLOW_MAX = 0.55;
 
-type Part = [BufferGeometry, string];
+/** A part, its colour, and for a lacquer part the way its grain runs (lacquer.ts); gold and velvet have none. */
+type Part = [BufferGeometry, string, ("x" | "z")?];
 
-/** Parts merged into one geometry, each in its own colour. Built once. */
+/** Parts merged into one geometry, each in its own colour and with its grain direction. Built once. */
 function mergeColored(parts: Part[]): BufferGeometry {
   const pos: number[] = [];
   const nrm: number[] = [];
   const col: number[] = [];
+  const grn: number[] = [];
   const c = new Color();
-  for (const [g, hex] of parts) {
+  for (const [g, hex, grain] of parts) {
     const m = mergeParts([g]);
     const p = m.getAttribute("position");
     const n = m.getAttribute("normal");
     // Color.set takes the sRGB hex into the linear working space vertex colours are read in.
     c.set(hex);
+    const gx = grain === "x" ? 1 : 0, gz = grain === "z" ? 1 : 0;
     for (let i = 0; i < p.count; i++) {
       pos.push(p.getX(i), p.getY(i), p.getZ(i));
       nrm.push(n.getX(i), n.getY(i), n.getZ(i));
       col.push(c.r, c.g, c.b);
+      grn.push(gx, 0, gz);
     }
     m.dispose();
   }
@@ -72,6 +77,7 @@ function mergeColored(parts: Part[]): BufferGeometry {
   out.setAttribute("position", new Float32BufferAttribute(pos, 3));
   out.setAttribute("normal", new Float32BufferAttribute(nrm, 3));
   out.setAttribute("color", new Float32BufferAttribute(col, 3));
+  out.setAttribute("grain", new Float32BufferAttribute(grn, 3));
   out.computeBoundingSphere();
   return out;
 }
@@ -80,8 +86,8 @@ function drawerGeometry(): BufferGeometry {
   const { w, h, t, depth } = DRAWER;
   const zf = t / 2;
   const parts: Part[] = [
-    // The front.
-    [new BoxGeometry(w, h, t).translate(0, 0, zf), COLORS.frame],
+    // The front: lacquer, its grain across it as the plinth's.
+    [new BoxGeometry(w, h, t).translate(0, 0, zf), COLORS.frame, "x"],
     // Its gold-leaf inlay: a thin frame just proud of the front.
     [new BoxGeometry(w - 0.03, 0.005, 0.002).translate(0, h / 2 - 0.014, t + 0.001), COLORS.etch],
     [new BoxGeometry(w - 0.03, 0.005, 0.002).translate(0, -h / 2 + 0.014, t + 0.001), COLORS.etch],
@@ -92,8 +98,8 @@ function drawerGeometry(): BufferGeometry {
     [new CylinderGeometry(HANDLE.r * 0.7, HANDLE.r * 0.7, HANDLE.stand, 8).rotateX(Math.PI / 2).translate(-HANDLE.w / 2 + 0.01, 0, t + HANDLE.stand / 2), COLORS.metal],
     [new CylinderGeometry(HANDLE.r * 0.7, HANDLE.r * 0.7, HANDLE.stand, 8).rotateX(Math.PI / 2).translate(HANDLE.w / 2 - 0.01, 0, t + HANDLE.stand / 2), COLORS.metal],
     // The body: lacquer sides, a velvet floor and back.
-    [new BoxGeometry(0.01, h - 0.012, depth).translate(-w / 2 + 0.015, 0, -depth / 2), COLORS.frame],
-    [new BoxGeometry(0.01, h - 0.012, depth).translate(w / 2 - 0.015, 0, -depth / 2), COLORS.frame],
+    [new BoxGeometry(0.01, h - 0.012, depth).translate(-w / 2 + 0.015, 0, -depth / 2), COLORS.frame, "z"],
+    [new BoxGeometry(0.01, h - 0.012, depth).translate(w / 2 - 0.015, 0, -depth / 2), COLORS.frame, "z"],
     [new BoxGeometry(w - 0.03, 0.008, depth).translate(0, -h / 2 + 0.01, -depth / 2), COLORS.lining],
     [new BoxGeometry(w - 0.03, h - 0.012, 0.008).translate(0, 0, -depth), COLORS.lining],
   ];
@@ -102,7 +108,7 @@ function drawerGeometry(): BufferGeometry {
 
 export class DrawerView {
   readonly mesh: Mesh;
-  private readonly material: MeshStandardMaterial;
+  private readonly material: MeshPhysicalMaterial;
   /** How far out (box units), as a spring. */
   private readonly slide: SpringState = { x: 0, v: 0 };
   private target = 0;
@@ -111,23 +117,29 @@ export class DrawerView {
   private glowV = -1;
 
   constructor(root: Object3D, envMap: Texture | null = null) {
-    this.material = new MeshStandardMaterial({
+    // The plinth's lacquer for the front (its clearcoat, and its grain through lacquer.ts) and gold for the inlay and
+    // pull, in one material: still one program and one draw call.
+    this.material = new MeshPhysicalMaterial({
       vertexColors: true,
       roughness: 0.2,
       metalness: 1,
+      clearcoat: MATERIALS.lacquer.clearcoat,
+      clearcoatRoughness: MATERIALS.lacquer.clearcoatRoughness,
       envMap,
       envMapIntensity: 1.6,
       emissive: new Color(COLORS.gold),
       emissiveIntensity: 0,
     });
-    // One material for lacquer and gold: how gold a part is (its red channel: gold is bright, lacquer
-    // and velvet are near black) makes it metal and lets it glow; the lacquer stays a dark gloss.
+    // How gold a part is (its red channel: gold is bright, lacquer and velvet are near black) makes it metal and lets
+    // it glow; the lacquer stays a dark gloss. The metal mask follows three's metalness chunk: onBeforeCompile sees
+    // its #include, not the line inside it.
     this.material.onBeforeCompile = (s) => {
       s.fragmentShader = s.fragmentShader
         .replace("vec3 totalEmissiveRadiance = emissive;", "vec3 totalEmissiveRadiance = emissive * smoothstep( 0.18, 0.6, vColor.r );")
-        .replace("float metalnessFactor = metalness;", "float metalnessFactor = metalness * smoothstep( 0.18, 0.6, vColor.r );");
+        .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor *= smoothstep( 0.18, 0.6, vColor.r );");
+      grainShader(s);
     };
-    this.material.customProgramCacheKey = () => "sl-drawer";
+    this.material.customProgramCacheKey = () => "sl-drawer-lacquer";
     this.mesh = new Mesh(drawerGeometry(), this.material);
     this.mesh.name = "Box Drawer Menu";
     this.mesh.position.set(0, DRAWER.y, DRAWER.z0);

@@ -58,7 +58,18 @@ export interface Rig {
   duckEvents(): ParamEvent[];
 }
 
-export async function makeRig(opts: { unlock?: boolean; music?: boolean; random?: () => number; deferMusic?: boolean; tweak?: (m: AudioManifest) => void; captions?: [string, string][] } = {}): Promise<Rig> {
+export async function makeRig(
+  opts: {
+    unlock?: boolean;
+    music?: boolean;
+    random?: () => number;
+    deferMusic?: boolean;
+    tweak?: (m: AudioManifest) => void;
+    captions?: [string, string][];
+    /** Seconds a file's buffer lasts (default 0.1 s for sounds, 10 s for music). */
+    lengths?: Record<string, number>;
+  } = {},
+): Promise<Rig> {
   const ctx = new FakeAudioContext();
   const warnings: string[] = [];
   const buffers = new Map<string, AudioBuffer>();
@@ -69,7 +80,8 @@ export async function makeRig(opts: { unlock?: boolean; music?: boolean; random?
     ...Object.values(m.music).map((e) => e.file),
   ];
   for (const f of files) {
-    const len = f.startsWith("m_") ? 480000 : 4800;
+    const s = opts.lengths?.[f];
+    const len = s !== undefined ? Math.round(s * 48000) : f.startsWith("m_") ? 480000 : 4800;
     const b = new FakeBuffer(1, len, 48000);
     b.data[0]![0] = 0.5;
     b.data[0]![1] = 0.25;
