@@ -33,7 +33,12 @@ async function attachFailure(page: Page, testInfo: TestInfo, consoleLines: strin
     const url = await page.evaluate(() => {
       const w = window as any;
       if (!w.__nsCapture || !w.__vt) return null;
-      w.__vt.step(1000 / 72);
+      w.__nsRoomFrame = true;
+      try {
+        w.__vt.step(1000 / 72);
+      } finally {
+        w.__nsRoomFrame = false;
+      }
       return w.__nsCapture("image/png") as string;
     });
     if (url) png = Buffer.from(url.split(",")[1] ?? "", "base64");

@@ -33,7 +33,10 @@ from `public/_headers`, the report-only CSP sent enforced. The update test serve
 Helpers:
 - `boot({ mode, room, head, date, enterXR, expectScreen })`: loads the page, seats the headset
   (`SEATED`: eyes 1.2 m high, looking down at the lap), accepts the XR offer and waits for the first
-  screen with the box placed. `mode: "visual"` is 1280x720 with the room drawn, for screenshots.
+  screen with the box placed. `mode: "visual"` is 1280x720 with the room drawn, for screenshots: the
+  room is drawn only in frames a capture takes (`roomOnCaptureOnly`; drawing it every frame made each
+  visual frame 0.5 to 2 s on the server). Anything that captures goes through `app.capture` or sets
+  `window.__nsRoomFrame` around its frame step, or the room is missing from the image.
   `date` sets the page's clock (default `DEFAULT_DATE`, so daily seeds reproduce; the time zone is UTC).
 - `app.step(frames, dt)`, `app.stepUntil(pred, { maxMs, arg })`: predicates run in the page and get
   `(window.__ns, window, arg)`; they cannot use test variables, pass them as `arg`.
