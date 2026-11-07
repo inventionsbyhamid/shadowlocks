@@ -1,7 +1,8 @@
 // The lessons' ghost hand and ghost lantern: pale blue and see-through, so nobody takes them for their own hand or
-// the real lantern. Each is a set of capsules drawn as instances of one small mesh, in two passes over the same
-// geometry: depth first (no colour), then a fresnel colour pass that keeps only the front-most surface, so where
-// capsules overlap (the palm, the knuckles) the ghost never stacks up brighter. The rim glows; the body is faint.
+// the real lantern. Both are capsules drawn as instances of one small mesh in the world (GhostRig: one draw call for
+// the two), in one fresnel colour pass that writes depth, so a capsule behind one already drawn is hidden rather than
+// stacked brighter. Each capsule fades by its own opacity, and one at 0 draws nothing (its pixels are discarded, so
+// it writes no depth either). The rim glows; the body is faint.
 //
 // The hand's poses (open, pinch, point, relaxed) are IWER's, exported once into src/lessons/poses.json (scripts/
 // export-poses.mjs): 25 joints in the wrist's frame of a left hand, fingers toward -z, palm toward -y. A right hand
@@ -9,10 +10,10 @@
 // place() works out that matrix so the pinch point, the index fingertip or the wrist lands on a point with the
 // fingers and palm turned as asked. `world` holds the joints in the world for whatever casts the ghost's shadow.
 //
-// The ghost lantern lives in the box root (box units) like the real one: a cage of thin capsules round a glowing
-// core, and a soft glow. Both fade by opacity alone (reduced motion keeps them). No allocation per frame.
+// The ghost lantern is placed in box units like the real one (sync() puts it in the world through the box's
+// matrix): a cage of thin capsules round a glowing core, with no glow sprite of its own. Both fade by opacity alone
+// (reduced motion keeps them). No allocation per frame.
 import {
-  AdditiveBlending,
   BufferAttribute,
   Color,
   DynamicDrawUsage,
@@ -24,14 +25,11 @@ import {
   Matrix4,
   Mesh,
   ShaderMaterial,
-  Sprite,
-  SpriteMaterial,
   Vector3,
 } from "@iwsdk/core";
 import type { V3 } from "../core/types";
 import { HAND_JOINTS, JOINT_COUNT } from "../input/hand-joints";
 import POSES from "../lessons/poses.json";
-import { radialTexture } from "./lantern-view";
 import { COLORS } from "./theme";
 
 export type GhostPose = "open" | "pinch" | "point" | "relaxed";
@@ -50,11 +48,8 @@ export const GHOST_LOOK = {
   knuckleRadius: 0.011,
   /** A finger bone is this much of its joints' mean radius: a ghost is a little slimmer than a hand. */
   fingerScale: 0.9,
-  /** Drawn after the box and its glass (the depth pass just before the colour pass). */
+  /** Drawn after the box and its glass. */
   renderOrder: 996,
-  /** The ghost lantern's glow sprite (box units) and its opacity at full. */
-  glowSize: 0.36,
-  glowAlpha: 0.55,
 } as const;
 
 interface PoseFile {
@@ -150,9 +145,12 @@ attribute float aTop;
 attribute vec3 iA;
 attribute vec3 iB;
 attribute float iR;
+attribute float iO;
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
+varying float vO;
 void main() {
+  vO = iO;
   vec3 ax = iB - iA;
   float len = length(ax);
   vec3 d = len > 1e-6 ? ax / len : vec3(0.0, 1.0, 0.0);
@@ -170,79 +168,87 @@ void main() {
 
 const FRAGMENT = /* glsl */ `
 uniform vec3 uColor;
-uniform float uOpacity;
 uniform float uBodyAlpha;
 uniform float uRimAlpha;
 uniform float uRimPower;
 uniform float uRimGlow;
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
+varying float vO;
 void main() {
   vec3 n = normalize(vWorldNormal);
   vec3 v = normalize(cameraPosition - vWorldPos);
   float rim = pow(1.0 - clamp(abs(dot(n, v)), 0.0, 1.0), uRimPower);
-  gl_FragColor = vec4(uColor * mix(0.7, uRimGlow, rim), mix(uBodyAlpha, uRimAlpha, rim) * uOpacity);
+  float a = mix(uBodyAlpha, uRimAlpha, rim) * vO;
+  // A capsule faded out (or nearly) draws nothing and writes no depth.
+  if (a < 0.004) discard;
+  gl_FragColor = vec4(uColor * mix(0.7, uRimGlow, rim), a);
   #include <colorspace_fragment>
 }
 `;
 
-const DEPTH_FRAGMENT = /* glsl */ `
-void main() {
-  gl_FragColor = vec4(0.0);
-}
-`;
-
-/** n capsules as instances of one geometry, drawn by a depth pass and a fresnel colour pass. */
-class CapsuleSet {
-  readonly depth: Mesh;
-  readonly color: Mesh;
+/**
+ * n capsules (in the world, metres) as instances of one geometry: one mesh, drawn in one fresnel colour pass that
+ * writes depth. Each capsule has its own opacity; the mesh is hidden while every capsule is at 0.
+ */
+export class CapsuleSet {
+  readonly mesh: Mesh;
   private readonly a: InstancedBufferAttribute;
   private readonly b: InstancedBufferAttribute;
   private readonly r: InstancedBufferAttribute;
-  private readonly uniforms: { uOpacity: { value: number } } & Record<string, { value: unknown }>;
+  private readonly o: InstancedBufferAttribute;
 
-  constructor(n: number, name: string) {
+  constructor(
+    readonly n: number,
+    name: string,
+  ) {
     const g = capsuleGeometry();
     g.instanceCount = n;
     const attr = (size: number) => new InstancedBufferAttribute(new Float32Array(n * size), size).setUsage(DynamicDrawUsage);
     this.a = attr(3);
     this.b = attr(3);
     this.r = attr(1);
+    this.o = attr(1);
     g.setAttribute("iA", this.a);
     g.setAttribute("iB", this.b);
     g.setAttribute("iR", this.r);
+    g.setAttribute("iO", this.o);
     const L = GHOST_LOOK;
-    this.uniforms = {
-      uColor: { value: new Color(L.color) },
-      uOpacity: { value: 1 },
-      uBodyAlpha: { value: L.bodyAlpha },
-      uRimAlpha: { value: L.rimAlpha },
-      uRimPower: { value: L.rimPower },
-      uRimGlow: { value: L.rimGlow },
-    };
-    const depth = new ShaderMaterial({ vertexShader: VERTEX, fragmentShader: DEPTH_FRAGMENT, colorWrite: false, depthWrite: true, side: FrontSide });
-    const color = new ShaderMaterial({
-      uniforms: this.uniforms,
+    const material = new ShaderMaterial({
+      uniforms: {
+        uColor: { value: new Color(L.color) },
+        uBodyAlpha: { value: L.bodyAlpha },
+        uRimAlpha: { value: L.rimAlpha },
+        uRimPower: { value: L.rimPower },
+        uRimGlow: { value: L.rimGlow },
+      },
       vertexShader: VERTEX,
       fragmentShader: FRAGMENT,
       transparent: true,
-      depthWrite: false,
+      depthWrite: true,
       depthFunc: LessEqualDepth,
       side: FrontSide,
       toneMapped: false,
     });
-    this.depth = new Mesh(g, depth);
-    this.color = new Mesh(g, color);
-    this.depth.name = name + " Depth";
-    this.color.name = name;
-    this.depth.renderOrder = L.renderOrder;
-    this.color.renderOrder = L.renderOrder + 1;
+    this.mesh = new Mesh(g, material);
+    this.mesh.name = name;
+    this.mesh.renderOrder = L.renderOrder;
     // The geometry's bounds are the unit sphere's, not the capsules'.
-    this.depth.frustumCulled = false;
-    this.color.frustumCulled = false;
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
   }
 
-  /** Capsule i from a to b (the parent's units), radius r. */
+  /** Capsules [from, to) at opacity v (0: they draw nothing). */
+  fade(from: number, to: number, v: number): void {
+    const O = this.o.array as Float32Array;
+    for (let i = from; i < to; i++) O[i] = v;
+    this.o.needsUpdate = true;
+    let any = false;
+    for (let i = 0; i < this.n && !any; i++) any = O[i]! > 0;
+    this.mesh.visible = any;
+  }
+
+  /** Capsule i from a to b (metres, in the world), radius r. */
   set(i: number, ax: number, ay: number, az: number, bx: number, by: number, bz: number, r: number): void {
     const A = this.a.array as Float32Array, B = this.b.array as Float32Array, o = i * 3;
     A[o] = ax;
@@ -260,10 +266,6 @@ class CapsuleSet {
     this.b.needsUpdate = true;
     this.r.needsUpdate = true;
   }
-
-  set opacity(v: number) {
-    this.uniforms.uOpacity.value = v;
-  }
 }
 
 /** A blend of two poses at t (0: a, 1: b), side sign applied to x, into out. */
@@ -277,7 +279,7 @@ function blend(a: GhostPose, b: GhostPose, t: number, sign: number, out: Float32
 }
 
 export class GhostHand {
-  /** Add to the scene at the top level: its matrix is the wrist's frame in the world (metres). */
+  /** The wrist's frame in the world (metres): its matrix (never drawn itself; the capsules are in the world). */
   readonly object = new Group();
   /** The pose shown: each joint in the wrist's frame (m), this hand's side. */
   readonly local = new Float32Array(JOINT_COUNT * 3);
@@ -290,17 +292,33 @@ export class GhostHand {
   private poseT = 0;
   private wanted = true;
   private alpha = 1;
-  private readonly v = [new Vector3(), new Vector3(), new Vector3(), new Vector3(), new Vector3(), new Vector3(), new Vector3()];
+  private readonly e1 = new Vector3();
+  private readonly e2 = new Vector3();
+  private readonly e3 = new Vector3();
+  private readonly E1 = new Vector3();
+  private readonly E2 = new Vector3();
+  private readonly E3 = new Vector3();
+  private readonly p = new Vector3();
   private readonly mA = new Matrix4();
   private readonly mB = new Matrix4();
 
-  constructor(side: "left" | "right" = "right") {
+  /** A hand drawn by capsules [from, from + GHOST_BONES.length) of `caps` (a set of its own when none is given). */
+  constructor(
+    side: "left" | "right" = "right",
+    caps?: CapsuleSet,
+    private readonly from = 0,
+  ) {
     this.sign = side === "right" ? -1 : 1;
-    this.caps = new CapsuleSet(GHOST_BONES.length, "Ghost Hand");
+    this.caps = caps ?? new CapsuleSet(GHOST_BONES.length, "Ghost Hand");
     this.object.name = "Ghost Hand";
     this.object.matrixAutoUpdate = false;
-    this.object.add(this.caps.depth, this.caps.color);
     this.setPose("relaxed", "relaxed", 0);
+    this.fade();
+  }
+
+  /** The mesh that draws it (shared with the ghost lantern in a GhostRig): add it to the scene at the top level. */
+  get mesh(): Mesh {
+    return this.caps.mesh;
   }
 
   get side(): "left" | "right" {
@@ -320,12 +338,6 @@ export class GhostHand {
     this.poseA = a as GhostPose;
     this.poseB = b as GhostPose;
     this.poseT = t;
-    const L = this.local;
-    for (let i = 0; i < GHOST_BONES.length; i++) {
-      const { a: ja, b: jb, r } = GHOST_BONES[i]!;
-      this.caps.set(i, L[ja * 3]!, L[ja * 3 + 1]!, L[ja * 3 + 2]!, L[jb * 3]!, L[jb * 3 + 1]!, L[jb * 3 + 2]!, r);
-    }
-    this.caps.commit();
     this.toWorld();
   }
 
@@ -342,7 +354,7 @@ export class GhostHand {
    * can be. Call after setPose: the anchor depends on the pose.
    */
   place(anchor: GhostAnchor, at: Readonly<Vector3>, fingers: Readonly<Vector3>, palm: Readonly<Vector3>): void {
-    const [e1, e2, e3, E1, E2, E3, p] = this.v as [Vector3, Vector3, Vector3, Vector3, Vector3, Vector3, Vector3];
+    const e1 = this.e1, e2 = this.e2, e3 = this.e3, E1 = this.E1, E2 = this.E2, E3 = this.E3, p = this.p;
     const L = this.local;
     // The hand's own frame: along the fingers, then the palm square to them.
     if (anchor === "tip") {
@@ -380,7 +392,7 @@ export class GhostHand {
 
   set visible(v: boolean) {
     this.wanted = v;
-    this.object.visible = v && this.alpha > 0;
+    this.fade();
   }
 
   get opacity(): number {
@@ -389,11 +401,16 @@ export class GhostHand {
 
   /** 0 draws nothing. */
   set opacity(v: number) {
+    if (v === this.alpha) return;
     this.alpha = v;
-    this.caps.opacity = v;
-    this.object.visible = this.wanted && v > 0;
+    this.fade();
   }
 
+  private fade(): void {
+    this.caps.fade(this.from, this.from + GHOST_BONES.length, this.wanted ? this.alpha : 0);
+  }
+
+  /** The joints in the world, and each bone's capsule between its two. */
   private toWorld(): void {
     const e = this.object.matrix.elements, L = this.local, W = this.world;
     for (let j = 0; j < JOINT_COUNT; j++) {
@@ -402,6 +419,11 @@ export class GhostHand {
       W[o + 1] = e[1]! * x + e[5]! * y + e[9]! * z + e[13]!;
       W[o + 2] = e[2]! * x + e[6]! * y + e[10]! * z + e[14]!;
     }
+    for (let i = 0; i < GHOST_BONES.length; i++) {
+      const bone = GHOST_BONES[i]!, a = bone.a * 3, b = bone.b * 3;
+      this.caps.set(this.from + i, W[a]!, W[a + 1]!, W[a + 2]!, W[b]!, W[b + 1]!, W[b + 2]!, bone.r);
+    }
+    this.caps.commit();
   }
 }
 
@@ -434,32 +456,56 @@ function lanternCapsules(): [V3, V3, number][] {
   return out;
 }
 const LANTERN_PARTS = lanternCapsules();
+/** The ghost lantern's capsules (box units, about its light): from, to, radius. */
+export const GHOST_LANTERN_PARTS: readonly (readonly [V3, V3, number])[] = LANTERN_PARTS;
 export const GHOST_LANTERN_CAPSULES = LANTERN_PARTS.length;
 
 export class GhostLantern {
-  /** Add to the box root: box units, its origin the light. */
-  readonly object = new Group();
+  /** Where it is, in box units (its origin is the light). */
+  readonly pos: V3 = [0, 0, 0];
   private readonly caps: CapsuleSet;
-  private readonly glow: Sprite;
   private alpha = 1;
 
-  constructor() {
-    this.caps = new CapsuleSet(LANTERN_PARTS.length, "Ghost Lantern");
-    LANTERN_PARTS.forEach(([a, b, r], i) => this.caps.set(i, a[0], a[1], a[2], b[0], b[1], b[2], r));
-    this.caps.commit();
-    this.glow = new Sprite(
-      new SpriteMaterial({ map: radialTexture(64, false), color: GHOST_LOOK.color, blending: AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }),
-    );
-    this.glow.scale.setScalar(GHOST_LOOK.glowSize);
-    this.glow.renderOrder = GHOST_LOOK.renderOrder + 2;
-    this.glow.name = "Ghost Lantern Glow";
-    this.object.name = "Ghost Lantern";
-    this.object.add(this.caps.depth, this.caps.color, this.glow);
+  /** A lantern drawn by capsules [from, from + GHOST_LANTERN_CAPSULES) of `caps` (a set of its own when none). */
+  constructor(
+    caps?: CapsuleSet,
+    private readonly from = 0,
+  ) {
+    this.caps = caps ?? new CapsuleSet(LANTERN_PARTS.length, "Ghost Lantern");
+    this.sync(IDENTITY);
+    this.caps.fade(this.from, this.from + LANTERN_PARTS.length, this.alpha);
   }
 
-  /** Where it is, in box units. */
+  /** The mesh that draws it (shared with the ghost hand in a GhostRig). */
+  get mesh(): Mesh {
+    return this.caps.mesh;
+  }
+
+  /** Where it is, in box units. Drawn there from the next sync(). */
   setPos(p: Readonly<V3>): void {
-    this.object.position.set(p[0], p[1], p[2]);
+    this.pos[0] = p[0];
+    this.pos[1] = p[1];
+    this.pos[2] = p[2];
+  }
+
+  /** Its capsules into the world through the box's matrix `m` (box units to the world; uniform scale). */
+  sync(m: Readonly<Matrix4>): void {
+    const e = m.elements, s = Math.hypot(e[0]!, e[1]!, e[2]!), P = this.pos;
+    for (let i = 0; i < LANTERN_PARTS.length; i++) {
+      const [a, b, r] = LANTERN_PARTS[i]!;
+      const ax = P[0] + a[0], ay = P[1] + a[1], az = P[2] + a[2], bx = P[0] + b[0], by = P[1] + b[1], bz = P[2] + b[2];
+      this.caps.set(
+        this.from + i,
+        e[0]! * ax + e[4]! * ay + e[8]! * az + e[12]!,
+        e[1]! * ax + e[5]! * ay + e[9]! * az + e[13]!,
+        e[2]! * ax + e[6]! * ay + e[10]! * az + e[14]!,
+        e[0]! * bx + e[4]! * by + e[8]! * bz + e[12]!,
+        e[1]! * bx + e[5]! * by + e[9]! * bz + e[13]!,
+        e[2]! * bx + e[6]! * by + e[10]! * bz + e[14]!,
+        r * s,
+      );
+    }
+    this.caps.commit();
   }
 
   get opacity(): number {
@@ -468,9 +514,21 @@ export class GhostLantern {
 
   /** 0 draws nothing. */
   set opacity(v: number) {
+    if (v === this.alpha) return;
     this.alpha = v;
-    this.caps.opacity = v;
-    this.glow.material.opacity = v * GHOST_LOOK.glowAlpha;
-    this.object.visible = v > 0;
+    this.caps.fade(this.from, this.from + LANTERN_PARTS.length, v);
+  }
+}
+
+const IDENTITY = new Matrix4();
+
+/** The ghost hand and the ghost lantern in one capsule mesh: one draw call. Add `mesh` to the scene's top level. */
+export class GhostRig {
+  readonly caps = new CapsuleSet(GHOST_BONES.length + LANTERN_PARTS.length, "Ghost");
+  readonly hand = new GhostHand("right", this.caps, 0);
+  readonly lamp = new GhostLantern(this.caps, GHOST_BONES.length);
+
+  get mesh(): Mesh {
+    return this.caps.mesh;
   }
 }

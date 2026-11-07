@@ -1,21 +1,23 @@
 import { describe, expect, it } from "vitest";
-import {
-  type BufferAttribute,
-  type InstancedBufferAttribute,
-  type InstancedBufferGeometry,
-  Matrix4,
-  type Mesh,
-  type ShaderMaterial,
-  Vector3,
-} from "@iwsdk/core";
+import { type BufferAttribute, type InstancedBufferAttribute, type InstancedBufferGeometry, Matrix4, type Mesh, type ShaderMaterial, Vector3 } from "@iwsdk/core";
 import { HAND_JOINTS, JOINT_COUNT } from "../../src/input/hand-joints";
 import POSES from "../../src/lessons/poses.json";
-import { capsuleGeometry, GHOST_BONES, GHOST_LANTERN_CAPSULES, GHOST_POSES, GhostHand, GhostLantern } from "../../src/render/ghost-hand";
+import {
+  capsuleGeometry,
+  GHOST_BONES,
+  GHOST_LANTERN_CAPSULES,
+  GHOST_LANTERN_PARTS,
+  GHOST_POSES,
+  GhostHand,
+  GhostLantern,
+  GhostRig,
+} from "../../src/render/ghost-hand";
 
 const J = (name: XRHandJoint) => HAND_JOINTS.indexOf(name);
 const at = (a: ArrayLike<number>, j: number): [number, number, number] => [a[j * 3]!, a[j * 3 + 1]!, a[j * 3 + 2]!];
 const dist = (a: number[], b: number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
 const poses = POSES.poses as Record<string, number[]>;
+const attr = (m: Mesh, name: string) => m.geometry.getAttribute(name) as InstancedBufferAttribute;
 
 describe("poses.json", () => {
   it("holds open, pinch, point and relaxed: 25 joints each in WebXR order, in the wrist's frame", () => {
@@ -68,22 +70,62 @@ describe("capsuleGeometry", () => {
   });
 });
 
-describe("GhostHand", () => {
-  it("draws every bone as one instance of a capsule, in two passes over one geometry", () => {
-    const h = new GhostHand("right");
-    const [depth, color] = h.object.children as Mesh[];
-    expect(depth!.geometry).toBe(color!.geometry);
-    expect((depth!.geometry as InstancedBufferGeometry).instanceCount).toBe(GHOST_BONES.length);
-    const dm = depth!.material as ShaderMaterial, cm = color!.material as ShaderMaterial;
-    expect(dm.colorWrite).toBe(false);
-    expect(dm.depthWrite).toBe(true);
-    expect(cm.transparent).toBe(true);
-    expect(cm.depthWrite).toBe(false);
-    expect(depth!.renderOrder).toBeLessThan(color!.renderOrder);
-    expect(depth!.frustumCulled || color!.frustumCulled).toBe(false);
+describe("GhostRig", () => {
+  it("draws the ghost hand and the ghost lantern as instances of one capsule mesh, in one colour pass that writes depth", () => {
+    const rig = new GhostRig();
+    const m = rig.mesh;
+    expect((m.geometry as InstancedBufferGeometry).instanceCount).toBe(GHOST_BONES.length + GHOST_LANTERN_CAPSULES);
+    const mat = m.material as ShaderMaterial;
+    expect(mat.transparent).toBe(true);
+    expect(mat.depthWrite).toBe(true);
+    expect(mat.colorWrite).toBe(true);
+    // A capsule fading out writes no depth: its pixels are discarded.
+    expect(mat.fragmentShader).toContain("discard");
+    expect(m.frustumCulled).toBe(false);
+    // One mesh, nothing else drawn (no depth pass, no glow sprite).
+    expect(m.children).toHaveLength(0);
     expect(GHOST_BONES.length).toBe(20);
   });
 
+  it("fades the hand and the lantern each by its own opacity, and draws nothing while both are gone", () => {
+    const rig = new GhostRig();
+    const O = attr(rig.mesh, "iO"), n = GHOST_BONES.length;
+    rig.hand.opacity = 0;
+    rig.lamp.opacity = 0;
+    expect(rig.mesh.visible).toBe(false);
+    rig.hand.opacity = 0.4;
+    expect(rig.mesh.visible).toBe(true);
+    for (let i = 0; i < n; i++) expect(O.array[i]).toBeCloseTo(0.4, 6);
+    for (let i = n; i < n + GHOST_LANTERN_CAPSULES; i++) expect(O.array[i]).toBe(0);
+    rig.lamp.opacity = 0.7;
+    for (let i = n; i < n + GHOST_LANTERN_CAPSULES; i++) expect(O.array[i]).toBeCloseTo(0.7, 6);
+    // Hidden: as if at 0, and back at its opacity when shown.
+    rig.hand.visible = false;
+    for (let i = 0; i < n; i++) expect(O.array[i]).toBe(0);
+    rig.hand.visible = true;
+    expect(O.array[0]).toBeCloseTo(0.4, 6);
+    rig.hand.opacity = 0;
+    rig.lamp.opacity = 0;
+    expect(rig.mesh.visible).toBe(false);
+  });
+
+  it("puts the lantern's capsules in the world through the box's matrix, at its place in the box", () => {
+    const rig = new GhostRig(), n = GHOST_BONES.length;
+    rig.lamp.setPos([0.1, -0.3, 1.3]);
+    expect(rig.lamp.pos).toEqual([0.1, -0.3, 1.3]);
+    const box = new Matrix4().makeRotationY(0.4).scale(new Vector3(0.24, 0.24, 0.24)).setPosition(0.2, 0.8, -0.5);
+    rig.lamp.sync(box);
+    const A = attr(rig.mesh, "iA"), B = attr(rig.mesh, "iB"), R = attr(rig.mesh, "iR");
+    GHOST_LANTERN_PARTS.forEach(([a, b, r], k) => {
+      const wa = new Vector3(0.1 + a[0], -0.3 + a[1], 1.3 + a[2]).applyMatrix4(box), wb = new Vector3(0.1 + b[0], -0.3 + b[1], 1.3 + b[2]).applyMatrix4(box);
+      wa.toArray().forEach((v, i) => expect(A.array[(n + k) * 3 + i]).toBeCloseTo(v, 5));
+      wb.toArray().forEach((v, i) => expect(B.array[(n + k) * 3 + i]).toBeCloseTo(v, 5));
+      expect(R.array[n + k]).toBeCloseTo(r * 0.24, 6);
+    });
+  });
+});
+
+describe("GhostHand", () => {
   it("blends two poses joint by joint, a right hand being the left hand's mirror image", () => {
     const right = new GhostHand("right"), left = new GhostHand("left");
     right.setPose("open", "pinch", 0.25);
@@ -95,20 +137,23 @@ describe("GhostHand", () => {
       expect(at(right.local, j)[0]).toBeCloseTo(-want[0]!, 6);
       expect(at(right.local, j)[1]).toBeCloseTo(want[1]!, 6);
     }
-    // Each capsule runs between its bone's two joints.
-    const geo = (right.object.children[0] as Mesh).geometry;
-    const A = geo.getAttribute("iA") as InstancedBufferAttribute, B = geo.getAttribute("iB") as InstancedBufferAttribute;
-    const R = geo.getAttribute("iR") as InstancedBufferAttribute;
-    GHOST_BONES.forEach(({ a, b }, i) => {
-      at(right.local, a).forEach((v, k) => expect(A.array[i * 3 + k]).toBeCloseTo(v, 6));
-      at(right.local, b).forEach((v, k) => expect(B.array[i * 3 + k]).toBeCloseTo(v, 6));
-      expect(R.array[i]).toBeGreaterThan(0.004);
-      expect(R.array[i]).toBeLessThan(0.02);
-    });
     expect(() => right.setPose("wave", "open", 0)).toThrow();
     // Switching sides mirrors the pose shown.
     right.side = "left";
     for (let j = 0; j < JOINT_COUNT; j++) expect(at(right.local, j)[0]).toBeCloseTo(at(left.local, j)[0], 6);
+  });
+
+  it("draws each bone as a capsule between its two joints in the world", () => {
+    const h = new GhostHand("right");
+    h.setPose("relaxed", "pinch", 0.5);
+    h.setWorld(new Matrix4().makeRotationY(0.7).setPosition(0.1, 1.1, -0.4));
+    const A = attr(h.mesh, "iA"), B = attr(h.mesh, "iB"), R = attr(h.mesh, "iR");
+    GHOST_BONES.forEach(({ a, b }, i) => {
+      at(h.world, a).forEach((v, k) => expect(A.array[i * 3 + k]).toBeCloseTo(v, 6));
+      at(h.world, b).forEach((v, k) => expect(B.array[i * 3 + k]).toBeCloseTo(v, 6));
+      expect(R.array[i]).toBeGreaterThan(0.004);
+      expect(R.array[i]).toBeLessThan(0.02);
+    });
   });
 
   it("puts the wrist where setWorld says and reports each joint in the world", () => {
@@ -116,7 +161,6 @@ describe("GhostHand", () => {
     h.setPose("relaxed", "relaxed", 0);
     const m = new Matrix4().makeRotationY(0.7).setPosition(0.1, 1.1, -0.4);
     h.setWorld(m);
-    expect(h.object.matrixAutoUpdate).toBe(false);
     expect(h.object.matrix.equals(m)).toBe(true);
     const tip = J("index-finger-tip"), want = new Vector3(...at(h.local, tip)).applyMatrix4(m);
     expect(h.joint(tip, new Vector3()).distanceTo(want)).toBeLessThan(1e-6);
@@ -152,26 +196,9 @@ describe("GhostHand", () => {
     }
   });
 
-  it("fades by opacity alone and draws nothing at 0 or when hidden", () => {
-    const h = new GhostHand();
-    const color = h.object.children[1] as Mesh, u = (color.material as ShaderMaterial).uniforms;
-    expect(h.visible).toBe(true);
-    h.opacity = 0.4;
-    expect(u.uOpacity!.value).toBeCloseTo(0.4, 6);
-    expect(h.object.visible).toBe(true);
-    h.opacity = 0;
-    expect(h.object.visible).toBe(false);
-    h.opacity = 1;
-    h.visible = false;
-    expect(h.object.visible).toBe(false);
-    h.visible = true;
-    expect(h.object.visible).toBe(true);
-  });
-
   it("writes in place: the same buffers after any number of poses and placements", () => {
     const h = new GhostHand();
-    const geo = (h.object.children[0] as Mesh).geometry;
-    const A = geo.getAttribute("iA") as InstancedBufferAttribute, arr = A.array, local = h.local, world = h.world;
+    const A = attr(h.mesh, "iA"), arr = A.array, local = h.local, world = h.world;
     const v = A.version;
     for (let i = 0; i < 50; i++) {
       h.setPose("open", "pinch", i / 50);
@@ -185,16 +212,13 @@ describe("GhostHand", () => {
 });
 
 describe("GhostLantern", () => {
-  it("is a pale-blue cage of capsules with a glow, set in box units, faded by opacity", () => {
+  it("is a pale-blue cage of capsules with no glow of its own, set in box units, faded by opacity", () => {
     const l = new GhostLantern();
-    const meshes = l.object.children.filter((o) => (o as Mesh).isMesh) as Mesh[];
-    expect(meshes).toHaveLength(2);
-    expect((meshes[0]!.geometry as InstancedBufferGeometry).instanceCount).toBe(GHOST_LANTERN_CAPSULES);
-    l.setPos([0.1, -0.3, 1.3]);
-    expect(l.object.position.toArray()).toEqual([0.1, -0.3, 1.3]);
+    expect((l.mesh.geometry as InstancedBufferGeometry).instanceCount).toBe(GHOST_LANTERN_CAPSULES);
+    expect(l.mesh.children).toHaveLength(0);
     l.opacity = 0;
-    expect(l.object.visible).toBe(false);
+    expect(l.mesh.visible).toBe(false);
     l.opacity = 0.7;
-    expect(l.object.visible).toBe(true);
+    expect(l.mesh.visible).toBe(true);
   });
 });
