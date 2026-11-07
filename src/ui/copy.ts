@@ -255,7 +255,7 @@ export const COPY = {
   phone: {
     pickUp: "Drag the lantern.",
     slide: "Hold the lantern and move the phone nearer or farther.",
-    finger: "One piece is missing. Touch the gap to cast it.",
+    finger: "One piece is missing. Touch the gap and hold still.",
     drawer: "Tap the drawer to find these lessons again.",
     puppets: "Touch the box to put a finger in the light.",
   },

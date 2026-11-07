@@ -229,7 +229,7 @@ export const PT_BR: Copy = {
   phone: {
     pickUp: "Arraste a lanterna.",
     slide: "Segure a lanterna e aproxime ou afaste o celular.",
-    finger: "Falta uma peça. Toque no espaço vazio para projetá-la.",
+    finger: "Falta uma peça. Toque no espaço vazio e não se mexa.",
     drawer: "Toque na gaveta para rever estas lições.",
     puppets: "Toque na caixa para colocar um dedo na luz.",
   },

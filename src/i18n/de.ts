@@ -227,8 +227,8 @@ export const DE: Copy = {
   },
   phone: {
     pickUp: "Zieh die Laterne mit dem Finger.",
-    slide: "Halte die Laterne und geh mit dem Telefon näher ran oder weg.",
-    finger: "Ein Teil fehlt. Berühre die Lücke, um seinen Schatten zu werfen.",
+    slide: "Halte die Laterne und geh mit dem Handy näher ran oder weiter weg.",
+    finger: "Ein Teil fehlt. Berühre die Lücke und halte still.",
     drawer: "Tipp auf die Schublade, um diese Lektionen wiederzufinden.",
     puppets: "Berühre die Box, um einen Finger ins Licht zu halten.",
   },
