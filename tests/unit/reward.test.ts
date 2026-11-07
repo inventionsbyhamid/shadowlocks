@@ -139,6 +139,8 @@ describe("the plate", () => {
     expect(plateText({ kind: "box", n: 3 }, true)).toEqual({ name: "Box No. 3", cue: COPY.game.practice });
     expect(plateText({ kind: "daily", day: "2026-11-06" }, false)).toEqual({ name: "Daily Box", cue: "" });
     expect(COPY.game.practice).toBe("Practice");
+    // A lesson's box plays as practice when it is a replay or `?lesson=`: the plate says nothing (the coach line talks).
+    expect(plateText({ kind: "lesson", id: "l1" }, true)).toEqual({ name: "", cue: "" });
   });
 });
 

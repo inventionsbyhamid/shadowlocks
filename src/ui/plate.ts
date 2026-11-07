@@ -40,10 +40,13 @@ export function plateLayout(w: number, h: number, n: number): { nameX: number; n
   return { nameX, nameMax: end - nameX, lightX, lightR };
 }
 
-/** What the plate says for a box: its name, and a small cue under it ("Practice" for a `?box` practice box). */
+/**
+ * What the plate says for a box: its name, and a small cue under it ("Practice" for a `?box` practice box). A lesson's
+ * box says nothing, practice or not (a replay plays as practice; the coach line talks).
+ */
 export function plateText(spec: BoxSpec, practice: boolean): { name: string; cue: string } {
   const name = spec.kind === "box" ? fill(COPY.game.boxNo, { n: spec.n }) : spec.kind === "daily" ? COPY.game.daily : "";
-  return { name, cue: practice ? COPY.game.practice : "" };
+  return { name, cue: practice && spec.kind !== "lesson" ? COPY.game.practice : "" };
 }
 
 export class Plate {
