@@ -3,6 +3,7 @@
 // grab is not used: its grab sphere sits on the palm and often takes the wrong thing, so hands pinch
 // through our own detector and a controller's trigger or squeeze counts as the same pinch. Every
 // hand joint is read once a frame into `handJoints` (the lantern grab and hand shadows read it too).
+// On a phone a touch dragging the lantern stands in for a side, as a controller would (setVirtualHand).
 //
 // Pointers, re-applied every frame (cheap when unchanged; survives IWSDK resetting a side): IWSDK's
 // grab pointer is always off, and a hand or controller the app says is busy (reaching for or holding
@@ -57,6 +58,13 @@ export type BusyHand = (side: 0 | 1) => boolean;
 let busy: BusyHand = () => false;
 let holding: BusyHand = () => false;
 
+/**
+ * A stand-in for a hand this frame (a phone's touch dragging the lantern): fills `out` (kind, tracked, pinch, points)
+ * and returns true, or returns false to read the real hand or controller.
+ */
+export type VirtualHand = (side: 0 | 1, out: HandPinch) => boolean;
+let virtualHand: VirtualHand | null = null;
+
 /** Per hand: what it is, whether it is tracked, its pinch (joints in, hysteresis) and pinch point. */
 export class HandPinchSystem extends createSystem({}) {
   private readonly detectors: [PinchDetector, PinchDetector] = [new PinchDetector(), new PinchDetector()];
@@ -73,6 +81,11 @@ export class HandPinchSystem extends createSystem({}) {
     for (let i = 0; i < 2; i++) {
       const side = i as 0 | 1;
       const out = hands[side];
+      if (virtualHand && virtualHand(side, out)) {
+        // The stand-in owns this side: the real hand's detector starts afresh when it comes back.
+        this.detectors[side].reset();
+        continue;
+      }
       const src = frame && ref ? this.input.xr.getPrimaryInputSource(SIDES[side]) : undefined;
       if (src?.hand) this.hand(side, now, out);
       else if (src) this.controller(side, out);
@@ -142,6 +155,11 @@ export function attachInput(world: World, o: { busy?: BusyHand } = {}): readonly
   if (o.busy) busy = o.busy;
   registerAppSystem(world, HandPinchSystem, { priority: -3.2, name: "hand-pinch" });
   return hands;
+}
+
+/** Let a stand-in fill a side's hand before the real one is read (a phone's touch), or none. */
+export function setVirtualHand(fn: VirtualHand | null): void {
+  virtualHand = fn;
 }
 
 /** Change which hands count as busy (their rays go off from the next frame). */

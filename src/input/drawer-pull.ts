@@ -126,6 +126,20 @@ export class DrawerPull {
     return this.state;
   }
 
+  /**
+   * A tap on the handle (a phone's touch: a screen cannot pull toward the player): opens it as a full pull does, counted
+   * as one, when it could be pulled now. True when it opened.
+   */
+  tap(hand: HandSide): boolean {
+    if (this.state !== "closed" || !(this.o.enabled?.() ?? true)) return false;
+    this.who = -1;
+    this.hand = hand;
+    this.state = "open";
+    this.progress = 1;
+    this.opened++;
+    return true;
+  }
+
   /** Open at once (the first screen, the test hooks). Not counted as a pull. */
   open(): void {
     this.who = -1;
