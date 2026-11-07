@@ -1,6 +1,9 @@
+import { Matrix4, Vector3 } from "@iwsdk/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildLessonLock, LESSON_1, LESSON_2, lessonPlan } from "../../src/core/lessons-data";
 import type { V3 } from "../../src/core/types";
+import { JOINT_COUNT } from "../../src/input/hand-joints";
+import { GhostHand } from "../../src/render/ghost-hand";
 import {
   type DirectorDeps,
   EXAMPLES,
@@ -445,20 +448,60 @@ describe("LessonsDirector: lesson 2", () => {
     let tipSeen = false;
     r.until(() => {
       const h = r.d.frame.hand;
-      if (h.opacity === 1 && r.d.frame.fill > 0) {
+      // While the finger holds still at the prong (the fill rising).
+      if (h.opacity === 1 && r.d.frame.fill > 0 && r.d.frame.fill < 1) {
         tipSeen = true;
         expect(h.anchor).toBe("tip");
         expect(h.poseA).toBe("point");
         expect(h.at[2]).toBeLessThanOrEqual(1);
         expect(h.at[2]).toBeGreaterThan(0.5);
-        const a = lessonPlan("l2", false).twins[0]!.lock.fingerAngle;
-        // Along the prong (either way), level with the panel.
-        expect(Math.abs(h.fingers[0] * Math.cos(a) + h.fingers[1] * Math.sin(a))).toBeGreaterThan(0.99);
-        expect(Math.abs(h.fingers[2])).toBeLessThan(1e-9);
+        // In the plane through the spot and the prong's axis, so the finger's shadow runs along the prong: the tip
+        // and the finger's direction both lie in it. Tilted out of the panel's plane, pointing into the box.
+        const tw = lessonPlan("l2", false).twins[0]!.lock, T = tw.L, poly = tw.target[tw.missing]!;
+        const cx = poly.reduce((s, p) => s + p[0], 0) / poly.length, cy = poly.reduce((s, p) => s + p[1], 0) / poly.length;
+        const A = new Vector3(cx - T[0], cy - T[1], -T[2]);
+        const B = new Vector3(cx + Math.cos(tw.fingerAngle) - T[0], cy + Math.sin(tw.fingerAngle) - T[1], -T[2]);
+        const n = A.cross(B).normalize();
+        expect(Math.abs(n.dot(new Vector3(...h.fingers)))).toBeLessThan(1e-6);
+        expect(Math.abs(n.dot(new Vector3(h.at[0] - T[0], h.at[1] - T[1], h.at[2] - T[2])))).toBeLessThan(1e-6);
+        expect(h.fingers[2]).toBeLessThan(-0.2);
       }
       return r.d.step !== 1;
     });
     expect(tipSeen).toBe(true);
+  });
+
+  it("brings the ghost finger in through the box mouth: no joint of the hand crosses a glass side (18 and 24 cm boxes)", () => {
+    for (const sizeM of [0.18, 0.24]) {
+      for (const left of [false, true]) {
+        const q = rig(left);
+        q.d.start("l2", 1);
+        const g = new GhostHand(left ? "left" : "right");
+        const at = new Vector3(), fv = new Vector3(), pv = new Vector3(), w = new Vector3();
+        // Box units to metres, the box at the origin: the ghost hand is human-sized whatever the box.
+        const m = new Matrix4().makeScale(sizeM, sizeM, sizeM);
+        let seen = 0, worst = 0, where = "";
+        q.until(() => {
+          const h = q.d.frame.hand;
+          if (h.opacity > 0 && h.anchor === "tip") {
+            seen++;
+            g.side = h.side;
+            g.setPose(h.poseA, h.poseB, h.poseT);
+            g.place("tip", at.set(h.at[0], h.at[1], h.at[2]).applyMatrix4(m), fv.set(h.fingers[0], h.fingers[1], h.fingers[2]), pv.set(h.palm[0], h.palm[1], h.palm[2]));
+            for (let j = 0; j < JOINT_COUNT; j++) {
+              g.joint(j, w).divideScalar(sizeM);
+              if (w.z < 1 && Math.abs(w.x) > worst) {
+                worst = Math.abs(w.x);
+                where = `joint ${j} at ${w.toArray().map((v) => v.toFixed(2))}, tip at ${h.at.map((v) => v.toFixed(2))}, fingers ${h.fingers.map((v) => v.toFixed(2))}`;
+              }
+            }
+          }
+          return q.d.step !== 1;
+        });
+        expect(seen).toBeGreaterThan(0);
+        expect(worst, `${sizeM * 100} cm box, ${left ? "left" : "right"}-handed: ${where}`).toBeLessThanOrEqual(0.5);
+      }
+    }
   });
 
   it("moves on from the puppets after a while even without a hand in the beam, the ghost showing how", () => {
@@ -552,6 +595,30 @@ describe("LessonsDirector: replay", () => {
     r.d.start("l1", 2);
     r.run(500);
     expect(r.d.replay("rings")).toBe(false);
+  });
+
+  it("keeps the hand a lesson or a replay started with, should the setting change meanwhile", () => {
+    const r = rig();
+    let left = false;
+    r.deps.leftHanded = () => left;
+    r.d.start("l1", 2);
+    r.run(2000);
+    expect(r.d.frame.hand.side).toBe("right");
+    left = true;
+    r.run(100);
+    expect(r.d.frame.hand.side).toBe("right");
+    // The lesson's next example too: built for the box the lesson started with.
+    watch(r);
+    r.inp.open.add(1);
+    r.run(16);
+    expect(r.d.step).toBe(4);
+    r.run(2000);
+    expect(r.d.frame.hand.side).toBe("right");
+    // A replay takes the hand as it starts.
+    r.d.stop();
+    r.d.replay("move");
+    r.run(2000);
+    expect(r.d.frame.hand.side).toBe("left");
   });
 
   it("says when an example is showing (the drawer stays shut meanwhile)", () => {

@@ -204,6 +204,9 @@ export class LessonsDirector {
   private script: Script | null = null;
   private scriptMs = 0;
   private replayEx: ExampleId | null = null;
+  /** The hand the lesson started with, and the replay's: their boxes were mirrored for it, so it holds to the end. */
+  private left = false;
+  private replayLeft = false;
   /** The rings' line shown (lined up or not) and how long the other state has held. */
   private ringsLined = false;
   private ringsMs = 0;
@@ -242,7 +245,8 @@ export class LessonsDirector {
     this.endReplay();
     this.id = id;
     this.finished = false;
-    this.plan = lessonPlan(id, this.deps.leftHanded());
+    this.left = this.deps.leftHanded();
+    this.plan = lessonPlan(id, this.left);
     this.formMs = 0;
     this.script = null;
     this.lastT = Number.NaN;
@@ -269,7 +273,7 @@ export class LessonsDirector {
   replay(example: ExampleId): boolean {
     if (this.script) return false;
     const { lesson } = EXAMPLES[example];
-    const left = this.deps.leftHanded();
+    const left = (this.replayLeft = this.deps.leftHanded());
     this.script = buildScript(example, lessonPlan(lesson, left), left, true);
     this.scriptMs = 0;
     this.replayEx = example;
@@ -398,7 +402,7 @@ export class LessonsDirector {
     else if (s.kind === "drawer") this.frame.line = inp.settled() ? C.drawer : null;
     else this.frame.line = null;
     if (s.kind === "demo" && s.example) {
-      this.script = buildScript(s.example, this.plan!, this.deps.leftHanded(), false);
+      this.script = buildScript(s.example, this.plan!, this.left, false);
       this.scriptMs = 0;
       this.runScript(0);
     }
@@ -424,7 +428,7 @@ export class LessonsDirector {
     f.hand.anchor = s.anchor;
     copy3(s.fingers, f.hand.fingers);
     copy3(s.palm, f.hand.palm);
-    f.hand.side = this.deps.leftHanded() ? "left" : "right";
+    f.hand.side = (this.replayEx ? this.replayLeft : this.left) ? "left" : "right";
     lampAt(s.lamp, t, f.lamp);
     f.ghostLight = t >= s.light[0] && t < s.light[1];
     f.park = rampAt(s.park, t, 0, reduced);
@@ -476,7 +480,7 @@ export class LessonsDirector {
    * showed until it is gone.
    */
   private idleGhost(dt: number, show: boolean, kind: "reach" | "puppet" | null): void {
-    const f = this.frame, left = this.deps.leftHanded(), side = left ? -1 : 1;
+    const f = this.frame, left = this.left, side = left ? -1 : 1;
     if (show && kind) {
       this.ghostKind = kind;
       this.ghost = Math.min(1, this.ghost + dt / GHOST_IN_MS);

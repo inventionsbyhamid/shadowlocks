@@ -278,6 +278,34 @@ function lanternScript(
   };
 }
 
+/**
+ * A human hand in the smallest box's units (an 18 cm box): fingertip to knuckles 9 cm, the palm 8 cm across. The
+ * finger meets the box mouth this far from the middle at most (the glass sides are at 0.5).
+ */
+const KNUCKLES = 0.09 / 0.18, PALM_WIDTH = 0.08 / 0.18, MOUTH_X = 0.4;
+
+/**
+ * The ghost finger's direction for a tip at `tip` with the spot at `T`: `flat` (along the prong, level with the
+ * panel) turned toward the ray from the spot through the tip, as little as it takes for the hand behind the finger to
+ * be out of the box: its knuckles (and the palm's width either side of them) past the mouth, and the finger meeting
+ * the mouth inside the glass. Both directions lie in the plane through the spot and the prong's axis, so the
+ * finger's shadow still runs along the prong.
+ */
+function fingerInto(T: V3, tip: V3, flat: V3): V3 {
+  const ray = unit([tip[0] - T[0], tip[1] - T[1], tip[2] - T[2]]);
+  let f = flat;
+  for (let k = 0; k <= 18; k++) {
+    const a = (k / 18) * (Math.PI / 2) * 0.95, c = Math.cos(a), s = Math.sin(a);
+    f = unit([flat[0] * c + ray[0] * s, flat[1] * c + ray[1] * s, flat[2] * c + ray[2] * s]);
+    if (f[2] >= 0) continue;
+    // The palm's width runs square to the finger, level: the part of it in depth is how sideways the finger points.
+    const knuckles = tip[2] - f[2] * KNUCKLES, widthInDepth = (PALM_WIDTH * Math.abs(f[0])) / Math.hypot(f[0], f[2]);
+    const atMouth = tip[0] - f[0] * ((1 - tip[2]) / -f[2]);
+    if (knuckles - widthInDepth >= 1 && Math.abs(atMouth) <= MOUTH_X) return f;
+  }
+  return f;
+}
+
 /** Example 3: the ghost lantern settled on the twin's spot, a pointing ghost finger filling the missing prong. */
 function fingerScript(base: ScriptBase, side: number, tw: Lock, own: Lock): Script {
   const C = COPY.lessons;
@@ -294,10 +322,12 @@ function fingerScript(base: ScriptBase, side: number, tw: Lock, own: Lock): Scri
   for (const p of poly) h = Math.max(h, Math.abs((p[0] - cx) * dx + (p[1] - cy) * dy));
   h *= 0.8;
   const zf = 0.8, e1 = onRay(T, cx + dx * h, cy + dy * h, zf), e2 = onRay(T, cx - dx * h, cy - dy * h, zf);
-  // The fingertip is the end away from the dominant hand; the finger points from the other end to it.
+  // The fingertip is the end away from the dominant hand; the finger points from the other end toward it, tilted
+  // into the box (see fingerInto) so the hand behind it comes out through the mouth.
   const [tip, back] = e1[0] * side < e2[0] * side ? [e1, e2] : [e2, e1];
-  const fingers = unit([tip[0] - back[0], tip[1] - back[1], tip[2] - back[2]]);
-  const near = add(tip, 0.12 * side, 0.05, 0.15), from = handFrom(near, side);
+  const fingers = fingerInto(T, tip, unit([tip[0] - back[0], tip[1] - back[1], tip[2] - back[2]]));
+  // In and out straight through the mouth (only depth changes, so no part of the hand nears a glass side).
+  const near = add(tip, 0, 0.02, 0.18), from = add(tip, 0, 0.05, 0.42);
   const park0 = PARK_MS, in0 = park0 + SWING_MS, beat1 = in0 + 800, beat2 = beat1 + 2400, hold = beat2 + 3000;
   const click = hold + FILL_MS + CRYSTAL_MS, leave = hold + 2000, swing0 = leave + 600, lift0 = swing0 + SWING_MS;
   return {
