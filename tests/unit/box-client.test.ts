@@ -100,6 +100,23 @@ describe("createBoxClient", () => {
     expect(FakeWorker.posted).toEqual([box(3)]);
   });
 
+  it("keeps a version 3 box (a resumed save) apart from today's box of the same number", async () => {
+    vi.stubGlobal("Worker", FakeWorker);
+    const { createBoxClient } = await import("../../src/core/box-client");
+    const client = createBoxClient();
+    const old: BoxSpec = { kind: "box", n: 12, gen: 3 };
+    // Today's box 12 prefetched (the next box), then the save's version 3 box 12, then today's again.
+    client.prefetch(box(12));
+    const then = await client.get(old), now = await client.get(box(12));
+    expect(then.spec).toEqual(old);
+    expect(then).toEqual(generateBox(old));
+    expect(now).toEqual(generateBox(box(12)));
+    expect(then.elements).not.toEqual(now.elements);
+    expect(await client.get(old)).toBe(then);
+    expect(await client.get(box(12))).toBe(now);
+    expect(FakeWorker.posted).toEqual([box(12), old]);
+  });
+
   it("keeps only a few recent boxes", async () => {
     vi.stubGlobal("Worker", FakeWorker);
     const { createBoxClient } = await import("../../src/core/box-client");

@@ -6,6 +6,7 @@ import { ACT_HINT, ACT_NEXT, ACT_TAKE, type BoxSessionDeps, type SessionView } f
 import { COACH_HOLD_MS, CRYSTAL_MS, type FingerLoop } from "../../src/app/session-fingers";
 import type { FeedbackEvent } from "../../src/app/bus";
 import { GENERATOR_VERSION, generateBox } from "../../src/core/generator";
+import { mirrorBox } from "../../src/core/mirror";
 import { type BoxSnapshot, defaultSettings, migrate, newProfile, type Profile, type Settings } from "../../src/core/profile";
 import { type Coverage, measure, meets, prepareLock, SKIP_MISSING, shadowBuffers, shadowPolys } from "../../src/core/solve";
 import type { Box, BoxSpec, Lock, V2, V3, Vec3 } from "../../src/core/types";
@@ -916,6 +917,38 @@ describe("box session", () => {
     await h.session.rehand();
     expect(h.session.box).toBe(box);
     await harness().session.rehand();
+  });
+
+  it("a version 3 box in play switched to the left hand is version 3's box mirrored, still saved under 3", async () => {
+    const then = generateBox({ kind: "box", n: 12, gen: 3 }), plain = then.locks.find((l) => !l.finger)!;
+    const save: BoxSnapshot = { key: then.key, gen: 3, mirrored: false, lantern: [0.15, -0.3, 1.3], open: [plain.i], crystal: [], elapsedMs: 9_000, hints: 0, hintLevel: {} };
+    const h = harness();
+    await h.session.start(BOX(12), save);
+    expect(h.session.box!.elements).toEqual(then.elements);
+    h.settings.handed = "left";
+    await h.session.rehand();
+    expect(h.session.box).toEqual(mirrorBox(then));
+    expect(h.session.spec).toEqual({ kind: "box", n: 12, gen: 3 });
+    expect(h.session.isOpen(plain.i)).toBe(true);
+    expect(h.pos).toEqual([-0.15, -0.3, 1.3]);
+    expect(h.session.snapshot()).toMatchObject({ key: then.key, gen: 3, mirrored: true, open: [plain.i], elapsedMs: 9_000 });
+  });
+
+  it("a version 3 save made left-handed resumes as version 3's box, mirrored, for either hand", async () => {
+    const then = generateBox({ kind: "box", n: 12, gen: 3 }), plain = then.locks.find((l) => !l.finger)!;
+    const save: BoxSnapshot = { key: then.key, gen: 3, mirrored: true, lantern: [-0.15, -0.3, 1.3], open: [plain.i], crystal: [], elapsedMs: 9_000, hints: 0, hintLevel: {} };
+    const left = harness({ handed: "left" });
+    await left.session.start(BOX(12), save);
+    expect(left.session.box).toEqual(mirrorBox(then));
+    expect(left.pos).toEqual([-0.15, -0.3, 1.3]);
+    expect(left.session.isOpen(plain.i)).toBe(true);
+    // Resumed right-handed: the box the other way round, the lantern crossing to the same side of it.
+    const right = harness();
+    await right.session.start(BOX(12), save);
+    expect(right.session.box).toEqual(then);
+    expect(right.pos).toEqual([0.15, -0.3, 1.3]);
+    expect(right.session.isOpen(plain.i)).toBe(true);
+    expect(right.session.snapshot()).toMatchObject({ gen: 3, mirrored: false });
   });
 
   it("Next asks the entitlement: when endless boxes are not allowed (a trial over) it starts none and says so", async () => {
