@@ -35,6 +35,9 @@
 # shared in one of four slots (remote.sh --lock-shared e2e). Waiting for the lock gives up after
 # NS_LOCK_WAIT seconds (default 3600) with exit 75. Older copies of this script hold the same lock
 # exclusively, so they never overlap with any run of this one.
+# CPUs (Task 27): an exclusive run's container is pinned to remote.sh's TIMING_CPUS (six whole cores)
+# with no CPU quota (remote.sh --timing-cpus), so the kernel never stops it mid-frame; a functional
+# run keeps the 6-CPU quota on any CPU, as before (it never overlaps an exclusive run).
 # A run that writes a lot (a video render) sets NS_EXPECT_GB=<n>: it then needs 100 + n GB free.
 # Screenshots come back in test-results/shots/, failure reports in test-results/artifacts/, and
 # notes the tests leave in test-results/notes.txt are printed at the end (remote.sh does that).
@@ -103,7 +106,7 @@ PREWAIT=${NS_E2E_PREWAIT:-1800}
 MODE=$(e2e_mode "$@")
 LIMITS=$(e2e_limits "$MODE")
 MAX_LOAD=${LIMITS% *} MAX_BUSY=${LIMITS#* }
-if [ "$MODE" = exclusive ]; then LOCK_OPT=--lock; else LOCK_OPT=--lock-shared; fi
+if [ "$MODE" = exclusive ]; then LOCK_OPTS=(--lock e2e --timing-cpus); else LOCK_OPTS=(--lock-shared e2e); fi
 # remote.sh's own load gate uses the same limit.
 export NS_MAX_LOAD=$MAX_LOAD
 echo "e2e: $MODE run, starts at load $MAX_LOAD or less (scripts/e2e.sh header)" >&2
@@ -132,5 +135,5 @@ if [ "$busy" -gt "$MAX_BUSY" ]; then
   echo "e2e: $busy browser runs still going after $PREWAIT s; queueing for the 'e2e' lock (once it waits there, no new run starts ahead of it)" >&2
 fi
 
-exec "$ROOT/scripts/remote.sh" "$LANE" --image shadowlocks-e2e --shm 2g "$LOCK_OPT" e2e --pull test-results \
+exec "$ROOT/scripts/remote.sh" "$LANE" --image shadowlocks-e2e --shm 2g "${LOCK_OPTS[@]}" --pull test-results \
   ${NS_EXPECT_GB:+--expect-gb "$NS_EXPECT_GB"} -- npx playwright test "$@"

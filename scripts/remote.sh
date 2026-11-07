@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run a command inside a container on the build server.
 # Usage: scripts/remote.sh <lane> [--image <img>] [--shm <size>] [--env K=V]... [--lock <name> | --lock-shared <name>]
-#                         [--pull <output>]... [--expect-gb <n>] -- <command...>
+#                         [--timing-cpus] [--pull <output>]... [--expect-gb <n>] -- <command...>
 #   --image <img>  container image; shadowlocks-* images are local only and never pulled from a registry
 #   --shm <size>   shared memory for the container (browsers need it: --shm 2g)
 #   --env K=V      pass an environment variable to the command. Values are visible on the server
@@ -13,6 +13,9 @@
 #                  never together with a --lock run of that name, older scripts' included. A --lock run
 #                  that is waiting goes first: no new --lock-shared run starts until it has run. Same
 #                  wait limit and exit 75.
+#   --timing-cpus  run on TIMING_CPUS, pinned, with no CPU quota, instead of the usual 6-CPU quota (see
+#                  TIMING_CPUS below). Only with --lock e2e: holding that lock alone is what keeps two timed
+#                  runs off the same CPUs. scripts/e2e.sh asks for it on every exclusive run.
 #   --pull <output> copy this output back afterwards, mirrored (local files gone on the server are
 #                  removed): test-results, playwright-report, package-lock.json, dist or audio-out.
 #                  It is copied on the server while nothing of the lane runs; links, devices and other
@@ -40,9 +43,23 @@ NPM_VOLUME=shadowlocks-npm-user
 # How many --lock-shared runs of one lock may go at once (Ruling 111: four functional e2e runs; keep
 # scripts/e2e.sh's FUNCTIONAL_SLOTS the same).
 SHARED_SLOTS=4
+# CPUs (Task 27, plan/sdd/sl-v1/task-27-report.md). A run normally gets a CFS quota of CPU_QUOTA CPUs. On this 40-CPU
+# host a browser's software renderer starts threads for all 40, spends the quota early in each 100 ms period, and the
+# kernel then stops the whole container for the rest of it: pauses of 46 to 80 ms, in every period of a timed window,
+# that land in whatever the page was doing. A run that times real milliseconds (--timing-cpus: scripts/e2e.sh's
+# exclusive runs) gets TIMING_CPUS to itself instead, pinned and with no quota, so nothing stops it: six whole cores
+# (both hyperthreads of each) of NUMA node 1, which takes none of the network card's interrupts; six threads on three
+# cores starved the page's main thread (p95 8.5 ms at 4x, CPU pressure 88%). The runs that can overlap a timed run,
+# those holding no e2e lock (unit tests, typechecks, builds), keep the quota and are pinned to OTHER_CPUS, off the
+# timing cores. Runs holding the e2e lock never overlap a timed run (it holds that lock alone), so they keep the quota
+# on all 40 CPUs, as before. Other people's containers on this server are not ours to pin and may still run on the
+# timing cores. The two sets must not overlap and together cover the host's 40 CPUs.
+CPU_QUOTA=6
+TIMING_CPUS=14-19,34-39
+OTHER_CPUS=0-13,20-33
 
 usage() {
-  echo "usage: $0 <lane> [--image <img>] [--shm <size>] [--env K=V]... [--lock <name> | --lock-shared <name>] [--pull <output>]... [--expect-gb <n>] -- <command...>" >&2
+  echo "usage: $0 <lane> [--image <img>] [--shm <size>] [--env K=V]... [--lock <name> | --lock-shared <name>] [--timing-cpus] [--pull <output>]... [--expect-gb <n>] -- <command...>" >&2
   exit 2
 }
 
@@ -54,6 +71,7 @@ shift
 IMAGE=node:22-bookworm
 SHM=
 LOCK_SPEC=
+TIMING=0
 EXPECT_GB=0
 ENVS=()
 PULLS=()
@@ -73,6 +91,7 @@ while [ $# -gt 0 ]; do
       # remote-run.sh reads <name> as exclusive, <name>:<slots> as shared. The last one given wins.
       if [ "$1" = --lock ]; then LOCK_SPEC=$2; else LOCK_SPEC=$2:$SHARED_SLOTS; fi
       shift 2 ;;
+    --timing-cpus) TIMING=1; shift ;;
     --expect-gb)
       [ $# -ge 2 ] || usage
       [[ $2 =~ ^[0-9]{1,5}$ ]] || { echo "bad --expect-gb: $2 (whole GB, up to 5 digits)" >&2; exit 2; }
@@ -95,6 +114,10 @@ while [ $# -gt 0 ]; do
 done
 [ $# -ge 1 ] || usage
 CMD=("$@")
+if [ "$TIMING" = 1 ] && [ "$LOCK_SPEC" != e2e ]; then
+  echo "--timing-cpus needs --lock e2e (the e2e lock held alone keeps two timed runs off the same CPUs)" >&2
+  exit 2
+fi
 LOCK_WAIT=${NS_LOCK_WAIT:-3600}
 [[ $LOCK_WAIT =~ ^[0-9]+$ ]] || { echo "bad NS_LOCK_WAIT: $LOCK_WAIT" >&2; exit 2; }
 MAX_RUN=${NS_MAX_RUN:-7200}
@@ -137,8 +160,15 @@ if [ ! -d node_modules ] || [ "$(cat node_modules/.install-sum 2>/dev/null)" != 
 fi
 exec "$@"'
 
+# The CPUs (see TIMING_CPUS): a timed run pinned with no quota; a run holding the e2e lock otherwise, the quota on any
+# CPU; any other run, the quota, off the timing cores.
+case $TIMING:$LOCK_SPEC in
+  1:*) CPU_OPTS=(--cpuset-cpus "$TIMING_CPUS") ;;
+  0:e2e | 0:e2e:*) CPU_OPTS=(--cpus "$CPU_QUOTA") ;;
+  *) CPU_OPTS=(--cpus "$CPU_QUOTA" --cpuset-cpus "$OTHER_CPUS") ;;
+esac
 # The label lets the server find this lane's containers (no upload while one exists).
-DOCKER_OPTS=(--rm --name "$NAME" --label "shadowlocks.lane=$LANE" --cpus 6 --memory 8g --pids-limit 2048
+DOCKER_OPTS=(--rm --name "$NAME" --label "shadowlocks.lane=$LANE" "${CPU_OPTS[@]}" --memory 8g --pids-limit 2048
   --user "$RUN_USER" --cap-drop ALL --security-opt no-new-privileges -e npm_config_cache=/npm-cache)
 if [ -n "$SHM" ]; then DOCKER_OPTS+=(--shm-size "$SHM"); fi
 # Our own images exist only on the server: fail fast instead of trying a registry.
