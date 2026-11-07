@@ -1,7 +1,12 @@
 import { Matrix4, Vector3 } from "@iwsdk/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildTipScript, SWEEP_CLEAR } from "../../src/app/lesson-scripts";
+import { tipLock } from "../../src/app/tips";
+import { generateBox } from "../../src/core/generator";
 import { buildLessonLock, LESSON_1, LESSON_2, lessonPlan } from "../../src/core/lessons-data";
-import type { V3 } from "../../src/core/types";
+import { mirrorBox } from "../../src/core/mirror";
+import type { TipId } from "../../src/core/profile";
+import type { Box, BoxSpec, V3 } from "../../src/core/types";
 import { JOINT_COUNT } from "../../src/input/hand-joints";
 import { GhostHand } from "../../src/render/ghost-hand";
 import {
@@ -95,6 +100,36 @@ function rig(left = false): Rig {
     },
   };
   return r;
+}
+
+/**
+ * Steps until `done`, placing a real GhostHand each frame the director shows one, as the view does (the box at the
+ * origin, `sizeM` metres across: the ghost is human-sized whatever the box). Returns how far out (|x|) any joint
+ * inside the box (z < 1) went, and where.
+ */
+function handInside(r: Rig, sizeM: number, done: () => boolean): { seen: number; worst: number; where: string } {
+  const g = new GhostHand("right");
+  const at = new Vector3(), fv = new Vector3(), pv = new Vector3(), w = new Vector3();
+  const m = new Matrix4().makeScale(sizeM, sizeM, sizeM);
+  let seen = 0, worst = 0, where = "";
+  r.until(() => {
+    const h = r.d.frame.hand;
+    if (h.opacity > 0) {
+      seen++;
+      g.side = h.side;
+      g.setPose(h.poseA, h.poseB, h.poseT);
+      g.place(h.anchor, at.set(h.at[0], h.at[1], h.at[2]).applyMatrix4(m), fv.set(h.fingers[0], h.fingers[1], h.fingers[2]), pv.set(h.palm[0], h.palm[1], h.palm[2]));
+      for (let j = 0; j < JOINT_COUNT; j++) {
+        g.joint(j, w).divideScalar(sizeM);
+        if (w.z < 1 && Math.abs(w.x) > worst) {
+          worst = Math.abs(w.x);
+          where = `joint ${j} at ${w.toArray().map((v) => v.toFixed(2))}, ${h.anchor} at ${h.at.map((v) => v.toFixed(2))}, fingers ${h.fingers.map((v) => v.toFixed(2))}`;
+        }
+      }
+    }
+    return done();
+  });
+  return { seen, worst, where };
 }
 
 /** Plays the running example (or demo step) to its end, collecting what the frame showed. */
@@ -476,28 +511,7 @@ describe("LessonsDirector: lesson 2", () => {
       for (const left of [false, true]) {
         const q = rig(left);
         q.d.start("l2", 1);
-        const g = new GhostHand(left ? "left" : "right");
-        const at = new Vector3(), fv = new Vector3(), pv = new Vector3(), w = new Vector3();
-        // Box units to metres, the box at the origin: the ghost hand is human-sized whatever the box.
-        const m = new Matrix4().makeScale(sizeM, sizeM, sizeM);
-        let seen = 0, worst = 0, where = "";
-        q.until(() => {
-          const h = q.d.frame.hand;
-          if (h.opacity > 0 && h.anchor === "tip") {
-            seen++;
-            g.side = h.side;
-            g.setPose(h.poseA, h.poseB, h.poseT);
-            g.place("tip", at.set(h.at[0], h.at[1], h.at[2]).applyMatrix4(m), fv.set(h.fingers[0], h.fingers[1], h.fingers[2]), pv.set(h.palm[0], h.palm[1], h.palm[2]));
-            for (let j = 0; j < JOINT_COUNT; j++) {
-              g.joint(j, w).divideScalar(sizeM);
-              if (w.z < 1 && Math.abs(w.x) > worst) {
-                worst = Math.abs(w.x);
-                where = `joint ${j} at ${w.toArray().map((v) => v.toFixed(2))}, tip at ${h.at.map((v) => v.toFixed(2))}, fingers ${h.fingers.map((v) => v.toFixed(2))}`;
-              }
-            }
-          }
-          return q.d.step !== 1;
-        });
+        const { seen, worst, where } = handInside(q, sizeM, () => q.d.step !== 1);
         expect(seen).toBeGreaterThan(0);
         expect(worst, `${sizeM * 100} cm box, ${left ? "left" : "right"}-handed: ${where}`).toBeLessThanOrEqual(0.5);
       }
@@ -642,6 +656,186 @@ describe("LessonsDirector: replay", () => {
     r.d.replay("move");
     r.d.stop();
     expect(r.d.showing).toBe(false);
+  });
+});
+
+describe("LessonsDirector: tip demos", () => {
+  const TIPS = [
+    ["decoys", 2],
+    ["ringless", 4],
+    ["hidden", 5],
+  ] as const;
+  const boxFor = (n: number, left: boolean) => (left ? mirrorBox(generateBox({ kind: "box", n })) : generateBox({ kind: "box", n }));
+  const centroid = (v: V3[]): V3 => [0, 1, 2].map((k) => v.reduce((s, p) => s + p[k]!, 0) / v.length) as V3;
+
+  it("plays about 6 s of ghost for each tip: a finger pointing at decoys, or a ghost lantern swept near (never on) the lock's spot", () => {
+    for (const [tip, n] of TIPS) {
+      const box = boxFor(n, false), r = rig();
+      expect(r.d.tipDemo(tip, box)).toBe(true);
+      expect(r.d.tipping).toBe(true);
+      const decoys = box.elements.filter((e) => e.kind === "decoy").map((e) => centroid(e.verts));
+      const L = box.locks[tipLock(tip, box)]?.L;
+      let hand = 0, lamp = 0, light = false, pointedAt = 0, nearest = Infinity;
+      const ms = r.until(() => {
+        const f = r.d.frame;
+        hand = Math.max(hand, f.hand.opacity);
+        lamp = Math.max(lamp, f.lamp.opacity);
+        light ||= f.ghostLight;
+        if (f.hand.opacity >= 1 && tip === "decoys") {
+          // The finger points at a decoy: the line on from the fingertip passes close by one.
+          for (const c of decoys) {
+            const d = new Vector3(c[0] - f.hand.at[0], c[1] - f.hand.at[1], c[2] - f.hand.at[2]);
+            const along = d.dot(new Vector3(...f.hand.fingers));
+            if (along > 0 && d.lengthSq() - along * along < 0.03 * 0.03) pointedAt++;
+          }
+        }
+        if (L && f.lamp.opacity > 0) nearest = Math.min(nearest, Math.hypot(f.lamp.at[0] - L[0], f.lamp.at[1] - L[1], f.lamp.at[2] - L[2]));
+        return !r.d.tipping;
+      });
+      expect(ms, tip).toBeGreaterThan(5000);
+      expect(ms, tip).toBeLessThan(7000);
+      expect(hand, tip).toBe(1);
+      if (tip === "decoys") {
+        expect([lamp, light]).toEqual([0, false]);
+        expect(pointedAt).toBeGreaterThan(0);
+      } else {
+        expect([lamp, light]).toEqual([1, true]);
+        expect(nearest, tip).toBeGreaterThanOrEqual(0.3);
+      }
+      // Over: nothing left showing, the light back on the player's lantern.
+      expect([r.d.frame.hand.opacity, r.d.frame.lamp.opacity, r.d.frame.ghostLight]).toEqual([0, 0, false]);
+    }
+  });
+
+  /** Boxes 2 to 30 and a few Daily Boxes, as each hand plays them, with every tip each has something to show for. */
+  const everyTipDemo = (from: number): { tip: TipId; box: Box; left: boolean; name: string }[] => {
+    const out: { tip: TipId; box: Box; left: boolean; name: string }[] = [];
+    const specs: BoxSpec[] = [];
+    for (let n = from; n <= 30; n++) specs.push({ kind: "box", n });
+    for (const day of ["2026-11-06", "2026-11-07", "2026-12-24", "2027-03-01"]) specs.push({ kind: "daily", day });
+    for (const spec of specs) {
+      const base = generateBox(spec);
+      for (const left of [false, true]) {
+        const box = left ? mirrorBox(base) : base;
+        for (const tip of ["decoys", "ringless", "hidden"] as const) {
+          if (tip === "decoys" ? !box.elements.some((e) => e.kind === "decoy") : tipLock(tip, box) < 0) continue;
+          out.push({ tip, box, left, name: `${tip} on ${JSON.stringify(spec)}, ${left ? "left" : "right"}-handed` });
+        }
+      }
+    }
+    return out;
+  };
+
+  it("never brings the ghost lantern within 0.3 of any lock's spot: the shadows slide, never form (boxes 4 to 30, dailies)", () => {
+    let sweeps = 0;
+    for (const { tip, box, name } of everyTipDemo(4)) {
+      if (tip === "decoys") continue;
+      sweeps++;
+      const r = rig();
+      expect(r.d.tipDemo(tip, box), name).toBe(true);
+      let nearest = Infinity;
+      r.until(() => {
+        const f = r.d.frame;
+        if (f.lamp.opacity > 0) {
+          for (const l of box.locks) nearest = Math.min(nearest, Math.hypot(f.lamp.at[0] - l.L[0], f.lamp.at[1] - l.L[1], f.lamp.at[2] - l.L[2]));
+        }
+        return !r.d.tipping;
+      });
+      expect(nearest, name).toBeGreaterThanOrEqual(0.3);
+    }
+    expect(sweeps).toBeGreaterThan(20);
+  });
+
+  it("keeps the sweep 0.3 from every spot on every box: a floor, whatever the seed (300 Daily Boxes)", () => {
+    const seg = (p: V3, a: V3, b: V3) => {
+      const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], l2 = ab[0]! ** 2 + ab[1]! ** 2 + ab[2]! ** 2;
+      const u = l2 > 0 ? Math.min(1, Math.max(0, ((p[0] - a[0]) * ab[0]! + (p[1] - a[1]) * ab[1]! + (p[2] - a[2]) * ab[2]!) / l2)) : 0;
+      return Math.hypot(a[0] + ab[0]! * u - p[0], a[1] + ab[1]! * u - p[1], a[2] + ab[2]! * u - p[2]);
+    };
+    let sweeps = 0, worst = Infinity, where = "";
+    const day0 = Date.UTC(2026, 10, 1);
+    for (let i = 0; i < 300; i++) {
+      const day = new Date(day0 + i * 86_400_000).toISOString().slice(0, 10);
+      const base = generateBox({ kind: "daily", day });
+      for (const left of [false, true]) {
+        const box = left ? mirrorBox(base) : base;
+        for (const tip of ["ringless", "hidden"] as const) {
+          const s = buildTipScript(tip, box, left);
+          if (!s) continue;
+          sweeps++;
+          // The ghost lantern moves along its keys in straight lines (eased in time only): every leg, against every spot.
+          for (let k = 1; k < s.lamp.length; k++) {
+            for (const l of box.locks) {
+              const d = seg(l.L, s.lamp[k - 1]!.at, s.lamp[k]!.at);
+              if (d < worst) [worst, where] = [d, `${tip} on ${day}, ${left ? "left" : "right"}-handed`];
+            }
+          }
+        }
+      }
+    }
+    expect(sweeps).toBeGreaterThan(100);
+    expect(worst, where).toBeGreaterThanOrEqual(SWEEP_CLEAR);
+  }, 120_000);
+
+  it("keeps a tip demo's ghost hand out of the glass sides (boxes 2 to 30 and dailies, 18 and 24 cm, both hands)", () => {
+    let demos = 0;
+    for (const { box, tip, name } of everyTipDemo(2)) {
+      for (const sizeM of [0.18, 0.24]) {
+        const r = rig();
+        expect(r.d.tipDemo(tip, box), name).toBe(true);
+        const { seen, worst, where } = handInside(r, sizeM, () => !r.d.tipping);
+        expect(seen, name).toBeGreaterThan(0);
+        expect(worst, `${name}, ${sizeM * 100} cm box: ${where}`).toBeLessThanOrEqual(0.5);
+        demos++;
+      }
+    }
+    expect(demos).toBeGreaterThan(100);
+  });
+
+  it("takes the ghost's hand from the box it plays on (a mirrored box is a left-handed player's)", () => {
+    // The setting says right-handed; the box in play was mirrored for a left hand: the box decides.
+    const r = rig(false);
+    r.d.tipDemo("decoys", boxFor(2, true));
+    expect(r.d.frame.hand.side).toBe("left");
+    const q = rig(true);
+    q.d.tipDemo("decoys", boxFor(2, false));
+    expect(q.d.frame.hand.side).toBe("right");
+  });
+
+  it("needs no reduced-motion variant: the ghost glides and fades, nothing flies or swings, the same either way", () => {
+    for (const [tip, n] of TIPS) {
+      const box = boxFor(n, false);
+      const run = (reduced: boolean): string[] => {
+        const r = rig();
+        r.inp.reduced = reduced;
+        r.d.tipDemo(tip, box);
+        const frames: string[] = [];
+        r.until(() => {
+          const f = r.d.frame;
+          // No cradle, no swing, no lift: the player's lantern and the scraps are never moved by a tip demo.
+          expect([f.park, f.lift, Array.from(f.layout).every((v) => v === 1)]).toEqual([0, null, true]);
+          frames.push(JSON.stringify([f.hand, f.lamp, f.ghostLight]));
+          return !r.d.tipping;
+        });
+        return frames;
+      };
+      expect(run(true), tip).toEqual(run(false));
+    }
+  });
+
+  it("stops a tip demo when told, and never plays one over a lesson or an example", () => {
+    const r = rig();
+    const box = boxFor(2, false);
+    r.d.tipDemo("decoys", box);
+    r.run(1000);
+    r.d.stopTip();
+    expect(r.d.tipping).toBe(false);
+    expect([r.d.frame.hand.opacity, r.d.frame.ghostLight]).toEqual([0, false]);
+    r.d.start("l1");
+    expect(r.d.tipDemo("decoys", box)).toBe(false);
+    r.d.stop();
+    r.d.replay("move");
+    expect(r.d.tipDemo("decoys", box)).toBe(false);
   });
 });
 

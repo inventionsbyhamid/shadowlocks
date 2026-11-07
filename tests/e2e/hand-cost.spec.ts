@@ -54,14 +54,14 @@ const FILES = [
   "/src/render/fx/crystallise.ts",
 ];
 /**
- * The box's shadow update (box-scene.ts's syncShadows, and the shadow mesh's cast, which runs inside it and may be
- * inlined into it), which casts every frame while hands are in the beam. It makes no object or array a frame, and
- * no longer hands a float to a call per shadow (skirt widths go as their array and an index, the penumbra is
- * written out): measured about 1.0 KB a frame with box 3's casters and 36 hand outlines (it was 2.2 KB); boxed
- * floats are accepted (Ruling 58). Held under MESH_BUDGET, which an array or object per shadow a frame (some 60
- * shadows, 32 bytes or more each) would break.
+ * The box's shadow update (box-scene.ts's syncShadows, and the cast of what the box casts, box-shadows.ts, into the
+ * shadow mesh, shadow-mesh.ts; both run inside it and may be inlined into it), which casts every frame while hands
+ * are in the beam. It makes no object or array a frame, and no longer hands a float to a call per shadow (skirt
+ * widths go as their array and an index, the penumbra is written out): measured about 1.0 KB a frame with box 3's
+ * casters and 36 hand outlines (it was 2.2 KB); boxed floats are accepted (Ruling 58). Held under MESH_BUDGET, which
+ * an array or object per shadow a frame (some 60 shadows, 32 bytes or more each) would break.
  */
-const MESH_FILES = ["/src/render/box-scene.ts", "/src/render/shadow-mesh.ts"];
+const MESH_FILES = ["/src/render/box-scene.ts", "/src/render/shadow-mesh.ts", "/src/render/box-shadows.ts"];
 const MESH_BUDGET = 1600;
 const NEW_MODULES = [
   "src/render/hand-shadow.ts",

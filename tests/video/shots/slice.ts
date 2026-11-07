@@ -81,7 +81,9 @@ export default defineShot<Data>({
     // The box opens.
     await wait(4500);
     if ((await lessonStep(page)) !== 6) console.warn("slice: lesson 1 is not at its reward step");
-    // Box 3's finger lock: the lantern on its spot, the fingertip into the gap.
+    // Box 3's finger lock: the lantern on its spot, the fingertip into the gap. The decoys tip (with its ghost demo)
+    // counts as seen, so the shot stays on the finger.
+    await page.evaluate(() => (window as any).__ns.ui.profile({ tipsSeen: ["decoys"] }));
     await page.evaluate(() => (window as any).__sl.session.play({ kind: "box", n: 3 }));
     await app.stepUntil((_ns, w) => w.__sl.session.state()?.key === "shadow-locks/3" && w.__sl.session.state().revealed, { maxMs: 5_000, label: "box 3" });
     const f = fingerLock(3);

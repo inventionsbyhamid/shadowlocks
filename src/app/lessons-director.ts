@@ -12,10 +12,12 @@
 // the swing home, "Your turn."). `replay` runs one example alone, on a fresh copy of its lesson's box, and never
 // touches lesson or box progress.
 import { type LessonId, type LessonPlan, lessonPlan } from "../core/lessons-data";
-import type { Lock, V3 } from "../core/types";
+import type { TipId } from "../core/profile";
+import type { Box, Lock, V3 } from "../core/types";
 import { COPY } from "../ui/copy";
 import {
   buildScript,
+  buildTipScript,
   clamp01,
   EXAMPLES,
   type ExampleId,
@@ -32,6 +34,7 @@ import {
   rampAt,
   reachLoop,
   type Script,
+  type TipScript,
 } from "./lesson-scripts";
 
 export { EXAMPLES, PARK_MS, SWING_MS } from "./lesson-scripts";
@@ -204,6 +207,9 @@ export class LessonsDirector {
   private script: Script | null = null;
   private scriptMs = 0;
   private replayEx: ExampleId | null = null;
+  /** A tip's ghost demo playing (outside the lessons), and its clock. */
+  private tipS: TipScript | null = null;
+  private tipMs = 0;
   /** The hand the lesson started with, and the replay's: their boxes were mirrored for it, so it holds to the end. */
   private left = false;
   private replayLeft = false;
@@ -238,11 +244,43 @@ export class LessonsDirector {
     return this.script !== null;
   }
 
+  /** A tip's ghost demo is playing. */
+  get tipping(): boolean {
+    return this.tipS !== null;
+  }
+
+  /**
+   * Play tip `tip`'s ghost demo (about 6 s) on `box`, the box in play: the ghost hand points or sweeps a ghost lantern
+   * there, in interactive play (no cradle, no swing). False (and nothing happens) during a lesson, an example or
+   * another demo, or for a tip with nothing to show on this box.
+   */
+  tipDemo(tip: TipId, box: Box, overLesson = false): boolean {
+    // `overLesson`: a Lessons row's replay, asked for from the menu: a lesson in progress waits under it (its step's
+    // clock runs on only once the demo is over, as under an example).
+    if (this.script || this.tipS || (this.id && !this.finished && !overLesson)) return false;
+    // The hand the box was mirrored for (a left-handed player's box), not the live setting.
+    const s = buildTipScript(tip, box, box.mirrored);
+    if (!s) return false;
+    this.tipS = s;
+    this.tipMs = 0;
+    this.lastT = Number.NaN;
+    this.runTip();
+    return true;
+  }
+
+  /** Stop a tip's demo where it is (the player took the lantern, did what the tip says, or left the box). */
+  stopTip(): void {
+    if (!this.tipS) return;
+    this.tipS = null;
+    this.resetFrame();
+  }
+
   /** Start lesson `id` at the start of step `fromStep` (a resumed lesson; a damaged step number starts it over). */
   start(id: LessonId, fromStep = 0): void {
     const steps = LESSON_STEPS[id];
     const from = Number.isInteger(fromStep) && fromStep >= 0 && fromStep < steps.length ? fromStep : 0;
     this.endReplay();
+    this.tipS = null;
     this.id = id;
     this.finished = false;
     this.left = this.deps.leftHanded();
@@ -260,6 +298,7 @@ export class LessonsDirector {
   /** Leave the lesson (and any replay) without finishing it. */
   stop(): void {
     this.endReplay();
+    this.tipS = null;
     this.id = null;
     this.plan = null;
     this.script = null;
@@ -272,6 +311,8 @@ export class LessonsDirector {
    */
   replay(example: ExampleId): boolean {
     if (this.script) return false;
+    // "Show me" (or a Lessons row) takes over from a tip's demo.
+    this.tipS = null;
     const { lesson } = EXAMPLES[example];
     const left = (this.replayLeft = this.deps.leftHanded());
     this.script = buildScript(example, lessonPlan(lesson, left), left, true);
@@ -289,6 +330,11 @@ export class LessonsDirector {
     if (this.script) {
       this.scriptMs += dt;
       this.runScript(dt);
+      return;
+    }
+    if (this.tipS) {
+      this.tipMs += dt;
+      this.runTip();
       return;
     }
     const f = this.frame;
@@ -455,7 +501,25 @@ export class LessonsDirector {
     this.advance();
   }
 
-  /** Everything an example shows, back to rest. Keeps the frame's objects. */
+  /** The tip demo at its clock into the frame; over at its end (nothing left showing). */
+  private runTip(): void {
+    const s = this.tipS!, f = this.frame, t = this.tipMs;
+    if (t >= s.end) {
+      this.tipS = null;
+      this.resetFrame();
+      return;
+    }
+    handAt(s.hand, t, f.hand, null);
+    f.hand.anchor = s.anchor;
+    copy3(s.fingers, f.hand.fingers);
+    copy3(s.palm, f.hand.palm);
+    f.hand.side = s.side;
+    if (s.lamp.length) lampAt(s.lamp, t, f.lamp);
+    else f.lamp.opacity = 0;
+    f.ghostLight = t >= s.light[0] && t < s.light[1];
+  }
+
+  /** Everything an example or a tip demo shows, back to rest (no line, no ghost, no light). Keeps the frame's objects. */
   private resetFrame(): void {
     const f = this.frame;
     f.line = null;

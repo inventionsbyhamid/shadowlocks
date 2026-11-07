@@ -320,17 +320,30 @@ test("lessons rows replay", async ({ page, boot }) => {
   after!.lantern.forEach((v, k) => expect(v).toBeCloseTo(before.s!.lantern[k]!, 6));
   expect(after!.elapsedMs - before.s!.elapsedMs).toBeGreaterThanOrEqual(0);
   expect(after!.elapsedMs - before.s!.elapsedMs).toBeLessThan(2_000);
-  // Every other row too: each example on its own lesson's box, and a tip through the example that teaches it.
+  // Every other example row too, each on its own lesson's box.
   for (const [id, ex] of [
     ["lesson-near-far", "near-far"],
     ["lesson-rings", "rings"],
     ["lesson-finger", "finger"],
-    ["tip-0", "move"],
   ] as const) {
     await pullDrawer(app);
     await toLessons();
     await replay(id, ex);
   }
+  // A tip row replays the tip's own ghost demo on a fresh practice copy of the box that brings it in ("No rings": box
+  // 4), then box 5 is back; nothing about progress changes.
+  const seenBefore = await page.evaluate(() => window.__sl!.lessons.state().tipsSeen);
+  await pullDrawer(app);
+  await toLessons();
+  await app.poke("tip-0");
+  await app.stepUntil((n, w) => n.state().screen === "play" && (w as any).__sl.lessons.state().tipping, { maxMs: 10_000, label: "the ringless tip's demo" });
+  const tipBox = (await page.evaluate(() => window.__sl!.session.state()))!;
+  expect([tipBox.key, tipBox.practice]).toEqual(["shadow-locks/4", true]);
+  expect((await page.evaluate(() => window.__sl!.lessons.state())).coach.text).toBe(COPY.lessons.tips.ringless);
+  expect(await page.evaluate(() => window.__ns!.ui.behind())).toEqual({ kind: "lesson" });
+  await app.stepUntil((_n, w) => !(w as any).__sl.lessons.state().tipping, { maxMs: 10_000, label: "the ringless demo over" });
+  await playing(app, "shadow-locks/5");
+  expect(await page.evaluate(() => window.__sl!.lessons.state().tipsSeen)).toEqual(seenBefore);
   expect(await page.evaluate(() => window.__ns!.ui.replays())).toEqual([
     { kind: "example", id: "move", ran: true },
     { kind: "example", id: "near-far", ran: true },
