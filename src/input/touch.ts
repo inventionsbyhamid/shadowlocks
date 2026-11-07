@@ -18,13 +18,21 @@ export interface SessionLike {
 
 /**
  * A handheld AR session (a phone), by what the session gives, never the user agent: the WebXR AR module's
- * "screen-space" interaction mode (headsets report "world-space"), or a screen touch among its input sources.
+ * "screen-space" interaction mode (headsets report "world-space"), or a screen touch among its input sources. Never
+ * while a tracked pointer (a hand or a controller) is among them: a phone has none.
  */
 export function isHandheld(s: SessionLike | null | undefined): boolean {
-  if (!s) return false;
+  if (!s || hasTrackedPointer(s)) return false;
   if (s.interactionMode === "screen-space") return true;
   const list = s.inputSources;
   if (list) for (let i = 0; i < list.length; i++) if (list[i]?.targetRayMode === "screen") return true;
+  return false;
+}
+
+/** A hand or a controller (a tracked pointer) is among the session's input sources: a headset's, never a phone's. */
+export function hasTrackedPointer(s: SessionLike | null | undefined): boolean {
+  const list = s?.inputSources;
+  if (list) for (let i = 0; i < list.length; i++) if (list[i]?.targetRayMode === "tracked-pointer") return true;
   return false;
 }
 
@@ -38,6 +46,30 @@ export function grabDepth(o: Readonly<V3>, d: Readonly<V3>, p: Readonly<V3>, rad
   if (!(t > 0)) return Number.NaN;
   const qx = px - d[0] * t, qy = py - d[1] * t, qz = pz - d[2] * t;
   return qx * qx + qy * qy + qz * qz <= radiusM * radiusM ? t : Number.NaN;
+}
+
+/**
+ * How near a touch ray must pass the lantern (box units) to take it. A hand's 6 cm grab radius is far too wide for a
+ * ray from a phone: at 45 cm it covers a third of the screen, and the gap a finger lock waits on is often seen just past
+ * the lantern. So a touch takes it only over its drawn size, and only over its body when the touch reaches a finger
+ * lock's gap.
+ */
+export const TOUCH_GRAB = {
+  /** The lantern's drawn size, its spire and foot, with a fingertip's slop: 2.6 cm at the 24 cm box. */
+  radius: 0.11,
+  /** Its body alone (the glass core and the fins round it): 1.4 cm at the 24 cm box. */
+  bodyRadius: 0.06,
+  /** A touch this near a finger lock's missing piece (box units, on the panel) reaches its gap. */
+  gapMargin: 0.03,
+} as const;
+
+/** The panel point `q` (box units) is on one of these prongs, or within `margin` of it. */
+export function onProng(prongs: readonly Prong[], q: Readonly<V2>, margin: number): boolean {
+  for (const p of prongs) {
+    const dx = q[0] - p.cx, dy = q[1] - p.cy, c = Math.cos(p.angle), s = Math.sin(p.angle);
+    if (Math.abs(dx * c + dy * s) <= p.half + margin && Math.abs(-dx * s + dy * c) <= p.width / 2 + margin) return true;
+  }
+  return false;
 }
 
 /** The drag's pinch point: `depth` along the touch ray, into `out`. */
