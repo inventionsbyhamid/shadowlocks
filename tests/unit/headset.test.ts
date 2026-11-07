@@ -79,8 +79,18 @@ describe("the GPU's name and the frame rate", () => {
     const quest = [72, 80, 90, 120];
     expect(targetFrameRate("xr2-gen1", quest, 90)).toBe(90);
     expect(targetFrameRate("standard", quest, 72)).toBe(72);
-    expect(targetFrameRate("xr2-gen1", [72, 90], 120)).toBeNull();
     // A phone's AR session (Chrome on ARCore) offers no rates: nothing is asked, whatever the address says.
     expect(targetFrameRate("standard", undefined, 90)).toBeNull();
+    expect(targetFrameRate("standard", [], 90)).toBeNull();
+  });
+
+  it("falls back to the headset's own rate when the session does not offer the ?hz= one", () => {
+    // A Quest 2 whose session offers no 120: its own 72, not the browser's 90.
+    expect(targetFrameRate("xr2-gen1", [72, 90], 120)).toBe(72);
+    expect(targetFrameRate("standard", [72, 90], 120)).toBe(90);
+    expect(targetFrameRate("standard", new Float32Array([72, 80, 90]), 120)).toBe(90);
+    // Neither offered: the browser's rate stands.
+    expect(targetFrameRate("xr2-gen1", [90], 120)).toBeNull();
+    expect(targetFrameRate("standard", [72], 120)).toBeNull();
   });
 });

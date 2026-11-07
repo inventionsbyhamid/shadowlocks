@@ -59,11 +59,14 @@ export function detectHeadset(ua: string, gl: WebGLRenderingContext | WebGL2Rend
 }
 
 /**
- * The frame rate to ask a session for, when the session offers it: 90 Hz on the standard path (Quest 3 and 3S), 72 Hz
- * on the XR2 Gen 1 headsets, or `wanted` when given (the `?hz=` field switch). Null: leave the browser's rate alone (a
- * phone's session offers no rates).
+ * The frame rate to ask a session for, of those it offers: `wanted` when given and offered (the `?hz=` field switch),
+ * else the headset's own, 90 Hz on the standard path (Quest 3 and 3S) or 72 Hz on the XR2 Gen 1 headsets, when offered.
+ * Null: leave the browser's rate alone (neither is offered; a phone's session offers no rates).
  */
 export function targetFrameRate(cls: HeadsetClass, supported: ArrayLike<number> | null | undefined, wanted: number | null = null): number | null {
-  const want = wanted ?? (cls === "xr2-gen1" ? 72 : 90);
-  return supported && Array.from(supported).includes(want) ? want : null;
+  if (!supported) return null;
+  const rates = Array.from(supported);
+  if (wanted !== null && rates.includes(wanted)) return wanted;
+  const own = cls === "xr2-gen1" ? 72 : 90;
+  return rates.includes(own) ? own : null;
 }

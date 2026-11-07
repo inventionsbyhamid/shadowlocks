@@ -18,6 +18,10 @@ describe("field test flags", () => {
     expect(frameRateFlag("?perf=1&hz=72")).toBe(72);
     expect(frameRateFlag("?hz=120")).toBe(120);
     for (const bad of ["?hz=60", "?hz=", "?hz=90.5", "?hz=fast", "?hz=-90"]) expect(frameRateFlag(bad), bad).toBeNull();
+    // Only the rate written plainly: other spellings of 90 are not it ("+" in an address is a space).
+    for (const odd of ["?hz=0x5A", "?hz=9e1", "?hz=90.0", "?hz=+90", "?hz=%2090", "?hz=090", "?hz=90%20"]) {
+      expect(frameRateFlag(odd), odd).toBeNull();
+    }
   });
 
   it("multiview off hides only the multiview extension", () => {

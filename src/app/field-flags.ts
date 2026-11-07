@@ -5,7 +5,8 @@
 //   ?multiview=0  draw the two eyes one after the other instead of together (no OCULUS_multiview), to
 //                 compare frame times with the default
 //   ?hz=90        ask the session for 90 Hz (or 72, 80, 120) instead of the headset's own rate (72 on Quest 2 and
-//                 Pro, 90 on Quest 3 and 3S: headset.ts), to compare rates on a real headset
+//                 Pro, 90 on Quest 3 and 3S: headset.ts), to compare rates on a real headset; a rate the session
+//                 does not offer leaves the headset's own
 //   ?box=N        start straight into box N as practice, from the start: it is never saved, solved or
 //                 collected, so the box in progress, the next box, the collection and the streak stay as
 //                 they were (its Next is box N+1, practice too)
@@ -30,10 +31,14 @@ export function readFieldFlags(search: string): FieldFlags {
 /** The frame rates `?hz=` takes (Quest Browser's WebXR rates). */
 export const FIELD_FRAME_RATES = [72, 80, 90, 120] as const;
 
-/** `?hz=N`: the frame rate to ask the session for instead of the headset's own, or null (none named, or a bad one). */
+/**
+ * `?hz=N`: the frame rate to ask the session for instead of the headset's own, or null (none named, or anything but one
+ * of FIELD_FRAME_RATES written plainly: "90.0", "9e1" or "+90" are not 90).
+ */
 export function frameRateFlag(search: string): number | null {
-  const n = Number(new URLSearchParams(search).get("hz"));
-  return (FIELD_FRAME_RATES as readonly number[]).includes(n) ? n : null;
+  const v = new URLSearchParams(search).get("hz");
+  if (v === null || !/^(72|80|90|120)$/.test(v)) return null;
+  return Number(v);
 }
 
 /** `?lesson=l1|l2`: the lesson to start in, as practice, or null when the address names none (or a bad one). */

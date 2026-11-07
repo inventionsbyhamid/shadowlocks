@@ -4,7 +4,11 @@
 // frame rates and features; IWER draws every profile with the same software renderer at the page's size.
 import type { Page } from "@playwright/test";
 
-export type IwerHeadset = "metaQuest2" | "metaQuestPro" | "metaQuest3";
+/**
+ * IWER's profiles used here. `oculusQuest1` is no target of the game: frame-rate.spec.ts uses it as a session that offers
+ * 72, 80 and 90 Hz but not 120 (the others offer all four).
+ */
+export type IwerHeadset = "metaQuest2" | "metaQuestPro" | "metaQuest3" | "oculusQuest1";
 
 /** Load the page with IWER's `device` profile instead of the project's. Call before boot(). */
 export async function emulateHeadset(page: Page, device: IwerHeadset): Promise<void> {
