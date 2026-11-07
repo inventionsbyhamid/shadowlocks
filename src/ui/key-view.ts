@@ -9,7 +9,9 @@
 // placeholder look); its colour follows the key's state (`paintCap`).
 import { signal, Vector3 } from "@iwsdk/core";
 import type { Screen } from "../app/screens";
+import type { V3 } from "../core/types";
 import { pressGate } from "../input/poke";
+import { hitKey, type KeyHit } from "../input/touch";
 import { KEY_EVENT, nearestFinger } from "../render/finger-key";
 import { KeyMotion } from "./keys";
 import { MOTION } from "./motion";
@@ -36,8 +38,11 @@ export interface KeyHooks {
 type PointerLike = { pointerType?: string };
 const isTouch = (e: unknown) => (e as PointerLike).pointerType === "touch";
 const scratch = new Vector3();
-const tipDist = new Float64Array(2);
-const tipOver = new Uint8Array(2);
+/** Room for both hands' fingertips and a phone touch's. */
+const tipDist = new Float64Array(3);
+const tipOver = new Uint8Array(3);
+/** A phone touch's poke presses this far behind a key's plate (m): 12 mm past the face of a cap standing 8 mm proud. */
+export const KEY_TAP_PRESS_M = -0.004;
 const axisX = new Vector3();
 const axisY = new Vector3();
 const axisN = new Vector3();
@@ -172,6 +177,17 @@ export class KeyView {
       }
     } else if (e === KEY_EVENT.cancel) this.fingerPressed = false;
     return this.motion.touched !== was;
+  }
+
+  /**
+   * A phone's touch ray (world) against this key's face: the nearest hit so far goes into `out` (its poke presses 4 mm
+   * behind the plate, as a fingertip's does). Allocation free.
+   */
+  tapHit(o: Readonly<V3>, d: Readonly<V3>, out: KeyHit): boolean {
+    this.el.updateWorldMatrix(true, false);
+    const e = this.el.matrixWorld.elements;
+    const halfW = Math.hypot(e[0]!, e[1]!, e[2]!) / 2, halfH = Math.hypot(e[4]!, e[5]!, e[6]!) / 2;
+    return hitKey(o, d, e, halfW, halfH, KEY_TAP_PRESS_M, out);
   }
 
   /** A press, through the press gate every button shares (one press per 150 ms across all keys). True when it counted. */
