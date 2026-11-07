@@ -26,10 +26,23 @@ export function withoutStalls(frames: readonly number[]): StallMean {
   return { meanMs: kept.reduce((a, b) => a + b, 0) / Math.max(1, kept.length), stalls: frames.length - kept.length };
 }
 
+/**
+ * The window to judge: of those with at most MAX_STALLS stalls (a window with more measures nothing), the one `better`
+ * prefers; with none of those, the one with the fewest stalls, so the check fails on its stall count.
+ */
+function pick<T extends { stalls: number }>(judged: readonly T[], better: (a: T, b: T) => boolean): number {
+  let index = -1;
+  judged.forEach((w, i) => {
+    if (w.stalls <= MAX_STALLS && (index < 0 || better(w, judged[index]!))) index = i;
+  });
+  if (index >= 0) return index;
+  return judged.reduce((best, w, i) => (w.stalls < judged[best]!.stalls ? i : best), 0);
+}
+
 /** Of several windows' frame times, the one the cost is judged on (the lower mean without stalls) and its index. */
 export function judgeWindows(windows: readonly (readonly number[])[]): StallMean & { index: number } {
   const judged = windows.map(withoutStalls);
-  const index = judged.reduce((best, w, i) => (w.meanMs < judged[best]!.meanMs ? i : best), 0);
+  const index = pick(judged, (a, b) => a.meanMs < b.meanMs);
   return { ...judged[index]!, index };
 }
 
@@ -46,6 +59,6 @@ export function p95WithoutStalls(frames: readonly number[]): StallP95 {
 /** Of several windows' frame times, the one judged on its p95 without stalls (the lower one) and its index. */
 export function judgeWindowsP95(windows: readonly (readonly number[])[]): StallP95 & { index: number } {
   const judged = windows.map(p95WithoutStalls);
-  const index = judged.reduce((best, w, i) => (w.p95Ms < judged[best]!.p95Ms ? i : best), 0);
+  const index = pick(judged, (a, b) => a.p95Ms < b.p95Ms);
   return { ...judged[index]!, index };
 }

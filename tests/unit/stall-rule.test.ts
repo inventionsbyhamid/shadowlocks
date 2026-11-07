@@ -27,6 +27,20 @@ describe("the stall rule", () => {
     expect(p95WithoutStalls([60, 70]).p95Ms).toBeNaN();
   });
 
+  it("a window with more than MAX_STALLS stalls is no measure: the better of the others is judged", () => {
+    // Ten stalls leave an ordinary p95 (1 ms) behind, but that window measures nothing; the fair one (4 stalls) counts.
+    const many = window(0, 10), fair = window(12, 4);
+    const j = judgeWindowsP95([fair, many]);
+    expect(j.index).toBe(0);
+    expect(j.stalls).toBe(4);
+    expect(j.p95Ms).toBe(2.9);
+    // The means likewise.
+    expect(judgeWindows([fair, many]).index).toBe(0);
+    // With no fair window at all, the one with the fewest stalls, so the check fails on its stall count.
+    expect(judgeWindowsP95([window(0, 8), window(0, 7)]).index).toBe(1);
+    expect(judgeWindows([window(0, 8), window(0, 7)]).index).toBe(1);
+  });
+
   it("judges the better window by its p95 without stalls, as the means are judged", () => {
     const quiet = window(4, 1), busy = window(12, 6);
     const j = judgeWindowsP95([busy, quiet]);
