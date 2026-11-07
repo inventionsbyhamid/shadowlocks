@@ -23,8 +23,8 @@ import { onLangChange } from "../i18n";
 import type { HandJoints, HandSide } from "../input/hand-joints";
 import type { BoxScene } from "../render/box-scene";
 import { crystallise } from "../render/fx/crystallise";
-import { type GhostHand, type GhostLantern, GhostRig } from "../render/ghost-hand";
-import { HandShadow, MAX_HAND_OUTLINES } from "../render/hand-shadow";
+import { GHOST_SHADOW_BONES, type GhostHand, type GhostLantern, GhostRig } from "../render/ghost-hand";
+import { HandShadow } from "../render/hand-shadow";
 import { radialTexture } from "../render/lantern-view";
 import { LIGHT_BLEND } from "../render/light-blend";
 import { boxToWorld } from "../render/placement";
@@ -77,7 +77,8 @@ export class LessonView {
   readonly coachView: CoachLineView;
   private readonly cradle: Mesh;
   private readonly formGlow: Sprite;
-  private readonly ghostShadow = new HandShadow();
+  /** The ghost hand's shadow, cast from its own bones (as slim as the hand drawn). */
+  private readonly ghostShadow = new HandShadow(GHOST_SHADOW_BONES);
   private readonly ghostOutlines: V2[][] = [];
   private readonly ghostFinger: V2[][] = [];
   /** HandShadow reads joints through this: the ghost's world joints on its side, nothing on the other. */
@@ -133,7 +134,7 @@ export class LessonView {
     this.formGlow.scale.setScalar(LESSON_LOOK.formGlowSize);
     this.formGlow.visible = false;
     scene.root.add(this.formGlow);
-    for (let i = 0; i < MAX_HAND_OUTLINES; i++) this.ghostOutlines.push([]);
+    for (let i = 0; i < this.ghostShadow.maxOutlines; i++) this.ghostOutlines.push([]);
     const ghost = this.ghost;
     this.ghostJoints = { positions: (side: HandSide) => (side === ghost.side ? ghost.world : null) } as unknown as HandJoints;
     const scraps = scene.scraps;
