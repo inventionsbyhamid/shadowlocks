@@ -76,9 +76,15 @@ if (all.includes("sw.js")) {
   for (const u of precached) if (listed.indexOf(u) !== listed.lastIndexOf(u)) fail(`sw.js lists ${u} more than once`);
   if (/importScripts\(/.test(sw)) fail("sw.js imports scripts (expected the workbox runtime inlined)");
   // Never loaded by the app: the worker itself, host config, the host's 404 page, asset links
-  // (checked on the network), docs.
-  const uncachedOk = /^(?:sw\.js|_headers|_redirects|404\.html|\.well-known\/.*|.*\.md)$/;
+  // (checked on the network), docs, and what only link scrapers and search engines fetch
+  // (SCRAPER_FILES in src/platform/pwa-config.ts: the card image, robots.txt, the sitemap).
+  const uncachedOk = /^(?:sw\.js|_headers|_redirects|404\.html|og-image\.jpg|robots\.txt|sitemap\.xml|\.well-known\/.*|.*\.md)$/;
   for (const f of all) if (!uncachedOk.test(f) && !precached.has(f)) fail(`${f} is not precached (add its type to PRECACHE_EXTENSIONS or raise the size limit)`);
+  if (all.includes("index.html")) {
+    // The link card image: shipped, never precached (offline installs stay the same size).
+    if (!all.includes("og-image.jpg")) fail("missing og-image.jpg (the link card image)");
+    if (precached.has("og-image.jpg")) fail("sw.js precaches og-image.jpg (only link scrapers fetch it)");
+  }
   for (const u of precached) if (!all.includes(u)) fail(`sw.js precaches ${u}, which the build does not have`);
   const bytes = [...precached].filter((u) => all.includes(u)).reduce((n, u) => n + size(u), 0);
   console.log(`check-dist: precache ${precached.size} files, ${mb(bytes)}`);
@@ -89,6 +95,12 @@ if (all.includes("sw.js")) {
   if (served > CODE_ART_MAX) fail(`code and art are ${served} bytes Brotli, over the ${CODE_ART_MAX} byte budget`);
   // A stamp for this build: scripts/deploy-pages.sh compares it with the copy it pulled.
   console.log(`check-dist: sw.js sha256 ${createHash("sha256").update(sw).digest("hex")}`);
+}
+if (all.includes("index.html")) {
+  // Vite fills %VITE_...% in the page from the env; one left means a value the build never got.
+  const page = fs.readFileSync(path.join(dir, "index.html"), "utf8");
+  const left = /%VITE_[A-Z0-9_]*%/.exec(page);
+  if (left) fail(`index.html still has ${left[0]} (vite.config.ts gives VITE_SITE_ORIGIN a default)`);
 }
 if (all.includes("manifest.webmanifest")) {
   const m = JSON.parse(fs.readFileSync(path.join(dir, "manifest.webmanifest"), "utf8"));

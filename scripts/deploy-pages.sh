@@ -179,6 +179,16 @@ for p in "${PROJECTS[@]}"; do
 done
 PROJECTS=("${UNIQUE[@]}")
 [[ $BRANCH =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$ ]] || { echo "bad branch name: $BRANCH" >&2; exit 2; }
+# The host a project's deploy serves: the live one for main, <branch>.<project>.pages.dev for a preview
+# (Pages lowercases the branch and turns _ into -).
+host_of() {
+  if [ "$BRANCH" = main ]; then printf '%s.pages.dev' "$1"
+  else printf '%s.%s.pages.dev' "$(printf '%s' "$BRANCH" | tr '[:upper:]_' '[:lower:]-')" "$1"; fi
+}
+# The origin the page's link card image URLs name (og:image, twitter:image; VITE_SITE_ORIGIN in vite.config.ts): the
+# one host this deploy goes to (the preview names itself, so its card works before production has the image), or the
+# public host when it goes to several (--both: each then serves the same image, and the public URL works on all).
+if [ ${#PROJECTS[@]} -eq 1 ]; then SITE_ORIGIN=https://$(host_of "${PROJECTS[0]}"); else SITE_ORIGIN=https://$PUBLIC_PROJECT.pages.dev; fi
 NOW=$(date -u +%s)
 if [ "$PRINT_PLAN" -eq 1 ] && [ -n "${NS_DEPLOY_NOW:-}" ]; then
   [[ $NS_DEPLOY_NOW =~ ^[0-9]{1,12}$ ]] || { echo "bad NS_DEPLOY_NOW: $NS_DEPLOY_NOW (epoch seconds)" >&2; exit 2; }
@@ -231,9 +241,9 @@ DIST=$ROOT/dist
 rm -rf "$DIST"
 LOG=$(mktemp "${TMPDIR:-/tmp}/deploy-build.XXXXXX")
 trap 'rm -f "$LOG"' EXIT
-echo "building $COMMIT on $HOST"
+echo "building $COMMIT on $HOST (link card image on $SITE_ORIGIN)"
 set +e
-"$ROOT/scripts/remote.sh" "$BUILD_LANE" --pull dist -- npm run build 2>&1 | tee "$LOG"
+"$ROOT/scripts/remote.sh" "$BUILD_LANE" --env "VITE_SITE_ORIGIN=$SITE_ORIGIN" --pull dist -- npm run build 2>&1 | tee "$LOG"
 rc=${PIPESTATUS[0]}
 set -e
 [ "$rc" -eq 0 ] || { echo "refused: the build failed (exit $rc)" >&2; exit 3; }
@@ -253,6 +263,8 @@ fi
 [ "$(shasum -a 256 "$DIST/sw.js" | cut -d' ' -f1)" = "$STAMP" ] || { echo "refused: dist/sw.js is not this build's" >&2; exit 3; }
 cmp -s "$DIST/.well-known/assetlinks.json" "$ROOT/public/.well-known/assetlinks.json" \
   || { echo "refused: dist/.well-known/assetlinks.json is not the committed one" >&2; exit 3; }
+grep -qF "<meta property=\"og:image\" content=\"$SITE_ORIGIN/og-image.jpg\" />" "$DIST/index.html" \
+  || { echo "refused: dist/index.html's og:image is not $SITE_ORIGIN/og-image.jpg" >&2; exit 3; }
 FILES=$(find "$DIST" -type f | wc -l | tr -d ' ')
 echo "dist: $FILES files, $(du -sh "$DIST" | cut -f1)"
 if grep -q REPLACE_WITH "$DIST/.well-known/assetlinks.json"; then
@@ -350,7 +362,7 @@ fi
 [ "$BRANCH" = main ] || sleep 10
 bad=0
 for p in "${PROJECTS[@]}"; do
-  if [ "$BRANCH" = main ]; then host=$p.pages.dev; else host=$(printf '%s' "$BRANCH" | tr '[:upper:]_' '[:lower:]-').$p.pages.dev; fi
+  host=$(host_of "$p")
   echo "checking https://$host"
   verify "$host" "$DIST/.well-known/assetlinks.json" || bad=1
 done

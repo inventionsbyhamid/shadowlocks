@@ -3,10 +3,58 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
-    <link rel="icon" type="image/png" href="./icons/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="./icons/favicon-16.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png" />
     <meta name="theme-color" content="#1a1410" />
-    <meta name="description" content="A puzzle box of light and shadow for Meta Quest. Seated, hands only, plays offline." />
     <title>Shadow Locks</title>
+    <!-- Link cards and search. English only: scrapers run no script (src/app/landing.ts sets the player's language
+         later). The canonical and og:url are always the public host; the image is on the host the build is for
+         (the VITE_SITE_ORIGIN env value, set by scripts/deploy-pages.sh; vite.config.ts defaults it to the public host), so a
+         preview's card shows its own image. -->
+    <meta name="description" content="A relaxing mixed reality puzzle game for Meta Quest, played with your hands. Move a lantern until the shadows of brass scraps fill each lock's shape. Seated, with a new Daily Box every day." />
+    <link rel="canonical" href="https://shadowlocks.pages.dev/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Shadow Locks" />
+    <meta property="og:title" content="Shadow Locks" />
+    <meta property="og:description" content="A relaxing mixed reality puzzle game for Meta Quest, played with your hands. Move a lantern until the shadows of brass scraps fill each lock's shape. Seated, with a new Daily Box every day." />
+    <meta property="og:url" content="https://shadowlocks.pages.dev/" />
+    <meta property="og:image" content="%VITE_SITE_ORIGIN%/og-image.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:alt" content="Shadow Locks: a lit puzzle box with a glowing crescent lock and a small lantern, in a dark theatre." />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="es_ES" />
+    <meta property="og:locale:alternate" content="es_MX" />
+    <meta property="og:locale:alternate" content="fr_FR" />
+    <meta property="og:locale:alternate" content="de_DE" />
+    <meta property="og:locale:alternate" content="pt_BR" />
+    <meta property="og:locale:alternate" content="ja_JP" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Shadow Locks" />
+    <meta name="twitter:description" content="A relaxing mixed reality puzzle game for Meta Quest, played with your hands. Move a lantern until the shadows of brass scraps fill each lock's shape. Seated, with a new Daily Box every day." />
+    <meta name="twitter:image" content="%VITE_SITE_ORIGIN%/og-image.jpg" />
+    <meta name="twitter:image:alt" content="Shadow Locks: a lit puzzle box with a glowing crescent lock and a small lantern, in a dark theatre." />
+    <!-- A data block, never run (the CSP's script-src does not apply to it). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "VideoGame",
+        "name": "Shadow Locks",
+        "description": "A relaxing mixed reality puzzle game for Meta Quest, played with your hands. Move a lantern until the shadows of brass scraps fill each lock's shape. Seated, with a new Daily Box every day.",
+        "url": "https://shadowlocks.pages.dev/",
+        "image": "%VITE_SITE_ORIGIN%/og-image.jpg",
+        "genre": "Puzzle",
+        "gamePlatform": "Meta Quest",
+        "applicationCategory": "Game",
+        "inLanguage": ["en", "es", "fr", "de", "pt-BR", "ja"],
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "author": { "@type": "Person", "name": "Hamid Siddiqui" },
+        "publisher": { "@type": "Person", "name": "Hamid Siddiqui" }
+      }
+    </script>
     <style>
       /* The look pick's faces, from our own origin (scripts/fonts; renamed copies of Limelight and Josefin Sans Bold,
          THIRD_PARTY_NOTICES.md). The page shows in the fallbacks until they arrive. */

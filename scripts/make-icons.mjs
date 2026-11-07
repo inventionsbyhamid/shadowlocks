@@ -2,7 +2,8 @@
 // Draws the app icon (a lit frosted panel in a walnut frame with a keyhole's shadow on it: a lock
 // cast by light) and writes the PNGs the web app manifest lists. Shapes only, so no font is needed.
 // Usage (on the build server): node scripts/make-icons.mjs [out dir, default public/icons]
-// Writes icon.svg, icon-192.png, icon-512.png and icon-512-maskable.png.
+// Writes icon.svg, icon-192.png, icon-512.png and icon-512-maskable.png, plus the page's own icons (index.html,
+// privacy.html): apple-touch-icon.png (180 px) and favicon-32.png and favicon-16.png for desktop tabs.
 import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
@@ -56,4 +57,7 @@ const png = (svg, size, file) =>
 await png(full, 192, "icon-192.png");
 await png(full, 512, "icon-512.png");
 await png(safe, 512, "icon-512-maskable.png");
+await png(full, 180, "apple-touch-icon.png");
+await png(full, 32, "favicon-32.png");
+await png(full, 16, "favicon-16.png");
 for (const f of fs.readdirSync(out)) console.log(`${f} ${fs.statSync(path.join(out, f)).size} bytes`);
