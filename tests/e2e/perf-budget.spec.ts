@@ -285,3 +285,66 @@ test("box 15 opening: its busiest frame stays within 100 draw calls and 100k tri
   expect(peak.calls).toBeLessThanOrEqual(MAX_PEAK_CALLS);
   expect(peak.triangles).toBeLessThanOrEqual(MAX_TRIANGLES);
 });
+
+test("box 15 in play with the tip on the coach line and a settle ripple: the busiest frame within the play cap", async ({
+  page,
+  boot,
+}, testInfo) => {
+  // Visual mode: a shot of the lantern in its ripple is taken on the way (the lantern's body and ring, as drawn).
+  const app = await boot({ mode: "visual" });
+  await page.evaluate(() => window.__sl!.session.play({ kind: "box", n: 15 }));
+  await app.stepUntil(
+    (_ns, w) => {
+      const s = w.__sl.session.state();
+      return s?.stage === "playing" && s.revealed;
+    },
+    { maxMs: 10_000, label: "box 15 in play" },
+  );
+  // A fresh profile's first tip shows on the coach line at box 15 (the earliest not yet seen).
+  await app.stepUntil((_ns, w) => w.__sl.lessons.state().coach.opacity > 0.9, { maxMs: 10_000, label: "the tip on the coach line" });
+  // The lantern carried slowly onto the finger lock's spot: it settles there and ripples (the finger lock needs a
+  // finger, so it stays shut: no lock-opening light in these frames).
+  const [f] = await fingerLocks(page);
+  expect(f).toBeDefined();
+  const right = new Hands(app, "right");
+  await page.evaluate((L) => window.__sl!.placeLantern([L[0], L[1] - 0.12, L[2] + 0.1]), f!.spot);
+  await app.step(3);
+  const off = await grab(app, page, right);
+  await page.evaluate(() => window.__ns!.resetPerf());
+  await carry(right, off, await toWorld(page, f!.spot), 3000);
+  await app.stepUntil((_ns, w) => w.__sl.lantern().mode === "settled", { maxMs: 3_000, label: "settled on the spot" });
+  let ring = 0, chip = 0, shot = false;
+  for (let i = 0; i < 45; i++) {
+    await app.step(1);
+    const l = await lantern(page);
+    ring = Math.max(ring, l.ripple);
+    chip = Math.max(chip, (await page.evaluate(() => window.__sl!.lessons.state().coach.opacity)) as number);
+    if (!shot && l.ripple > 0.5) {
+      const [w] = await worldOf(page, [l.pos]);
+      await app.captureHeadset("perf-lantern-ripple-headset", { x: w![0], y: w![1], z: w![2] }, 40);
+      shot = true;
+    }
+  }
+  const p = await app.perf();
+  // What draws now (one call each, both views counted by the renderer): for the record.
+  const drawn = await page.evaluate(() => {
+    const names: Record<string, number> = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window.__ns!.world as any).scene.traverseVisible((o: any) => {
+      if (o.isMesh || o.isSprite || o.isLine || o.isPoints) names[o.name || "(unnamed)"] = (names[o.name || "(unnamed)"] ?? 0) + 1;
+    });
+    return Object.entries(names)
+      .sort()
+      .map(([k, v]) => (v > 1 ? `${k} x${v}` : k))
+      .join(", ");
+  });
+  const line =
+    `perf-budget, tip and settle ripple: busiest frame ${p.callsMax} draw calls (both views), ${p.trianglesMax} triangles; ` +
+    `ring ${ring.toFixed(2)}, coach chip ${chip.toFixed(2)}; drawn now: ${drawn}`;
+  testInfo.annotations.push({ type: "perf", description: line });
+  console.log(line);
+  expect(ring).toBeGreaterThan(0.5);
+  expect(chip).toBeGreaterThan(0.5);
+  expect((await page.evaluate(() => window.__sl!.session.state()))!.open).toEqual([]);
+  expect(p.callsMax).toBeLessThanOrEqual(MAX_CALLS);
+});
