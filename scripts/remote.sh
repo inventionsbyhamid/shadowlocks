@@ -47,16 +47,17 @@ SHARED_SLOTS=4
 # host a browser's software renderer starts threads for all 40, spends the quota early in each 100 ms period, and the
 # kernel then stops the whole container for the rest of it: pauses of 46 to 80 ms, in every period of a timed window,
 # that land in whatever the page was doing. A run that times real milliseconds (--timing-cpus: scripts/e2e.sh's
-# exclusive runs) gets TIMING_CPUS to itself instead, pinned and with no quota, so nothing stops it: six whole cores
-# (both hyperthreads of each) of NUMA node 1, which takes none of the network card's interrupts; six threads on three
-# cores starved the page's main thread (p95 8.5 ms at 4x, CPU pressure 88%). The runs that can overlap a timed run,
-# those holding no e2e lock (unit tests, typechecks, builds), keep the quota and are pinned to OTHER_CPUS, off the
-# timing cores. Runs holding the e2e lock never overlap a timed run (it holds that lock alone), so they keep the quota
-# on all 40 CPUs, as before. Other people's containers on this server are not ours to pin and may still run on the
-# timing cores. The two sets must not overlap and together cover the host's 40 CPUs.
+# exclusive runs) gets TIMING_CPUS to itself instead, pinned and with no quota, so nothing stops it: all of NUMA node 1
+# (10 cores, 20 threads), which takes none of the network card's interrupts. Its browser then uses about 11 CPUs and
+# leaves the page's main thread a free one. Fewer starve it: 6 threads on 3 cores gave our JS a p95 of 8.5 ms at 4x,
+# and 12 threads on 6 cores, filled to 11.2, gave 3.5 to 4.2 ms, where the quota gave 2.2 to 2.9. The runs that can
+# overlap a timed run, those holding no e2e lock (unit tests, typechecks, builds), keep the quota and are pinned to
+# OTHER_CPUS (node 0), off the timing cores. Runs holding the e2e lock never overlap a timed run (it holds that lock
+# alone), so they keep the quota on all 40 CPUs, as before. Other people's containers on this server are not ours to
+# pin and may still run on the timing cores. The two sets must not overlap and together cover the host's 40 CPUs.
 CPU_QUOTA=6
-TIMING_CPUS=14-19,34-39
-OTHER_CPUS=0-13,20-33
+TIMING_CPUS=10-19,30-39
+OTHER_CPUS=0-9,20-29
 
 usage() {
   echo "usage: $0 <lane> [--image <img>] [--shm <size>] [--env K=V]... [--lock <name> | --lock-shared <name>] [--timing-cpus] [--pull <output>]... [--expect-gb <n>] -- <command...>" >&2

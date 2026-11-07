@@ -35,7 +35,7 @@
 # shared in one of four slots (remote.sh --lock-shared e2e). Waiting for the lock gives up after
 # NS_LOCK_WAIT seconds (default 3600) with exit 75. Older copies of this script hold the same lock
 # exclusively, so they never overlap with any run of this one.
-# CPUs (Task 27): an exclusive run's container is pinned to remote.sh's TIMING_CPUS (six whole cores)
+# CPUs (Task 27): an exclusive run's container is pinned to remote.sh's TIMING_CPUS (NUMA node 1)
 # with no CPU quota (remote.sh --timing-cpus), so the kernel never stops it mid-frame; a functional
 # run keeps the 6-CPU quota on any CPU, as before (it never overlaps an exclusive run).
 # A run that writes a lot (a video render) sets NS_EXPECT_GB=<n>: it then needs 100 + n GB free.
