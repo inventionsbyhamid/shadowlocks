@@ -23,7 +23,7 @@ export const DE: Copy = {
     captionsSub: "Töne als Text",
     motion: "Weniger Bewegung",
     motionSub: "Kein Wippen",
-    dimming: "Raum abdunkeln",
+    dimming: "Abdunkeln",
     dimmingSub: "Beim Spielen",
     warmth: "Wärme",
     warmthSub: "Glut, Summen",

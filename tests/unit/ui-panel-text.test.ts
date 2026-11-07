@@ -8,6 +8,8 @@ import { japaneseBreaks } from "../../src/ui/panel-ui";
 describe("Japanese panel text", () => {
   it("can break between characters, never before a closing mark or small kana, never inside a Latin word", () => {
     expect(japaneseBreaks("中身：金庫室のスケジュール。")).toBe("中 身： 金 庫 室 の ス ケ ジュー ル。");
+    // A space the reader sees (a number and its unit from Intl) keeps its width and never breaks.
+    expect(japaneseBreaks("24 cm")).toBe("24 cm");
     const store = japaneseBreaks(tableFor("ja").panels.trial.store);
     expect(store.startsWith("Meta Horizon Store ")).toBe(true);
     for (const s of ["夜勤の受付係の机から。", "「箱を開ける」", "ハロラン医師"]) {

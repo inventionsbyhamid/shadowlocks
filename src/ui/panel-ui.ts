@@ -24,12 +24,13 @@ interface Roll {
   counter: CountUp;
 }
 
-/** Japanese text with a plain space at every place a line may break (the Japanese atlas draws it with no width). */
+/**
+ * Japanese text with a plain space at every place a line may break (the Japanese atlas draws it with no width). A
+ * space already there is one the reader sees (between a number and its unit, "24 cm", or inside a Latin name), so
+ * it becomes a no-break space first: it keeps its width and never breaks.
+ */
 export function japaneseBreaks(s: string): string {
-  // Only plain spaces go: a no-break space is a gap the reader sees.
-  return breakUnits(s)
-    .map((u) => u.replace(/ +$/, ""))
-    .join(" ");
+  return breakUnits(s.replace(/ /g, " ")).join(" ");
 }
 
 /** Told when a count-up shows its next value (`k` of the way, 0..1) and when it lands (`done`). */

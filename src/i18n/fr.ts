@@ -101,7 +101,7 @@ export const FR: Copy = {
       note: "Les changements s'appliquent tout de suite",
       recenter: "Recentrer",
       reset: "Effacer",
-      resetSub: "Ta progression",
+      resetSub: "Progression",
       done: "Terminé",
     },
     reset: {
