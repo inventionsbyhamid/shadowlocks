@@ -224,3 +224,61 @@ describe("filling in what the owner sends", () => {
     expect(r.out).toMatch(/twa\/competition\/twa-manifest\.json is not what the generator makes/);
   });
 });
+
+describe("the supported headsets in the generated APK manifest", () => {
+  const MANIFEST = "app/src/main/AndroidManifest.xml";
+  const DEVICES = '<meta-data android:name="com.oculus.supportedDevices" android:value="quest2|questpro|quest3|quest3s" />';
+  /** A generated Gradle project's manifest, as Bubblewrap's Quest template lays it out (no supported devices). */
+  const generated = (extra = "") =>
+    [
+      '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.shadowlocks">',
+      '    <uses-permission android:name="com.oculus.permission.HAND_TRACKING" />',
+      "    <application",
+      '        android:name="Application"',
+      '        android:theme="@android:style/Theme.Translucent.NoTitleBar">',
+      `${extra}        <meta-data android:name="asset_statements" android:resource="@string/assetStatements" />`,
+      "    </application>",
+      "</manifest>",
+      "",
+    ].join("\n");
+  const project = (xml: string): string => {
+    const root = tmpRoot();
+    fs.mkdirSync(path.join(root, "twa-build", path.dirname(MANIFEST)), { recursive: true });
+    fs.writeFileSync(path.join(root, "twa-build", MANIFEST), xml);
+    return root;
+  };
+  const manifest = (root: string) => fs.readFileSync(path.join(root, "twa-build", MANIFEST), "utf8");
+
+  it("declares Quest 2, Quest Pro, Quest 3 and Quest 3S once, inside the application, the rest untouched", () => {
+    const root = project(generated());
+    const r = run(root, "devices", "twa-build");
+    expect(r.status, r.out).toBe(0);
+    expect(r.out).toMatch(/quest2\|questpro\|quest3\|quest3s/);
+    const xml = manifest(root);
+    expect(xml.split(DEVICES)).toHaveLength(2);
+    expect(xml.indexOf(DEVICES)).toBeGreaterThan(xml.indexOf("<application"));
+    expect(xml.indexOf(DEVICES)).toBeLessThan(xml.indexOf("</application>"));
+    expect(xml.replace(`\n        ${DEVICES}`, "")).toBe(generated());
+    // Run again (a second build): still one entry.
+    expect(run(root, "devices", "twa-build").status).toBe(0);
+    expect(manifest(root).split(DEVICES)).toHaveLength(2);
+  });
+
+  it("replaces a narrower list a template might write", () => {
+    const root = project(generated('        <meta-data\n            android:name="com.oculus.supportedDevices"\n            android:value="quest3|quest3s" />\n'));
+    expect(run(root, "devices", "twa-build").status).toBe(0);
+    const xml = manifest(root);
+    expect(xml).toContain(DEVICES);
+    expect(xml).not.toContain('"quest3|quest3s"');
+  });
+
+  it("refuses a folder with no generated manifest, or a manifest with no application", () => {
+    const root = tmpRoot();
+    const missing = run(root, "devices", "twa-build");
+    expect(missing.status).toBe(2);
+    expect(missing.out).toMatch(/after bubblewrap update/);
+    const bare = project('<manifest package="com.shadowlocks"></manifest>\n');
+    expect(run(bare, "devices", "twa-build").out).toMatch(/no <application> element/);
+    expect(run(bare, "devices").status).toBe(2);
+  });
+});
