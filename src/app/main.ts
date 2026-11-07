@@ -17,13 +17,14 @@ import { Access, billingFor } from "./access";
 import { emit, on } from "./bus";
 import { attachDrawer } from "./drawer-system";
 import { detectEdition, installedApp, paywallFor, showLanding, testOverrides } from "./edition";
-import { disableMultiview, readFieldFlags, showPerfPanel, startBox } from "./field-flags";
+import { disableMultiview, readFieldFlags, showPerfPanel, startBox, startLesson } from "./field-flags";
 import { attachGame } from "./game";
 import { recordHands, recordSeconds } from "./hand-recorder";
 import { attachHands } from "./hand-system";
 import { localInputProfileUrl } from "./input-profiles";
 import { attachLantern } from "./lantern-system";
-import { GameMenus, NO_LESSONS } from "./menu-game";
+import { attachLessons } from "./lessons";
+import { GameMenus } from "./menu-game";
 import { ProfileStore } from "./profile-store";
 import { go } from "./screens";
 import { SettingsStore } from "./settings";
@@ -112,16 +113,38 @@ async function main(): Promise<void> {
   // celebrations, the plate and the hint lantern.
   // Endless boxes ask the entitlement (pending until it is worked out; a trial over keeps the Daily Box and lessons).
   const play = attachGame({ world, shell, lantern, sound, hands, canPlayBox: () => access.canPlayBox, boxRefused: () => go("trial") });
-  // What the menus play through: the box session, and the lessons once they are wired (none yet: a first
-  // launch then opens on Home, and lesson rows stay put).
+  // Where the player starts: a field flag's box or lesson (practice), else a first launch's lesson, else Home. Test
+  // builds can keep Home (the e2e boot does, unless a test asks for the lessons).
+  const box = startBox(location.search), lesson = startLesson(location.search);
+  const skipLessons = TEST_HOOKS && !!(window as { __slSkipLessons?: boolean }).__slSkipLessons;
+  // The lessons (priority -2.7, after the game): the director, the ghost, the coach line; "Show me" on the hint
+  // lantern; the menus' lesson rows.
+  const lessons = attachLessons({
+    world,
+    scene: shell.box,
+    profiles: shell.profiles,
+    settings: shell.settings,
+    lantern,
+    hands,
+    sound,
+    play,
+    // In XR and seen: a hidden headset (or page) holds the lesson's clock, as the lifecycle holds the box's.
+    presenting: () => shell.sessionMode !== null && shell.lifecycle.active,
+    autoStart: () => !box && !lesson && !skipLessons,
+  });
+  // What the menus play through: the box session and the lessons. A progress reset lets a lesson or replay in the
+  // lap go as well as the box.
   const menuGame = new GameMenus({
     game: play.game,
     session: play.session,
-    lessons: NO_LESSONS,
+    lessons,
     canPlayBox: () => access.canPlayBox,
     toTrial: () => go("trial"),
     toPlay: () => go("play"),
-    clearBox: () => shell.box.setBox(null),
+    clearBox: () => {
+      lessons.stop();
+      shell.box.setBox(null);
+    },
   });
   shell.useMenuGame(menuGame);
   // Left hand on or off: the box behind the menus is rebuilt the other way round from its own save.
@@ -129,11 +152,12 @@ async function main(): Promise<void> {
     menuGame.rehand().catch((err) => console.error("the box could not be mirrored", err));
   });
   // The menu drawer in the box's plinth (priority -2.7, after the lantern: the hand holding it never pulls). Not
-  // while the box is opening or its reward is up; a menu over play holds the box (its clock stops, it saves).
+  // while the box is opening or its reward is up, nor while a lesson's example plays; a menu over play holds the box
+  // (its clock stops, it saves).
   const drawer = attachDrawer(world, {
     root: shell.box.root,
     busy: (side) => lantern.grab.holding(side),
-    allowed: () => play.session.stage !== "opening" && play.session.stage !== "reward",
+    allowed: () => play.session.stage !== "opening" && play.session.stage !== "reward" && lessons.drawerAllowed,
     reducedMotion: () => settings.get().reducedMotion,
     pulled: (at, hand) => sound.game.drawerPull(at, hand),
     menuOpen: (open) => {
@@ -145,12 +169,13 @@ async function main(): Promise<void> {
       shell.box.lantern.group.visible = !away;
     },
   });
-  hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play, drawer, access, fakeBilling: bill.fake, menuGame });
+  hooks?.installTestHooks(world, shell, system, { sound, lantern, hands, play, drawer, access, fakeBilling: bill.fake, menuGame, lessons });
   // The entitlement from the start (a first launch goes into a lesson, never through Home, which also asks it).
   void access.refresh();
+  // A first launch goes straight into its lesson (the shell asks the lessons); a field flag's box or lesson after.
   shell.start();
-  const box = startBox(location.search);
   if (box) play.game.playBox(box);
+  else if (lesson) lessons.start(lesson, { practice: true });
   sound.loadMusicLater();
   video?.installVideoMode(world);
 

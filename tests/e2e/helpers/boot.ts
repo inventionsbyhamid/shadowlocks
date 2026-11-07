@@ -55,6 +55,11 @@ export interface BootOptions {
   expectScreen?: string;
   /** Date and time inside the page at load (DEFAULT_DATE when not given); it then follows the frame clock. */
   date?: string | number | Date;
+  /**
+   * Let a first launch go into the lessons, as a player's does (the app starts lesson 1 until it is done). Off by
+   * default: the page opens on Home, as every other spec expects.
+   */
+  lessons?: boolean;
   testInfo?: TestInfo;
   /** Collect console lines here (the `test` fixture passes its own so they survive reloads). */
   consoleLines?: string[];
@@ -120,6 +125,11 @@ export async function boot(page: Page, o: BootOptions = {}): Promise<XrApp> {
   const seen = watch(page, o.consoleLines);
   await page.setViewportSize(o.viewport ?? VIEWPORTS[mode]);
   await page.addInitScript(installVirtualClock, { enabled: true, epochMs: new Date(o.date ?? DEFAULT_DATE).getTime() });
+  if (!o.lessons) {
+    await page.addInitScript(() => {
+      (window as { __slSkipLessons?: boolean }).__slSkipLessons = true;
+    });
+  }
   await page.goto(o.url ?? "/", { waitUntil: "load" });
 
   const app = new XrApp(page, mode, seen.lines, o.testInfo, seen.hosts, seen.paths);

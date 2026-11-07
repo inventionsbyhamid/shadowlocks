@@ -112,6 +112,26 @@ export const COPY = {
     tagline: "A puzzle box of light and shadow.",
     facts: "Seated. Hands only. Plays offline.",
   },
+  /** The lessons: the coach line, the lessons' and examples' names, and the tips. */
+  lessons: {
+    pickUp: "Pick up the lantern.",
+    watchMove: "Watch the shadows move.",
+    nearSwing: "Near pieces swing more.",
+    watch: "Watch.",
+    yourTurn: "Your turn.",
+    lineUp: "Line up the two rings.",
+    slide: "Now slide nearer or farther until it fills.",
+    finger: "One piece is missing. Your finger can cast it.",
+    drawer: "Pull the drawer to find these lessons again.",
+    puppets: "Put a hand in the light.",
+    titles: { l1: "Catch the light", l2: "Lend a hand" },
+    examples: { move: "Move the light", "near-far": "Near and far", rings: "Sight the rings", finger: "Lend a hand" },
+    tips: {
+      decoys: "Each lock has its own spot. Some scraps belong to none.",
+      ringless: "No rings here. Read the shadows.",
+      hidden: "This outline is hidden. What shape do the shadows make?",
+    },
+  },
 } as const;
 
 /** A copy line with its {names} filled in: `fill(COPY.game.boxNo, { n: 3 })` is "Box No. 3". */
