@@ -118,6 +118,19 @@ export interface ViewTangents {
   tanV: number;
 }
 
+/**
+ * A camera's view from its projection matrix's elements `e`, as half-angle tangents, taking the narrower side each way:
+ * a phone's camera can be off centre. Right is (1 + P[8]) / P[0] and left (1 - P[8]) / P[0], so the narrower is
+ * (1 - |P[8]|) / P[0]; up and down the same with P[9] and P[5]. PHONE_VIEW's where the matrix gives none. Into `out`.
+ */
+export function viewOf(e: ArrayLike<number> | null | undefined, out: ViewTangents): ViewTangents {
+  const sx = e ? e[0]! : Number.NaN, sy = e ? e[5]! : Number.NaN, ox = e ? e[8]! : 0, oy = e ? e[9]! : 0;
+  const h = (1 - Math.abs(ox)) / sx, v = (1 - Math.abs(oy)) / sy;
+  out.tanH = h > 0 && Number.isFinite(h) ? h : PHONE_VIEW.tanH;
+  out.tanV = v > 0 && Number.isFinite(v) ? v : PHONE_VIEW.tanV;
+  return out;
+}
+
 const clampPitch = (pitch: number) => Math.min(IN_VIEW_PITCH_DEG.up * DEG, Math.max(-IN_VIEW_PITCH_DEG.down * DEG, pitch));
 
 /**
