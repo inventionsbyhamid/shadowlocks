@@ -21,7 +21,7 @@ export const JA: Copy = {
     muted: "ミュート",
     music: "音楽",
     effects: "効果音",
-    boxSize: "箱サイズ",
+    boxSize: "サイズ",
     captions: "字幕",
     captionsSub: "音を文字で",
     motion: "動きを減らす",

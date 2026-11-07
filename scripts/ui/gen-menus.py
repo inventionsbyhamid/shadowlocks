@@ -171,9 +171,9 @@ settings = HEADER + head("""
   .cells { flex-direction: row; gap: 12; }
   .cell { flex-grow: 1; flex-basis: 0; flex-direction: row; align-items: center; gap: 8; height: 44; }
   .readout { flex-grow: 1; flex-basis: 0; height: 44; flex-direction: column; justify-content: center; gap: 5; padding-left: 8; padding-right: 8; }
-  .readout-top { flex-direction: row; justify-content: space-between; align-items: center; }
+  .readout-top { flex-direction: row; justify-content: space-between; align-items: center; gap: 3; }
   .readout-label { font-size: 10; font-weight: bold; color: #CDB27A; }
-  .readout-value { font-size: 11.5; font-weight: bold; color: #FFD36A; }
+  .readout-value { font-size: 11.5; font-weight: bold; color: #FFD36A; flex-shrink: 0; }
   .meter { flex-direction: row; gap: 1.2; }
   .seg { flex-grow: 1; height: 4; border-radius: 0.6; background-color: #3A3236; }
   .keys2 { flex-grow: 1; flex-basis: 0; flex-direction: row; gap: 12; }

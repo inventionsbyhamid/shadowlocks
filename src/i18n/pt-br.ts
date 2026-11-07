@@ -19,7 +19,7 @@ export const PT_BR: Copy = {
     muted: "Sem som",
     music: "Música",
     effects: "Efeitos",
-    boxSize: "Tamanho",
+    boxSize: "Caixa",
     captions: "Legendas",
     captionsSub: "Sons em texto",
     motion: "Menos movimento",
