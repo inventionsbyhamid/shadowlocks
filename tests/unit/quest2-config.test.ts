@@ -4,7 +4,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import suite, { BOT_SPECS, QUEST2_GATE_SPECS } from "../../playwright.config";
+import suite, { BOT_SPECS, FRAME_COST_SPECS, QUEST2_GATE_SPECS } from "../../playwright.config";
 import quest2 from "../../playwright.quest2.config";
 
 const E2E = join(__dirname, "..", "e2e");
@@ -16,8 +16,8 @@ describe("the Quest 2 and Pro gate is opt in", () => {
     expect(specs.filter((f) => f === "perf-budget-quest2.spec.ts")).toEqual(["perf-budget-quest2.spec.ts"]);
   });
 
-  it("leaves it out of the routine suite, beside the bot specs, and keeps perf-budget in", () => {
-    expect(suite.testIgnore).toEqual([BOT_SPECS, QUEST2_GATE_SPECS]);
+  it("leaves it out of the routine suite, beside the bot specs and the frame cost calibration, and keeps perf-budget in", () => {
+    expect(suite.testIgnore).toEqual([BOT_SPECS, QUEST2_GATE_SPECS, FRAME_COST_SPECS]);
     expect(specs).toContain("perf-budget.spec.ts");
   });
 

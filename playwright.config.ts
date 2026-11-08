@@ -17,13 +17,19 @@ export const BOT_SPECS = "**/bot*.spec.ts";
  */
 export const QUEST2_GATE_SPECS = "**/perf-budget-quest2.spec.ts";
 
+/**
+ * The frame cost calibration (tests/e2e/frame-cost.spec.ts): opt in, a measurement rather than a check (about 10 minutes
+ * of exclusive server time). It refits src/core/frame-cost.ts; playwright.frame-cost.config.ts runs it.
+ */
+export const FRAME_COST_SPECS = "**/frame-cost.spec.ts";
+
 // Runs on the build server in the shadowlocks-e2e image (scripts/e2e.sh), never on a laptop.
 // Software rendering is slow, so tests run one at a time with long timeouts and always on the
 // virtual clock (tests/e2e/helpers).
 export default defineConfig({
   testDir: "tests/e2e",
   testMatch: "**/*.spec.ts",
-  testIgnore: [BOT_SPECS, QUEST2_GATE_SPECS],
+  testIgnore: [BOT_SPECS, QUEST2_GATE_SPECS, FRAME_COST_SPECS],
   globalSetup: "./tests/e2e/global-setup.ts",
   outputDir: "test-results/artifacts",
   timeout: 10 * 60_000,

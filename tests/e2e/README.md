@@ -179,3 +179,19 @@ failure on a quiet server is a real regression. A pass or fail on a busy one say
 output gives the server load and how many times the kernel paused the test container. Naming the spec with the
 default config finds no tests. It moves into the routine set only after a real Quest Pro run (Part 4 of the report)
 shows where the true line is.
+
+## The frame cost calibration (opt in)
+
+`frame-cost.spec.ts` measures what the generator's frame cost model (`src/core/frame-cost.ts`) predicts. For 14 boxes
+it times our JS a frame at 4x, with the lantern carried in small loops round the box's biggest lock. At the end it
+prints the fit of the frame's mean, and of the shell system's, against the shadow corners each box casts, beside
+`FRAME_MS`. It checks no budget. Run it when the shadow cast or mesh, the lock measure or the box kinds change, and
+set `FRAME_MS` and `FRAME_CORNER_CAP` (`src/core/generator.ts`) from its fit:
+
+```sh
+# About 10 minutes once it starts; exclusive.
+scripts/e2e.sh -c playwright.frame-cost.config.ts
+```
+
+The first box of a run reads about 0.25 ms high, so box 12 goes first as a warm-up and is left out, as is each box's
+first window.
