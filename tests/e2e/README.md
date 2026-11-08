@@ -158,14 +158,16 @@ loaded server that `NS_MAX_RUN=10800` is the safer setting.
 ## The Quest 2 and Pro gate (opt in)
 
 `perf-budget-quest2.spec.ts` is perf-budget's play case on IWER's Quest 2 profile at a Quest Pro's CPU speed (5.72x,
-the slower of the two older Quests), with our JS held to a p95 of 3.75 ms (27% of a 72 Hz frame). It is strict, and
+the slower of the two older Quests), with our JS held to a p95 of 3.75 ms (27% of a 72 Hz frame). It plays two boxes,
+each judged on its own: box 15, and the heaviest box from 10 to 60 by the frame cost model (`helpers/heavy-box.ts`,
+box 52). It is strict, and
 it is not part of the routine suite (Ruling 142): on this server it sits on that line, and the server's load decides
 which side (3.30 ms in one run, 3.90 ms in the other, on the same code: `plan/sdd/sl-v1/task-25-report.md`, fix
 round 1). perf-budget's 3 ms at 4x does not cover it (3.75 ms at 5.72x is 2.62 ms at 4x). Run it through its own
 config, at low load:
 
 ```sh
-# About 2 minutes once it starts; waits for load 8 or less, then for the exclusive slot.
+# About 2 minutes once it starts (both boxes; 1.8 on 2026-11-08); waits for load 8 or less, then for the exclusive slot.
 NS_MAX_LOAD=8 NS_LOCK_WAIT=7200 scripts/e2e.sh -c playwright.quest2.config.ts
 ```
 
@@ -174,8 +176,25 @@ code of `PLAY_SYSTEMS` (`helpers/perf-play.ts`: hand-pinch, hands, lantern, game
 there are the lock measure (`src/core/solve.ts`), the shadow cast and mesh (`src/render/box-shadows.ts`,
 `src/render/shadow-mesh.ts`), and the fingertip and key reads. The run is exclusive (its name says perf-budget, and
 it carries `// e2e: exclusive`). With `NS_MAX_LOAD=8`, scripts/e2e.sh waits up to `NS_E2E_PREWAIT` (1800 s) for the
-load to come down, and scripts/remote.sh refuses the run (exit 3) if it is still over 8 then: try again later. A
+load to come down, and scripts/remote.sh refuses the run (exit 3) if it is still over 8 then: try again later, or
+give it longer (`NS_E2E_PREWAIT=10800`). A
 failure on a quiet server is a real regression. A pass or fail on a busy one says little. Each window's line in the
 output gives the server load and how many times the kernel paused the test container. Naming the spec with the
 default config finds no tests. It moves into the routine set only after a real Quest Pro run (Part 4 of the report)
 shows where the true line is.
+
+## The frame cost calibration (opt in)
+
+`frame-cost.spec.ts` measures what the generator's frame cost model (`src/core/frame-cost.ts`) predicts. For 14 boxes
+it times our JS a frame at 4x, with the lantern carried in small loops round the box's biggest lock. At the end it
+prints the fit of the frame's mean, and of the shell system's, against the shadow corners each box casts, beside
+`FRAME_MS`. It checks no budget. Run it when the shadow cast or mesh, the lock measure or the box kinds change, and
+set `FRAME_MS` and `FRAME_CORNER_CAP` (`src/core/generator.ts`) from its fit:
+
+```sh
+# About 10 minutes once it starts; exclusive.
+scripts/e2e.sh -c playwright.frame-cost.config.ts
+```
+
+The first box of a run reads about 0.25 ms high, so box 12 goes first as a warm-up and is left out, as is each box's
+first window.

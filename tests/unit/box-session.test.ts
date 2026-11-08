@@ -5,6 +5,7 @@ import { BoxSession, LOCK_TO_BOX_MS, REWARD_AUTO_MS, REWARD_UP_MS } from "../../
 import { ACT_HINT, ACT_NEXT, ACT_TAKE, type BoxSessionDeps, type SessionView } from "../../src/app/session-deps";
 import { COACH_HOLD_MS, CRYSTAL_MS, type FingerLoop } from "../../src/app/session-fingers";
 import type { FeedbackEvent } from "../../src/app/bus";
+import { ENVELOPE } from "../../src/core/envelope";
 import { GENERATOR_VERSION, generateBox } from "../../src/core/generator";
 import { mirrorBox } from "../../src/core/mirror";
 import { type BoxSnapshot, defaultSettings, migrate, newProfile, type Profile, type Settings } from "../../src/core/profile";
@@ -549,6 +550,36 @@ describe("box session", () => {
     const h3 = harness();
     await h3.session.start(BOX(2), h2.session.snapshot());
     expect([h3.session.isOpen(0), h3.session.isOpen(1)]).toEqual([true, true]);
+  });
+
+  it("a damaged save's lantern comes back in sight and reach (the comfort envelope and a margin), and one where a spot can be stays put", async () => {
+    const h = harness();
+    await h.session.start(BOX(2));
+    const box = h.session.box!;
+    h.place(box.locks[0]!.L);
+    h.until(() => h.session.isOpen(0), 1000);
+    const save = h.session.snapshot();
+    const restored = async (lantern: V3) => {
+      const h2 = harness();
+      await h2.session.start(BOX(2), { ...save, lantern });
+      expect(h2.session.isOpen(0)).toBe(true);
+      return h2.pos;
+    };
+    // Far out: behind the eyes, beside the waist, above the box. Each comes back to the envelope's edge, at most
+    // 0.05 past it.
+    const E = ENVELOPE, M = 0.05;
+    for (const [far, back] of [
+      [[0, 0, 30], [0, E.LY[1] + M, E.LZ[1] + M]],
+      [[40, -9, 30], [E.LX_MAX + M, E.LY[0] - M, E.LZ[1] + M]],
+      [[-3, 2, 0.2], [-E.LX_MAX - M, E.LY[1] + M, LANTERN_MIN_Z]],
+    ] as const) {
+      const got = await restored([far[0], far[1], far[2]]);
+      got.forEach((v, k) => expect(v, `${far} -> ${back}`).toBeCloseTo(back[k]!, 9));
+    }
+    // Anywhere a spot or the start can be (the envelope's corners, either hand), and this box's own: not moved.
+    const inside: V3[] = [box.start, ...box.locks.map((l) => l.L)];
+    for (const x of [-E.LX_MAX, E.LX_MAX]) for (const y of E.LY) for (const z of E.LZ) inside.push([x, y, z]);
+    for (const at of inside) expect(await restored([at[0], at[1], at[2]])).toEqual(at);
   });
 
   it("a save from a generator version it can no longer build (or none) starts its box afresh", async () => {
