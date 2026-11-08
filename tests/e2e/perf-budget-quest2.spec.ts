@@ -2,8 +2,9 @@
 // Opt in, outside the routine suite (Ruling 142), at low load: NS_MAX_LOAD=8 scripts/e2e.sh -c playwright.quest2.config.ts
 // (tests/e2e/README.md says when).
 // The performance budget on the older Quests: perf-budget.spec.ts's play case (helpers/perf-play.ts: box 15, and the
-// heaviest box from 10 to 60 by the frame cost model (helpers/heavy-box.ts), played through the box session, the lantern carried back and forth in the right hand, the left hand's fingers casting in
-// the beam) on IWER's Quest 2 profile (helpers/headset.ts), with the CPU throttled for the slower of Quest 2 and Pro.
+// heaviest box from 10 to 60 by the frame cost model (helpers/heavy-box.ts), played through the box session, the
+// lantern carried back and forth in the right hand, the left hand's fingers casting in the beam) on IWER's Quest 2
+// profile (helpers/headset.ts), with the CPU throttled for the slower of Quest 2 and Pro.
 //
 // The throttle: perf-budget's 4x stands for a Quest 3. The XR2 Gen 2's CPU is "more than 33 percent" faster than the
 // XR2 Gen 1's (Qualcomm and Meta at the Quest 3 launch), so a Quest 2 is at least 4 x 4/3 = 5.33x. A Quest Pro in
