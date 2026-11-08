@@ -101,6 +101,19 @@ export class Lifecycle {
     this.markDirty(now);
   }
 
+  /**
+   * Let the session go unsaved, paused (its clock stops): what it would save is out of date (another window moved its
+   * save on; shell.ts). It stays paused until a box is attached again.
+   */
+  release(now: number): void {
+    const s = this.current;
+    if (s && !this.pausedByUs) s.pause(now);
+    this.current = null;
+    this.pausedByUs = false;
+    this.dirty = false;
+    this.dueAt = Number.POSITIVE_INFINITY;
+  }
+
   setDocumentHidden(hidden: boolean, now: number): void {
     const was = this.active;
     const run = this.running;

@@ -4,7 +4,7 @@
 import { type Object3D, SessionMode, type World } from "@iwsdk/core";
 import { todayKey } from "../core/daily";
 import { specOfKey } from "../core/generator";
-import type { BoxSnapshot } from "../core/profile";
+import type { BoxSnapshot, Profile } from "../core/profile";
 import { BoxScene } from "../render/box-scene";
 import { placement } from "../render/placement";
 import { type RoomLight, RoomLights, Theatre } from "../render/theatre";
@@ -18,7 +18,7 @@ import { frameRateFlag } from "./field-flags";
 import { detectHeadset, type Headset, targetFrameRate } from "./headset";
 import { Lifecycle, type LifecycleSession, type XrVisibility } from "./lifecycle";
 import { Panels } from "./panels";
-import type { ProfileStore } from "./profile-store";
+import { type ProfileStore, type Slot, slotMoved } from "./profile-store";
 import { currentScreen, go } from "./screens";
 import type { SettingsStore } from "./settings";
 
@@ -126,6 +126,8 @@ export class Shell {
     // The box size is part of the placement: it scales the box around its panel (ShellSystem lays it out).
     placement.setSize(this.settings.get().boxSizeCm);
     this.settings.subscribe((s) => placement.setSize(s.boxSizeCm));
+    // Another window (the hosted link in a second tab) played on: its profile is taken in place of this one's.
+    profiles.onAdopt((before) => this.adopted(before));
     this.watchPage();
     this.watchXr();
   }
@@ -299,9 +301,30 @@ export class Shell {
     else if (kind === "box") void this.profiles.setCurrent(snap);
   }
 
+  /**
+   * Another window's newer profile was taken in place of this one's (profile-store.ts). What is in the lap was saved
+   * to the old one: when the other window moved its save on (played that box on, solved it, played another, went on
+   * with the lessons), it is let go unsaved and Home offers the stored one; else it plays on. The settings and the
+   * menus follow the new profile.
+   */
+  private adopted(before: Profile): void {
+    const p = this.profiles.profile;
+    const slot: Slot | null = this.flow?.slot() ?? (this.game?.behind()?.kind === "lesson" ? "lesson" : null);
+    if (slot && slotMoved(before, p, slot)) {
+      this.lifecycle.release(performance.now());
+      this.game?.dropped();
+      go("home");
+    }
+    if (JSON.stringify(before.settings) !== JSON.stringify(p.settings)) this.settings.changed();
+    this.panels.refresh();
+  }
+
   private watchPage(): void {
     document.addEventListener("visibilitychange", () => {
-      this.lifecycle.setDocumentHidden(document.visibilityState === "hidden", performance.now());
+      const hidden = document.visibilityState === "hidden";
+      this.lifecycle.setDocumentHidden(hidden, performance.now());
+      // Seen again: another window may have played on meanwhile (the profile store takes its profile).
+      if (!hidden) void this.profiles.refresh();
     });
     // Last chance on reload or close: write what we have.
     window.addEventListener("pagehide", () => this.lifecycle.flush(performance.now(), true));

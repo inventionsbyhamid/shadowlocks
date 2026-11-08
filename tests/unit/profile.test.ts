@@ -214,11 +214,11 @@ describe("profile", () => {
     vi.stubGlobal("indexedDB", new IDBFactory());
     const s = await openStore();
     expect(s.persistent).toBe(true);
-    expect(await s.load(NOW, BUILD)).toEqual(newProfile(NOW, BUILD));
+    expect(await s.load(NOW, BUILD)).toEqual({ profile: newProfile(NOW, BUILD), rev: 0 });
     const p = played();
-    await s.save(p);
+    await s.save(p, 0);
     const again = await openStore();
-    const back = await again.load(NOW, "2.0.0");
+    const back = (await again.load(NOW, "2.0.0")).profile;
     expect(back).toEqual({ ...p, lastSeenMs: NOW });
     expect(back.current).toEqual(snap("shadow-locks/6"));
     expect(back.daily.current).toEqual(snap("shadow-locks/daily/2026-11-06"));
@@ -228,7 +228,7 @@ describe("profile", () => {
     vi.stubGlobal("indexedDB", new IDBFactory());
     const ps = await ProfileStore.open(await openStore(), () => {}, clock());
     await ps.save();
-    expect(await (await openStore()).load(NOW + DAY, "2.0.0")).toMatchObject({ firstLaunch: { atMs: NOW, build: BUILD }, lastSeenMs: NOW + DAY });
+    expect((await (await openStore()).load(NOW + DAY, "2.0.0")).profile).toMatchObject({ firstLaunch: { atMs: NOW, build: BUILD }, lastSeenMs: NOW + DAY });
   });
 
   it("each save records the latest time seen, never an earlier one", async () => {
@@ -241,7 +241,7 @@ describe("profile", () => {
     t = NOW;
     await ps.save();
     expect(ps.profile.lastSeenMs).toBe(NOW + 2 * DAY);
-    expect((await (await openStore()).load(NOW, BUILD)).lastSeenMs).toBe(NOW + 2 * DAY);
+    expect((await (await openStore()).load(NOW, BUILD)).profile.lastSeenMs).toBe(NOW + 2 * DAY);
   });
 
   it("falls back to memory store when IndexedDB throws (one notice flag)", async () => {
@@ -285,7 +285,7 @@ describe("profile", () => {
     await ps.save();
     expect(ps.persistent).toBe(false);
     expect(n.out).toEqual([NOT_SAVED_NOTICE]);
-    expect((await store.load(NOW, BUILD)).nextBox).toBe(7);
+    expect((await store.load(NOW, BUILD)).profile.nextBox).toBe(7);
   });
 });
 
@@ -318,7 +318,7 @@ describe("reset progress", () => {
     expect(ps.profile).toBe(before);
     expect(ps.profile.nextBox).toBe(1);
     expect(ps.profile.settings.boxSizeCm).toBe(28);
-    const back = await (await openStore()).load(NOW, BUILD);
+    const back = (await (await openStore()).load(NOW, BUILD)).profile;
     expect(back.nextBox).toBe(1);
     expect(back.tipsSeen).toEqual([]);
     expect(back.settings.handed).toBe("left");

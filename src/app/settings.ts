@@ -19,14 +19,20 @@ export class SettingsStore {
   set(patch: Partial<Settings>): Promise<void> {
     const next = cleanSettings({ ...this.profiles.profile.settings, ...patch });
     this.profiles.profile.settings = next;
+    this.changed();
+    return this.profiles.save();
+  }
+
+  /** Tell the subscribers the settings changed (also when the profile under them was replaced: another window's). */
+  changed(): void {
+    const s = this.get();
     for (const fn of [...this.subs]) {
       try {
-        fn(next);
+        fn(s);
       } catch (err) {
         console.error("settings subscriber failed", err);
       }
     }
-    return this.profiles.save();
   }
 
   subscribe(fn: (s: Readonly<Settings>) => void): () => void {
