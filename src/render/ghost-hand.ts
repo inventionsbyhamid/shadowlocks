@@ -151,8 +151,6 @@ function bones(): GhostBone[] {
     metacarpal("middle"),
     metacarpal("ring"),
     metacarpal("pinky"),
-    // The wrist, fading out up the forearm.
-    flat(WRIST, FOREARM, L.wristWidth, L.forearmWidth, L.wristFlat, 0),
     finger("thumb-metacarpal", "thumb-phalanx-proximal"),
     finger("thumb-phalanx-proximal", "thumb-phalanx-distal"),
     finger("thumb-phalanx-distal", "thumb-tip"),
@@ -160,6 +158,9 @@ function bones(): GhostBone[] {
     ...digit("middle"),
     ...digit("ring"),
     ...digit("pinky"),
+    // The wrist, fading out up the forearm. Last: the capsules draw in this order and write depth, and its faint tail
+    // drawn first would cut whatever finger lay behind it.
+    flat(WRIST, FOREARM, L.wristWidth, L.forearmWidth, L.wristFlat, 0),
   ];
 }
 
