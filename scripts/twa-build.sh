@@ -9,19 +9,20 @@
 #                       not serve the game yet. The APK still opens the app's own host.
 #   --out <dir>         where each app's files go: <dir>/<app>/ (default test-results/twa)
 # A real build reads the keystore password on stdin (one line) and signs with the keystore at the configs' signingKey
-# path, /secrets/shadowlocks-android.keystore, mounted read-only for that build only (plan: ship steps, step 25). It
-# keeps the APK as <dir>/<app>/shadowlocks-<app>-<version>.apk.
+# path, /secrets/shadowlocks-android.keystore: scripts/remote.sh --signing-key gives it both (plan: ship steps, 25).
+# It keeps the APK as <dir>/<app>/shadowlocks-<app>-<version>.apk.
 #
 # For each app, in order, any failure stopping the build:
 #   1. node scripts/twa-config.mjs check --app <app>: the config is the generator's, no placeholder left for it;
-#   2. the host serves the icons as PNG (Bubblewrap fetches them: deploy the game to the app's host first);
+#   2. the host serves the icons as PNG and the web manifest (Bubblewrap fetches them: deploy the game to the app's
+#      host first), and its /.well-known/assetlinks.json is this build's (else the app opens to "will not launch");
 #   3. bubblewrap update --skipVersionUpgrade (the version is the config's; raise it with twa-config fill
 #      --<app>-version <n>);
 #   4. node scripts/twa-config.mjs patch: what Meta's release rules want and Bubblewrap has no setting for;
 #   5. bubblewrap build --skipSigning (Bubblewrap never sees the password: its own signing passes it to apksigner and
 #      jarsigner on their command lines), then zipalign, then apksigner signs with scheme v2 (Meta's
 #      VRC.Quest.Packaging.2), the passwords read from the environment of that one command;
-#   6. aapt and apksigner dumps (xmltree.txt, badging.txt, apksigner.txt), and node scripts/twa-config.mjs apk-check
+#   6. aapt and apksigner dumps (xmltree.txt, badging.txt, resources.txt, apksigner.txt), and node scripts/twa-config.mjs apk-check
 #      (apk-check.txt): every release rule, one line each, and the checked APK's SHA-256 last.
 # Secrets: the password lives in an unexported shell variable and reaches keytool and apksigner only through their
 # environment (`-storepass:env`, `--ks-pass env:`), never a command line, a log or a file; the script never runs with
@@ -63,6 +64,11 @@ if [ -n "$ICONS" ]; then
   [[ $ICONS =~ ^[a-z0-9.-]+$ ]] || { echo "twa-build: --icons-from takes a host name" >&2; exit 2; }
 fi
 [ -f scripts/twa-config.mjs ] || { echo "twa-build: run it from the repo root" >&2; exit 2; }
+# A real build's keystore password, read before any other program runs; then stdin is closed, so nothing this script
+# starts (npm and its install scripts, sdkmanager, Gradle and its plugins) can read it.
+PW=
+if [ "$TEST" = 0 ]; then IFS= read -r PW || true; fi
+exec </dev/null
 for tool in node npm java keytool curl; do
   command -v "$tool" >/dev/null || { echo "twa-build: no $tool in this image" >&2; exit 2; }
 done
@@ -93,8 +99,7 @@ if [ "$TEST" = 1 ]; then
   echo "twa-build: test build, signed with a throwaway key made for this run"
 else
   [ -r "$KEY_PATH" ] || { echo "twa-build: no keystore at $KEY_PATH (mount it read-only for the build)" >&2; exit 2; }
-  IFS= read -r PW || true
-  [ -n "${PW:-}" ] || { echo "twa-build: no keystore password on stdin" >&2; exit 2; }
+  [ -n "$PW" ] || { echo "twa-build: no keystore password on stdin" >&2; exit 2; }
 fi
 
 # The Android SDK, with the build tools and platform the build needs.
@@ -141,6 +146,17 @@ for app in "${APPS[@]}"; do
          exit 1 ;;
     esac
   done
+  # The asset links the APK's host serves must be this build's (the same packages and key), or the installed app opens
+  # to "will not launch". A test build's icons host is only compared, for the record.
+  links=$(curl -s --max-time 20 "https://$icons/.well-known/assetlinks.json" | tr -d '\r' || true)
+  if [ "$links" = "$(tr -d '\r' < public/.well-known/assetlinks.json)" ]; then
+    echo "twa-build: https://$icons/.well-known/assetlinks.json is this build's"
+  elif [ "$TEST" = 1 ]; then
+    echo "twa-build: note: https://$icons/.well-known/assetlinks.json is not this build's (a test build goes on)"
+  else
+    echo "twa-build: https://$host/.well-known/assetlinks.json is not public/.well-known/assetlinks.json: deploy the host first (the app would open to \"will not launch\")" >&2
+    exit 1
+  fi
   dir=$TMP/$app
   mkdir -p "$dir"
   # The config as it is, except in a test build: the throwaway key, and the icons and web manifest (which Bubblewrap
@@ -156,7 +172,7 @@ for app in "${APPS[@]}"; do
   (cd "$dir" && "$BW" update --skipVersionUpgrade)
   node scripts/twa-config.mjs patch "$dir"
   # Unsigned: Bubblewrap's own signing would put the password on apksigner's and jarsigner's command lines.
-  (cd "$dir" && "$BW" build --skipPwaValidation --skipSigning)
+  (cd "$dir" && "$BW" build --skipSigning)
   unsigned=$dir/app-release-unsigned-aligned.apk
   aligned=$dir/app-release-aligned.apk
   apk=$dir/app-release-signed.apk
@@ -175,6 +191,10 @@ for app in "${APPS[@]}"; do
   cp "$dir/app/src/main/AndroidManifest.xml" "$out/AndroidManifest.xml"
   "$BT/aapt" dump xmltree "$apk" AndroidManifest.xml > "$out/xmltree.txt"
   "$BT/aapt" dump badging "$apk" > "$out/badging.txt"
+  "$BT/aapt" dump --values resources "$apk" > "$out/resources.txt"
+  # The network security config, by the path the build gave it (resource paths may be shortened).
+  nsc=$(grep -A1 ':xml/network_security_config: t=' "$out/resources.txt" | sed -n 's/.*(string8) "\(.*\)".*/\1/p' | head -1 || true)
+  if [ -n "$nsc" ]; then "$BT/aapt" dump xmltree "$apk" "$nsc" > "$out/network-security-config.txt"; fi
   "$BT/apksigner" verify --verbose --print-certs "$apk" > "$out/apksigner.txt" 2>&1 || true
   checked=(node scripts/twa-config.mjs apk-check "$apk" --app "$app" --build-tools "$BT")
   if [ "$TEST" = 1 ]; then checked+=(--test); fi

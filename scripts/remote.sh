@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run a command inside a container on the build server.
 # Usage: scripts/remote.sh <lane> [--image <img>] [--shm <size>] [--env K=V]... [--lock <name> | --lock-shared <name>]
-#                         [--timing-cpus] [--pull <output>]... [--expect-gb <n>] -- <command...>
+#                         [--timing-cpus] [--pull <output>]... [--expect-gb <n>] [--signing-key] -- <command...>
 #   --image <img>  container image; shadowlocks-* images are local only and never pulled from a registry
 #   --shm <size>   shared memory for the container (browsers need it: --shm 2g)
 #   --env K=V      pass an environment variable to the command. Values are visible on the server
@@ -23,6 +23,12 @@
 #                  the end (e2e tests leave notes there).
 #   --expect-gb <n> the run writes about n GB (a video render, say): it then needs 100 + n GB free on
 #                  the server instead of 100 (NS_MIN_FREE_GB sets the 100). Pulls stay capped at 2 GB.
+#   --signing-key  an APK build (scripts/twa-build.sh; plan: ship steps, step 25): the keystore copied to
+#                  SIGNING_STORE on the server is mounted read-only at /secrets/shadowlocks-android.keystore,
+#                  and the first line of this script's stdin, the keystore password, becomes the first line
+#                  of the command's stdin. It travels ahead of the heartbeat on the ssh connection and is
+#                  never on a command line, in an environment or in a file. The run removes SIGNING_STORE's
+#                  folder when it ends, however it ends; the step checks it is gone.
 # Runs of one lane take turns: each waits (same limit) for the lane's earlier run to finish, then
 # uploads and runs. The container runs as uid 1000 (not root), with no capabilities,
 # no-new-privileges and at most 2048 processes and threads (an e2e run peaks near 300); its npm
@@ -58,9 +64,11 @@ SHARED_SLOTS=4
 CPU_QUOTA=6
 TIMING_CPUS=10-19,30-39
 OTHER_CPUS=0-9,20-29
+# Where an APK build's keystore waits on the server (--signing-key); remote-run.sh names the same path.
+SIGNING_STORE=/root/shadowlocks/twa-key/shadowlocks-android.keystore
 
 usage() {
-  echo "usage: $0 <lane> [--image <img>] [--shm <size>] [--env K=V]... [--lock <name> | --lock-shared <name>] [--timing-cpus] [--pull <output>]... [--expect-gb <n>] -- <command...>" >&2
+  echo "usage: $0 <lane> [--image <img>] [--shm <size>] [--env K=V]... [--lock <name> | --lock-shared <name>] [--timing-cpus] [--pull <output>]... [--expect-gb <n>] [--signing-key] -- <command...>" >&2
   exit 2
 }
 
@@ -74,6 +82,7 @@ SHM=
 LOCK_SPEC=
 TIMING=0
 EXPECT_GB=0
+SIGNING=0
 ENVS=()
 PULLS=()
 while [ $# -gt 0 ]; do
@@ -93,6 +102,7 @@ while [ $# -gt 0 ]; do
       if [ "$1" = --lock ]; then LOCK_SPEC=$2; else LOCK_SPEC=$2:$SHARED_SLOTS; fi
       shift 2 ;;
     --timing-cpus) TIMING=1; shift ;;
+    --signing-key) SIGNING=1; shift ;;
     --expect-gb)
       [ $# -ge 2 ] || usage
       [[ $2 =~ ^[0-9]{1,5}$ ]] || { echo "bad --expect-gb: $2 (whole GB, up to 5 digits)" >&2; exit 2; }
@@ -118,6 +128,18 @@ CMD=("$@")
 if [ "$TIMING" = 1 ] && [ "$LOCK_SPEC" != e2e ]; then
   echo "--timing-cpus needs --lock e2e (the e2e lock held alone keeps two timed runs off the same CPUs)" >&2
   exit 2
+fi
+# The keystore password, read before anything else could read stdin (the ssh below, say), kept in this
+# shell's memory only, and stdin closed after it.
+SECRET=
+if [ "$SIGNING" = 1 ]; then
+  if [ -t 0 ]; then
+    echo "--signing-key reads the keystore password from stdin: pipe it in (plan: ship steps, step 25)" >&2
+    exit 2
+  fi
+  IFS= read -r SECRET || true
+  [ -n "$SECRET" ] || { echo "--signing-key: no keystore password on stdin" >&2; exit 2; }
+  exec </dev/null
 fi
 LOCK_WAIT=${NS_LOCK_WAIT:-3600}
 [[ $LOCK_WAIT =~ ^[0-9]+$ ]] || { echo "bad NS_LOCK_WAIT: $LOCK_WAIT" >&2; exit 2; }
@@ -151,12 +173,13 @@ if [ "${FREE:-0}" -lt "$NEED_GB" ]; then
   echo "refused: $HOST free disk ${FREE:-0} GB < $NEED_GB GB$why" >&2; exit 3
 fi
 
-# Install only when the dependency files changed, then run the command.
+# Install only when the dependency files changed, then run the command. npm never gets the command's
+# stdin (with --signing-key it holds the keystore password, for the command alone).
 INNER='set -e
 sum=$(cat package.json package-lock.json 2>/dev/null | sha256sum | cut -d" " -f1)
 if [ ! -d node_modules ] || [ "$(cat node_modules/.install-sum 2>/dev/null)" != "$sum" ]; then
-  if [ -f package-lock.json ]; then npm ci --no-audit --no-fund --prefer-offline >/dev/null
-  else npm install --no-audit --no-fund --prefer-offline >/dev/null; fi
+  if [ -f package-lock.json ]; then npm ci --no-audit --no-fund --prefer-offline >/dev/null </dev/null
+  else npm install --no-audit --no-fund --prefer-offline >/dev/null </dev/null; fi
   echo "$sum" > node_modules/.install-sum
 fi
 exec "$@"'
@@ -175,6 +198,8 @@ if [ -n "$SHM" ]; then DOCKER_OPTS+=(--shm-size "$SHM"); fi
 # Our own images exist only on the server: fail fast instead of trying a registry.
 case $IMAGE in shadowlocks-*) DOCKER_OPTS+=(--pull never) ;; esac
 DOCKER_OPTS+=(${ENVS[@]+"${ENVS[@]}"})
+# An APK build: the keystore read-only where the app configs say, and stdin open for its password.
+if [ "$SIGNING" = 1 ]; then DOCKER_OPTS+=(-i -v "$SIGNING_STORE:/secrets/shadowlocks-android.keystore:ro"); fi
 
 # scripts/ is read-only inside: code in the container (an npm install script, say) cannot change the
 # runner's own files.
@@ -193,7 +218,7 @@ STOP_Q="bash -c $(printf '%q' "$STOP_SH") remote-stop $NAME $LANE"
 # setsid's own stderr is dropped (its "child did not exit normally" after a stop is noise); the run
 # gets the real one back on fd 4.
 REMOTE_CMD="mkdir -p $LOCKS $PULL_DIR && exec setsid -w bash -c $(printf '%q' "$(cat "$ROOT/scripts/remote-run.sh")") \
-remote-run $NAME $LANE $(printf '%q ' "$LOCK_SPEC" "$LOCK_WAIT" "$MAX_RUN" "$NEED_GB" "${PULLS[*]-}" "$RUN_USER" "$STOP_SH")$RUN_Q 4>&2 2>/dev/null"
+remote-run $NAME $LANE $(printf '%q ' "$LOCK_SPEC" "$LOCK_WAIT" "$MAX_RUN" "$NEED_GB" "${PULLS[*]-}" "$RUN_USER" "$STOP_SH" "$SIGNING")$RUN_Q 4>&2 2>/dev/null"
 
 # rsync's --rsync-path: run this script text with bash on the server, rsync's own arguments appended.
 # The text goes as base64. openrsync (macOS) splits the option into words and removes one level of
@@ -229,9 +254,12 @@ rc=0
 RUN_TMP=$(mktemp -d "${TMPDIR:-/tmp}/remote.XXXXXX")
 : > "$RUN_TMP/stamp"
 UP_LOG=$RUN_TMP/upload.log
-# In the background, so a TERM or Ctrl-C reaches the trap at once instead of after ssh returns.
-ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 "$HOST" "$REMOTE_CMD" < <(heartbeat $$) &
+# In the background, so a TERM or Ctrl-C reaches the trap at once instead of after ssh returns. With
+# --signing-key the password goes first, as one line (printf is a builtin: no command line holds it).
+ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 "$HOST" "$REMOTE_CMD" \
+  < <(if [ -n "$SECRET" ]; then printf '%s\n' "$SECRET"; fi; heartbeat $$) &
 SSH_PID=$!
+SECRET=
 # Keep the Mac awake meanwhile: once it sleeps for over 60 s the heartbeat stops and so does the run.
 if command -v caffeinate >/dev/null 2>&1; then caffeinate -i -w "$SSH_PID" </dev/null >/dev/null 2>&1 & fi
 trap 'kill "$SSH_PID" ${UP_PID:-} 2>/dev/null; cleanup >/dev/null; rm -rf "$RUN_TMP"; exit 130' INT TERM
