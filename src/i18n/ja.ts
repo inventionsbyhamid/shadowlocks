@@ -224,9 +224,9 @@ export const JA: Copy = {
   landing: {
     open: "箱を開ける",
     tagline: "光と影のパズルボックス。",
-    facts: "座ったまま。手だけで。オフラインでも遊べる。",
+    facts: "座ったまま。手でもコントローラーでも。オフラインでも遊べる。",
     loading: "読み込み中",
-    description: `Meta${NB}Questで遊べる、光と影のパズルボックス。座ったまま、手だけで遊べて、オフライン対応。`,
+    description: `Meta${NB}Questで遊べる、光と影のパズルボックス。座ったまま、手でもコントローラーでも遊べて、オフライン対応。`,
   },
   // Only characters the shipped Japanese font subset already has (scripts/fonts would have to add any other).
   phone: {

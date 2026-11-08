@@ -1,10 +1,11 @@
 // The landing page in the language shown: it starts in the headset's language (the page's lang, every word, the
 // meta description, the status), and its status line is kept as which line it is, so a new language paints it again
 // and "is the failure still up?" holds in any language.
+import fs from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { ENTER_FAILED, Landing, LOADING, noticeLine, startLanguage } from "../../src/app/landing";
 import { NOT_SAVED_NOTICE } from "../../src/app/profile-store";
-import { setLang, tableFor } from "../../src/i18n";
+import { LANGS, setLang, tableFor } from "../../src/i18n";
 import { COPY } from "../../src/ui/copy";
 
 afterEach(() => setLang("en"));
@@ -75,5 +76,18 @@ describe("the landing page", () => {
     page.say(ENTER_FAILED);
     page.sayBriefly(noticeLine(COPY.notice.updated), 6000, (fn) => later.push(fn));
     expect(d.els.status!.textContent).toBe(tableFor("es").page.enterFailed);
+  });
+
+  it("names Touch controllers beside hands, in every language (the store app declares both; the store's Website opens this page)", () => {
+    const controller: Record<string, RegExp> = { en: /controllers/, es: /controladores/, fr: /manettes/, de: /Controllern/, "pt-BR": /controles/, ja: /コントローラー/ };
+    for (const l of LANGS) {
+      const { facts, description } = tableFor(l).landing;
+      for (const line of [facts, description]) {
+        expect(line, `${l}: ${line}`).toMatch(controller[l]!);
+        expect(line, `${l}: ${line}`).not.toMatch(/hands only|solo con las manos|juste avec les mains|nur mit den händen|só com as mãos|手だけ/i);
+      }
+    }
+    // The static page says the same as the English table until the script paints it.
+    expect(fs.readFileSync("index.html", "utf8")).toContain(`<p id="facts" class="facts">${COPY.landing.facts}</p>`);
   });
 });
