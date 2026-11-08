@@ -3,7 +3,10 @@
 # leader of its own process group (setsid -w), with the client's heartbeat on stdin and the real
 # stderr on fd 4, and sends this text from the local checkout: the lane's copy is never run.
 # Usage: remote-run.sh <name> <lane> <lock or ""> <wait s> <max run s> <need GB> <pulls or ""> <uid:gid>
-#                      <stop script text> <docker run args...>
+#                      <stop script text> <signing 0|1> <docker run args...>
+#   <signing> 1 (remote.sh --signing-key): the first line of stdin, before the heartbeat, is the keystore
+#   password. It is kept in this shell's memory and given to the container's stdin; the keystore at
+#   SIGNING_STORE must be there, and its folder is removed when this run ends, however it ends.
 #   <lock> is <name> (held exclusively: remote.sh --lock) or <name>:<slots> (held shared, plus one of
 #   <slots> slot locks: remote.sh --lock-shared). Both use the file locks/<name>.lock, so an exclusive
 #   holder (from these scripts or older ones) and shared holders never overlap.
@@ -23,8 +26,12 @@
 #      most PULL_MAX bytes per run, and only while KEEP_FREE bytes stay free on the disk.
 set -u
 exec 2>&4 4>&-
-NAME=$1 LANE=$2 LOCK=$3 WAIT=$4 MAX_RUN=$5 NEED_GB=$6 PULLS=$7 RUN_USER=$8 STOP_SH=$9
-shift 9
+NAME=$1 LANE=$2 LOCK=$3 WAIT=$4 MAX_RUN=$5 NEED_GB=$6 PULLS=$7 RUN_USER=$8 STOP_SH=$9 SIGN=${10}
+shift 10
+# remote.sh's SIGNING_STORE: an APK build's keystore, only during that build.
+SIGNING_STORE=/root/shadowlocks/twa-key/shadowlocks-android.keystore
+SECRET=
+if [ "$SIGN" = 1 ]; then IFS= read -r SECRET || SECRET=; fi
 LOCKS=/root/shadowlocks/locks
 DIR=/root/shadowlocks/lanes/$LANE
 PULL_DIR=/root/shadowlocks/pulls
@@ -43,6 +50,8 @@ watch=$!
 
 finish() {
   kill "$watch" 2>/dev/null
+  # The keystore leaves the server with the run, built or not.
+  if [ "$SIGN" = 1 ]; then rm -rf "$(dirname "$SIGNING_STORE")"; fi
   if [ "$(cat "$OWNER" 2>/dev/null)" = "$NAME" ]; then rm -f "$OWNER"; fi
   rm -f "$LOCKS/$NAME.pgid" "$LOCKS/$NAME.uploaded"
   if [ "$1" -eq 255 ]; then touch "$LOCKS/$NAME.exit255"; fi
@@ -156,8 +165,22 @@ fi
     s=
   done ) &
 timer=$!
-"$@"
-rc=$?
+if [ "$SIGN" = 1 ]; then
+  # The keystore must be a plain file, readable by the container user alone; the password goes to the
+  # container's stdin (printf is a builtin: no command line holds it).
+  if [ -z "$SECRET" ] || [ ! -f "$SIGNING_STORE" ] || [ -L "$SIGNING_STORE" ]; then
+    echo "remote.sh: --signing-key needs the keystore at $SIGNING_STORE and its password; not starting" >&2
+    kill "$timer" 2>/dev/null
+    finish 3
+  fi
+  chown "$RUN_USER" "$SIGNING_STORE" && chmod 400 "$SIGNING_STORE"
+  printf '%s\n' "$SECRET" | "$@"
+  rc=$?
+  SECRET=
+else
+  "$@"
+  rc=$?
+fi
 # Keep every lock until the container is gone, even if its docker client died first. docker wait
 # returns at once for one that was only created (its client died first): remove that one now.
 docker wait "$NAME" >/dev/null 2>&1

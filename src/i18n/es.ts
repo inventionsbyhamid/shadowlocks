@@ -223,9 +223,9 @@ export const ES: Copy = {
   landing: {
     open: "Abrir la caja",
     tagline: "Una caja rompecabezas de luz y sombra.",
-    facts: "Sin levantarte. Solo con las manos. Funciona sin conexión.",
+    facts: "Sin levantarte. Funciona sin conexión.",
     loading: "Cargando",
-    description: "Una caja rompecabezas de luz y sombra para Meta Quest. Sin levantarte, solo con las manos y sin conexión.",
+    description: "Una caja rompecabezas de luz y sombra para Meta Quest. Sin levantarte, con las manos o los controladores y sin conexión.",
   },
   phone: {
     pickUp: "Arrastra el farol.",

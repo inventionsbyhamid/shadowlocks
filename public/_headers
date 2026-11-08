@@ -39,3 +39,9 @@
 /.well-known/assetlinks.json
   Content-Type: application/json
   Cache-Control: public, max-age=300
+
+# The judge host is unlisted (Devpost and the tester only): keep it out of search. It is a production deploy, so Pages
+# adds no noindex of its own (it does on preview aliases). Only that host: the public host must stay indexable, and
+# scripts/deploy-pages.sh checks both.
+https://shadowlocks-judge.pages.dev/*
+  X-Robots-Tag: noindex

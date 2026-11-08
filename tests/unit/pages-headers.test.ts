@@ -74,6 +74,15 @@ describe("public/_headers", () => {
     expect(h["Content-Security-Policy-Report-Only"]).toBeUndefined();
   });
 
+  it("keeps the judge host out of search, and only that host (the public host stays indexable)", () => {
+    // The parser here ignores absolute-URL rules (the e2e server has one host), so read that rule from the file.
+    const text = fs.readFileSync("public/_headers", "utf8");
+    expect(text).toMatch(/^https:\/\/shadowlocks-judge\.pages\.dev\/\*\n {2}X-Robots-Tag: noindex$/m);
+    const hostRules = text.split("\n").filter((l) => /^https?:\/\//.test(l));
+    expect(hostRules).toEqual(["https://shadowlocks-judge.pages.dev/*"]);
+    for (const p of paths) expect(headersFor(rules, p)["X-Robots-Tag"], p).toBeUndefined();
+  });
+
   it("allows only our own origin in the CSP, and never blocks WebXR", () => {
     const h = headersFor(rules, "/");
     const csp = h["Content-Security-Policy"] ?? "";

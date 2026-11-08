@@ -40,7 +40,7 @@
   "isChromeOSOnly": false,
   "isMetaQuest": true,
   "horizonOSAppMode": "immersive",
-  "minSdkVersion": 23,
+  "minSdkVersion": 32,
   "fingerprints": [],
   "additionalTrustedOrigins": [],
   "retainedBundles": [],
