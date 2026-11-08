@@ -4,6 +4,10 @@
 // counted (src/app/gpu-census.ts) with the trims and without them (__ns.scene.trims), the game standing still in
 // between: the pixels must be the same, and the lacquer (the scene's most expensive shader) must shade less. On this
 // profile the session also keeps asking for 90 Hz (src/app/headset.ts).
+// The slab's face held the depth behind the panel; with it gone, the panel writes depth itself (its shadows offset
+// toward the eye, src/render/panel.ts), and the trims switch that too: the same pixels with it and without it is the
+// same picture as before both. Then the check that it does its job: a plane drawn late behind the box (order 999,
+// depth tested, as IWSDK's outline of a hand reached behind it) leaves the frame as it was.
 import fs from "node:fs";
 import path from "node:path";
 import type { Page } from "@playwright/test";
@@ -78,4 +82,39 @@ test("the hidden-overdraw trims change no pixel and shade less lacquer: Home, Se
   // In play the panel's slab and the plinth's top went unseen; at Home the menu panel hides the box's lower half too.
   expect(play.frameOn).toBeLessThan(play.frameOff * 0.75);
   expect(home.frameOn).toBeLessThan(home.frameOff * 0.75);
+});
+
+test("nothing drawn late behind the box shows through the panel", async ({ page, boot }) => {
+  const app = await boot();
+  await inPlay(app, 15);
+  await page.evaluate(() => window.__sl!.placeLantern([0.05, -0.1, 1.25]));
+  await app.step(36);
+  const hash = async (probe: number | null, depth = true) => {
+    await page.evaluate(([z, d]) => {
+      window.__ns!.scene.panelDepth(d);
+      window.__ns!.scene.probe(z);
+    }, [probe, depth] as const);
+    const h = (await page.evaluate((o) => window.__ns!.gpu.census(o), VIEW)).hash;
+    await page.evaluate(() => {
+      window.__ns!.scene.probe(null);
+      window.__ns!.scene.panelDepth(true);
+    });
+    return h;
+  };
+  const plain = await hash(null);
+  // Behind the back slab (box z -0.15; the panel is at 0.002), half the panel's width, across its middle: from the
+  // seated eye it lies wholly behind the panel, hidden by the panel's depth.
+  const behind = await hash(-0.15);
+  // As Task 25's trim left it (no depth behind the panel's middle), the same plane shows through: the check can see it.
+  const through = await hash(-0.15, false);
+  // Inside the box, in front of the panel, the plane is seen.
+  const inFront = await hash(0.3);
+  const line = `panel depth: frame ${plain}; a late plane behind the box ${behind === plain ? "unseen" : "SEEN"}, without the panel's depth ${through === plain ? "unseen" : "seen"}, in front of the panel ${inFront === plain ? "unseen" : "seen"}`;
+  console.log(line);
+  addRunNote(line);
+  expect(behind, "a late plane behind the box").toBe(plain);
+  expect(through, "the same plane without the panel's depth").not.toBe(plain);
+  expect(inFront, "the same plane in front of the panel").not.toBe(plain);
+  // The panel's depth itself changes no pixel.
+  expect(await hash(null, false)).toBe(plain);
 });

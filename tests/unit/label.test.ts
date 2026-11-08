@@ -1,7 +1,7 @@
 // Painted faces (the plate, the keys on the box, the reward's story card): their transparent corners must not filter
 // in black, which drew faint dark fringes round the keys' rounded corners.
 import { describe, expect, it } from "vitest";
-import { CustomBlending, Group, type Mesh, type MeshBasicMaterial, OneFactor, OneMinusSrcAlphaFactor } from "@iwsdk/core";
+import { CustomBlending, Group, type Mesh, type MeshBasicMaterial, OneFactor, OneMinusSrcAlphaFactor, SRGBColorSpace } from "@iwsdk/core";
 import { LabelCanvas, labelMaterial } from "../../src/render/label";
 import { Reward } from "../../src/render/reward";
 import { CoachLineView } from "../../src/ui/coach-line";
@@ -43,10 +43,13 @@ describe("painted faces", () => {
     const chip = new CoachLineView();
     const m = chip.object.material as MeshBasicMaterial;
     premultiplied(m);
-    // Half faded: the blend adds the texel's colour as it is (One), so the colour must fade with the alpha.
+    // Half faded: the blend adds the texel's colour as it is (One), so the colour must fade with the alpha: half as a
+    // display value, as the blend sees it (linear in the material: about 0.214).
     chip.opacity = 0.5;
     expect(m.opacity).toBe(0.5);
-    expect([m.color.r, m.color.g, m.color.b]).toEqual([0.5, 0.5, 0.5]);
+    expect(m.color.getHexString(SRGBColorSpace)).toBe("808080");
+    expect(m.color.r).toBeCloseTo(0.214, 3);
+    expect([m.color.g, m.color.b]).toEqual([m.color.r, m.color.r]);
     expect(chip.object.visible).toBe(true);
     chip.opacity = 0;
     expect(chip.object.visible).toBe(false);

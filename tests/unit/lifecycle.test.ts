@@ -225,4 +225,38 @@ describe("lifecycle", () => {
     const snap = saved[saved.length - 1] as BoxSnapshot;
     expect(snap.elapsedMs).toBe(5000);
   });
+
+  it("releases a session unsaved and paused (another window moved its save on): nothing it would save is written", () => {
+    const { life, saved } = setup();
+    const s = new FakeSession();
+    life.setXrVisibility("visible", 0);
+    life.attach(s, 1);
+    life.markDirty(2);
+    const before = saved.length;
+    life.release(3);
+    expect(s.log).toEqual(["resume@1", "pause@3"]);
+    expect(life.session).toBeNull();
+    // Due saves, a hide, a menu, the page closing: none writes the released box, nor clears the save it had.
+    life.tick(5000);
+    life.setHeld(true, 5001);
+    life.setXrVisibility("hidden", 5002);
+    life.flush(5003, true);
+    life.setHeld(false, 5004);
+    life.setXrVisibility("visible", 5005);
+    expect(saved.length).toBe(before);
+    expect(s.log).toEqual(["resume@1", "pause@3"]);
+    // A box attached afterwards is saved as before.
+    const next = new FakeSession();
+    life.attach(next, 6000);
+    life.flush(6001);
+    expect(at(saved.at(-1))).toBe(6001);
+  });
+
+  it("releases a session paused by a hidden page without pausing it twice", () => {
+    const { life } = setup();
+    const s = new FakeSession();
+    life.attach(s, 1);
+    life.release(2);
+    expect(s.log).toEqual(["pause@1"]);
+  });
 });

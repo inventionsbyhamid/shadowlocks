@@ -13,12 +13,18 @@ export { installVideoMode } from "./hand-look";
  */
 export function videoStore(initial: unknown = shotProfile()): Store {
   let held: unknown = initial;
+  // One window only: every write is on the revision it last wrote.
+  let rev = 0;
   return {
     persistent: true,
-    load: async (nowMs, build): Promise<Profile> =>
-      held ? migrate(JSON.parse(JSON.stringify(held)), nowMs, build) : newProfile(nowMs, build),
-    save: async (p) => {
+    load: async (nowMs, build) => ({
+      profile: held ? migrate(JSON.parse(JSON.stringify(held)), nowMs, build) : newProfile(nowMs, build),
+      rev,
+    }),
+    save: async (p: Profile, at) => {
+      if (at !== rev) return null;
       held = JSON.parse(JSON.stringify(p));
+      return ++rev;
     },
   };
 }

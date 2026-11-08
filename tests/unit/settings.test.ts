@@ -10,9 +10,10 @@ function memStore() {
   const saves: Profile[] = [];
   const store: Store = {
     persistent: true,
-    load: async (nowMs, build) => newProfile(nowMs, build),
+    load: async (nowMs, build) => ({ profile: newProfile(nowMs, build), rev: 0 }),
     save: async (p) => {
       saves.push(JSON.parse(JSON.stringify(p)));
+      return saves.length;
     },
   };
   return { store, saves };
@@ -63,5 +64,19 @@ describe("settings", () => {
     await st.set({ language: "klingon" as unknown as "ja" });
     expect(st.get().language).toBe("auto");
     expect(seen).toEqual(["ja", "auto"]);
+  });
+
+  it("tells subscribers when the settings were replaced under it (another window's profile taken in), saving nothing", async () => {
+    const m = memStore();
+    const ps = await ProfileStore.open(m.store, () => {}, ENV);
+    await ps.save();
+    const st = new SettingsStore(ps);
+    const seen: number[] = [];
+    st.subscribe((s) => seen.push(s.boxSizeCm));
+    const saves = m.saves.length;
+    ps.profile.settings = { ...ps.profile.settings, boxSizeCm: 20 };
+    st.changed();
+    expect(seen).toEqual([20]);
+    expect(m.saves.length).toBe(saves);
   });
 });

@@ -4,8 +4,10 @@
 // in the colour). The frame has no UVs (merged extrusions), so each part carries the direction its grain runs as a
 // vertex attribute (`grain`, a unit axis; zero for none) and the lacquer's own shader draws the streaks: no texture,
 // no extra draw call, a few noise lookups a fragment on the frame. The streaks fade out as they near a pixel's width,
-// so the frame never shimmers in the headset. Every mesh drawn with this lacquer carries the attribute: the lantern's
-// foot a zero one (`grained(g, null)`), so it stays plain without leaning on the GL's default attribute values.
+// so the frame never shimmers in the headset. Every mesh drawn with this lacquer carries the attribute (today the
+// frame alone; a plain part would carry a zero one, `grained(g, null)`, rather than lean on the GL's default attribute
+// values). The lantern's foot is plain, in the lantern body's own material; the menu drawer's front takes the grain
+// into its own material (grainShader).
 import { BufferAttribute, type BufferGeometry, Color, type MeshPhysicalMaterial } from "@iwsdk/core";
 import { COLORS } from "./theme";
 
@@ -71,7 +73,7 @@ export interface GrainShader {
 
 /**
  * The grain spliced into a lit (standard or physical) shader in onBeforeCompile: every material with the lacquer's
- * look takes it from here (the frame and lantern foot through withGrain, the menu drawer in its own hook).
+ * look takes it from here (the frame through withGrain, the menu drawer in its own hook).
  */
 export function grainShader(s: GrainShader): void {
   s.uniforms.grainColor = { value: GRAIN_COLOR };

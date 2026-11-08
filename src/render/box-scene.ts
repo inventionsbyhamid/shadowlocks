@@ -61,7 +61,8 @@ const BAR_R = 0.008;
 const PANEL_Z = 0.002;
 /**
  * The panel draws after everything opaque at the default order (the scraps and frame in front of it
- * hide it by depth, since it writes none), and its shadows right after it, darkening it by MIN blending.
+ * hide it by depth, so it is not shaded there), and its shadows right after it, darkening it by MIN blending.
+ * It writes depth, as the back wall it is: nothing drawn later behind the box shows through it (panel.ts).
  */
 const PANEL_ORDER = 1;
 /** The velvet floor draws before the other opaque parts of the box (order 0), after the hand mask (-10). */
@@ -162,7 +163,8 @@ export function frameGeometry(keepHidden = false): BufferGeometry {
   for (const x of [-H, H]) parts.push(grainBar(1 - BAR, "y", [x, 0, 1]));
   // The back slab and the plinth: grain across. The slab's flat front face lies behind the panel and the back ring
   // from every side, so it is left out: drawn, it was the frame's most expensive shading (the lacquer) under the
-  // panel, which then covered it (the panel writes no depth, so it cannot hide what is behind it). One trace of it
+  // panel, which then covered it (the panel draws after it, so it cannot spare it). The panel's own depth now stands
+  // where the face's stood, for whatever draws later behind the box (panel.ts). One trace of the face
   // is left: between the back ring's rear face (z -0.025) and where the face was (z -0.0275) there is a slot 0.0025
   // deep, open at the box's outer edge. From far to the side, at the back plane's depth, a pixel or two can show
   // through it where black lacquer was; a seated player in front of the box never sees it from there.
@@ -247,6 +249,45 @@ function studioEnvironment(renderer: WebGLRenderer, studio: { base: string; pane
   return tex;
 }
 
+/** The box's two studio environments (theme.ts ENV): the gold's warm one, the lacquer's and glass's dark one. */
+export interface StudioEnvs {
+  gold: Texture | null;
+  dark: Texture | null;
+}
+
+/**
+ * A lost WebGL context that comes back: three restores its own state and uploads image and canvas textures again, but
+ * a render target's contents are gone, and the studio environments were rendered once, into render targets: the gold,
+ * lacquer and glass would reflect black. On `webglcontextrestored` (from `canvas`, after three's own restore, which
+ * listens first) they are rendered again (`make`), every material under `root` that reflected one takes its new copy,
+ * and the old ones are disposed. (Where one could not be made at first, nothing reflected it to take the new one.)
+ * Returns a function that stops listening.
+ */
+export function restoreEnvironmentsOnContextRestore(canvas: EventTarget, root: Object3D, first: StudioEnvs, make: () => StudioEnvs): () => void {
+  let envs = first;
+  const restored = () => {
+    const next = make();
+    root.traverse((o) => {
+      const mats = (o as Mesh).material as Material | Material[] | undefined;
+      if (!mats) return;
+      for (const m of Array.isArray(mats) ? mats : [mats]) {
+        const r = m as Material & { envMap?: Texture | null };
+        if (!r.envMap) continue;
+        const to = r.envMap === envs.gold ? next.gold : r.envMap === envs.dark ? next.dark : undefined;
+        if (to === undefined) continue;
+        r.envMap = to;
+        // One that could not be made again leaves the material without a map: its program changes.
+        if (!to) r.needsUpdate = true;
+      }
+    });
+    if (envs.gold !== next.gold) envs.gold?.dispose();
+    if (envs.dark !== next.dark) envs.dark?.dispose();
+    envs = next;
+  };
+  canvas.addEventListener("webglcontextrestored", restored);
+  return () => canvas.removeEventListener("webglcontextrestored", restored);
+}
+
 function directional(c: string, k: number, from: readonly [number, number, number], root: Object3D): DirectionalLight {
   const l = new DirectionalLight(c, k);
   l.position.set(from[0], from[1], from[2]);
@@ -306,8 +347,9 @@ export class BoxScene {
     this.root.name = BOX_ROOT_NAME;
     // Gold reflects a warm studio (a scrap is never black on the black frame); lacquer and glass a dark one (the
     // top bars stay black at a grazing angle, the lid adds no haze).
-    const env = studioEnvironment(world.renderer, ENV.gold);
-    const dark = studioEnvironment(world.renderer, ENV.lacquer);
+    const studios = (): StudioEnvs => ({ gold: studioEnvironment(world.renderer, ENV.gold), dark: studioEnvironment(world.renderer, ENV.lacquer) });
+    const envs = studios();
+    const env = envs.gold, dark = envs.dark;
     // Black lacquer with its grain (the owner's pick), drawn in its own shader: one program, one draw call as before.
     const lacquer = withGrain(new MeshPhysicalMaterial({ color: COLORS.frame, ...MATERIALS.lacquer, envMap: dark }));
     const gold = new MeshStandardMaterial({ color: COLORS.metal, ...MATERIALS.gold, envMap: env });
@@ -330,7 +372,7 @@ export class BoxScene {
     const lid = new Mesh(new PlaneGeometry(inner, inner).rotateX(Math.PI / 2).translate(0, LID_Y, 0.5), pane(MATERIALS.lid, dark));
     lid.name = "Box Lid";
     lid.renderOrder = 2;
-    // The panel draws after everything opaque in front of it (it writes no depth), then the shadows on it.
+    // The panel draws after everything opaque in front of it, then the shadows on it.
     this.panelArt = new Panel();
     this.panel = new Mesh(new PlaneGeometry(1, 1).translate(0, 0, PANEL_Z), this.panelArt.material);
     this.panel.name = "Box Panel";
@@ -342,7 +384,7 @@ export class BoxScene {
     shadowMesh.material = this.panelArt.shadowMaterial;
     shadowMesh.position.z = PANEL_Z;
     shadowMesh.renderOrder = PANEL_ORDER + 1;
-    this.lantern = new LanternView({ lacquer, gold }, this.flashes);
+    this.lantern = new LanternView({ gold }, this.flashes);
     this.crystals = new Crystals(env, this.flashes);
     this.root.add(frame, trim, floor, glass, lid, this.panel, shadowMesh, this.scraps.mesh, this.scraps.threads, this.scraps.rings, this.lantern.group);
     this.root.add(this.crystals.group);
@@ -356,6 +398,9 @@ export class BoxScene {
     this.root.scale.set(s, s, s);
     this.entity = world.createTransformEntity(this.root, { persistent: true });
     this.setBox(null);
+    // A lost GPU context that comes back: the reflections rendered again for everything under the box (the drawer and
+    // the reward, added later, included).
+    restoreEnvironmentsOnContextRestore(world.renderer.domElement, this.root, envs, studios);
   }
 
   /** The box shown (its scraps, threads, rings, etching and shadows; the lantern goes to its start), or none. */

@@ -627,8 +627,13 @@ describe("panel materials", () => {
     expect(shadow.depthWrite).toBe(false);
     expect(shadow.side).toBe(DoubleSide);
     expect(shadow.defines?.SHADOW).toBeDefined();
-    // The panel is drawn first and writes no depth: the shadows lie on it, exactly in its plane.
-    expect(panel.depthWrite).toBe(false);
+    // The panel is drawn first and writes depth (nothing behind the box shows through it); the shadows lie on it,
+    // exactly in its plane, pulled toward the eye by the smallest depth step so they pass the depth test there.
+    expect(panel.depthWrite).toBe(true);
+    expect(panel.depthTest).toBe(true);
+    expect(panel.polygonOffset).toBe(false);
+    expect(shadow.depthTest).toBe(true);
+    expect(shadow).toMatchObject({ polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
     expect(panel.defines?.SHADOW).toBeUndefined();
   });
 });

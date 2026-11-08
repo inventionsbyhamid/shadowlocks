@@ -21,8 +21,8 @@ renamed Shadow Locks Display and Shadow Locks Sans.
 
 ## Controller models
 
-The WebXR input profiles in `public/input-profiles/` are MIT licensed, Copyright (c) 2019 Amazon. The licence
-text is in `public/input-profiles/LICENSE.md`.
+The WebXR input profiles in `public/input-profiles/` (the generic hand; Quest 3's, Quest Pro's and Quest 2's
+controllers) are MIT licensed, Copyright (c) 2019 Amazon. The licence text is in `public/input-profiles/LICENSE.md`.
 
 ## IWER hand poses
 

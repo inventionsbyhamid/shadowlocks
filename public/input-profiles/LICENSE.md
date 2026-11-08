@@ -20,7 +20,8 @@ OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
 WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
 OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-The models in this folder (generic-hand, meta-quest-touch-plus) come unchanged from
-@webxr-input-profiles/assets 1.0.20 (https://github.com/immersive-web/webxr-input-profiles), MIT
-licensed as above, and are served locally so the game works offline. As that package notes, some
-models depict devices whose trademarks belong to their makers; the licence grants no trademark rights.
+The models in this folder (generic-hand, meta-quest-touch-plus, meta-quest-touch-pro, oculus-touch-v3)
+come unchanged from @webxr-input-profiles/assets 1.0.20
+(https://github.com/immersive-web/webxr-input-profiles), MIT licensed as above, and are served locally
+so the game works offline. As that package notes, some models depict devices whose trademarks belong
+to their makers; the licence grants no trademark rights.

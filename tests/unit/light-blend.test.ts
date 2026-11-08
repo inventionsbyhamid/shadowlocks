@@ -94,7 +94,7 @@ describe("light over the room", () => {
     new Plate(root);
     new HintLantern(root);
     new HintMarks({ root, scrapMesh: () => ({ setGlow: () => {} }), scraps: { setRingGlow: () => {} } });
-    const lantern = new LanternView({ lacquer: new MeshStandardMaterial(), gold: new MeshStandardMaterial() }, budget);
+    const lantern = new LanternView({ gold: new MeshStandardMaterial() }, budget);
     root.add(lantern.group, new Crystals(null, budget).group, new RingBeam().mesh);
     const LIGHT = [CustomBlending, AddEquation, SrcAlphaFactor, OneFactor, ZeroFactor, OneFactor];
     const LABEL = [CustomBlending, AddEquation, OneFactor, OneMinusSrcAlphaFactor, OneFactor, OneMinusSrcAlphaFactor];

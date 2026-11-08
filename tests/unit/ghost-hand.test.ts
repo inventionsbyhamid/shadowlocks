@@ -213,6 +213,12 @@ describe("GhostHand", () => {
     expect(GHOST_BONES.find((x) => x.b === FOREARM)?.fadeB).toBe(0);
   });
 
+  it("draws the fading forearm last: drawn first, its depth would cut a finger behind its faint tail", () => {
+    // Capsules draw in this order (instances of one mesh) and write depth.
+    expect(GHOST_BONES.findIndex((x) => x.b === FOREARM)).toBe(GHOST_BONES.length - 1);
+    expect(GHOST_BONES.filter((x) => x.b === FOREARM)).toHaveLength(1);
+  });
+
   it("has a hand's proportions: tapered fingers 7 to 10 mm at the knuckles, a thumb, a flat palm wider than thick, a wrist", () => {
     const radius = (j: XRHandJoint) => ghostRadius(J(j));
     for (const f of ["index", "middle", "ring", "pinky"] as const) {

@@ -85,12 +85,12 @@ export class LanternView {
   private readonly ownBudget: boolean;
 
   /**
-   * `mats`: the box's materials; the body takes the gold's environment (its warm studio) for its reflections, in a
+   * `mats`: the box's gold; the body takes its environment (its warm studio) for its reflections, in a
    * material of its own (one program) that draws the foot, the gold and the core in one call. `budget`: the box's one
    * flash budget (its owner steps it), so flares and crystallises share the three-a-second cap; without one, a budget
    * of its own.
    */
-  constructor(mats: { lacquer: Material; gold: Material }, budget?: FlashBudget) {
+  constructor(mats: { gold: Material }, budget?: FlashBudget) {
     this.budget = budget ?? new FlashBudget();
     this.ownBudget = !budget;
     this.group.name = "Lantern";

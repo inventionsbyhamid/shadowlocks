@@ -1,3 +1,4 @@
+import { type MeshBasicMaterial, SRGBColorSpace } from "@iwsdk/core";
 import { describe, expect, it } from "vitest";
 import { COACH, CoachLine, CoachLineView, coachChars, LineHold, wrapCoach } from "../../src/ui/coach-line";
 import { COPY } from "../../src/ui/copy";
@@ -146,5 +147,23 @@ describe("CoachLineView", () => {
     expect(v.object.visible).toBe(true);
     v.setBoxSize(0.24);
     expect(v.object.scale.x).toBeCloseTo(1 / 0.24, 9);
+  });
+
+  it("fades its letters with the chip: the tint is the opacity as a display value, white at rest", () => {
+    const v = new CoachLineView();
+    const m = v.object.material as MeshBasicMaterial;
+    v.opacity = 1;
+    expect(m.color.getHex()).toBe(0xffffff);
+    expect([m.color.r, m.color.g, m.color.b]).toEqual([1, 1, 1]);
+    for (const a of [0.25, 0.5, 0.75]) {
+      v.opacity = a;
+      expect(m.opacity).toBe(a);
+      // Linear in the material (the sRGB curve undone), so it reads `a` once encoded for display, as the blend sees it.
+      expect(m.color.r).toBeCloseTo(((a + 0.055) / 1.055) ** 2.4, 6);
+      expect(m.color.g).toBe(m.color.r);
+      expect(m.color.b).toBe(m.color.r);
+      const shown = m.color.getRGB({ r: 0, g: 0, b: 0 }, SRGBColorSpace);
+      expect(shown.r).toBeCloseTo(a, 4);
+    }
   });
 });

@@ -15,12 +15,13 @@ class FakeStore implements Store {
   failSave = false;
   constructor(private initial: Profile | null = null) {}
   async load(nowMs: number, build: string) {
-    return this.initial ? (JSON.parse(JSON.stringify(this.initial)) as Profile) : newProfile(nowMs, build);
+    return { profile: this.initial ? (JSON.parse(JSON.stringify(this.initial)) as Profile) : newProfile(nowMs, build), rev: 0 };
   }
-  async save(p: Profile) {
+  async save(p: Profile, rev: number) {
     if (this.gate) await this.gate;
     if (this.failSave) throw new Error("disk full");
     this.saves.push(JSON.parse(JSON.stringify(p)));
+    return rev + 1;
   }
 }
 
@@ -153,6 +154,23 @@ describe("profile store", () => {
     open();
     await Promise.all([a, b, c]);
     expect(store.saves.slice(before).map((p) => p.settings.musicVol)).toEqual([0.1, 0.3]);
+  });
+
+  it("a look that cannot read keeps the profile as it is", async () => {
+    const store = new FakeStore();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const ps = await ProfileStore.open(store, () => {}, ENV);
+    ps.profile.nextBox = 5;
+    store.load = async () => {
+      throw new Error("gone");
+    };
+    let adopted = 0;
+    ps.onAdopt(() => adopted++);
+    await expect(ps.refresh()).resolves.toBeUndefined();
+    expect(ps.profile.nextBox).toBe(5);
+    expect(adopted).toBe(0);
+    await ps.save();
+    expect(store.saves.at(-1)?.nextBox).toBe(5);
   });
 
   it("survives a failing write", async () => {

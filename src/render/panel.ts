@@ -281,11 +281,14 @@ export function panelUniforms(): PanelUniforms {
 }
 
 /**
- * The panel's material and the shadows' (same shader and uniforms). The panel writes no depth, so the
- * shadow mesh can lie exactly in its plane; it must draw after the panel (a higher renderOrder).
+ * The panel's material and the shadows' (same shader and uniforms). The shadow mesh lies exactly in the panel's plane
+ * and draws after it (a higher renderOrder). The panel writes depth: it is the box's back wall, and nothing behind it
+ * may show through it, however late it draws (IWSDK's outline of a hand reached behind the box, at order 999). The
+ * shadows write none and are pulled toward the eye by the smallest depth step (polygonOffset), so they still pass the
+ * depth test on the panel they lie on and nowhere else.
  */
 export function panelMaterials(u: PanelUniforms): { panel: ShaderMaterial; shadow: ShaderMaterial } {
-  const panel = new ShaderMaterial({ uniforms: u, vertexShader: VERTEX, fragmentShader: FRAGMENT, depthWrite: false, toneMapped: false });
+  const panel = new ShaderMaterial({ uniforms: u, vertexShader: VERTEX, fragmentShader: FRAGMENT, toneMapped: false });
   panel.name = "Panel";
   const shadow = new ShaderMaterial({
     uniforms: u,
@@ -293,6 +296,9 @@ export function panelMaterials(u: PanelUniforms): { panel: ShaderMaterial; shado
     fragmentShader: FRAGMENT,
     defines: { SHADOW: "" },
     depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
     toneMapped: false,
     // Polygons wind either way (Diamond clockwise, a mirrored box flips all).
     side: DoubleSide,
@@ -594,6 +600,9 @@ export class Panel {
   private readonly haloTex: CanvasTexture;
   private readonly warmTarget = new Float32Array(LOCKS);
   private readonly openTarget = new Float32Array(LOCKS);
+  /** The box set last's lock centres and shapes: they go to the uniforms with its etching's upload (setBox). */
+  private readonly nextCenter = new Float32Array(LOCKS * 2).fill(FAR);
+  private readonly nextShape = new Float32Array(LOCKS * 3).fill(1);
   private steps: (() => void)[] = [];
   private stepAt = 0;
 
@@ -636,9 +645,15 @@ export class Panel {
     while (this.etchStep());
   }
 
-  /** Start etching this box's locks (or none), and reset warmth and opening. Once per box. */
+  /**
+   * Start etching this box's locks (or none), and reset warmth and opening. Once per box. The panel shows the last
+   * box's etching until the new one is uploaded, so its lock centres and shapes wait for that upload too, and until
+   * then no lock shows warmth or opening (update): a resumed box's open locks and a warmth measured while it is held
+   * back would draw the shader's foil and glow from the old masks, cut along the new locks' cells. Their targets are
+   * kept: the foil fills from nothing once the new art is up.
+   */
   setBox(box: Box | null): void {
-    const u = this.uniforms, c = u.uLockCenter.value, s = u.uLockShape.value;
+    const u = this.uniforms, c = this.nextCenter, s = this.nextShape;
     c.fill(FAR);
     s.fill(1);
     for (const l of box?.locks ?? []) {
@@ -676,10 +691,18 @@ export class Panel {
     if (lock >= 0 && lock < LOCKS) this.openTarget[lock] = open ? 1 : 0;
   }
 
-  /** Ease warmth (WARMTH_EASE_S) and opening (OPEN_FILL_S) by `dt` seconds, and do one step of etching. */
+  /**
+   * Do one step of etching, and ease warmth (WARMTH_EASE_S) and opening (OPEN_FILL_S) by `dt` seconds; both stay 0
+   * until the box set last is etched (setBox).
+   */
   update(dt: number): void {
     this.etchStep();
     const w = this.uniforms.uWarmth.value, o = this.uniforms.uOpen.value;
+    if (!this.etched) {
+      w.fill(0);
+      o.fill(0);
+      return;
+    }
     const k = dt > 0 ? 1 - Math.exp(-dt / WARMTH_EASE_S) : 0, step = dt / OPEN_FILL_S;
     for (let i = 0; i < LOCKS; i++) {
       const tw = this.warmTarget[i]!, to = this.openTarget[i]!;
@@ -833,6 +856,9 @@ export class Panel {
     });
     steps.push(() => {
       this.albedoTex.needsUpdate = true;
+      // The new locks with the art they belong to (the masks went up a frame before, unseen: nothing warm or open).
+      this.uniforms.uLockCenter.value.set(this.nextCenter);
+      this.uniforms.uLockShape.value.set(this.nextShape);
     });
     return steps;
   }
