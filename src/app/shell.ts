@@ -127,7 +127,7 @@ export class Shell {
     placement.setSize(this.settings.get().boxSizeCm);
     this.settings.subscribe((s) => placement.setSize(s.boxSizeCm));
     // Another window (the hosted link in a second tab) played on: its profile is taken in place of this one's.
-    profiles.onAdopt((before) => this.adopted(before));
+    profiles.onAdopt((before, held) => this.adopted(before, held));
     this.watchPage();
     this.watchXr();
   }
@@ -304,10 +304,12 @@ export class Shell {
   /**
    * Another window's newer profile was taken in place of this one's (profile-store.ts). What is in the lap was saved
    * to the old one: when the other window moved its save on (played that box on, solved it, played another, went on
-   * with the lessons), it is let go unsaved and Home offers the stored one; else it plays on. The settings and the
-   * menus follow the new profile.
+   * with the lessons), it is let go unsaved and Home offers the stored one; else it plays on (a replay's kept box is
+   * the lessons' to let go, lessons.ts). The settings follow the new profile where they differ from those this window
+   * held (`held`: a change of its own whose save was refused is undone on screen), after the lap is let go, so the
+   * Left hand setting never rebuilds a box let go. The menus follow it too.
    */
-  private adopted(before: Profile): void {
+  private adopted(before: Profile, held: Profile): void {
     const p = this.profiles.profile;
     const slot: Slot | null = this.flow?.slot() ?? (this.game?.behind()?.kind === "lesson" ? "lesson" : null);
     if (slot && slotMoved(before, p, slot)) {
@@ -315,7 +317,7 @@ export class Shell {
       this.game?.dropped();
       go("home");
     }
-    if (JSON.stringify(before.settings) !== JSON.stringify(p.settings)) this.settings.changed();
+    this.settings.replaced(held.settings);
     this.panels.refresh();
   }
 

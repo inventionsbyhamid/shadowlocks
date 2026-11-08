@@ -49,7 +49,8 @@ export function slotMoved(before: Profile, after: Profile, slot: Slot): boolean 
  * - if it changed nothing but the latest time seen (it only opened), this window's write goes on top of it;
  * - else this window's write is refused and the stored profile is taken as this window's own, in place (everything
  *   that reads the profile holds this object). What this window had changed since it last wrote is dropped, and the
- *   `onAdopt` listeners hear of it (the shell lets a box in play go when its save moved on, and the settings follow).
+ *   `onAdopt` listeners hear of it (the shell lets a box in play go when its save moved on, a replay lets go of the box
+ *   it would put back when that box's save moved on, and the settings follow).
  * The window also looks again (`refresh`) whenever its page is seen again.
  *
  * Why refuse rather than merge: the windows are one player's, who plays in one at a time (one XR session), so the
@@ -67,7 +68,7 @@ export class ProfileStore {
   private noticeShown = false;
   /** The profile as this window last read or wrote it (at revision `rev`). */
   private base: Profile;
-  private readonly adopters = new Set<(before: Profile) => void>();
+  private readonly adopters = new Set<(before: Profile, held: Profile) => void>();
 
   private constructor(
     private readonly store: Store,
@@ -103,9 +104,11 @@ export class ProfileStore {
 
   /**
    * Hear when another window's profile is taken in place of this one's: `before` is this window's as it last read or
-   * wrote it. Both as the loader gives them (fields in order). Returns a function that stops listening.
+   * wrote it, `held` as it held it in memory just before it was taken (what it showed: a change since its last write
+   * included, such as a setting whose save was refused). Both as the loader gives them (fields in order). Returns a
+   * function that stops listening.
    */
-  onAdopt(fn: (before: Profile) => void): () => void {
+  onAdopt(fn: (before: Profile, held: Profile) => void): () => void {
     this.adopters.add(fn);
     return () => this.adopters.delete(fn);
   }
@@ -206,13 +209,13 @@ export class ProfileStore {
       if (theirs.lastSeenMs > this.profile.lastSeenMs) this.profile.lastSeenMs = theirs.lastSeenMs;
       return false;
     }
-    const before = canonical(this.base);
+    const before = canonical(this.base), held = canonical(this.profile);
     Object.assign(this.profile, theirs);
     this.rev = stored.rev;
     this.base = copy(theirs);
     for (const fn of [...this.adopters]) {
       try {
-        fn(before);
+        fn(before, held);
       } catch (err) {
         console.error("profile listener failed", err);
       }

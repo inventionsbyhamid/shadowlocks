@@ -79,4 +79,25 @@ describe("settings", () => {
     expect(seen).toEqual([20]);
     expect(m.saves.length).toBe(saves);
   });
+
+  it("tells subscribers of replaced settings only when they differ from the ones held, whatever their fields' order", async () => {
+    const m = memStore();
+    const ps = await ProfileStore.open(m.store, () => {}, ENV);
+    const st = new SettingsStore(ps);
+    const seen: number[] = [];
+    st.subscribe((s) => seen.push(s.boxSizeCm));
+    const saves = m.saves.length;
+    // The window held 28 (its change, refused); the profile taken has 24: told.
+    const held = { ...st.get(), boxSizeCm: 28 };
+    st.replaced(held);
+    expect(seen).toEqual([24]);
+    // The same settings as those held, in another order: nobody told.
+    const reversed = Object.fromEntries(Object.entries(st.get()).reverse()) as unknown as typeof held;
+    st.replaced(reversed);
+    expect(seen).toEqual([24]);
+    // Any field: the hand.
+    st.replaced({ ...st.get(), handed: "left" });
+    expect(seen).toEqual([24, 24]);
+    expect(m.saves.length).toBe(saves);
+  });
 });
