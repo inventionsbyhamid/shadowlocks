@@ -27,8 +27,12 @@
 #                  SIGNING_STORE on the server is mounted read-only at /secrets/shadowlocks-android.keystore,
 #                  and the first line of this script's stdin, the keystore password, becomes the first line
 #                  of the command's stdin. It travels ahead of the heartbeat on the ssh connection and is
-#                  never on a command line, in an environment or in a file. The run removes SIGNING_STORE's
-#                  folder when it ends, however it ends; the step checks it is gone.
+#                  never on a command line, in an environment or in a file. SIGNING_STORE's folder goes
+#                  when the run ends (remote-run.sh's finish: the build's end, a lock wait given up, a
+#                  missing upload or keystore), and when it is stopped (Ctrl-C, TERM, a lost connection,
+#                  the server's watchdog: remote-stop.sh). Nothing removes it when this script stops
+#                  before the server starts the run (a refused gate, say) or the server fails mid-run:
+#                  the step's last line removes it whatever happened, and checks.
 # Runs of one lane take turns: each waits (same limit) for the lane's earlier run to finish, then
 # uploads and runs. The container runs as uid 1000 (not root), with no capabilities,
 # no-new-privileges and at most 2048 processes and threads (an e2e run peaks near 300); its npm
@@ -64,7 +68,8 @@ SHARED_SLOTS=4
 CPU_QUOTA=6
 TIMING_CPUS=10-19,30-39
 OTHER_CPUS=0-9,20-29
-# Where an APK build's keystore waits on the server (--signing-key); remote-run.sh names the same path.
+# Where an APK build's keystore waits on the server (--signing-key); remote-run.sh names the same path,
+# remote-stop.sh its folder.
 SIGNING_STORE=/root/shadowlocks/twa-key/shadowlocks-android.keystore
 
 usage() {
@@ -130,7 +135,9 @@ if [ "$TIMING" = 1 ] && [ "$LOCK_SPEC" != e2e ]; then
   exit 2
 fi
 # The keystore password, read before anything else could read stdin (the ssh below, say), kept in this
-# shell's memory only, and stdin closed after it.
+# shell's memory only, and stdin closed after it. Unset first: a SECRET the caller exported stays
+# exported through an assignment, and would hand the password to ssh, rsync and caffeinate.
+unset SECRET
 SECRET=
 if [ "$SIGNING" = 1 ]; then
   if [ -t 0 ]; then
@@ -257,7 +264,7 @@ UP_LOG=$RUN_TMP/upload.log
 # In the background, so a TERM or Ctrl-C reaches the trap at once instead of after ssh returns. With
 # --signing-key the password goes first, as one line (printf is a builtin: no command line holds it).
 ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 "$HOST" "$REMOTE_CMD" \
-  < <(if [ -n "$SECRET" ]; then printf '%s\n' "$SECRET"; fi; heartbeat $$) &
+  < <(if [ -n "$SECRET" ]; then builtin printf '%s\n' "$SECRET"; fi; heartbeat $$) &
 SSH_PID=$!
 SECRET=
 # Keep the Mac awake meanwhile: once it sleeps for over 60 s the heartbeat stops and so does the run.

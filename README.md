@@ -1,6 +1,6 @@
 # Shadow Locks
 
-A seated mixed-reality puzzle box for Meta Quest, played with your hands. A small glass box sits in your
+A seated mixed-reality puzzle box for Meta Quest, played with hands or Touch controllers. A small glass box sits in your
 lap; brass scraps hang inside it at different depths, and a lantern you hold casts their shadows on the
 frosted back panel. Move the lantern until the shadows fill a lock's outline and the lock opens; later
 boxes need your own fingertip to cast the missing piece. It is a WebXR app built with Meta's Immersive
