@@ -222,9 +222,9 @@ export const FR: Copy = {
   landing: {
     open: "Ouvrir la boîte",
     tagline: "Une boîte à énigmes faite d'ombre et de lumière.",
-    facts: "Sans te lever. Juste avec les mains. Fonctionne hors ligne.",
+    facts: "Sans te lever. Fonctionne hors ligne.",
     loading: "Chargement",
-    description: "Une boîte à énigmes faite d'ombre et de lumière pour Meta Quest. Sans te lever, juste avec les mains, hors ligne.",
+    description: "Une boîte à énigmes faite d'ombre et de lumière pour Meta Quest. Sans te lever, avec les mains ou les manettes, hors ligne.",
   },
   phone: {
     pickUp: "Fais glisser la lanterne.",

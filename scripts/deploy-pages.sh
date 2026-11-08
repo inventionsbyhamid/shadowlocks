@@ -110,8 +110,19 @@ verify() { # host, the asset links file the site must serve
   esac
   # A preview alias (<branch>.<project>.pages.dev) must stay out of search results: Pages sends this header on every
   # preview deployment by default (developers.cloudflare.com/pages/configuration/preview-deployments).
+  # The judge host is a production deploy, kept out of search by its own rule in public/_headers; the public host must
+  # not get that header (a rule matching every host would take the game out of search).
   case $host in
-    *.*.pages.dev) check / 200 text/html "x-robots-tag: noindex" ;;
+    *.*.pages.dev | "$JUDGE_PROJECT.pages.dev") check / 200 text/html "x-robots-tag: noindex" ;;
+    "$PUBLIC_PROJECT.pages.dev")
+      local public_head
+      public_head=$(curl -s -o /dev/null -D - --max-time 20 "https://$host/" | tr -d '\r' || true)
+      if grep -qi '^x-robots-tag:.*noindex' <<<"$public_head"; then
+        echo "FAIL /: the public host sends x-robots-tag: noindex (only the judge host should)"
+        bad=1
+      else
+        echo "ok   /: no noindex on the public host"
+      fi ;;
   esac
   check /.well-known/assetlinks.json 200 application/json
   body_ok "$(curl -s --max-time 20 "https://$host/.well-known/assetlinks.json" || true)" /.well-known/assetlinks.json "$links" || bad=1

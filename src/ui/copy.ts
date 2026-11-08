@@ -223,10 +223,14 @@ export const COPY = {
   landing: {
     open: "Open the box",
     tagline: "A puzzle box of light and shadow.",
-    facts: "Seated. Hands only. Plays offline.",
+    /**
+     * True on every device the page opens on: a headset (hands or Touch controllers) and a phone (touch, AR), so it
+     * names no input.
+     */
+    facts: "Seated. Plays offline.",
     loading: "Loading",
     /** The page's meta description (index.html has it in English; the page sets it in the language shown). */
-    description: "A puzzle box of light and shadow for Meta Quest. Seated, hands only, plays offline.",
+    description: "A puzzle box of light and shadow for Meta Quest. Seated, hands or controllers, plays offline.",
   },
   /** The lessons: the coach line, the lessons' and examples' names, and the tips. */
   lessons: {

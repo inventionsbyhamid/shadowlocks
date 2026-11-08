@@ -17,8 +17,14 @@ describe("privacy page", () => {
     for (const phrase of [
       "collects nothing about you",
       "no account, no analytics, no advertising and no cookies",
-      "browser storage on your headset",
+      "browser storage on your headset or phone",
       "hand, head and controller positions",
+      // The store declares Touch controllers, and the site also plays on a phone (AR in the browser).
+      "your hands or with Touch controllers",
+      "on an Android phone",
+      // The phone's AR shows the camera view: the page says so, and that nothing of it is kept or sent.
+      "the camera view that the browser shows behind the game through WebXR",
+      "The game does not record, save or send any of those images",
       "Cloudflare",
       "IP address",
       "We do not see or keep that data",
@@ -41,6 +47,10 @@ describe("privacy page", () => {
 
   it("promises no deletion by uninstalling alone (a Quest app's site data lives in the headset's browser)", () => {
     expect(text).not.toMatch(/[Uu]ninstall/);
+  });
+
+  it("does not say the game is played with hands only (the store app declares Touch controllers)", () => {
+    expect(text).not.toMatch(/hands only/i);
   });
 
   it("has no em or en dashes in what readers see", () => {

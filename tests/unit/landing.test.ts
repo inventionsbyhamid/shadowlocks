@@ -1,10 +1,11 @@
 // The landing page in the language shown: it starts in the headset's language (the page's lang, every word, the
 // meta description, the status), and its status line is kept as which line it is, so a new language paints it again
 // and "is the failure still up?" holds in any language.
+import fs from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { ENTER_FAILED, Landing, LOADING, noticeLine, startLanguage } from "../../src/app/landing";
 import { NOT_SAVED_NOTICE } from "../../src/app/profile-store";
-import { setLang, tableFor } from "../../src/i18n";
+import { LANGS, setLang, tableFor } from "../../src/i18n";
 import { COPY } from "../../src/ui/copy";
 
 afterEach(() => setLang("en"));
@@ -75,5 +76,21 @@ describe("the landing page", () => {
     page.say(ENTER_FAILED);
     page.sayBriefly(noticeLine(COPY.notice.updated), 6000, (fn) => later.push(fn));
     expect(d.els.status!.textContent).toBe(tableFor("es").page.enterFailed);
+  });
+
+  it("says only what is true on every device the page opens on (the store's Website opens it; phones play by touch)", () => {
+    const controller: Record<string, RegExp> = { en: /controllers/, es: /controladores/, fr: /manettes/, de: /Controllern/, "pt-BR": /controles/, ja: /コントローラー/ };
+    const handsOnly = /hands only|solo con las manos|juste avec les mains|nur mit den händen|só com as mãos|手だけ/i;
+    for (const l of LANGS) {
+      const { facts, description } = tableFor(l).landing;
+      // The facts line shows on a headset and on a phone alike: it names no input.
+      expect(facts, `${l}: ${facts}`).not.toMatch(controller[l]!);
+      expect(facts, `${l}: ${facts}`).not.toMatch(/\b(hands?|manos|mains|händen|mãos)\b|手/i);
+      // The meta description is about Meta Quest: hands or Touch controllers, as the store declares.
+      expect(description, `${l}: ${description}`).toMatch(controller[l]!);
+      expect(description, `${l}: ${description}`).not.toMatch(handsOnly);
+    }
+    // The static page says the same as the English table until the script paints it.
+    expect(fs.readFileSync("index.html", "utf8")).toContain(`<p id="facts" class="facts">${COPY.landing.facts}</p>`);
   });
 });
