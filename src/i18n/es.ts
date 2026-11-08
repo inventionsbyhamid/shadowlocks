@@ -7,7 +7,7 @@ import { type Copy, NBSP as NB } from "./types";
 export const ES: Copy = {
   page: {
     enterFailed: "No se pudo iniciar. Toca «Abrir la caja» para volver a intentarlo.",
-    noXr: "Abre esta página en el navegador de Meta Quest para jugar.",
+    noXr: "Abre esta página en el navegador de Meta Quest para jugar. En un teléfono Android, Chrome muestra una vista previa en realidad aumentada.",
     startupFailed: "Algo salió mal. Recarga la página para volver a intentarlo.",
   },
   notice: {

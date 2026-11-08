@@ -91,6 +91,18 @@ describe("the landing page", () => {
       expect(description, `${l}: ${description}`).not.toMatch(handsOnly);
     }
     // The static page says the same as the English table until the script paints it.
-    expect(fs.readFileSync("index.html", "utf8")).toContain(`<p id="facts" class="facts">${COPY.landing.facts}</p>`);
+    const html = fs.readFileSync("index.html", "utf8");
+    expect(html).toContain(`<p id="facts" class="facts">${COPY.landing.facts}</p>`);
+    // Its description for link cards and search (English, read with no script run; site-meta.test.ts keeps its four
+    // copies one text) is about Meta Quest: hands or Touch controllers.
+    expect(html.match(/for Meta Quest, played with hands or Touch controllers\. /g)).toHaveLength(4);
+    expect(html).not.toMatch(/played with your hands\./);
+    // A device that cannot play (a computer, an iPhone) is told where the game plays, and that an Android phone
+    // previews it in AR.
+    expect(COPY.page.noXr).toContain("On an Android phone, Chrome shows a preview in AR.");
+    for (const l of LANGS) {
+      const noXr = tableFor(l).page.noXr;
+      for (const want of [/Meta\sQuest/, /Android/, /Chrome/]) expect(noXr, `${l}: ${noXr}`).toMatch(want);
+    }
   });
 });

@@ -8,7 +8,7 @@ import { type Copy, NBSP as NB } from "./types";
 export const JA: Copy = {
   page: {
     enterFailed: "起動できませんでした。「箱を開ける」をタップして、もう一度お試しください。",
-    noXr: `プレイするには、Meta${NB}Quest${NB}のブラウザでこのページを開いてください。`,
+    noXr: `プレイするには、Meta${NB}Quest${NB}のブラウザでこのページを開いてください。Android端末では、ChromeでARのプレビューを見られます。`,
     startupFailed: "問題が発生しました。ページを再読み込みして、もう一度お試しください。",
   },
   notice: {
