@@ -6,8 +6,7 @@ import type { Box, Element, Lock, V2, V3 } from "./types";
 const flip2 = (p: V2): V2 => [-p[0], p[1]];
 const flip3 = (p: V3): V3 => [-p[0], p[1], p[2]];
 
-/** An element reflected left to right, as mirrorBox reflects it. */
-export function mirrorElement(e: Element): Element {
+function mirrorElement(e: Element): Element {
   if (e.kind === "ring") return { ...e, c: flip3(e.c), nrm: flip3(e.nrm) };
   return { ...e, verts: e.verts.map(flip3) };
 }
