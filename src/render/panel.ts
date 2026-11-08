@@ -281,11 +281,14 @@ export function panelUniforms(): PanelUniforms {
 }
 
 /**
- * The panel's material and the shadows' (same shader and uniforms). The panel writes no depth, so the
- * shadow mesh can lie exactly in its plane; it must draw after the panel (a higher renderOrder).
+ * The panel's material and the shadows' (same shader and uniforms). The shadow mesh lies exactly in the panel's plane
+ * and draws after it (a higher renderOrder). The panel writes depth: it is the box's back wall, and nothing behind it
+ * may show through it, however late it draws (IWSDK's outline of a hand reached behind the box, at order 999). The
+ * shadows write none and are pulled toward the eye by the smallest depth step (polygonOffset), so they still pass the
+ * depth test on the panel they lie on and nowhere else.
  */
 export function panelMaterials(u: PanelUniforms): { panel: ShaderMaterial; shadow: ShaderMaterial } {
-  const panel = new ShaderMaterial({ uniforms: u, vertexShader: VERTEX, fragmentShader: FRAGMENT, depthWrite: false, toneMapped: false });
+  const panel = new ShaderMaterial({ uniforms: u, vertexShader: VERTEX, fragmentShader: FRAGMENT, toneMapped: false });
   panel.name = "Panel";
   const shadow = new ShaderMaterial({
     uniforms: u,
@@ -293,6 +296,9 @@ export function panelMaterials(u: PanelUniforms): { panel: ShaderMaterial; shado
     fragmentShader: FRAGMENT,
     defines: { SHADOW: "" },
     depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
     toneMapped: false,
     // Polygons wind either way (Diamond clockwise, a mirrored box flips all).
     side: DoubleSide,

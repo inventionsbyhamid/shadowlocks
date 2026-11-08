@@ -61,7 +61,8 @@ const BAR_R = 0.008;
 const PANEL_Z = 0.002;
 /**
  * The panel draws after everything opaque at the default order (the scraps and frame in front of it
- * hide it by depth, since it writes none), and its shadows right after it, darkening it by MIN blending.
+ * hide it by depth, so it is not shaded there), and its shadows right after it, darkening it by MIN blending.
+ * It writes depth, as the back wall it is: nothing drawn later behind the box shows through it (panel.ts).
  */
 const PANEL_ORDER = 1;
 /** The velvet floor draws before the other opaque parts of the box (order 0), after the hand mask (-10). */
@@ -162,7 +163,8 @@ export function frameGeometry(keepHidden = false): BufferGeometry {
   for (const x of [-H, H]) parts.push(grainBar(1 - BAR, "y", [x, 0, 1]));
   // The back slab and the plinth: grain across. The slab's flat front face lies behind the panel and the back ring
   // from every side, so it is left out: drawn, it was the frame's most expensive shading (the lacquer) under the
-  // panel, which then covered it (the panel writes no depth, so it cannot hide what is behind it). One trace of it
+  // panel, which then covered it (the panel draws after it, so it cannot spare it). The panel's own depth now stands
+  // where the face's stood, for whatever draws later behind the box (panel.ts). One trace of the face
   // is left: between the back ring's rear face (z -0.025) and where the face was (z -0.0275) there is a slot 0.0025
   // deep, open at the box's outer edge. From far to the side, at the back plane's depth, a pixel or two can show
   // through it where black lacquer was; a seated player in front of the box never sees it from there.
@@ -330,7 +332,7 @@ export class BoxScene {
     const lid = new Mesh(new PlaneGeometry(inner, inner).rotateX(Math.PI / 2).translate(0, LID_Y, 0.5), pane(MATERIALS.lid, dark));
     lid.name = "Box Lid";
     lid.renderOrder = 2;
-    // The panel draws after everything opaque in front of it (it writes no depth), then the shadows on it.
+    // The panel draws after everything opaque in front of it, then the shadows on it.
     this.panelArt = new Panel();
     this.panel = new Mesh(new PlaneGeometry(1, 1).translate(0, 0, PANEL_Z), this.panelArt.material);
     this.panel.name = "Box Panel";

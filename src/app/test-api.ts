@@ -172,9 +172,18 @@ export interface NsScene {
   setVisible(v: boolean): void;
   /**
    * The hidden-overdraw trims on (as the game ships) or off (as before them): the back slab's covered front face left
-   * out of the frame, and the velvet floor and the menu slabs drawn ahead of the box's lacquer. Tests compare the two.
+   * out of the frame, and the velvet floor and the menu slabs drawn ahead of the box's lacquer; with them, the panel's
+   * depth (written, its shadows offset toward the eye; before, neither: the slab's face behind it held the depth).
+   * Tests compare the two.
    */
   trims(on: boolean): void;
+  /** The panel writing depth, its shadows offset toward the eye (as the game ships), or neither (as the trims left it). */
+  panelDepth(on: boolean): void;
+  /**
+   * A plane drawn late (order 999, blended, depth tested and writing none, as IWSDK's outline of a hand), half the
+   * panel's width, across its middle at box depth `z`, bright magenta; null takes it away.
+   */
+  probe(z: number | null): void;
 }
 
 /** `window.__ns`, present only in builds made with VITE_TEST_HOOKS=1. */

@@ -1,6 +1,6 @@
 // Test hooks: window.__ns and window.__sl. Only built when VITE_TEST_HOOKS=1 (main.ts imports this
 // module behind that flag, so production bundles drop it).
-import { type BufferGeometry, type Matrix4, type Mesh, Quaternion, Vector3, type World } from "@iwsdk/core";
+import { type BufferGeometry, type Matrix4, Mesh, MeshBasicMaterial, PlaneGeometry, Quaternion, Vector3, type World } from "@iwsdk/core";
 import { generateBox } from "../core/generator";
 import { lang } from "../i18n";
 import { boxTextFits } from "../ui/box-text";
@@ -328,6 +328,7 @@ export function installTestHooks(
   // The frame's geometry with and without the hidden-overdraw trims (scene.trims).
   let trimmed: BufferGeometry | undefined;
   let untrimmed: BufferGeometry | undefined;
+  let probeMesh: Mesh | undefined;
   const scene: NsScene = {
     show(spec, mirrored = false) {
       const made = generateBox("n" in spec ? { kind: "box", n: spec.n } : { kind: "daily", day: spec.day });
@@ -382,6 +383,21 @@ export function installTestHooks(
       world.scene.traverse((o) => {
         if (o.name === "Panel Slab") o.renderOrder = on ? SLAB_ORDER : 0;
       });
+      scene.panelDepth(on);
+    },
+    panelDepth: (on) => {
+      box.panelArt.material.depthWrite = on;
+      box.panelArt.shadowMaterial.polygonOffset = on;
+    },
+    probe: (z) => {
+      if (probeMesh) box.root.remove(probeMesh);
+      if (z === null) return;
+      probeMesh ??= Object.assign(
+        new Mesh(new PlaneGeometry(0.5, 0.5), new MeshBasicMaterial({ color: 0xff00ff, transparent: true, depthWrite: false, toneMapped: false })),
+        { name: "Probe", renderOrder: 999 },
+      );
+      probeMesh.position.z = z;
+      box.root.add(probeMesh);
     },
   };
 
