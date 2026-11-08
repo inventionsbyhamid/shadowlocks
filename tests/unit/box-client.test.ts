@@ -192,6 +192,24 @@ describe("createBoxClient", () => {
     expect(await createBoxClient().get(box(2))).toEqual(generateBox(box(2)));
   });
 
+  it("says once in the console that boxes build on this thread when the worker fails, and not in Node", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { createBoxClient } = await import("../../src/core/box-client");
+      await createBoxClient().get(box(1));
+      expect(warn).not.toHaveBeenCalled();
+      vi.stubGlobal("Worker", FakeWorker);
+      FakeWorker.mode = "onerror";
+      const client = createBoxClient();
+      await Promise.all([client.get(box(1)), client.get(box(2))]);
+      await client.get(box(3));
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]![0])).toMatch(/main thread.*box worker failed/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("rejects when the worker dies and this thread fails too", async () => {
     vi.stubGlobal("Worker", FakeWorker);
     FakeWorker.mode = "onerror";
