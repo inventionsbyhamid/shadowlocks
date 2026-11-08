@@ -12,7 +12,7 @@ import { ENVELOPE } from "./envelope";
 import { frameMs, renderCorners } from "./frame-cost";
 import { area, bbox, circlePts, elongation, hash, inPoly, polyDist, proj, rng32, segDist } from "./geom";
 import { boxParams, boxParamsV3, dailyParams, KINDS_FROM } from "./params";
-import { mirrorLock } from "./mirror";
+import { mirrorElement, mirrorLock } from "./mirror";
 import { isDayKey } from "./profile";
 import { FIRST_SILHOUETTES, SHAPES, SILHOUETTES } from "./shapes";
 import { boxSilhouettes } from "./silhouette-deck";
@@ -356,9 +356,22 @@ function fingerFits(l: Lock, j: number, fine: LockSamples, known: Map<number, Lo
  * True when each lock is strictly warmest at its spot along the line in from WARMTH_RANGE toward the start, sampled as
  * the game measures (its runtime grid, the scraps in the box, no finger): so warmth leads all the way to the spot and
  * never saturates a few millimetres short of it. tests/unit/solve.test.ts checks the same samples. `known` holds runtime
- * samples already made (a finger lock's, by fingerFits).
+ * samples already made (a finger lock's, by fingerFits). With `bothHands`, in the mirrored (left-handed) box too: it is
+ * sampled on a grid of its own, and a lock can tie a few millimetres short of its spot there alone.
  */
-function warmestAtSpots(locks: Lock[], elements: Element[], start: V3, known: Map<number, LockSamples>): boolean {
+function warmestAtSpots(
+  locks: Lock[],
+  elements: Element[],
+  start: V3,
+  known: Map<number, LockSamples>,
+  bothHands: boolean,
+): boolean {
+  if (!strictlyWarmest(locks, elements, start, known)) return false;
+  if (!bothHands) return true;
+  return strictlyWarmest(locks.map(mirrorLock), elements.map(mirrorElement), [-start[0], start[1], start[2]], new Map());
+}
+
+function strictlyWarmest(locks: Lock[], elements: Element[], start: V3, known: Map<number, LockSamples>): boolean {
   const polys: V2[][] = [], cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 0 };
   for (const l of locks) {
     const s = known.get(l.i) ?? lockSamples(l.target, RUNTIME_STEP, l.missing);
@@ -406,7 +419,8 @@ export function buildBox(spec: BoxSpec, cornerCap = FRAME_CORNER_CAP): BoxBuild 
   // The frame cost cap, and how many of its decoys a box may leave out for it (FRAME_CORNER_CAP).
   const capped = !v3 && (spec.kind === "daily" || (spec.kind === "box" && spec.n >= KINDS_FROM));
   const fewestDecoys = P.decoys - (spec.kind === "box" ? Math.floor(P.decoys * DECOY_TRIM_MAX) : 0);
-  // From box 5 (version 4), a finger lock fits a laid finger for either hand (boxes 1 to 4 stay version 3's byte for byte).
+  // From box 5 (version 4), a finger lock fits a laid finger, and warmth leads to each spot, for either hand (boxes 1 to
+  // 4 stay version 3's byte for byte).
   const bothHands = !v3 && !(spec.kind === "box" && spec.n <= 4);
   let attemptNow = 0;
   const rng = rng32(hash(key));
@@ -587,7 +601,7 @@ export function buildBox(spec: BoxSpec, cornerCap = FRAME_CORNER_CAP): BoxBuild 
     const cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 1 };
     for (const l of locks) if (measure(l.samples, fromStart, n, [], 0, cov).cover >= START_COVER_MAX) return "start";
     // From version 4, warmth must lead all the way to each spot (version 3's boxes never failed this).
-    if (!v3 && !warmestAtSpots(locks, elements, start, runtime)) return "warmth";
+    if (!v3 && !warmestAtSpots(locks, elements, start, runtime, bothHands)) return "warmth";
 
     return {
       key,
