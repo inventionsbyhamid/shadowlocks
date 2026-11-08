@@ -249,6 +249,45 @@ function studioEnvironment(renderer: WebGLRenderer, studio: { base: string; pane
   return tex;
 }
 
+/** The box's two studio environments (theme.ts ENV): the gold's warm one, the lacquer's and glass's dark one. */
+export interface StudioEnvs {
+  gold: Texture | null;
+  dark: Texture | null;
+}
+
+/**
+ * A lost WebGL context that comes back: three restores its own state and uploads image and canvas textures again, but
+ * a render target's contents are gone, and the studio environments were rendered once, into render targets: the gold,
+ * lacquer and glass would reflect black. On `webglcontextrestored` (from `canvas`, after three's own restore, which
+ * listens first) they are rendered again (`make`), every material under `root` that reflected one takes its new copy,
+ * and the old ones are disposed. (Where one could not be made at first, nothing reflected it to take the new one.)
+ * Returns a function that stops listening.
+ */
+export function restoreEnvironmentsOnContextRestore(canvas: EventTarget, root: Object3D, first: StudioEnvs, make: () => StudioEnvs): () => void {
+  let envs = first;
+  const restored = () => {
+    const next = make();
+    root.traverse((o) => {
+      const mats = (o as Mesh).material as Material | Material[] | undefined;
+      if (!mats) return;
+      for (const m of Array.isArray(mats) ? mats : [mats]) {
+        const r = m as Material & { envMap?: Texture | null };
+        if (!r.envMap) continue;
+        const to = r.envMap === envs.gold ? next.gold : r.envMap === envs.dark ? next.dark : undefined;
+        if (to === undefined) continue;
+        r.envMap = to;
+        // One that could not be made again leaves the material without a map: its program changes.
+        if (!to) r.needsUpdate = true;
+      }
+    });
+    if (envs.gold !== next.gold) envs.gold?.dispose();
+    if (envs.dark !== next.dark) envs.dark?.dispose();
+    envs = next;
+  };
+  canvas.addEventListener("webglcontextrestored", restored);
+  return () => canvas.removeEventListener("webglcontextrestored", restored);
+}
+
 function directional(c: string, k: number, from: readonly [number, number, number], root: Object3D): DirectionalLight {
   const l = new DirectionalLight(c, k);
   l.position.set(from[0], from[1], from[2]);
@@ -308,8 +347,9 @@ export class BoxScene {
     this.root.name = BOX_ROOT_NAME;
     // Gold reflects a warm studio (a scrap is never black on the black frame); lacquer and glass a dark one (the
     // top bars stay black at a grazing angle, the lid adds no haze).
-    const env = studioEnvironment(world.renderer, ENV.gold);
-    const dark = studioEnvironment(world.renderer, ENV.lacquer);
+    const studios = (): StudioEnvs => ({ gold: studioEnvironment(world.renderer, ENV.gold), dark: studioEnvironment(world.renderer, ENV.lacquer) });
+    const envs = studios();
+    const env = envs.gold, dark = envs.dark;
     // Black lacquer with its grain (the owner's pick), drawn in its own shader: one program, one draw call as before.
     const lacquer = withGrain(new MeshPhysicalMaterial({ color: COLORS.frame, ...MATERIALS.lacquer, envMap: dark }));
     const gold = new MeshStandardMaterial({ color: COLORS.metal, ...MATERIALS.gold, envMap: env });
@@ -358,6 +398,9 @@ export class BoxScene {
     this.root.scale.set(s, s, s);
     this.entity = world.createTransformEntity(this.root, { persistent: true });
     this.setBox(null);
+    // A lost GPU context that comes back: the reflections rendered again for everything under the box (the drawer and
+    // the reward, added later, included).
+    restoreEnvironmentsOnContextRestore(world.renderer.domElement, this.root, envs, studios);
   }
 
   /** The box shown (its scraps, threads, rings, etching and shadows; the lantern goes to its start), or none. */
