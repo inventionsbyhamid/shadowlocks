@@ -109,7 +109,7 @@ export ANDROID_HOME=$SDK ANDROID_SDK_ROOT=$SDK
 BT=$SDK/build-tools/$BUILD_TOOLS
 
 echo "twa-build: installing $BUBBLEWRAP"
-npm install --prefix "$TMP/bw" --no-audit --no-fund --loglevel=error "$BUBBLEWRAP" >/dev/null
+npm install --prefix "$TMP/bw" --no-audit --no-fund --no-update-notifier --loglevel=error "$BUBBLEWRAP" >/dev/null
 BW=$TMP/bw/node_modules/.bin/bubblewrap
 mkdir -p "$HOME/.bubblewrap"
 printf '{"jdkPath":"%s","androidSdkPath":"%s"}\n' "$JAVA_HOME" "$SDK" > "$HOME/.bubblewrap/config.json"
