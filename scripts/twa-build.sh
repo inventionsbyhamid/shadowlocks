@@ -18,10 +18,14 @@
 #   3. bubblewrap update --skipVersionUpgrade (the version is the config's; raise it with twa-config fill
 #      --<app>-version <n>);
 #   4. node scripts/twa-config.mjs patch: what Meta's release rules want and Bubblewrap has no setting for;
-#   5. bubblewrap build, then apksigner signs the same aligned APK again with scheme v2 (Bubblewrap's own signing gives
-#      v3 only for a minSdkVersion of 28 or more, and Meta's VRC.Quest.Packaging.2 asks for v2);
+#   5. bubblewrap build --skipSigning (Bubblewrap never sees the password: its own signing passes it to apksigner and
+#      jarsigner on their command lines), then zipalign, then apksigner signs with scheme v2 (Meta's
+#      VRC.Quest.Packaging.2), the passwords read from the environment of that one command;
 #   6. aapt and apksigner dumps (xmltree.txt, badging.txt, apksigner.txt), and node scripts/twa-config.mjs apk-check
 #      (apk-check.txt): every release rule, one line each, and the checked APK's SHA-256 last.
+# Secrets: the password lives in an unexported shell variable and reaches keytool and apksigner only through their
+# environment (`-storepass:env`, `--ks-pass env:`), never a command line, a log or a file; the script never runs with
+# set -x. A test key, and everything else the build writes, stays in the scratch folder inside the container.
 # Needs JDK 17, Node 18 or later, the Android SDK's cmdline-tools and the network (Bubblewrap from npm, SDK packages,
 # Gradle and its libraries). reactnativecommunity/react-native-android on the build server has them all (TWA_IMAGE
 # below). The SDK packages the build needs go into a scratch SDK next to links to the image's tools, and everything
@@ -30,7 +34,8 @@ set -euo pipefail
 
 # Meta's Bubblewrap fork, the version Meta's PWA packaging page was verified with (2026-10-22).
 BUBBLEWRAP=@meta-quest/bubblewrap-cli@1.24.1
-# The build tools Bubblewrap 1.24.1 signs with, and the platform the patched project compiles against.
+# The build tools Bubblewrap 1.24.1 wants (zipalign, apksigner and aapt come from them too), and the platform the patched
+# project compiles against.
 BUILD_TOOLS=34.0.0
 PLATFORM=android-34
 # The image this was tested in (for the command in the ship steps).
@@ -63,7 +68,9 @@ for tool in node npm java keytool curl; do
 done
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/twa-build.XXXXXX")
+chmod 700 "$TMP"
 trap 'rm -rf "$TMP"' EXIT
+trap 'exit 130' INT TERM HUP
 # A home of our own when the container user has none (Bubblewrap keeps its config there, Gradle and the SDK tools
 # their caches).
 if [ -z "${HOME:-}" ] || [ ! -w "${HOME:-/}" ]; then export HOME=$TMP/home; fi
@@ -73,20 +80,22 @@ JAVA_HOME=${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v java)")
 export JAVA_HOME
 
 # The keystore and its password: a throwaway pair for a test build, else the real keystore and the password on stdin.
+# PW is never exported: only keytool and apksigner get it, as TWA_KS_PASS in their own environment.
 KEY_PATH=$(node -p 'require("./twa/store/twa-manifest.json").signingKey.path')
 KEY_ALIAS=$(node -p 'require("./twa/store/twa-manifest.json").signingKey.alias')
+unset BUBBLEWRAP_KEYSTORE_PASSWORD BUBBLEWRAP_KEY_PASSWORD TWA_KS_PASS
 if [ "$TEST" = 1 ]; then
   PW=$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')
   KEY_PATH=$TMP/test.keystore
-  keytool -genkeypair -keystore "$KEY_PATH" -storetype PKCS12 -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 \
-    -validity 3 -dname "CN=Shadow Locks test build" -storepass "$PW" -keypass "$PW" >/dev/null 2>&1
+  TWA_KS_PASS=$PW keytool -genkeypair -keystore "$KEY_PATH" -storetype PKCS12 -alias "$KEY_ALIAS" -keyalg RSA \
+    -keysize 2048 -validity 3 -dname "CN=Shadow Locks test build" -storepass:env TWA_KS_PASS -keypass:env TWA_KS_PASS \
+    >/dev/null 2>&1
   echo "twa-build: test build, signed with a throwaway key made for this run"
 else
   [ -r "$KEY_PATH" ] || { echo "twa-build: no keystore at $KEY_PATH (mount it read-only for the build)" >&2; exit 2; }
   IFS= read -r PW || true
   [ -n "${PW:-}" ] || { echo "twa-build: no keystore password on stdin" >&2; exit 2; }
 fi
-export BUBBLEWRAP_KEYSTORE_PASSWORD=$PW BUBBLEWRAP_KEY_PASSWORD=$PW
 
 # The Android SDK, with the build tools and platform the build needs.
 SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
@@ -146,17 +155,20 @@ for app in "${APPS[@]}"; do
   ' "$conf" "$dir/twa-manifest.json" "$TEST" "$KEY_PATH" "$ICONS"
   (cd "$dir" && "$BW" update --skipVersionUpgrade)
   node scripts/twa-config.mjs patch "$dir"
-  (cd "$dir" && "$BW" build --skipPwaValidation)
-  # VRC.Quest.Packaging.2: "The application must be signed with APK Signature Scheme v2." Bubblewrap leaves the schemes
-  # to apksigner, which for a minSdkVersion of 28 or more signs with v3 only (and keeps to that even when asked for v2
-  # too). Sign the same aligned APK again with the same key, with v2 alone: what the Android Gradle Plugin gives a
-  # release APK by default, and what Quest has always taken (v1 is for Android 6 and older; v3 adds only key rotation).
+  # Unsigned: Bubblewrap's own signing would put the password on apksigner's and jarsigner's command lines.
+  (cd "$dir" && "$BW" build --skipPwaValidation --skipSigning)
   unsigned=$dir/app-release-unsigned-aligned.apk
+  aligned=$dir/app-release-aligned.apk
   apk=$dir/app-release-signed.apk
-  [ -f "$unsigned" ] && [ -f "$apk" ] || { echo "twa-build: bubblewrap build made no app-release-signed.apk" >&2; exit 1; }
-  "$BT/apksigner" sign --ks "$KEY_PATH" --ks-key-alias "$KEY_ALIAS" --ks-pass env:BUBBLEWRAP_KEYSTORE_PASSWORD \
-    --key-pass env:BUBBLEWRAP_KEY_PASSWORD --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled false \
-    --out "$apk" "$unsigned"
+  [ -f "$unsigned" ] || { echo "twa-build: bubblewrap build made no app-release-unsigned-aligned.apk" >&2; exit 1; }
+  "$BT/zipalign" -p -f 4 "$unsigned" "$aligned"
+  # VRC.Quest.Packaging.2: "The application must be signed with APK Signature Scheme v2." apksigner's default for a
+  # minSdkVersion of 28 or more is v3 alone (it keeps to that even when asked for v2 too), so sign with v2 alone: what
+  # the Android Gradle Plugin gives a release APK by default, and what Quest has always taken (v1 is for Android 6 and
+  # older; v3 adds only key rotation). The passwords come from this one command's environment.
+  TWA_KS_PASS=$PW "$BT/apksigner" sign --ks "$KEY_PATH" --ks-key-alias "$KEY_ALIAS" --ks-pass env:TWA_KS_PASS \
+    --key-pass env:TWA_KS_PASS --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled false \
+    --out "$apk" "$aligned"
   out=$OUT/$app
   rm -rf "$out"
   mkdir -p "$out"
