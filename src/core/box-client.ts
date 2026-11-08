@@ -51,6 +51,7 @@ interface Pending {
 export function createBoxClient(): BoxClient {
   let worker: Worker | null = null;
   let disabled = false;
+  let warned = false;
   let nextId = 1;
   const pending = new Map<number, Pending>();
   const kept = new Map<string, Promise<Box>>();
@@ -63,8 +64,20 @@ export function createBoxClient(): BoxClient {
     }
   }
 
+  /**
+   * Says once, in the console, that boxes now build on this thread: each build then lands on a frame (tens of
+   * milliseconds, a few hundred at worst), which would otherwise show only as hitches. Not where there is no Worker at
+   * all (Node).
+   */
+  function fallBack(why: string): void {
+    if (warned) return;
+    warned = true;
+    console.warn(`Shadow Locks: building boxes on the main thread from now on (${why})`);
+  }
+
   /** Stops using the worker and finishes whatever it still owed on this thread. */
-  function disable(): void {
+  function disable(why: string): void {
+    fallBack(why);
     disabled = true;
     const w = worker;
     worker = null;
@@ -94,11 +107,12 @@ export function createBoxClient(): BoxClient {
         else p.resolve(reviveBox(msg.box));
       };
       // A broken worker, or a reply that cannot be read: stop using it and finish everything on this thread.
-      w.onerror = () => disable();
-      w.onmessageerror = () => disable();
+      w.onerror = () => disable("the box worker failed");
+      w.onmessageerror = () => disable("a reply from the box worker could not be read");
       worker = w;
       return w;
     } catch {
+      fallBack("the box worker could not be started");
       disabled = true;
       return null;
     }
@@ -116,7 +130,7 @@ export function createBoxClient(): BoxClient {
       } catch {
         pending.delete(id);
         local(p);
-        disable();
+        disable("a box could not be sent to the box worker");
       }
     });
   }

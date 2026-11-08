@@ -5,6 +5,7 @@ import {
   BUILDABLE_VERSIONS,
   boxFrame,
   buildBox,
+  DECOY_TRIM_MAX,
   FRAME_CORNER_CAP,
   GENERATOR_VERSION,
   generateBox,
@@ -17,12 +18,14 @@ import { mirrorBox } from "../../src/core/mirror";
 import { boxKind, boxParams, boxParamsV3, dailyParams } from "../../src/core/params";
 import { FIRST_SILHOUETTES, SHAPES, SILHOUETTES } from "../../src/core/shapes";
 import { boxSilhouettes, REPEAT_GAP } from "../../src/core/silhouette-deck";
-import { type Coverage, measure, meets, prepareLock, RULE, shadowPolys, SKIP_MISSING, warmth, WARMTH_RANGE } from "../../src/core/solve";
+import { type Coverage, measure, meets, prepareLock, RULE, shadowPolys, SKIP_MISSING } from "../../src/core/solve";
 import { LOOT, OWNERS } from "../../src/core/story";
 import type { Box, BoxSpec, ShapeName, V2 } from "../../src/core/types";
 import GEN3 from "./fixtures/gen3-boxes.json";
+import GEN4 from "./fixtures/gen4-boxes.json";
 import { FINGER_MODEL_MARGIN, fingerCoverage } from "./helpers/finger-model";
 import {
+  checkBox,
   checkCounts,
   checkFingerAndDepth,
   checkSilhouettes,
@@ -38,6 +41,7 @@ import {
   nearHorizontal,
   paramsFor,
 } from "./helpers/box-checks";
+import { notWarmest } from "./helpers/warmth";
 
 /** A box's fingerprint: its JSON's sha256, the spec's `gen` left out (a version 3 box rebuilt for a save carries it). */
 const sha = (box: Box) => {
@@ -46,6 +50,12 @@ const sha = (box: Box) => {
 };
 /** Version 3's boxes, fingerprinted at main before version 4 (boxes 1-200 and the days of November 2026). */
 const V3_HASHES = GEN3 as Record<string, string>;
+/**
+ * Version 4's boxes, fingerprinted at f75c09f, the version 4 preview 61eb1aca shipped (gen4-fixture.test.ts says how):
+ * the same specs as SPECS. A saved box resumes by its key and GENERATOR_VERSION, so a change to any of them is a new
+ * generator version, never a new fixture.
+ */
+const V4_HASHES = GEN4 as Record<string, string>;
 
 const BOXES = 200;
 const DAYS = Array.from({ length: 30 }, (_, i) => `2026-11-${String(i + 1).padStart(2, "0")}`);
@@ -204,20 +214,9 @@ describe("generateBox", () => {
   });
 
   it("is strictly warmest at each spot along the line in from 0.2 toward the start, for either hand", () => {
-    const fails: string[] = [];
-    for (const box of built.flatMap(({ box }) => [box, mirrorBox(box)])) {
-      for (const l of box.locks) {
-        const s = prepareLock(l), d0 = [box.start[0] - l.L[0], box.start[1] - l.L[1], box.start[2] - l.L[2]];
-        const len = Math.hypot(d0[0]!, d0[1]!, d0[2]!), cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 0 };
-        const w = (d: number) => {
-          const L: [number, number, number] = [l.L[0] + (d0[0]! / len) * d, l.L[1] + (d0[1]! / len) * d, l.L[2] + (d0[2]! / len) * d];
-          const scraps: V2[][] = [];
-          return warmth(measure(s, scraps, shadowPolys(box.elements, L, scraps, SKIP_MISSING), [], 0, cov), d);
-        };
-        const peak = w(0);
-        for (let k = 0; k < 9; k++) if (!(w(WARMTH_RANGE * (1 - k / 9)) < peak)) fails.push(`${box.key}${box.mirrored ? " (left)" : ""} lock ${l.i}, ${k}`);
-      }
-    }
+    const fails = built
+      .flatMap(({ box }) => [box, mirrorBox(box)])
+      .flatMap((box) => notWarmest(box).map((f) => `${box.key}${box.mirrored ? " (left)" : ""} ${f}`));
     expect(fails).toEqual([]);
   });
 
@@ -282,6 +281,37 @@ describe("generateBox", () => {
   });
 });
 
+describe("the frame cost cap at work (a cap lower than FRAME_CORNER_CAP, so that it binds)", () => {
+  const decoys = (b: Box) => b.elements.filter((e) => e.kind === "decoy").length;
+
+  it("leaves decoys out to fit, at most DECOY_TRIM_MAX of them, and the box keeps every guarantee", () => {
+    // Box 52, the heaviest from 10 to 60, under a cap 16 corners below its own: its scraps and rings fit, its 14
+    // decoys do not all.
+    const corners = boxFrame(generateBox({ kind: "box", n: 52 })).corners, cap = corners - 16;
+    const { box } = buildBox({ kind: "box", n: 52 }, cap), P = boxParams(52);
+    expect(boxFrame(box).corners).toBeLessThanOrEqual(cap);
+    // And tight: no room left for one more decoy (a triangle's 3 corners), so a pre-count that overcounts the scraps or
+    // rings, and so trims more than it needs to, fails here as an undercount fails above.
+    expect(boxFrame(box).corners + 3).toBeGreaterThan(cap);
+    expect(decoys(box)).toBeLessThan(P.decoys);
+    expect(decoys(box)).toBeGreaterThanOrEqual(P.decoys - Math.floor(P.decoys * DECOY_TRIM_MAX));
+    expect(checkBox(box)).toEqual([]);
+  });
+
+  it("draws a box again when even its fewest decoys would not fit, and the Daily Box keeps all of its decoys", () => {
+    const tight = buildBox({ kind: "box", n: 52 }, 300);
+    expect(tight.failures.cost, JSON.stringify(tight.failures)).toBeGreaterThan(0);
+    expect(boxFrame(tight.box).corners).toBeLessThanOrEqual(300);
+    expect(checkBox(tight.box)).toEqual([]);
+    const day: BoxSpec = { kind: "daily", day: "2026-11-06" }, cap = boxFrame(generateBox(day)).corners - 1;
+    const daily = buildBox(day, cap);
+    expect(daily.failures.cost, JSON.stringify(daily.failures)).toBeGreaterThan(0);
+    expect(boxFrame(daily.box).corners).toBeLessThanOrEqual(cap);
+    expect(decoys(daily.box)).toBe(dailyParams().decoys);
+    expect(checkBox(daily.box)).toEqual([]);
+  });
+});
+
 describe("golden boxes", () => {
   // Saves keep a box by its spec and GENERATOR_VERSION, so one spec must keep giving one box. A change that alters any
   // box (RNG call order, a constant, a shape) must bump GENERATOR_VERSION and update these hashes.
@@ -297,6 +327,13 @@ describe("golden boxes", () => {
     expect(GOLDEN.map(([spec]) => [JSON.stringify(spec), sha(generateBox(spec))])).toEqual(
       GOLDEN.map(([spec, hash]) => [JSON.stringify(spec), hash]),
     );
+  });
+
+  it("pins every box it builds (boxes 1 to 200 and 30 days) to version 4 as it shipped", () => {
+    expect(GENERATOR_VERSION).toBe(4);
+    expect(Object.keys(V4_HASHES)).toHaveLength(SPECS.length);
+    const changed = built.filter(({ box }) => sha(box) !== V4_HASHES[box.key]).map(({ box }) => box.key);
+    expect(changed, "version 4 boxes that changed: a saved box would resume on another box (GENERATOR_VERSION 5)").toEqual([]);
   });
 });
 
@@ -393,6 +430,16 @@ describe("box kinds and silhouettes", () => {
     const c = [...counts.values()];
     expect(Math.max(...c) - Math.min(...c)).toBeLessThanOrEqual(3);
     expect(FIRST_SILHOUETTES.every((s) => counts.has(s))).toBe(true);
+  });
+
+  it("deals a Daily Box a silhouette for a day before 1970 too, and builds it", () => {
+    // Days before 1970-01-01 count back from it: the deck's index wraps the right way round.
+    for (const day of ["1969-12-31", "1900-01-01"]) {
+      const [shape] = boxSilhouettes({ kind: "daily", day });
+      expect(SILHOUETTES, day).toContain(shape);
+    }
+    const box = generateBox({ kind: "daily", day: "1900-01-01" });
+    expect(box.locks.filter((l) => SILHOUETTES.includes(l.shape)).map((l) => l.shape)).toEqual(boxSilhouettes({ kind: "daily", day: "1900-01-01" }));
   });
 
   it("keeps the Daily Box's difficulty (box 7's settings) and deals it a new silhouette each day", () => {

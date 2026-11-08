@@ -1,9 +1,10 @@
 // e2e: exclusive (times real milliseconds at a Quest Pro's throttle: scripts/e2e.sh runs this spec alone on the server)
 // Opt in, outside the routine suite (Ruling 142), at low load: NS_MAX_LOAD=8 scripts/e2e.sh -c playwright.quest2.config.ts
 // (tests/e2e/README.md says when).
-// The performance budget on the older Quests: perf-budget.spec.ts's play case (helpers/perf-play.ts: box 15 played
-// through the box session, the lantern carried back and forth in the right hand, the left hand's fingers casting in
-// the beam) on IWER's Quest 2 profile (helpers/headset.ts), with the CPU throttled for the slower of Quest 2 and Pro.
+// The performance budget on the older Quests: perf-budget.spec.ts's play case (helpers/perf-play.ts: box 15, and the
+// heaviest box from 10 to 60 by the frame cost model (helpers/heavy-box.ts), played through the box session, the
+// lantern carried back and forth in the right hand, the left hand's fingers casting in the beam) on IWER's Quest 2
+// profile (helpers/headset.ts), with the CPU throttled for the slower of Quest 2 and Pro.
 //
 // The throttle: perf-budget's 4x stands for a Quest 3. The XR2 Gen 2's CPU is "more than 33 percent" faster than the
 // XR2 Gen 1's (Qualcomm and Meta at the Quest 3 launch), so a Quest 2 is at least 4 x 4/3 = 5.33x. A Quest Pro in
@@ -22,12 +23,14 @@
 // all excused is judged. Every system's update (IWSDK's input and UI too) and the render's time are reported, not judged:
 // in the emulator the first carries IWER's own work (it makes up the hands' joints in JavaScript, where a headset hands
 // them over), and the second waits on software rendering as a headset's does not.
+import type { Page, TestInfo } from "@playwright/test";
 import { CHROME_ARGS } from "./helpers/chromium";
 import { emulateHeadset } from "./helpers/headset";
+import { heaviestBox } from "./helpers/heavy-box";
 import { frameStats, MAX_STALLS, p95WithoutStalls, STALL_MS, TIMED_FRAMES } from "./helpers/lantern";
-import { box15InPlay, timedWindows } from "./helpers/perf-play";
+import { boxInPlay, timedWindows } from "./helpers/perf-play";
 import { judgeSystemWindowsP95, stallOwners } from "./helpers/stall-rule";
-import { expect, test } from "./helpers/test";
+import { type BootFn, expect, test } from "./helpers/test";
 
 const PRO_RATE = 4 * (4 / 3) * (1.48 / 1.38);
 const STALL = (STALL_MS * PRO_RATE) / 4;
@@ -41,17 +44,15 @@ test.use({
   launchOptions: { args: [...CHROME_ARGS, "--js-flags=--invocation-count-for-maglev=5 --invocation-count-for-turbofan=30"] },
 });
 
-test("Quest 2 and Pro: box 15 in play at 72 Hz, the lantern moving and a hand in the beam, at a Quest Pro's throttle: draw calls, triangles and our JS within budget", async ({
-  page,
-  boot,
-}, testInfo) => {
+// The gate, for box n.
+const proCase = (n: number) => async ({ page, boot }: { page: Page; boot: BootFn }, testInfo: TestInfo) => {
   await emulateHeadset(page, "metaQuest2");
   const app = await boot();
   expect(await page.evaluate(() => navigator.userAgent)).toContain("Quest 2");
   expect(await page.evaluate(() => window.__ns!.headset())).toMatchObject({ class: "xr2-gen1", frameRate: 72 });
   // The session itself runs at 72 Hz, not only the request.
   await app.stepUntil((_ns, w) => (w.__ns.world as { session?: XRSession }).session?.frameRate === 72, { maxMs: 2_000, label: "the session at 72 Hz" });
-  const sweep = await box15InPlay(app, page);
+  const sweep = await boxInPlay(app, page, n);
   const windows = await timedWindows(app, page, sweep, PRO_RATE, WINDOWS_HERE);
   const st = (await page.evaluate(() => window.__sl!.session.state()))!;
 
@@ -68,14 +69,14 @@ test("Quest 2 and Pro: box 15 in play at 72 Hz, the lantern moving and a hand in
       const owners = stallOwners(w, STALL);
       const by = [...new Set(owners)].map((k) => `${k} ${owners.filter((o) => o === k).length}`).join(", ");
       return (
-        `perf-budget Quest 2 and Pro, window ${i + 1}: ${w.calls} draw calls, ${w.triangles} triangles at most; at ${x} over ${TIMED_FRAMES} frames: ` +
+        `perf-budget Quest 2 and Pro, box ${n}, window ${i + 1}: ${w.calls} draw calls, ${w.triangles} triangles at most; at ${x} over ${TIMED_FRAMES} frames: ` +
         `our JS mean ${s.meanMs.toFixed(3)}, median ${s.medianMs.toFixed(3)}, p95 ${s.p95Ms.toFixed(2)}, max ${s.maxMs.toFixed(2)} ms ` +
         `(${rule.stalls} stalls over ${STALL.toFixed(1)} ms${by ? `: ${by}` : ""}; the container paused ${w.throttled ?? "?"} times; p95 ` +
         `${rule.p95Ms.toFixed(2)} without them); every system p95 ${u.p95Ms.toFixed(2)} ms, the render's (software GL) ${r.p95Ms.toFixed(2)}; ` +
         `server load ${w.load?.toFixed(1) ?? "?"}; p95 by system: ${Object.entries(w.systems).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")}`
       );
     }),
-    `perf-budget Quest 2 and Pro: judged window ${judged.index + 1}: our JS p95 ${judged.p95Ms.toFixed(2)} ms without its ${judged.stalls} stalls ` +
+    `perf-budget Quest 2 and Pro, box ${n}: judged window ${judged.index + 1}: our JS p95 ${judged.p95Ms.toFixed(2)} ms without its ${judged.stalls} stalls ` +
       `(the container paused ${judged.excused} times; most in one system: ${judged.owner.system ?? "none"} ${judged.owner.stalls}); ` +
       `stage ${st.stage}, ${st.open.length} locks open`,
   ];
@@ -92,4 +93,7 @@ test("Quest 2 and Pro: box 15 in play at 72 Hz, the lantern moving and a hand in
   expect(judged.stalls, `stalls over ${STALL.toFixed(1)} ms in the judged window, against the container's pauses`).toBeLessThanOrEqual(judged.excused);
   expect(judged.owner.stalls, `stalls in one system (${judged.owner.system}) in the judged window`).toBeLessThanOrEqual(MAX_STALLS);
   expect(judged.p95Ms, `our JS p95 at ${x} without stalls, the judged window`).toBeLessThanOrEqual(P95_MS);
-});
+};
+
+test("Quest 2 and Pro: box 15 in play at 72 Hz, the lantern moving and a hand in the beam, at a Quest Pro's throttle: draw calls, triangles and our JS within budget", proCase(15));
+test("Quest 2 and Pro: the heaviest box from 10 to 60 in play: the same budgets", proCase(heaviestBox().n));

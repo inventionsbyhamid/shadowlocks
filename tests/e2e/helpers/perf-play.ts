@@ -1,7 +1,7 @@
 // The play case the performance budgets time (perf-budget.spec.ts on the project's Quest 3 profile, and
-// perf-budget-quest2.spec.ts on Quest 2's): box 15 played through the box session, the lantern carried back and forth
-// in the right hand and the left hand's fingers in the beam, casting; then windows of frames timed with the CPU
-// throttled.
+// perf-budget-quest2.spec.ts on Quest 2's): box 15 (and the heaviest box from 10 to 60) played through the box session,
+// the lantern carried back and forth in the right hand and the left hand's fingers in the beam, casting; then windows
+// of frames timed with the CPU throttled.
 import fs from "node:fs";
 import type { Page } from "@playwright/test";
 import { hands, Pointer, worldOf } from "./finger";
@@ -40,14 +40,10 @@ export interface PlayWindow {
 }
 
 /**
- * Box 15 in play with the lantern held and a hand in the beam. Returns the sweep that carries the lantern to one end
- * or the other of its path in 600 ms (even `i` one way, odd the other), after eight sweeps to warm the engine up.
+ * Box n in play with the lantern held and a hand in the beam: box 15, and the heaviest box from 10 to 60
+ * (helpers/heavy-box.ts). Returns the sweep that carries the lantern to one end or the other of its path in 600 ms
+ * (even `i` one way, odd the other), after eight sweeps to warm the engine up.
  */
-export async function box15InPlay(app: XrApp, page: Page): Promise<(i: number) => Promise<void>> {
-  return boxInPlay(app, page, 15);
-}
-
-/** box15InPlay for box n (perf-budget.spec.ts also plays the heaviest box from 10 to 60, helpers/heavy-box.ts). */
 export async function boxInPlay(app: XrApp, page: Page, n: number): Promise<(i: number) => Promise<void>> {
   await page.evaluate((n) => window.__sl!.session.play({ kind: "box", n }), n);
   await app.stepUntil(

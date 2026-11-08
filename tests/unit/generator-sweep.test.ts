@@ -5,6 +5,8 @@
 //   longer than BUILD_MS_MAX to build;
 // - every finger lock must open with a real finger laid in its gap (helpers/finger-model.ts) at every lock size the
 //   kinds use, for either hand (the left hand's box is the mirror, sampled on its own grid);
+// - every lock must be strictly warmest at its spot along the line in from 0.2 toward the start, for either hand, but
+//   for exactly LEFT_HAND_TIES (they must all still be there: version 4's boxes as shipped);
 // - no box may cast more shadow corners than FRAME_CORNER_CAP (frame-cost.ts: its frame then costs at most 10% more
 //   than box 15's).
 // Prints the worst attempts, the slowest build, each kind's heaviest box and its decoys given up, and each shape's
@@ -16,21 +18,36 @@ import { boxKind, boxParams } from "../../src/core/params";
 import { meets, RULE } from "../../src/core/solve";
 import type { BoxSpec } from "../../src/core/types";
 import { FINGER_MODEL_MARGIN, fingerCoverage } from "./helpers/finger-model";
+import { notWarmest } from "./helpers/warmth";
 
 /** Attempts a box may take before the sweep calls it close to giving up. */
 const ATTEMPTS_MAX = 100;
 /** The slowest build allowed (ms, on the server): Ruling 146. */
 const BUILD_MS_MAX = 300;
 
+/**
+ * Locks that are as warm a few millimetres short of their spot as at it in the mirrored (left-handed) box only, on that
+ * box's own sample grid. The generator checks warmth for the right hand; checking both would redraw these boxes, and
+ * version 4's boxes are fixed now that it has shipped (a change needs GENERATOR_VERSION 5). The glow just leads in less
+ * cleanly there; the lock still opens by the rule.
+ */
+const LEFT_HAND_TIES = [
+  "shadow-locks/1870 (left hand) lock 2 at 8",
+  "shadow-locks/1919 (left hand) lock 1 at 7",
+  "shadow-locks/1919 (left hand) lock 1 at 8",
+  "shadow-locks/daily/2027-02-18 (left hand) lock 2 at 8",
+  "shadow-locks/daily/2027-10-19 (left hand) lock 1 at 8",
+];
+
 describe.runIf(process.env.GEN_SWEEP)("generator sweep", () => {
-  it("builds boxes 10 to 2000 and 365 days quickly, none near giving up, every finger lock filled, every frame within the cap", () => {
+  it("builds boxes 10 to 2000 and 365 days quickly, none near giving up, finger locks filled and warmth strict for either hand, every frame within the cap", () => {
     const day0 = Date.UTC(2026, 10, 1);
     const specs: BoxSpec[] = [
       ...Array.from({ length: 1991 }, (_, i): BoxSpec => ({ kind: "box", n: 10 + i })),
       ...Array.from({ length: 365 }, (_, i): BoxSpec => ({ kind: "daily", day: new Date(day0 + i * 86_400_000).toISOString().slice(0, 10) })),
     ];
     let worstAttempts = { n: 0, key: "" }, slowest = { ms: 0, key: "" }, total = 0;
-    const gaveUp: string[] = [], near: string[] = [], slow: string[] = [], fails: string[] = [], heavy: string[] = [], costFailures = { boxes: 0, attempts: 0 };
+    const cold: string[] = [], gaveUp: string[] = [], near: string[] = [], slow: string[] = [], fails: string[] = [], heavy: string[] = [], costFailures = { boxes: 0, attempts: 0 };
     const worst = new Map<string, { spill: number; at: string; count: number }>();
     const kinds = new Map<string, { max: number; at: string; trimmed: number; boxes: number }>();
     for (const spec of specs) {
@@ -64,6 +81,7 @@ describe.runIf(process.env.GEN_SWEEP)("generator sweep", () => {
       }
       kinds.set(kind, k);
       for (const [hand, b] of [["right", box], ["left", mirrorBox(box)]] as const) {
+        for (const f of notWarmest(b)) cold.push(`${box.key} (${hand} hand) ${f}`);
         for (const l of b.locks) {
           if (!l.finger) continue;
           const c = fingerCoverage(b, l), key = `${l.shape} @${l.size}`;
@@ -93,11 +111,15 @@ describe.runIf(process.env.GEN_SWEEP)("generator sweep", () => {
         [...worst].sort((a, b) => a[0].localeCompare(b[0])).map(([k, v]) => `${k} ${v.spill.toFixed(3)} (${v.count}, ${v.at})`).join("; "),
     );
     console.log(`failing finger locks: ${fails.length}\n${fails.slice(0, 40).join("\n")}`);
+    console.log(`locks not strictly warmest at their spot, either hand: ${cold.length} ${cold.slice(0, 20).join("; ")}`);
     console.log(`gave up: ${gaveUp.length}: ${gaveUp.slice(0, 20).join("; ")}`);
     expect(gaveUp).toEqual([]);
     expect(near).toEqual([]);
     expect(slow).toEqual([]);
     expect(heavy).toEqual([]);
     expect(fails).toEqual([]);
+    // Exactly these ties, in the sweep's order: none more, and none gone (a generator that checks the left hand too
+    // redraws those four boxes, which version 4 must not).
+    expect(cold).toEqual(LEFT_HAND_TIES);
   }, 1_800_000);
 });

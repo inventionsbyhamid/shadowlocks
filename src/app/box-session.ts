@@ -16,7 +16,7 @@ import { mirrorBox } from "../core/mirror";
 import type { BoxSnapshot } from "../core/profile";
 import { type Coverage, measure, meets, prepareLock, ShadowCaster, SKIP_MISSING, warmth, WARMTH_RANGE } from "../core/solve";
 import type { Box, BoxSpec, Lock, V3, Vec3 } from "../core/types";
-import { LANTERN_MIN_Z, MAX_STEP_MS, OPEN_DWELL_MS } from "../feel/constants";
+import { LANTERN_MIN_Z, LANTERN_RESTORE, MAX_STEP_MS, OPEN_DWELL_MS } from "../feel/constants";
 import { GazeFocus } from "../feel/gaze-focus";
 import type { FeelEvent } from "../feel/lantern-controller";
 import { StuckWatch } from "../feel/stuck-watch";
@@ -352,8 +352,9 @@ export class BoxSession {
     this.practiceNow = this.practiceNext;
     d.scene.setBox(box);
     if (snap) {
-      const p = snap.lantern;
-      d.scene.lantern.setPos([p[0], p[1], Math.max(p[2], LANTERN_MIN_Z)]);
+      // In sight and reach (LANTERN_RESTORE: the comfort envelope and a margin), whatever the save says.
+      const p = snap.lantern, R = LANTERN_RESTORE, clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+      d.scene.lantern.setPos([clamp(p[0], -R.x, R.x), clamp(p[1], R.y[0], R.y[1]), clamp(p[2], LANTERN_MIN_Z, R.z)]);
     }
     d.sound.boxStart(spec);
     // The lantern drops out of a hand for the new box: a real release, but a silent one (the box's moment).

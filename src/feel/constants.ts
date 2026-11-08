@@ -1,5 +1,6 @@
 // Feel tuning: the single place for the lantern, finger hold, gaze and stuck numbers. Distances are in box
 // units unless named _CM, times in ms unless named otherwise. The jitter bot tunes these and only these.
+import { ENVELOPE } from "../core/envelope";
 
 /** Lantern spring (rad/s), critically damped: it trails a moving hand by 2 / omega = 80 ms and never overshoots a step. */
 export const SPRING_OMEGA = 25;
@@ -83,3 +84,18 @@ export const MAX_STEP_MS = 100;
  * gives it as LanternCtx.minZ and clamps placed lanterns to it.
  */
 export const LANTERN_MIN_Z = 1;
+/** How far past the comfort envelope a restored lantern may lie (box units: 1.2 cm at the default 24 cm box). */
+const RESTORE_MARGIN = 0.05;
+/**
+ * A lantern restored from a save is held to the seated comfort envelope (core/envelope.ts: where every spot and the
+ * start lie) widened by RESTORE_MARGIN, z from LANTERN_MIN_Z: in front of the box mouth at sternum height or lower,
+ * never nearer the eyes than the nearest spot by more than the margin, so a seated player sees it and can pinch it at
+ * any box size. A lantern anywhere a spot or the start can be is never moved. Without it a damaged save could leave the
+ * lantern out of reach (behind the eyes, say), and nothing calls it back (Next comes only once the box is solved,
+ * Continue resumes the same save).
+ */
+export const LANTERN_RESTORE = {
+  x: ENVELOPE.LX_MAX + RESTORE_MARGIN,
+  y: [ENVELOPE.LY[0] - RESTORE_MARGIN, ENVELOPE.LY[1] + RESTORE_MARGIN],
+  z: ENVELOPE.LZ[1] + RESTORE_MARGIN,
+} as const;
