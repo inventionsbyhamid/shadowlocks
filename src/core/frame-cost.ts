@@ -12,10 +12,13 @@ import type { Element } from "./types";
 /** A frame's mean JS in play at 4x CPU throttle (ms): a base, and its growth per shadow corner the box casts. */
 export const FRAME_MS = { base: 0.986, corner: 0.000702 } as const;
 
+/** Corners a ring casts: its shadow's two circles, of RING_SIDES each. The generator's pre-count uses it too. */
+export const RING_CORNERS = 2 * RING_SIDES;
+
 /** Corners the render casts and rounds every frame: every scrap's and decoy's, and both circles of each ring. */
 export function renderCorners(elements: readonly Element[]): number {
   let n = 0;
-  for (const e of elements) n += e.kind === "ring" ? 2 * RING_SIDES : e.verts.length;
+  for (const e of elements) n += e.kind === "ring" ? RING_CORNERS : e.verts.length;
   return n;
 }
 

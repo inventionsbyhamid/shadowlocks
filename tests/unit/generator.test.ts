@@ -300,6 +300,9 @@ describe("the frame cost cap at work (a cap lower than FRAME_CORNER_CAP, so that
     const corners = boxFrame(generateBox({ kind: "box", n: 52 })).corners, cap = corners - 16;
     const { box } = buildBox({ kind: "box", n: 52 }, cap), P = boxParams(52);
     expect(boxFrame(box).corners).toBeLessThanOrEqual(cap);
+    // And tight: no room left for one more decoy (a triangle's 3 corners), so a pre-count that overcounts the scraps or
+    // rings, and so trims more than it needs to, fails here as an undercount fails above.
+    expect(boxFrame(box).corners + 3).toBeGreaterThan(cap);
     expect(decoys(box)).toBeLessThan(P.decoys);
     expect(decoys(box)).toBeGreaterThanOrEqual(P.decoys - Math.floor(P.decoys * DECOY_TRIM_MAX));
     expect(checkBox(box)).toEqual([]);

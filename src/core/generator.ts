@@ -9,7 +9,7 @@
 // lock or near its ring mark from its spot; the start solves nothing; every spot is inside the envelope and apart from
 // the others.
 import { ENVELOPE } from "./envelope";
-import { frameMs, renderCorners } from "./frame-cost";
+import { frameMs, RING_CORNERS, renderCorners } from "./frame-cost";
 import { area, bbox, circlePts, elongation, hash, inPoly, polyDist, proj, rng32, segDist } from "./geom";
 import { boxParams, boxParamsV3, dailyParams, KINDS_FROM } from "./params";
 import { mirrorLock } from "./mirror";
@@ -514,8 +514,8 @@ export function buildBox(spec: BoxSpec, cornerCap = FRAME_CORNER_CAP): BoxBuild 
     let decoys = P.decoys;
     if (capped) {
       let corners = 0;
-      // A ringed lock places every one of RINGS (or the attempt fails), and each ring casts two circles.
-      const ringCorners = RINGS.length * 2 * RING_SIDES;
+      // A ringed lock places every one of RINGS (or the attempt fails), each casting RING_CORNERS.
+      const ringCorners = RINGS.length * RING_CORNERS;
       for (const l of locks) corners += l.target.reduce((n, p) => n + p.length, 0) + (l.rings ? ringCorners : 0);
       decoys = Math.min(P.decoys, Math.floor((cornerCap - corners) / DECOY_CORNERS));
       if (decoys < fewestDecoys) return "cost";
