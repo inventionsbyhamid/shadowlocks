@@ -6,7 +6,7 @@
 // - every finger lock must open with a real finger laid in its gap (helpers/finger-model.ts) at every lock size the
 //   kinds use, for either hand (the left hand's box is the mirror, sampled on its own grid);
 // - every lock must be strictly warmest at its spot along the line in from 0.2 toward the start, for either hand, but
-//   for LEFT_HAND_TIES;
+//   for exactly LEFT_HAND_TIES (they must all still be there: version 4's boxes as shipped);
 // - no box may cast more shadow corners than FRAME_CORNER_CAP (frame-cost.ts: its frame then costs at most 10% more
 //   than box 15's).
 // Prints the worst attempts, the slowest build, each kind's heaviest box and its decoys given up, and each shape's
@@ -133,6 +133,8 @@ describe.runIf(process.env.GEN_SWEEP)("generator sweep", () => {
     expect(slow).toEqual([]);
     expect(heavy).toEqual([]);
     expect(fails).toEqual([]);
-    expect(cold.filter((c) => !LEFT_HAND_TIES.includes(c))).toEqual([]);
+    // Exactly these ties, in the sweep's order: none more, and none gone (a generator that checks the left hand too
+    // redraws those four boxes, which version 4 must not).
+    expect(cold).toEqual(LEFT_HAND_TIES);
   }, 1_800_000);
 });
