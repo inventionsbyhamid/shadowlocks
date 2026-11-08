@@ -352,9 +352,9 @@ export class BoxSession {
     this.practiceNow = this.practiceNext;
     d.scene.setBox(box);
     if (snap) {
-      // Within the box's reach (LANTERN_RESTORE), whatever the save says.
-      const p = snap.lantern, xy = (v: number) => Math.max(-LANTERN_RESTORE.xy, Math.min(LANTERN_RESTORE.xy, v));
-      d.scene.lantern.setPos([xy(p[0]), xy(p[1]), Math.min(Math.max(p[2], LANTERN_MIN_Z), LANTERN_RESTORE.z)]);
+      // In sight and reach (LANTERN_RESTORE: the comfort envelope and a margin), whatever the save says.
+      const p = snap.lantern, R = LANTERN_RESTORE, clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+      d.scene.lantern.setPos([clamp(p[0], -R.x, R.x), clamp(p[1], R.y[0], R.y[1]), clamp(p[2], LANTERN_MIN_Z, R.z)]);
     }
     d.sound.boxStart(spec);
     // The lantern drops out of a hand for the new box: a real release, but a silent one (the box's moment).
