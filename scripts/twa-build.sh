@@ -20,13 +20,15 @@
 #      --<app>-version <n>);
 #   4. node scripts/twa-config.mjs patch: what Meta's release rules want and Bubblewrap has no setting for;
 #   5. bubblewrap build --skipSigning (Bubblewrap never sees the password: its own signing passes it to apksigner and
-#      jarsigner on their command lines), then zipalign, then apksigner signs with scheme v2 (Meta's
-#      VRC.Quest.Packaging.2), the passwords read from the environment of that one command;
+#      jarsigner on their command lines), with Gradle's daemon off, then zipalign, then apksigner signs with scheme v2
+#      (Meta's VRC.Quest.Packaging.2), the password on its stdin;
 #   6. aapt and apksigner dumps (xmltree.txt, badging.txt, resources.txt, apksigner.txt), and node scripts/twa-config.mjs apk-check
 #      (apk-check.txt): every release rule, one line each, and the checked APK's SHA-256 last.
-# Secrets: the password lives in an unexported shell variable and reaches keytool and apksigner only through their
-# environment (`-storepass:env`, `--ks-pass env:`), never a command line, a log or a file; the script never runs with
-# set -x. A test key, and everything else the build writes, stays in the scratch folder inside the container.
+# Secrets: the password lives in an unexported shell variable and reaches apksigner only on its stdin (`--ks-pass
+# stdin`, from printf, a builtin), and a test build's throwaway keytool through its environment (`-storepass:env`):
+# never a command line, a log, a file or any other program's environment; the script never runs with set -x. No Gradle
+# daemon outlives the build, so while apksigner signs nothing else of ours runs in the container. A test key, and
+# everything else the build writes, stays in the scratch folder inside the container.
 # Needs JDK 17, Node 18 or later, the Android SDK's cmdline-tools and the network (Bubblewrap from npm, SDK packages,
 # Gradle and its libraries). reactnativecommunity/react-native-android on the build server has them all (TWA_IMAGE
 # below). The SDK packages the build needs go into a scratch SDK next to links to the image's tools, and everything
@@ -65,7 +67,9 @@ if [ -n "$ICONS" ]; then
 fi
 [ -f scripts/twa-config.mjs ] || { echo "twa-build: run it from the repo root" >&2; exit 2; }
 # A real build's keystore password, read before any other program runs; then stdin is closed, so nothing this script
-# starts (npm and its install scripts, sdkmanager, Gradle and its plugins) can read it.
+# starts (npm and its install scripts, sdkmanager, Gradle and its plugins) can read it. Unset first: a PW that came in
+# exported (an image's ENV, remote.sh --env) stays exported through an assignment, and would reach every program below.
+unset PW
 PW=
 if [ "$TEST" = 0 ]; then IFS= read -r PW || true; fi
 exec </dev/null
@@ -82,11 +86,15 @@ trap 'exit 130' INT TERM HUP
 if [ -z "${HOME:-}" ] || [ ! -w "${HOME:-/}" ]; then export HOME=$TMP/home; fi
 mkdir -p "$HOME"
 export GRADLE_USER_HOME=$TMP/gradle ANDROID_USER_HOME=$TMP/android-user
+# No Gradle daemon: one would outlive Bubblewrap's build and run third-party plugin code, under our uid, beside
+# apksigner. Settings in Gradle's user home win over the project's.
+mkdir -p "$GRADLE_USER_HOME"
+printf 'org.gradle.daemon=false\n' > "$GRADLE_USER_HOME/gradle.properties"
 JAVA_HOME=${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")}
 export JAVA_HOME
 
 # The keystore and its password: a throwaway pair for a test build, else the real keystore and the password on stdin.
-# PW is never exported: only keytool and apksigner get it, as TWA_KS_PASS in their own environment.
+# PW is never exported: apksigner gets it on its stdin, a test build's keytool as TWA_KS_PASS in its own environment.
 KEY_PATH=$(node -p 'require("./twa/store/twa-manifest.json").signingKey.path')
 KEY_ALIAS=$(node -p 'require("./twa/store/twa-manifest.json").signingKey.alias')
 unset BUBBLEWRAP_KEYSTORE_PASSWORD BUBBLEWRAP_KEY_PASSWORD TWA_KS_PASS
@@ -181,10 +189,10 @@ for app in "${APPS[@]}"; do
   # VRC.Quest.Packaging.2: "The application must be signed with APK Signature Scheme v2." apksigner's default for a
   # minSdkVersion of 28 or more is v3 alone (it keeps to that even when asked for v2 too), so sign with v2 alone: what
   # the Android Gradle Plugin gives a release APK by default, and what Quest has always taken (v1 is for Android 6 and
-  # older; v3 adds only key rotation). The passwords come from this one command's environment.
-  TWA_KS_PASS=$PW "$BT/apksigner" sign --ks "$KEY_PATH" --ks-key-alias "$KEY_ALIAS" --ks-pass env:TWA_KS_PASS \
-    --key-pass env:TWA_KS_PASS --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled false \
-    --out "$apk" "$aligned"
+  # older; v3 adds only key rotation). The password goes to its stdin (printf is a builtin: no command line holds it,
+  # and no environment); with no --key-pass, apksigner takes the keystore's password for the key too (PKCS12 keeps one).
+  printf '%s\n' "$PW" | "$BT/apksigner" sign --ks "$KEY_PATH" --ks-key-alias "$KEY_ALIAS" --ks-pass stdin \
+    --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled false --out "$apk" "$aligned"
   out=$OUT/$app
   rm -rf "$out"
   mkdir -p "$out"
