@@ -182,7 +182,7 @@ if [ "$SIGN" = 1 ]; then
     finish 3
   fi
   chown "$RUN_USER" "$SIGNING_STORE" && chmod 400 "$SIGNING_STORE"
-  printf '%s\n' "$SECRET" | "$@"
+  builtin printf '%s\n' "$SECRET" | "$@"
   rc=$?
   SECRET=
 else

@@ -264,7 +264,7 @@ UP_LOG=$RUN_TMP/upload.log
 # In the background, so a TERM or Ctrl-C reaches the trap at once instead of after ssh returns. With
 # --signing-key the password goes first, as one line (printf is a builtin: no command line holds it).
 ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 "$HOST" "$REMOTE_CMD" \
-  < <(if [ -n "$SECRET" ]; then printf '%s\n' "$SECRET"; fi; heartbeat $$) &
+  < <(if [ -n "$SECRET" ]; then builtin printf '%s\n' "$SECRET"; fi; heartbeat $$) &
 SSH_PID=$!
 SECRET=
 # Keep the Mac awake meanwhile: once it sleeps for over 60 s the heartbeat stops and so does the run.

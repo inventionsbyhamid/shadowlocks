@@ -191,7 +191,7 @@ for app in "${APPS[@]}"; do
   # the Android Gradle Plugin gives a release APK by default, and what Quest has always taken (v1 is for Android 6 and
   # older; v3 adds only key rotation). The password goes to its stdin (printf is a builtin: no command line holds it,
   # and no environment); with no --key-pass, apksigner takes the keystore's password for the key too (PKCS12 keeps one).
-  printf '%s\n' "$PW" | "$BT/apksigner" sign --ks "$KEY_PATH" --ks-key-alias "$KEY_ALIAS" --ks-pass stdin \
+  builtin printf '%s\n' "$PW" | "$BT/apksigner" sign --ks "$KEY_PATH" --ks-key-alias "$KEY_ALIAS" --ks-pass stdin \
     --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled false --out "$apk" "$aligned"
   out=$OUT/$app
   rm -rf "$out"

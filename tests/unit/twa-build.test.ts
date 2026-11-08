@@ -81,7 +81,7 @@ describe("scripts/twa-build.sh and the keystore password", () => {
     expect(code).not.toMatch(/-(store|key)pass\s/);
     // apksigner: from printf (a builtin) on its stdin, so no command line and no environment holds it; no --key-pass,
     // so it takes the keystore's password for the key.
-    expect(code).toMatch(/\n {2}printf '%s\\n' "\$PW" \| "\$BT\/apksigner" sign [^\n]*--ks-pass stdin \\\n/);
+    expect(code).toMatch(/\n {2}builtin printf '%s\\n' "\$PW" \| "\$BT\/apksigner" sign [^\n]*--ks-pass stdin \\\n/);
     expect(code).not.toMatch(/--ks-pass env:|--key-pass/);
     // The test build's keytool (a throwaway password) is the one command that gets it in its environment.
     expect(code).toContain("-storepass:env TWA_KS_PASS -keypass:env TWA_KS_PASS");
@@ -90,7 +90,7 @@ describe("scripts/twa-build.sh and the keystore password", () => {
     // The shell variable is never exported, echoed or traced, and printed only into apksigner's stdin.
     expect(code).not.toMatch(/export[^\n]*\b(PW|TWA_KS_PASS)\b/);
     expect(code.split("\n").filter((l) => /(echo|printf)[^\n]*\$\{?PW\b/.test(l))).toEqual([
-      `  printf '%s\\n' "$PW" | "$BT/apksigner" sign --ks "$KEY_PATH" --ks-key-alias "$KEY_ALIAS" --ks-pass stdin \\`,
+      `  builtin printf '%s\\n' "$PW" | "$BT/apksigner" sign --ks "$KEY_PATH" --ks-key-alias "$KEY_ALIAS" --ks-pass stdin \\`,
     ]);
     expect(code).not.toMatch(/set -x|set -o xtrace/);
   });
@@ -160,7 +160,7 @@ describe("scripts/remote.sh --signing-key", () => {
   });
 
   it("sends it as the first line on the ssh connection, ahead of the heartbeat, with printf (a builtin)", () => {
-    expect(remote).toContain(`< <(if [ -n "$SECRET" ]; then printf '%s\\n' "$SECRET"; fi; heartbeat $$) &`);
+    expect(remote).toContain(`< <(if [ -n "$SECRET" ]; then builtin printf '%s\\n' "$SECRET"; fi; heartbeat $$) &`);
     expect(remote).not.toMatch(/(echo|--env|-e)[^\n]*\$SECRET/);
     expect(remote).toMatch(/DOCKER_OPTS\+=\(-i -v "\$SIGNING_STORE:\/secrets\/shadowlocks-android\.keystore:ro"\)/);
     // npm never reads the command's stdin.
@@ -169,7 +169,7 @@ describe("scripts/remote.sh --signing-key", () => {
 
   it("on the server, reads that line before the watchdog, gives it to the container's stdin, and removes the keystore when the run ends", () => {
     expect(run.indexOf('if [ "$SIGN" = 1 ]; then IFS= read -r SECRET || SECRET=; fi')).toBeLessThan(run.indexOf("exec 3<&0"));
-    expect(run).toContain(`printf '%s\\n' "$SECRET" | "$@"`);
+    expect(run).toContain(`builtin printf '%s\\n' "$SECRET" | "$@"`);
     expect(run).toMatch(/finish\(\) \{\n[^\n]*\n {2}if \[ "\$SIGN" = 1 \]; then rm -rf "\$\(dirname "\$SIGNING_STORE"\)"; fi/);
     expect(run).not.toMatch(/(echo|export)[^\n]*\$SECRET/);
   });
