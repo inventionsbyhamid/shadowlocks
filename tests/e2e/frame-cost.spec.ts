@@ -73,13 +73,19 @@ for (const [k, n] of BOXES.entries()) {
     const sweep = async (i: number) => carry(right, off, pts[i % pts.length]!, 400);
     for (let i = 0; i < 8; i++) await sweep(i);
     const windows = await timedWindows(app, page, sweep, 4, WINDOWS_HERE);
-    const lines = windows.map((w, i) => {
+    const means = windows.map((w) => {
       const keep = (f: number) => w.frames[f]! < 20;
-      const frame = mean(w.frames.filter((_, f) => keep(f))), shell = mean(w.bySystem.shell!.filter((_, f) => keep(f)));
-      if (k > 0 && i > 0) measured.push({ n, corners, frame, shell });
-      return `frame cost: box ${n} (${k + 1}), ${corners} corners, window ${i + 1}: mean ${frame.toFixed(3)} ms, shell ${shell.toFixed(3)} ms`;
+      return { frame: mean(w.frames.filter((_, f) => keep(f))), shell: mean(w.bySystem.shell!.filter((_, f) => keep(f))) };
     });
-    console.log(lines.join("\n"));
+    // One measurement a box run, the mean of its windows after the first (as FRAME_MS's fit took them), so the r
+    // printed at the end compares with FRAME_MS's.
+    const later = means.slice(1);
+    if (k > 0) measured.push({ n, corners, frame: mean(later.map((m) => m.frame)), shell: mean(later.map((m) => m.shell)) });
+    console.log(
+      means
+        .map((m, i) => `frame cost: box ${n} (${k + 1}), ${corners} corners, window ${i + 1}: mean ${m.frame.toFixed(3)} ms, shell ${m.shell.toFixed(3)} ms`)
+        .join("\n"),
+    );
     expect(windows).toHaveLength(WINDOWS_HERE);
   });
 }
