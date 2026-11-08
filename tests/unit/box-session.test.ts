@@ -533,6 +533,17 @@ describe("box session", () => {
     await h2.session.start(BOX(2), JSON.parse(JSON.stringify(s1)) as BoxSnapshot);
     expect(h2.pos).toEqual([0.1, -0.3, 1.3]);
     expect(h2.session.isOpen(0)).toBe(true);
+
+    // A damaged save's lantern far out of reach comes back within it, so a hand can fetch it.
+    for (const [far, back] of [
+      [[40, -9, 30], [1.5, -1.5, 2.5]],
+      [[-3, 2, 0.2], [-1.5, 1.5, 1]],
+    ] as const) {
+      const h3 = harness();
+      await h3.session.start(BOX(2), { ...s1, lantern: [far[0], far[1], far[2]] });
+      expect(h3.pos).toEqual(back);
+      expect(h3.session.isOpen(0)).toBe(true);
+    }
     expect(h2.session.isOpen(1)).toBe(false);
     expect(h2.panelOpen.has(0)).toBe(true);
     h2.frames(1);

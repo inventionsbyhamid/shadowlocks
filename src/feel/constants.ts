@@ -83,3 +83,9 @@ export const MAX_STEP_MS = 100;
  * gives it as LanternCtx.minZ and clamps placed lanterns to it.
  */
 export const LANTERN_MIN_Z = 1;
+/**
+ * A lantern restored from a save is held to the box's reach (box units): |x| and |y| at most `xy`, z from LANTERN_MIN_Z
+ * to `z`, where a seated hand can still pinch it. Without it a damaged save could leave the lantern out of reach, and
+ * nothing calls it back (Next comes only once the box is solved, Continue resumes the same save).
+ */
+export const LANTERN_RESTORE = { xy: 1.5, z: 2.5 } as const;
