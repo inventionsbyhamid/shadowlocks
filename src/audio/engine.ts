@@ -885,11 +885,3 @@ class EngineLoop implements LoopHandle {
     this.src.stop(now + sec + 0.005);
   }
 }
-
-/** Suspend audio while the page is hidden (headset off, tab away) and resume when shown. */
-export function suspendWhenHidden(
-  engine: Pick<AudioEngine, "suspend" | "resume">,
-  doc: Pick<Document, "addEventListener" | "hidden">,
-): void {
-  doc.addEventListener("visibilitychange", () => (doc.hidden ? engine.suspend() : engine.resume()));
-}

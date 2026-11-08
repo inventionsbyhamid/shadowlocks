@@ -384,7 +384,7 @@ export class BoxScene {
     shadowMesh.material = this.panelArt.shadowMaterial;
     shadowMesh.position.z = PANEL_Z;
     shadowMesh.renderOrder = PANEL_ORDER + 1;
-    this.lantern = new LanternView({ lacquer, gold }, this.flashes);
+    this.lantern = new LanternView({ gold }, this.flashes);
     this.crystals = new Crystals(env, this.flashes);
     this.root.add(frame, trim, floor, glass, lid, this.panel, shadowMesh, this.scraps.mesh, this.scraps.threads, this.scraps.rings, this.lantern.group);
     this.root.add(this.crystals.group);

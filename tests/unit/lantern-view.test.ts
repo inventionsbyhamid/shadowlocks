@@ -19,7 +19,7 @@ import { LanternView } from "../../src/render/lantern-view";
 import { LANTERN_GLOW } from "../../src/render/theme";
 
 const named = (v: LanternView, name: string): Object3D => v.group.getObjectByName(name)!;
-const mats = () => ({ lacquer: new MeshBasicMaterial(), gold: new MeshBasicMaterial() });
+const mats = () => ({ gold: new MeshBasicMaterial() });
 
 /** The lights three would gather here (only those whose whole chain up is visible). */
 function visibleLights(root: Object3D): Light[] {

@@ -3,9 +3,12 @@
 // lantern carried back and forth in the right hand and the left hand's fingers in the beam, casting. At most 50 draw
 // calls and 100k triangles in any one frame (every frame counted); our JS (every
 // app system the perf hook times: hands, lantern, the game, shell with the box and the theatre, menus, sound) at most
-// 3 ms a frame at p95 with the CPU throttled 4x; and no objects, arrays or closures made per frame. Then box 15
-// opened through the box session, its last lock's sunburst and sparkle running into the box's opening and the
-// reward's rise: at most 100 draw calls and 100k triangles in its busiest frame.
+// 3 ms a frame at p95 with the CPU throttled 4x; and no objects, arrays or closures made per frame. The same for the
+// heaviest box from 10 to 60 (by the frame cost model). Box 15 opened through the box session, its last lock's
+// sunburst and sparkle running into the box's opening and the reward's rise: at most 100 draw calls and 100k
+// triangles in its busiest frame. Box 15 in play with the tip on the coach line (its chip up) and the lantern settling
+// on a spot with its ripple: the busiest frame within the play cap of 50 calls. And the prewarm (nothing the box or
+// the theatre can show compiles a shader the first time it shows), and boot at 4x throttle.
 //
 // Time is real CPU time on a shared server, judged by the stall rule the other cost checks use
 // (helpers/stall-rule.ts): WINDOWS windows of TIMED_FRAMES frames one after the other; stalls, the host's or ours

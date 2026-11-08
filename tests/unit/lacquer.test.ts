@@ -156,17 +156,16 @@ describe("the lacquer's grain", () => {
     }
   });
 
-  it("whatever draws with the frame's lacquer carries a grain attribute; the lantern no longer does (its body has its own)", () => {
-    const lacquer = withGrain(new MeshPhysicalMaterial({ color: COLORS.frame }));
-    const lantern = new LanternView({ lacquer, gold: new MeshStandardMaterial() });
+  it("the lantern no longer draws with the frame's lacquer: one body in its own material, no grain to carry", () => {
+    const gold = new MeshStandardMaterial();
+    const lantern = new LanternView({ gold });
     let meshes = 0;
     lantern.group.traverse((o) => {
       const m = o as Mesh;
       if (!m.isMesh) return;
       meshes++;
-      // The lacquer reads a grain direction from every mesh it draws (no GL default attribute state is relied on).
-      if (m.material === lacquer) expect(m.geometry.getAttribute("grain"), m.name).toBeDefined();
-      expect(m.material).not.toBe(lacquer);
+      expect(m.material).not.toBe(gold);
+      expect(m.geometry.getAttribute("grain"), m.name).toBeUndefined();
     });
     expect(meshes).toBe(1);
   });

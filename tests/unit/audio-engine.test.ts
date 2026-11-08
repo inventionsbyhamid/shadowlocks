@@ -360,27 +360,6 @@ describe("a sound that asks the music to duck (the box's tune)", () => {
   });
 });
 
-describe("suspendWhenHidden", () => {
-  it("suspends on hide and resumes on show", async () => {
-    const { suspendWhenHidden } = await import("../../src/audio/engine");
-    const r = await makeRig();
-    let handler: () => void = () => {};
-    const doc = {
-      hidden: false,
-      addEventListener: (_: string, h: () => void) => {
-        handler = h;
-      },
-    };
-    suspendWhenHidden(r.engine, doc as never);
-    doc.hidden = true;
-    handler();
-    expect(r.ctx.suspendCalls).toBe(1);
-    doc.hidden = false;
-    handler();
-    expect(r.ctx.resumeCalls).toBe(2);
-  });
-});
-
 
 describe("play handle, variants and captions", () => {
   it("returns a reusable handle that fades the sound out", async () => {
