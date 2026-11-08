@@ -1,9 +1,27 @@
 import { createHash } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { buildBox, GENERATOR_VERSION, generateBox, seedKey, specOfKey } from "../../src/core/generator";
-import { SHAPES, SILHOUETTES } from "../../src/core/shapes";
+import { FRAME_MS } from "../../src/core/frame-cost";
+import {
+  BUILDABLE_VERSIONS,
+  boxFrame,
+  buildBox,
+  FRAME_CORNER_CAP,
+  GENERATOR_VERSION,
+  generateBox,
+  genOf,
+  seedKey,
+  specForSave,
+  specOfKey,
+} from "../../src/core/generator";
+import { mirrorBox } from "../../src/core/mirror";
+import { boxKind, boxParams, boxParamsV3, dailyParams } from "../../src/core/params";
+import { FIRST_SILHOUETTES, SHAPES, SILHOUETTES } from "../../src/core/shapes";
+import { boxSilhouettes, REPEAT_GAP } from "../../src/core/silhouette-deck";
+import { type Coverage, measure, meets, prepareLock, RULE, shadowPolys, SKIP_MISSING, warmth, WARMTH_RANGE } from "../../src/core/solve";
 import { LOOT, OWNERS } from "../../src/core/story";
-import type { Box, BoxSpec, ShapeName } from "../../src/core/types";
+import type { Box, BoxSpec, ShapeName, V2 } from "../../src/core/types";
+import GEN3 from "./fixtures/gen3-boxes.json";
+import { FINGER_MODEL_MARGIN, fingerCoverage } from "./helpers/finger-model";
 import {
   checkCounts,
   checkFingerAndDepth,
@@ -20,6 +38,14 @@ import {
   nearHorizontal,
   paramsFor,
 } from "./helpers/box-checks";
+
+/** A box's fingerprint: its JSON's sha256, the spec's `gen` left out (a version 3 box rebuilt for a save carries it). */
+const sha = (box: Box) => {
+  const { gen: _gen, ...spec } = box.spec as BoxSpec & { gen?: number };
+  return createHash("sha256").update(JSON.stringify({ ...box, spec })).digest("hex").slice(0, 16);
+};
+/** Version 3's boxes, fingerprinted at main before version 4 (boxes 1-200 and the days of November 2026). */
+const V3_HASHES = GEN3 as Record<string, string>;
 
 const BOXES = 200;
 const DAYS = Array.from({ length: 30 }, (_, i) => `2026-11-${String(i + 1).padStart(2, "0")}`);
@@ -41,6 +67,9 @@ const failures: Record<string, number> = {};
 function failing(check: (b: Box) => string[]): string[] {
   return built.flatMap(({ box }) => check(box).map((e) => `${box.key}: ${e}`));
 }
+
+/** Locks with sight rings over every box, as the boxes' settings ask (checkCounts holds each box to them). */
+const ringedLocks = () => built.reduce((s, { box }) => s + paramsFor(box).locks - paramsFor(box).ringless, 0);
 
 beforeAll(() => {
   for (const spec of SPECS) {
@@ -87,7 +116,7 @@ describe("generateBox", () => {
   it("nests each lock's two ring shadows into a bullseye at its spot", () => {
     const stats: RingStat[] = [];
     expect(failing((b) => checkRingsNest(b, stats))).toEqual([]);
-    expect(stats.length).toBe(265); // 1 + 2 + 2 + 1 + 3 * 2 for boxes 1-7, 193 for 8-200, 30 * 2 for the days
+    expect(stats.length).toBe(ringedLocks());
     console.log(
       `${stats.length} ring pairs: centres within ${Math.max(...stats.map((s) => s.offset)).toFixed(5)} ` +
         `(at most ${(100 * Math.max(...stats.map((s) => s.offsetShare))).toFixed(0)}% of the lock's bound), ` +
@@ -98,7 +127,7 @@ describe("generateBox", () => {
   it("keeps every other shadow 0.07 clear of each ringed lock's mark, seen from its spot", () => {
     const clearance: number[] = [];
     const errs = failing((b) => checkMarkClear(b, clearance));
-    expect(clearance.length).toBe(265);
+    expect(clearance.length).toBe(ringedLocks());
     console.log(`${clearance.length} marks: nearest other shadow ${Math.min(...clearance).toFixed(4)} from a mark`);
     expect(errs).toEqual([]);
   });
@@ -116,12 +145,80 @@ describe("generateBox", () => {
     for (const { box } of built) expect(box.params).toEqual(paramsFor(box));
   });
 
-  it("puts at most one silhouette in any box", () => {
-    for (const { box } of built) expect(box.locks.filter((l) => SILHOUETTES.includes(l.shape)).length).toBeLessThanOrEqual(1);
+  it("puts two silhouettes in a silhouettes box and at most one in any other", () => {
+    for (const { spec, box } of built) {
+      const n = box.locks.filter((l) => SILHOUETTES.includes(l.shape)).length;
+      if (spec.kind === "box" && boxKind(spec.n) === "silhouettes") expect(n, box.key).toBe(2);
+      else expect(n, box.key).toBeLessThanOrEqual(1);
+    }
   });
 
-  it("gives every box with a hidden lock exactly one silhouette, on a hidden lock", () => {
+  it("gives every box with a hidden lock its silhouettes, each on a hidden lock, as the deck dealt them", () => {
     expect(failing(checkSilhouettes)).toEqual([]);
+    for (const { spec, box } of built) {
+      const shown = box.locks.filter((l) => SILHOUETTES.includes(l.shape)).map((l) => l.shape).sort();
+      expect(shown, box.key).toEqual(boxSilhouettes(spec).sort());
+    }
+  });
+
+  it("is solvable by the game's own solve rule: from each spot, with the finger in the gap, every lock opens", () => {
+    const fails: string[] = [], cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 0 };
+    let locks = 0;
+    for (const { box } of built) {
+      for (const l of box.locks) {
+        const scraps: V2[][] = [], n = shadowPolys(box.elements, l.L, scraps, SKIP_MISSING);
+        // The finger casts the missing piece's own shadow: the scrap the box leaves out, seen from the spot.
+        const gap = box.elements.find((e) => e.kind === "piece" && e.lock === l.i && e.missing);
+        const finger: V2[][] = [], nf = gap ? shadowPolys([gap], l.L, finger) : 0;
+        measure(prepareLock(l), scraps, n, finger, nf, cov);
+        locks++;
+        if (!meets(cov, l.finger)) fails.push(`${box.key} lock ${l.i}: ${JSON.stringify(cov)}`);
+      }
+    }
+    expect(locks).toBeGreaterThan(600);
+    expect(fails).toEqual([]);
+  });
+
+  it("opens every finger lock with a real finger laid in its gap, with room to spare, for either hand", () => {
+    // The finger model (helpers/finger-model.ts) casts IWER's index finger as the e2e specs lay it; against 20 locks
+    // measured in the browser it is within 0.029 of the spill measured (rms 0.011), so it is held 0.03 under the rule.
+    // A left-handed player's box is the mirror, sampled on a grid of its own (mirror.ts, prepareLock).
+    const fails: string[] = [], worst = new Map<string, { spill: number; at: string }>();
+    let left = 0;
+    for (const { box: right } of built) {
+      for (const box of [right, mirrorBox(right)]) {
+        for (const l of box.locks) {
+          if (!l.finger) continue;
+          const c = fingerCoverage(box, l), key = `${l.shape} ${l.size}`;
+          if (!meets(c, true) || c.spillAll > RULE.SPILL_ALL_MAX - FINGER_MODEL_MARGIN) {
+            fails.push(`${box.key}${box.mirrored ? " (left)" : ""} lock ${l.i} ${l.shape}: spill with the finger ${c.spillAll.toFixed(3)}, gap ${c.gap.toFixed(3)}`);
+          }
+          if (box.mirrored) left = Math.max(left, c.spillAll);
+          if (!worst.has(key) || worst.get(key)!.spill < c.spillAll) worst.set(key, { spill: c.spillAll, at: `${box.key} lock ${l.i}` });
+        }
+      }
+    }
+    console.log(`finger locks, worst spill with the finger in a left-handed box: ${left.toFixed(3)}`);
+    console.log(`finger locks, worst spill with the finger by shape and size: ${[...worst].sort((a, b) => b[1].spill - a[1].spill).slice(0, 12).map(([k, v]) => `${k} ${v.spill.toFixed(3)}`).join(", ")}`);
+    expect(fails).toEqual([]);
+  });
+
+  it("is strictly warmest at each spot along the line in from 0.2 toward the start, for either hand", () => {
+    const fails: string[] = [];
+    for (const box of built.flatMap(({ box }) => [box, mirrorBox(box)])) {
+      for (const l of box.locks) {
+        const s = prepareLock(l), d0 = [box.start[0] - l.L[0], box.start[1] - l.L[1], box.start[2] - l.L[2]];
+        const len = Math.hypot(d0[0]!, d0[1]!, d0[2]!), cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 0 };
+        const w = (d: number) => {
+          const L: [number, number, number] = [l.L[0] + (d0[0]! / len) * d, l.L[1] + (d0[1]! / len) * d, l.L[2] + (d0[2]! / len) * d];
+          const scraps: V2[][] = [];
+          return warmth(measure(s, scraps, shadowPolys(box.elements, L, scraps, SKIP_MISSING), [], 0, cov), d);
+        };
+        const peak = w(0);
+        for (let k = 0; k < 9; k++) if (!(w(WARMTH_RANGE * (1 - k / 9)) < peak)) fails.push(`${box.key}${box.mirrored ? " (left)" : ""} lock ${l.i}, ${k}`);
+      }
+    }
+    expect(fails).toEqual([]);
   });
 
   it("shows each classic shape in at least 10% of boxes 10 and up", () => {
@@ -190,16 +287,153 @@ describe("golden boxes", () => {
   // box (RNG call order, a constant, a shape) must bump GENERATOR_VERSION and update these hashes.
   const GOLDEN: [BoxSpec, string][] = [
     [{ kind: "box", n: 1 }, "deeb47a2fbea952f"],
-    [{ kind: "box", n: 7 }, "119035d36b6bac09"],
-    [{ kind: "box", n: 15 }, "7f88fa40663a110a"],
-    [{ kind: "daily", day: "2026-11-06" }, "b31b4836cdf21f93"],
+    [{ kind: "box", n: 7 }, "f0d30a933ef964aa"],
+    [{ kind: "box", n: 15 }, "56ce7943ea10bee9"],
+    [{ kind: "daily", day: "2026-11-06" }, "359de34c81698956"],
   ];
-  const sha = (box: Box) => createHash("sha256").update(JSON.stringify(box)).digest("hex").slice(0, 16);
 
-  it("pins boxes 1, 7, 15 and one day at generator version 3", () => {
-    expect(GENERATOR_VERSION).toBe(3);
+  it("pins boxes 1, 7, 15 and one day at generator version 4", () => {
+    expect(GENERATOR_VERSION).toBe(4);
     expect(GOLDEN.map(([spec]) => [JSON.stringify(spec), sha(generateBox(spec))])).toEqual(
       GOLDEN.map(([spec, hash]) => [JSON.stringify(spec), hash]),
     );
   });
+});
+
+describe("generator version 3, for saves made before the box kinds", () => {
+  it("keeps boxes 1 to 4 byte for byte as version 3 built them", () => {
+    for (let n = 1; n <= 4; n++) expect(sha(generateBox({ kind: "box", n })), `box ${n}`).toBe(V3_HASHES[`shadow-locks/${n}`]);
+  });
+
+  it("still builds version 3's boxes exactly, for a box saved mid-play under it", () => {
+    const specs: BoxSpec[] = [
+      ...Array.from({ length: 40 }, (_, i): BoxSpec => ({ kind: "box", n: i + 1, gen: 3 })),
+      ...[50, 77, 100, 150, 200].map((n): BoxSpec => ({ kind: "box", n, gen: 3 })),
+      ...["2026-11-01", "2026-11-06", "2026-11-17", "2026-11-30"].map((day): BoxSpec => ({ kind: "daily", day, gen: 3 })),
+    ];
+    for (const spec of specs) {
+      const box = generateBox(spec);
+      expect(sha(box), box.key).toBe(V3_HASHES[box.key]);
+      expect(box.spec).toEqual(spec);
+      expect(genOf(box.spec)).toBe(3);
+    }
+    expect(BUILDABLE_VERSIONS).toEqual([3, 4]);
+    expect(() => generateBox({ kind: "box", n: 12, gen: 2 })).toThrow();
+  });
+
+  it("rebuilds a save from its own version: a version 3 save as version 3's box, anything else as today's", () => {
+    const box12: BoxSpec = { kind: "box", n: 12 };
+    expect(specForSave(box12, { key: "shadow-locks/12", gen: 3 })).toEqual({ kind: "box", n: 12, gen: 3 });
+    expect(specForSave(box12, { key: "shadow-locks/12", gen: 4 })).toEqual(box12);
+    expect(specForSave(box12, { key: "shadow-locks/12", gen: 2 })).toEqual(box12);
+    expect(specForSave(box12, { key: "shadow-locks/12" })).toEqual(box12);
+    expect(specForSave(box12, { key: "shadow-locks/13", gen: 3 })).toEqual(box12);
+    expect(specForSave(box12, null)).toEqual(box12);
+    const day: BoxSpec = { kind: "daily", day: "2026-11-06" };
+    expect(specForSave(day, { key: "shadow-locks/daily/2026-11-06", gen: 3 })).toEqual({ ...day, gen: 3 });
+    expect(genOf(box12)).toBe(GENERATOR_VERSION);
+  });
+});
+
+describe("box kinds and silhouettes", () => {
+  it("changes boxes 5 to 9 only in their silhouette: the same settings, one silhouette on a hidden lock", () => {
+    const changed: string[] = [];
+    for (let n = 5; n <= 9; n++) {
+      const now = generateBox({ kind: "box", n }), then = generateBox({ kind: "box", n, gen: 3 });
+      expect(now.params).toEqual(then.params);
+      expect(now.params).toEqual(boxParamsV3(n));
+      const sil = (b: Box) => b.locks.filter((l) => SILHOUETTES.includes(l.shape));
+      expect(sil(now)).toHaveLength(1);
+      expect(sil(now)[0]!.hidden).toBe(true);
+      if (sil(now)[0]!.shape !== sil(then)[0]!.shape) changed.push(`${n}: ${sil(then)[0]!.shape} -> ${sil(now)[0]!.shape}`);
+      else expect(sha(now), `box ${n}, the same silhouette`).toBe(V3_HASHES[now.key]);
+    }
+    console.log(`boxes 5-9, silhouettes changed: ${changed.join("; ") || "none"}`);
+  });
+
+  it("builds each kind as it says: two hidden silhouettes, three finger locks, no rings, or one or two big locks", () => {
+    for (const { spec, box } of built) {
+      if (spec.kind !== "box" || spec.n < 10) continue;
+      const kind = boxKind(spec.n), sil = box.locks.filter((l) => SILHOUETTES.includes(l.shape));
+      if (kind === "silhouettes") {
+        expect(box.locks.every((l) => l.hidden), box.key).toBe(true);
+        expect(sil, box.key).toHaveLength(2);
+      }
+      if (kind === "fingers") expect(box.locks.every((l) => l.finger && l.rings), box.key).toBe(true);
+      if (kind === "expert") expect(box.locks.some((l) => l.rings) || box.elements.some((e) => e.kind === "ring"), box.key).toBe(false);
+      if (kind === "breather") {
+        expect(box.locks.length, box.key).toBeLessThanOrEqual(2);
+        expect(box.locks.every((l) => l.rings) && box.locks.some((l) => l.size >= 0.34), box.key).toBe(true);
+        expect(sil, box.key).toHaveLength(1);
+      }
+    }
+  });
+
+  it("never shows a silhouette the boxes just before showed: any few dealt in a row differ", () => {
+    // A box and the three before it deal at most six (two silhouettes boxes are never closer than two boxes), and any
+    // REPEAT_GAP + 1 dealt in a row differ.
+    expect(REPEAT_GAP + 1).toBeGreaterThanOrEqual(6);
+    let prev: ShapeName[][] = [];
+    for (let n = 1; n <= 3000; n++) {
+      const now = boxSilhouettes({ kind: "box", n });
+      expect(new Set(now).size).toBe(now.length);
+      for (const p of prev.slice(-3)) for (const s of now) expect(p, `box ${n}`).not.toContain(s);
+      prev = [...prev.slice(-9), now];
+    }
+  });
+
+  it("deals every silhouette by box 60, the quickest to name first (the cat at box 5), each as often as the others", () => {
+    const dealt = Array.from({ length: 56 }, (_, i) => boxSilhouettes({ kind: "box", n: 5 + i })).flat();
+    expect(dealt.slice(0, 5)).toEqual(["Cat", "Fish", "House", "Rabbit", "Anchor"]);
+    // The owl, whose tufted outline is the cat's, comes last in the first deck.
+    expect(dealt.indexOf("Owl")).toBe(SILHOUETTES.length - 1);
+    expect([...new Set(dealt)].sort()).toEqual([...SILHOUETTES].sort());
+    const counts = new Map<ShapeName, number>();
+    for (let n = 5; n <= 2000; n++) for (const s of boxSilhouettes({ kind: "box", n })) counts.set(s, (counts.get(s) ?? 0) + 1);
+    const c = [...counts.values()];
+    expect(Math.max(...c) - Math.min(...c)).toBeLessThanOrEqual(3);
+    expect(FIRST_SILHOUETTES.every((s) => counts.has(s))).toBe(true);
+  });
+
+  it("keeps the Daily Box's difficulty (box 7's settings) and deals it a new silhouette each day", () => {
+    const days = built.filter((b) => b.spec.kind === "daily");
+    for (const { box } of days) expect(box.params).toEqual(dailyParams());
+    expect(dailyParams()).toEqual(boxParams(7));
+    const sil = days.map(({ box }) => box.locks.find((l) => SILHOUETTES.includes(l.shape))!.shape);
+    for (let i = 1; i < sil.length; i++) expect(sil[i], DAYS[i]).not.toBe(sil[i - 1]);
+    expect(sil.some((s) => !FIRST_SILHOUETTES.includes(s))).toBe(true);
+  });
+
+  it("keeps every box from 10 and every Daily Box within the frame cost cap, at most 10% over box 15's frame", () => {
+    // frame-cost.ts: a frame's mean JS at 4x grows FRAME_MS.corner a shadow corner. A box at the cap costs at most a
+    // tenth more than box 15, the box the frame budgets are timed on.
+    const box15 = boxFrame(built.find((b) => b.spec.kind === "box" && b.spec.n === 15)!.box);
+    expect(FRAME_MS.base + FRAME_MS.corner * FRAME_CORNER_CAP).toBeLessThanOrEqual(1.1 * box15.ms);
+    const late = built.filter((b) => b.spec.kind === "daily" || (b.spec.kind === "box" && b.spec.n >= 10)), over: string[] = [];
+    let most = 0;
+    for (const { box } of late) {
+      const f = boxFrame(box);
+      most = Math.max(most, f.corners);
+      if (f.corners > FRAME_CORNER_CAP) over.push(`${box.key}: ${f.corners}`);
+    }
+    console.log(`frame cost: box 15 ${box15.corners} corners (${box15.ms.toFixed(3)} ms at 4x), the most from box 10 ${most} (cap ${FRAME_CORNER_CAP})`);
+    expect(over).toEqual([]);
+  });
+
+  it("takes about as long to build boxes 10 to 40 as version 3 did", () => {
+    const time = (gen: number | undefined) => {
+      const ms: number[] = [];
+      for (let n = 10; n <= 40; n++) {
+        const t0 = performance.now();
+        buildBox(gen === undefined ? { kind: "box", n } : { kind: "box", n, gen });
+        ms.push(performance.now() - t0);
+      }
+      return { avg: ms.reduce((s, v) => s + v, 0) / ms.length, worst: Math.max(...ms) };
+    };
+    time(undefined);
+    const v3 = time(3), v4 = time(undefined);
+    console.log(`boxes 10-40: version 3 avg ${v3.avg.toFixed(1)} ms, worst ${v3.worst.toFixed(1)}; version 4 avg ${v4.avg.toFixed(1)} ms, worst ${v4.worst.toFixed(1)}`);
+    expect(v4.avg).toBeLessThan(1.5 * v3.avg + 10);
+    expect(v4.worst).toBeLessThan(1000);
+  }, 60_000);
 });

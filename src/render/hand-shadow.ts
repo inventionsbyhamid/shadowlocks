@@ -21,6 +21,7 @@
 // shadow matches the hand drawn.
 import type { Matrix4 } from "@iwsdk/core";
 import { inPoly } from "../core/geom";
+import { FINGER_RADIUS_CM } from "../core/solve";
 import type { V2, V3 } from "../core/types";
 import { HAND_JOINTS, type HandJoints, type HandSide, JOINT_COUNT } from "../input/hand-joints";
 
@@ -28,8 +29,8 @@ import { HAND_JOINTS, type HandJoints, type HandSide, JOINT_COUNT } from "../inp
 export const MOUTH_Z = 1.0;
 /** ...and only once its index finger is within this of the box's middle across and up (half the box and 2.4 cm). */
 export const MOUTH_XY = 0.6;
-/** Capsule radii (cm): finger bones, and the palm. */
-export const FINGER_RADIUS_CM = 0.9;
+/** Capsule radii (cm): finger bones (the solve rule's finger, core/solve.ts), and the palm. */
+export { FINGER_RADIUS_CM };
 export const PALM_RADIUS_CM = 2;
 /** Corners of each bone's shadow outline. */
 export const OUTLINE_CORNERS = 10;

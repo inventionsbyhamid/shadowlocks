@@ -269,6 +269,8 @@ describe("warmth", () => {
   });
 
   it("is warmest at the spot along the line in from 0.2 away (10 samples)", () => {
+    // Strictly: the generator rejects a draw where a lock is as warm a little short of its spot (generator.ts
+    // warmestAtSpots, the same samples).
     const errs: string[] = [];
     let strict = 0;
     for (const { box, lock: l, s } of locks()) {

@@ -18,9 +18,11 @@
 // would break. Measured: about 980 bytes a frame in all, the most in one function the shadow mesh's cast (about 550;
 // how it splits with box-scene's syncShadows depends on what the engine inlines). An object made per shadow a frame
 // (60 shadows, 32 bytes or more each) would add about 2 KB, past both budgets.
+import type { Page, TestInfo } from "@playwright/test";
 import { CHROME_ARGS } from "./helpers/chromium";
 import { axisOf, fingerLocks, onRay, Pointer, worldOf } from "./helpers/finger";
 import { Hands } from "./helpers/hands";
+import { heaviestBox } from "./helpers/heavy-box";
 import {
   carry,
   expectP95WithinBudget,
@@ -36,8 +38,8 @@ import {
   TIMED_FRAMES,
   toWorld,
 } from "./helpers/lantern";
-import { box15InPlay, timedWindows } from "./helpers/perf-play";
-import { expect, test } from "./helpers/test";
+import { boxInPlay, timedWindows } from "./helpers/perf-play";
+import { type BootFn, expect, test } from "./helpers/test";
 
 const MAX_CALLS = 50;
 const MAX_TRIANGLES = 100_000;
@@ -56,14 +58,12 @@ test.use({
   launchOptions: { args: [...CHROME_ARGS, "--js-flags=--invocation-count-for-maglev=5 --invocation-count-for-turbofan=30"] },
 });
 
-test("box 15 in play, the lantern moving and a hand in the beam: draw calls, triangles, our JS at 4x and allocations within budget", async ({
-  page,
-  boot,
-}, testInfo) => {
-  // Box 15 played through the box session (helpers/perf-play.ts), so its frame ("game") and its view (plate, hint
+// The play case, for box 15 and for the heaviest box from 10 to 60 by the frame cost model (helpers/heavy-box.ts).
+const playCase = (n: number) => async ({ page, boot }: { page: Page; boot: BootFn }, testInfo: TestInfo) => {
+  // Box n played through the box session (helpers/perf-play.ts), so its frame ("game") and its view (plate, hint
   // lantern, marks) are timed and drawn as in play.
   const app = await boot();
-  const sweep = await box15InPlay(app, page);
+  const sweep = await boxInPlay(app, page, n);
   const windows = await timedWindows(app, page, sweep, 4);
 
   const cdp = await page.context().newCDPSession(page);
@@ -98,7 +98,7 @@ test("box 15 in play, the lantern moving and a hand in the beam: draw calls, tri
           `p95 by system: ${Object.entries(w.systems).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")}`,
       ),
       `perf-budget: judged on window ${judged.index + 1}: p95 ${judged.p95Ms.toFixed(2)} ms a frame without stalls ` +
-        `(${judged.stalls} of them); box 15 through the box session, stage ${st.stage}, ${st.open.length} locks open`,
+        `(${judged.stalls} of them); box ${n} through the box session, stage ${st.stage}, ${st.open.length} locks open`,
       `perf-budget: our per-frame code allocated about ${bytes.toFixed(0)} bytes a frame over ${nFrames} frames` +
         (game.length ? `: ${game.sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k} ${v.toFixed(0)}`).join("; ")}` : ""),
     ];
@@ -118,7 +118,10 @@ test("box 15 in play, the lantern moving and a hand in the beam: draw calls, tri
   } finally {
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
   }
-});
+};
+
+test("box 15 in play, the lantern moving and a hand in the beam: draw calls, triangles, our JS at 4x and allocations within budget", playCase(15));
+test("the heaviest box from 10 to 60 in play: the same budgets", playCase(heaviestBox().n));
 
 test("prewarm: nothing the box or the theatre can show compiles a shader the first time it shows", async ({ page, boot }) => {
   const app = await boot();

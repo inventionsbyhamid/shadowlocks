@@ -530,38 +530,42 @@ function dottedFrame(g: Ctx, col: Col, l: Lock): void {
 /**
  * A shown lock's etching: clean ivory with a whisper of gold inside, a gold-leaf inner line 8..10 px
  * inside the outline, the gold-leaf outline 0..4 px outside. Clipped to the lock, along the union's
- * boundary only, so seams between pieces are never etched.
+ * boundary only, so seams between pieces are never etched. In three parts, a frame each (one part is
+ * a third of the work an outline costs): the inside's fill, the inside's line, the outline outside.
+ * Run back to back they draw exactly what one call would: each part sets up its own state and clip.
  */
-function etchOutline(g: Ctx, l: Lock, edges: [V2, V2][]): void {
+function etchOutline(g: Ctx, l: Lock, edges: [V2, V2][], part: 0 | 1 | 2): void {
   const gold = COLORS.etch, inside = mixHex(COLORS.panel, gold, ART.tint), [rx, ry, rw, rh] = lockRect(l);
   g.save();
   g.lineCap = "round";
   g.lineJoin = "round";
-  // Inside: fill, then the 0..10 px band in gold, then 0..8 px back to the fill, leaving the 8..10 line.
-  unionPath(g, l.target);
-  g.clip();
-  g.fillStyle = inside;
-  g.fillRect(rx, ry, rw, rh);
-  edgePath(g, edges);
-  g.strokeStyle = rgba(gold, ART.innerAlpha);
-  g.lineWidth = 2 * ART.inner[1];
-  g.stroke();
-  g.strokeStyle = inside;
-  g.lineWidth = 2 * ART.inner[0];
-  g.stroke();
-  g.restore();
-  // Outside: the lock's box less its shape, then the outline's 0..4 px band.
-  g.save();
-  g.lineCap = "round";
-  g.lineJoin = "round";
-  g.beginPath();
-  g.rect(rx, ry, rw, rh);
-  addPieces(g, l.target);
-  g.clip("evenodd");
-  edgePath(g, edges);
-  g.strokeStyle = gold;
-  g.lineWidth = 2 * ART.outline;
-  g.stroke();
+  if (part < 2) {
+    // Inside: fill, then the 0..10 px band in gold, then 0..8 px back to the fill, leaving the 8..10 line.
+    unionPath(g, l.target);
+    g.clip();
+    if (part === 0) {
+      g.fillStyle = inside;
+      g.fillRect(rx, ry, rw, rh);
+    } else {
+      edgePath(g, edges);
+      g.strokeStyle = rgba(gold, ART.innerAlpha);
+      g.lineWidth = 2 * ART.inner[1];
+      g.stroke();
+      g.strokeStyle = inside;
+      g.lineWidth = 2 * ART.inner[0];
+      g.stroke();
+    }
+  } else {
+    // Outside: the lock's box less its shape, then the outline's 0..4 px band.
+    g.beginPath();
+    g.rect(rx, ry, rw, rh);
+    addPieces(g, l.target);
+    g.clip("evenodd");
+    edgePath(g, edges);
+    g.strokeStyle = gold;
+    g.lineWidth = 2 * ART.outline;
+    g.stroke();
+  }
   g.restore();
 }
 
@@ -571,7 +575,7 @@ function etchOutline(g: Ctx, l: Lock, edges: [V2, V2][]): void {
  * box's etching (finishEtch does the rest at once); nothing allocates per frame.
  *
  * A new box's etching goes in small steps, one a frame: the frosted base (a quarter at a time), the
- * border, each lock's fan, numeral and mark, each lock's outline, the masks (each lock's in turn), the
+ * border, each lock's fan, numeral and mark, each lock's outline (a shown one in three parts), the masks (each lock's in turn), the
  * glow's halo, and the uploads (masks and halo, then the albedo). The textures show the previous etching until the new one is uploaded, so a
  * half-drawn panel is never seen; a box transition can wait for `etched`.
  */
@@ -777,7 +781,10 @@ export class Panel {
         if (l.mark) sightMark(g, col, l.mark);
       });
     }
-    locks.forEach((l, i) => steps.push(() => (l.hidden ? dottedFrame(g, col, l) : etchOutline(g, l, edges[i]!))));
+    locks.forEach((l, i) => {
+      if (l.hidden) steps.push(() => dottedFrame(g, col, l));
+      else for (const part of [0, 1, 2] as const) steps.push(() => etchOutline(g, l, edges[i]!, part));
+    });
     steps.push(() => {
       // The masks: black, then per lock (a step each) red inside its outline and a crisp green band along it.
       m.setTransform(1, 0, 0, 1, 0, 0);

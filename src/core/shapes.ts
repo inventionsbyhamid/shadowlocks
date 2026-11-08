@@ -1,49 +1,9 @@
 // The shape library: each shape is a set of convex pieces that tile its outline without overlapping. Ported from
-// the Shadow Locks mock (spikes/shadow-locks-mock/shadowgen.js, buildShapes), plus three silhouettes.
+// the Shadow Locks mock (spikes/shadow-locks-mock/shadowgen.js, buildShapes), plus the silhouettes: the first three
+// here, the rest in silhouettes.ts.
+import { cap, DEG, onCircle, onEllipse, rect, strip } from "./shape-kit";
+import { newSilhouettes } from "./silhouettes";
 import type { ShapeName, V2 } from "./types";
-
-const DEG = Math.PI / 180;
-const rect = (x0: number, y0: number, x1: number, y1: number): V2[] => [
-  [x0, y0],
-  [x1, y0],
-  [x1, y1],
-  [x0, y1],
-];
-const onCircle = (c: V2, r: number, deg: number): V2 => [c[0] + r * Math.cos(deg * DEG), c[1] + r * Math.sin(deg * DEG)];
-/** The point at `deg` on an ellipse around the origin, turned by `rotDeg`. */
-const onEllipse = (rx: number, ry: number, rotDeg: number, deg: number): V2 => {
-  const x = rx * Math.cos(deg * DEG), y = ry * Math.sin(deg * DEG), c = Math.cos(rotDeg * DEG), s = Math.sin(rotDeg * DEG);
-  return [x * c - y * s, x * s + y * c];
-};
-
-/**
- * A round cap on the edge p -> q of a counter-clockwise piece: the circle of radius r through p and q, bulging away
- * from that piece. Returns the cap (counter-clockwise, p first, q last) with arc points at `degs` (around the centre,
- * strictly between p's angle and q's, increasing), and the centre.
- */
-function cap(p: V2, q: V2, r: number, degs: number[]): { poly: V2[]; c: V2 } {
-  const dx = q[0] - p[0], dy = q[1] - p[1], l = Math.hypot(dx, dy), h = Math.sqrt(r * r - (l * l) / 4);
-  const c: V2 = [(p[0] + q[0]) / 2 + (dy / l) * h, (p[1] + q[1]) / 2 - (dx / l) * h];
-  const ap = Math.atan2(p[1] - c[1], p[0] - c[0]) / DEG;
-  let aq = Math.atan2(q[1] - c[1], q[0] - c[0]) / DEG;
-  if (aq <= ap) aq += 360;
-  degs.forEach((d, i) => {
-    if (d <= ap || d >= aq || (i > 0 && d <= degs[i - 1]!)) {
-      throw new Error(`cap: arc angle ${d} is out of order or outside (${ap.toFixed(1)}, ${aq.toFixed(1)})`);
-    }
-  });
-  return { poly: [p, ...degs.map((d) => onCircle(c, r, d)), q], c };
-}
-
-/**
- * A strip growing out of the edge a -> b of a counter-clockwise piece: `len` long from the edge's middle in direction
- * `deg`, its far end `halfEnd` either side of its axis. Counter-clockwise, a first, b last.
- */
-function strip(a: V2, b: V2, deg: number, len: number, halfEnd: number): V2[] {
-  const d: V2 = [Math.cos(deg * DEG), Math.sin(deg * DEG)], n: V2 = [-d[1], d[0]];
-  const e: V2 = [(a[0] + b[0]) / 2 + len * d[0], (a[1] + b[1]) / 2 + len * d[1]];
-  return [a, [e[0] - halfEnd * n[0], e[1] - halfEnd * n[1]], [e[0] + halfEnd * n[0], e[1] + halfEnd * n[1]], b];
-}
 
 // The silhouettes are built counter-clockwise, and pieces meet only along shared edges: each one is a corner list on
 // its neighbour's edge (a cap, a strip or a triangle on it), so nothing overlaps. The cat's tail, the bird's tail and
@@ -108,7 +68,7 @@ function teapot(): V2[][] {
   return [body, lid, knob, spout, armTop, grip, armBottom];
 }
 
-function buildShapes(): { shapes: Record<ShapeName, V2[][]>; moonOutline: V2[] } {
+function buildShapes(): { shapes: Record<ShapeName, V2[][]>; moonOutline: V2[]; added: ShapeName[] } {
   const oct = (cx: number, cy: number, r: number): V2[] =>
     Array.from({ length: 8 }, (_, i) => [
       cx + r * Math.cos(Math.PI / 8 + (i * Math.PI) / 4),
@@ -182,8 +142,10 @@ function buildShapes(): { shapes: Record<ShapeName, V2[][]>; moonOutline: V2[] }
     [[-0.32, -0.4], [0.32, -0.4], [0, 0]],
     rect(-0.4, -0.5, 0.4, -0.4),
   ];
+  const added = newSilhouettes();
   const S: Record<ShapeName, V2[][]> = {
     Key, Star, Moon, Diamond, Crown, Arrow, Hourglass, Cat: cat(), Bird: bird(), Teapot: teapot(),
+    ...added,
   };
 
   // Centre and scale every shape to fit a unit square; the Moon's outline moves with the Moon.
@@ -201,13 +163,15 @@ function buildShapes(): { shapes: Record<ShapeName, V2[][]>; moonOutline: V2[] }
     S[k] = S[k].map((p) => p.map(fit));
     if (k === "Moon") outline = outline.map(fit);
   }
-  return { shapes: S, moonOutline: outline };
+  return { shapes: S, moonOutline: outline, added: Object.keys(added) as ShapeName[] };
 }
 
 const built = buildShapes();
 /** Every shape's convex pieces, centred on the origin, the larger side of its bounding box 1. */
 export const SHAPES: Record<ShapeName, V2[][]> = built.shapes;
+/** The silhouettes of generator version 3 and before, in their order: boxes saved then are rebuilt with these. */
+export const FIRST_SILHOUETTES: ShapeName[] = ["Cat", "Bird", "Teapot"];
 /** Shapes for hidden outlines: things a player names on sight. */
-export const SILHOUETTES: ShapeName[] = ["Cat", "Bird", "Teapot"];
+export const SILHOUETTES: ShapeName[] = [...FIRST_SILHOUETTES, ...built.added];
 /** The Moon as one simple polygon (lesson 1's single scrap), in the same frame as SHAPES.Moon. */
 export const MOON_OUTLINE: V2[] = built.moonOutline;

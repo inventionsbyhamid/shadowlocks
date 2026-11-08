@@ -26,9 +26,10 @@ export interface BoxSnapshot {
   /** Which box (numbered or daily); the generator rebuilds it from this. */
   key: string;
   /**
-   * The generator version (GENERATOR_VERSION) the box was played under. A box saved under another one (or
-   * none) is regenerated from its key and started afresh: its lantern, open locks and pieces belong to a box
-   * that may have changed.
+   * The generator version the box was built by. A box saved under an older version the generator can still
+   * build (BUILDABLE_VERSIONS) is rebuilt by that version and resumes as it was (generator.ts specForSave);
+   * one saved under any other version, or none, is regenerated from its key by today's and started afresh:
+   * its lantern, open locks and pieces belong to a box that may have changed.
    */
   gen?: number;
   /**
@@ -98,6 +99,20 @@ const SHAPE_NAMES: Record<ShapeName, true> = {
   Cat: true,
   Bird: true,
   Teapot: true,
+  Anchor: true,
+  Sailboat: true,
+  Mushroom: true,
+  House: true,
+  Fish: true,
+  Whale: true,
+  Snail: true,
+  Owl: true,
+  Rabbit: true,
+  Candle: true,
+  Teacup: true,
+  Knight: true,
+  Cactus: true,
+  Tree: true,
 };
 
 export function defaultSettings(): Settings {

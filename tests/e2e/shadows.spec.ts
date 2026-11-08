@@ -3,18 +3,20 @@
 // outline as one solid shape, with no hairline of light along the edges where scraps meet, and the
 // sight rings nest into a bullseye on their mark; from the start they do not fill it. Read from the
 // rendered pixels at headset density (25 px per degree) with what hangs in the box hidden, so only
-// the panel shows; close-ups of its sharpest corners. Box 15: every shadow in one draw call, a shadow
-// update within 0.5 ms (p95 of means of 10) at 4x CPU throttle, the lantern moving adding at most
-// about 0.3 ms to a frame, and a new box's etching spread over frames, no step over 8 ms. Shots for
-// the look review go to test-results/shots/shadows-*.png.
+// the panel shows; close-ups of its sharpest corners. Box 15, and the heaviest box from 10 to 60
+// (helpers/heavy-box.ts): every shadow in one draw call, a shadow update within 0.5 ms (p95 of means of
+// 10) at 4x CPU throttle, the lantern moving adding at most about 0.3 ms to a frame, and a new box's
+// etching spread over frames, no step over 8 ms. Shots for the look review go to
+// test-results/shots/shadows-*.png.
 import fs from "node:fs";
 import path from "node:path";
-import type { Page } from "@playwright/test";
+import type { Page, TestInfo } from "@playwright/test";
 import { generateBox } from "../../src/core/generator";
 import { circlePts, inPoly, proj, segDist } from "../../src/core/geom";
 import { lockSamples, RING_SIDES } from "../../src/core/solve";
 import type { Lock, Ring, V2, V3, Vec3 } from "../../src/core/types";
 import { outlineEdges } from "../../src/render/outline";
+import { heaviestBox } from "./helpers/heavy-box";
 import { expect, test } from "./helpers/test";
 import { addRunNote, SHOTS_DIR, type XrApp } from "./helpers/xr-app";
 
@@ -326,11 +328,24 @@ test("box 1: from its spot the shadows fill the outline as one shape and the rin
 });
 
 test("box 15 at 4x CPU throttle: one draw call for every shadow, an update within 0.5 ms p95, each etch step within 8 ms", async ({ page, boot }, testInfo) => {
-  const app = await boot();
+  await shadowCost(page, await boot(), testInfo, 15);
+});
+
+test("the heaviest box from 10 to 60 at 4x CPU throttle: the same budgets as box 15", async ({ page, boot }, testInfo) => {
+  const heavy = heaviestBox();
+  addRunNote(`shadows: heaviest box from 10 to 60 is box ${heavy.n} (${heavy.kind}): ${heavy.shadows} shadows, ${heavy.corners} corners, frame ${heavy.ms.toFixed(3)} ms at 4x by the model`);
+  await shadowCost(page, await boot(), testInfo, heavy.n);
+});
+
+/**
+ * Box n shown: one draw call for every shadow, a shadow update within 0.5 ms p95 at 4x CPU throttle, the lantern's
+ * moving adding at most about 0.3 ms to a frame, and each step of the panel's etching within 8 ms at 4x.
+ */
+async function shadowCost(page: Page, app: XrApp, testInfo: TestInfo, n: number): Promise<void> {
   await page.evaluate(() => window.__ns!.ui.go("play"));
   await app.stepUntil((ns) => !ns.ui.busy(), { maxMs: 3_000, label: "menus away" });
-  const box = generateBox({ kind: "box", n: 15 });
-  expect(await page.evaluate(() => window.__ns!.scene.show({ n: 15 }))).toBe(box.key);
+  const box = generateBox({ kind: "box", n });
+  expect(await page.evaluate((n) => window.__ns!.scene.show({ n }), n)).toBe(box.key);
   await app.step(2);
   const draws = await page.evaluate(() => window.__ns!.scene.draws());
   const stats = await page.evaluate(() => window.__sl!.shadowStats());
@@ -439,7 +454,7 @@ test("box 15 at 4x CPU throttle: one draw call for every shadow, an update withi
   }
   const histLine = [...hist.entries()].sort().map(([k, v]) => `${k}: ${v}`).join(", ");
   const line =
-    `box 15: ${draws.calls} draw calls per view (${draws.parts.join(", ")}); shadow mesh ${stats.vertices} vertices, ` +
+    `box ${n}: ${draws.calls} draw calls per view (${draws.parts.join(", ")}); shadow mesh ${stats.vertices} vertices, ` +
     `${stats.triangles} triangles; shadow update at 4x throttle over ${single.length} lantern positions: p95 ${p95.toFixed(3)} ms ` +
     `(timer steps 0.1 ms), max ${Math.max(...single).toFixed(3)} ms, spread ${histLine}; means of 10: avg ${mean.toFixed(4)} ms, ` +
     `p95 ${p95b.toFixed(4)} ms; unthrottled: singles p95 ${pct(single1, 0.95).toFixed(3)} ms, means of 10 avg ${avg(batched1).toFixed(4)} ms, ` +
@@ -450,7 +465,7 @@ test("box 15 at 4x CPU throttle: one draw call for every shadow, an update withi
     `${frames.still.map((v) => v.toFixed(1)).join("/")} ms, lantern moving ${frames.moving.map((v) => v.toFixed(1)).join("/")} ms; ` +
     `p95 rise ${frames.rise.toFixed(2)} ms (average rise ${frames.avgRise.toFixed(3)} ms)`;
   const etchLine =
-    `panel etch for box 15 in ${etch.steps} steps, one a frame (drawing finished): slowest step median ${median(etch.worstStep).toFixed(2)} ms ` +
+    `panel etch for box ${n} in ${etch.steps} steps, one a frame (drawing finished): slowest step median ${median(etch.worstStep).toFixed(2)} ms ` +
     `at 4x (${etch.worstStep.map((t) => t.toFixed(1)).join(", ")}), ${median(etch1.worstStep).toFixed(2)} ms unthrottled; all steps ` +
     `median ${median(etch.total).toFixed(2)} ms at 4x, ${median(etch1.total).toFixed(2)} ms unthrottled; texture upload (software GL ` +
     `here, not the headset's GPU) median ${median(etch.upload).toFixed(2)} ms at 4x, ${median(etch1.upload).toFixed(2)} ms unthrottled; ` +
@@ -468,7 +483,7 @@ test("box 15 at 4x CPU throttle: one draw call for every shadow, an update withi
   expect(frames.rise).toBeLessThanOrEqual(0.4 + 1e-9);
   // A new box's etching goes a step a frame, and no step takes more than 8 ms at 4x.
   expect(median(etch.worstStep)).toBeLessThanOrEqual(8);
-});
+}
 
 test("warmth eases in and never flickers, even when the game's warmth jumps every frame", async ({ page, boot }) => {
   const app = await boot();

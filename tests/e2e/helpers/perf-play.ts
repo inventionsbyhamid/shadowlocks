@@ -44,13 +44,18 @@ export interface PlayWindow {
  * or the other of its path in 600 ms (even `i` one way, odd the other), after eight sweeps to warm the engine up.
  */
 export async function box15InPlay(app: XrApp, page: Page): Promise<(i: number) => Promise<void>> {
-  await page.evaluate(() => window.__sl!.session.play({ kind: "box", n: 15 }));
+  return boxInPlay(app, page, 15);
+}
+
+/** box15InPlay for box n (perf-budget.spec.ts also plays the heaviest box from 10 to 60, helpers/heavy-box.ts). */
+export async function boxInPlay(app: XrApp, page: Page, n: number): Promise<(i: number) => Promise<void>> {
+  await page.evaluate((n) => window.__sl!.session.play({ kind: "box", n }), n);
   await app.stepUntil(
     (_ns, w) => {
       const s = w.__sl.session.state();
       return s?.stage === "playing" && s.revealed;
     },
-    { maxMs: 10_000, label: "box 15 in play" },
+    { maxMs: 10_000, label: `box ${n} in play` },
   );
   // The lantern in front of the box's middle, picked up by the right hand and carried between two points in front of
   // the mouth (inside the comfort envelope).

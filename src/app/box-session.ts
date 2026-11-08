@@ -11,7 +11,7 @@
 // fake clock with fake frames. Per frame it allocates nothing: lock state, shadow buffers and coverage are made once
 // per box, and the events it sends every frame or so are shared or reused (events.ts).
 import { HINT_GLOW_GAIN } from "../audio/cues";
-import { GENERATOR_VERSION, specOfKey } from "../core/generator";
+import { genOf, specForSave, specOfKey } from "../core/generator";
 import { mirrorBox } from "../core/mirror";
 import type { BoxSnapshot } from "../core/profile";
 import { type Coverage, measure, meets, prepareLock, ShadowCaster, SKIP_MISSING, warmth, WARMTH_RANGE } from "../core/solve";
@@ -170,7 +170,9 @@ export class BoxSession {
    * box is in the scene; a later start supersedes one still loading. A `practice` box (the `?box=N` flag) is played
    * as any box but never touches the player's progress: nothing saved, solved or collected.
    */
-  async start(spec: BoxSpec, snap?: BoxSnapshot | null, o: { practice?: boolean } = {}): Promise<void> {
+  async start(given: BoxSpec, snap?: BoxSnapshot | null, o: { practice?: boolean } = {}): Promise<void> {
+    // A save made under an older generator version this one can still build resumes as that version's box.
+    const spec = specForSave(given, snap);
     const token = ++this.token;
     const before = this.stageNow;
     this.stageNow = "loading";
@@ -187,7 +189,7 @@ export class BoxSession {
     }
     if (token !== this.token) return;
     if (this.deps.settings.get().handed === "left") box = mirrorBox(box);
-    let keep = snap && snap.key === box.key && snap.gen === GENERATOR_VERSION ? snap : null;
+    let keep = snap && snap.key === box.key && snap.gen === genOf(box.spec) ? snap : null;
     // Saved for the other hand: this box is the other way round, and so is the lantern's side of it.
     if (keep && keep.mirrored !== undefined && keep.mirrored !== box.mirrored) {
       keep = { ...keep, lantern: [-keep.lantern[0], keep.lantern[1], keep.lantern[2]] };
@@ -278,7 +280,7 @@ export class BoxSession {
     }
     return {
       key: box.key,
-      gen: GENERATOR_VERSION,
+      gen: genOf(box.spec),
       mirrored: box.mirrored,
       lantern: p,
       open,

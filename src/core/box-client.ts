@@ -35,8 +35,12 @@ export function reviveBox(b: Box): Box {
   return { ...b, spec: { ...b.spec }, params: { ...b.params }, start: v3(b.start), elements, locks };
 }
 
-const keyOf = (spec: BoxSpec) =>
-  spec.kind === "box" ? `box/${spec.n}` : spec.kind === "daily" ? `daily/${spec.day}` : `lesson/${spec.id}`;
+/** A spec's place among the kept boxes: an older version's box (a resumed save) is kept apart from today's. */
+const keyOf = (spec: BoxSpec) => {
+  if (spec.kind === "lesson") return `lesson/${spec.id}`;
+  const v = spec.gen === undefined ? "" : `@${spec.gen}`;
+  return (spec.kind === "box" ? `box/${spec.n}` : `daily/${spec.day}`) + v;
+};
 
 interface Pending {
   spec: BoxSpec;
