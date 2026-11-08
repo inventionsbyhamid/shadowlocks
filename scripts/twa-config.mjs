@@ -91,6 +91,21 @@ export const RELEASE = {
   splash: { name: "com.oculus.ossplash.background", value: "passthrough-contextual" },
   /** Immersive apps: `<uses-feature android:name="android.hardware.vr.headtracking" android:required="true" android:version="1" />`. */
   headtracking: "android.hardware.vr.headtracking",
+  /**
+   * VRC.Quest.Packaging.4: "your application must provide a valid network security configuration in your application
+   * manifest". No clear text, which is Android's own default at targetSdk 34: no change in behaviour.
+   */
+  networkConfig: {
+    file: "app/src/main/res/xml/network_security_config.xml",
+    ref: "@xml/network_security_config",
+    text:
+      '<?xml version="1.0" encoding="utf-8"?>\n' +
+      "<!-- VRC.Quest.Packaging.4: the manifest names a network security configuration. No clear text (Android's default at\n" +
+      "     targetSdk 34); the game's traffic is https to its own host anyway. Written by scripts/twa-config.mjs patch. -->\n" +
+      "<network-security-config>\n" +
+      '    <base-config cleartextTrafficPermitted="false" />\n' +
+      "</network-security-config>\n",
+  },
 };
 
 /**
@@ -229,12 +244,20 @@ export function withExcludeFromRecents(xml) {
   return out;
 }
 
+/** `<application android:networkSecurityConfig="@xml/network_security_config">` (the file: RELEASE.networkConfig). */
+export function withNetworkSecurityConfig(xml) {
+  const m = /<application\b[^>]*>/.exec(xml);
+  if (!m) throw new Error("the manifest has no <application> element");
+  return xml.slice(0, m.index) + withAttribute(m[0], "android:networkSecurityConfig", RELEASE.networkConfig.ref) + xml.slice(m.index + m[0].length);
+}
+
 /** Every manifest rule `patch` writes, in one pass. */
 export function releaseManifest(xml) {
   let out = withSupportedDevices(xml);
   out = withMetaData(out, RELEASE.splash.name, RELEASE.splash.value);
   out = withInstallLocation(out);
   out = withHeadTracking(out);
+  out = withNetworkSecurityConfig(out);
   return withExcludeFromRecents(out);
 }
 
@@ -415,12 +438,15 @@ function all(node, name) {
   return out;
 }
 
-/** `aapt dump --values resources <apk>`: the string resources by id ("0x7f0f0012" -> "immersive"), default config first. */
+/**
+ * `aapt dump --values resources <apk>`: the string-valued resources by id, default config first: strings
+ * ("0x7f0f0012" -> "immersive") and file resources (an xml resource -> its path in the APK).
+ */
 export function parseStringResources(text) {
   const out = new Map();
   const lines = text.split("\n");
   for (let i = 0; i < lines.length - 1; i++) {
-    const r = /resource (0x[0-9a-f]+) [^\s:]+:string\/\S+: t=0x03/.exec(lines[i]);
+    const r = /resource (0x[0-9a-f]+) [^\s:]+:\w+\/\S+: t=0x03/.exec(lines[i]);
     const v = r && /^\s*\(string(?:8|16)\) "([\s\S]*)"\s*$/.exec(lines[i + 1]);
     if (v && !out.has(r[1])) out.set(r[1], v[1]);
   }
@@ -514,6 +540,13 @@ export function apkRules(dumps, want) {
   add("opens its own host", url === `https://${want.host}/`, url ?? "missing");
   add(`${DEVICES_KEY} ${SUPPORTED_DEVICES.join("|")}`, meta.get(DEVICES_KEY) === SUPPORTED_DEVICES.join("|"), meta.get(DEVICES_KEY) ?? "missing");
   add(`${RELEASE.splash.name} ${RELEASE.splash.value} (VRC.Quest.Functional.14)`, meta.get(RELEASE.splash.name) === RELEASE.splash.value, meta.get(RELEASE.splash.name) ?? "missing");
+  const nscRef = application.attrs["android:networkSecurityConfig"];
+  const nscBase = all(parseXmlTree(dumps.nsc ?? ""), "base-config")[0];
+  add(
+    "network security config, no clear text (VRC.Quest.Packaging.4)",
+    nscRef && typeof nscRef === "object" && nscBase?.attrs.cleartextTrafficPermitted === false,
+    !nscRef ? "no android:networkSecurityConfig" : nscBase ? `cleartextTrafficPermitted=${nscBase.attrs.cleartextTrafficPermitted}` : "no base-config",
+  );
   // Bubblewrap writes the id as "\ <id>" so that it stays a string, not a number.
   const appId = String(meta.get("com.meta.horizon.platform.ovr.OCULUS_APP_ID") ?? "missing").replace(/^\\/, "").trim();
   if (want.appId !== null) add("Meta App ID", appId === want.appId, appId);
@@ -537,10 +570,17 @@ export function dumpApk(apk, buildTools) {
     if (r.status !== 0 && tool !== "apksigner") throw new Error(`${tool} ${args[0]} failed: ${r.stderr.trim()}`);
     return `${r.stdout}${tool === "apksigner" ? r.stderr : ""}`;
   };
+  const xmltree = run("aapt", ["dump", "xmltree", apk, "AndroidManifest.xml"]);
+  const resources = run("aapt", ["dump", "--values", "resources", apk]);
+  // The network security config the manifest names, by its path in the APK (the build may shorten resource paths).
+  const application = all(all(parseXmlTree(xmltree), "manifest")[0] ?? { children: [] }, "application")[0];
+  const ref = application?.attrs["android:networkSecurityConfig"];
+  const nscPath = ref && typeof ref === "object" ? parseStringResources(resources).get(ref.ref) : undefined;
   return {
-    xmltree: run("aapt", ["dump", "xmltree", apk, "AndroidManifest.xml"]),
+    xmltree,
     badging: run("aapt", ["dump", "badging", apk]),
-    resources: run("aapt", ["dump", "--values", "resources", apk]),
+    resources,
+    nsc: nscPath ? run("aapt", ["dump", "xmltree", apk, nscPath]) : "",
     signer: run("apksigner", ["verify", "--verbose", "--print-certs", apk]),
     size: fs.statSync(apk).size,
   };
@@ -601,9 +641,18 @@ function patchProject(root, dir) {
     if (after !== before) fs.writeFileSync(f, after);
     console.log(`twa-config: ${path.relative(root, f)} ${after === before ? "already meets" : "now meets"} Meta's release rules`);
   }
+  // The network security config the manifest now names.
+  const nsc = path.resolve(root, dir, RELEASE.networkConfig.file);
+  const same = fs.existsSync(nsc) && fs.readFileSync(nsc, "utf8") === RELEASE.networkConfig.text;
+  if (!same) {
+    fs.mkdirSync(path.dirname(nsc), { recursive: true });
+    fs.writeFileSync(nsc, RELEASE.networkConfig.text);
+  }
+  console.log(`twa-config: ${path.relative(root, nsc)} ${same ? "already meets" : "now meets"} Meta's release rules`);
   console.log(
     `twa-config: ${DEVICES_KEY} = ${SUPPORTED_DEVICES.join("|")}; ${RELEASE.splash.name} = ${RELEASE.splash.value}; installLocation auto; ` +
-      `${RELEASE.headtracking} required; launcher excludeFromRecents; targetSdk and compileSdk ${RELEASE.targetSdk}; no jcenter()`,
+      `${RELEASE.headtracking} required; launcher excludeFromRecents; network security config ${RELEASE.networkConfig.ref} (no clear text); ` +
+      `targetSdk and compileSdk ${RELEASE.targetSdk}; no jcenter()`,
   );
 }
 

@@ -266,6 +266,7 @@ describe("patch: Meta's release rules in the Gradle project bubblewrap update ge
   const MANIFEST = "app/src/main/AndroidManifest.xml";
   const APP_GRADLE = "app/build.gradle";
   const ROOT_GRADLE = "build.gradle";
+  const NSC = "app/src/main/res/xml/network_security_config.xml";
   const DEVICES = '<meta-data android:name="com.oculus.supportedDevices" android:value="quest2|questpro|quest3|quest3s" />';
   const HEAD = '<uses-feature android:name="android.hardware.vr.headtracking" android:required="true" android:version="1" />';
   /** The manifest as Meta's Bubblewrap 1.24.1 Quest template writes it for an immersive app (trimmed). */
@@ -359,12 +360,28 @@ describe("patch: Meta's release rules in the Gradle project bubblewrap update ge
     // targetSdk and compileSdk 34, minSdk untouched; jcenter() gone.
     expect(file(root, APP_GRADLE)).toBe(appGradle.replace("compileSdkVersion 32", "compileSdkVersion 34").replace("targetSdkVersion 32", "targetSdkVersion 34"));
     expect(file(root, ROOT_GRADLE)).toBe(rootGradle.replace(/jcenter\(\)/g, "mavenCentral()"));
+    // VRC.Quest.Packaging.4: the application names a network security config, which allows no clear text.
+    expect(xml).toContain('<application android:networkSecurityConfig="@xml/network_security_config"\n        android:name="Application"');
+    expect(xml.match(/networkSecurityConfig/g)).toHaveLength(1);
+    expect(file(root, NSC)).toMatch(/<network-security-config>\s*<base-config cleartextTrafficPermitted="false" \/>\s*<\/network-security-config>/);
     // A second build: nothing changes.
-    const before = [MANIFEST, APP_GRADLE, ROOT_GRADLE].map((f) => file(root, f));
+    const before = [MANIFEST, APP_GRADLE, ROOT_GRADLE, NSC].map((f) => file(root, f));
     const again = run(root, "patch", "twa-build");
     expect(again.status).toBe(0);
     expect(again.out).not.toMatch(/now meets/);
-    expect([MANIFEST, APP_GRADLE, ROOT_GRADLE].map((f) => file(root, f))).toEqual(before);
+    expect([MANIFEST, APP_GRADLE, ROOT_GRADLE, NSC].map((f) => file(root, f))).toEqual(before);
+  });
+
+  it("puts right a network security config that allows clear text", () => {
+    const root = project(generated().replace('android:name="Application"', 'android:networkSecurityConfig="@xml/other" android:name="Application"'), {
+      [APP_GRADLE]: appGradle,
+      [ROOT_GRADLE]: rootGradle,
+      [NSC]: '<network-security-config><base-config cleartextTrafficPermitted="true" /></network-security-config>\n',
+    });
+    expect(run(root, "patch", "twa-build").status).toBe(0);
+    expect(file(root, MANIFEST)).toContain('android:networkSecurityConfig="@xml/network_security_config" android:name="Application"');
+    expect(file(root, NSC)).toContain('cleartextTrafficPermitted="false"');
+    expect(file(root, NSC)).not.toContain('"true"');
   });
 
   it("puts right what a template might write otherwise: a narrower device list, another splash, another install location", () => {
@@ -414,9 +431,9 @@ describe("patch: Meta's release rules in the Gradle project bubblewrap update ge
 });
 
 describe("apk-check: a built APK against Meta's release rules", () => {
-  // Dumps of the store test build (Task 28, scripts/twa-build.sh --test, signed with a throwaway key): aapt's xmltree,
-  // its badging (most locale lines left out) and apksigner, and the three string resources the manifest points at
-  // (aapt's resources dump, trimmed to them). Fake build tools print them.
+  // Dumps of the store test build (Task 28, scripts/twa-build.sh --test, signed with a throwaway key): aapt's xmltree
+  // of the manifest and of the network security config, its badging (most locale lines left out) and apksigner, and
+  // the four resources the manifest points at (aapt's resources dump, trimmed to them). Fake build tools print them.
   const FIXTURES = path.resolve("tests/unit/fixtures/twa-apk");
 
   /** A repo with the store App ID and `sha` filled, fake build tools printing the fixture dumps after `edit`, and an APK. */
@@ -426,11 +443,20 @@ describe("apk-check: a built APK against Meta's release rules", () => {
     const tools = path.join(root, "build-tools");
     fs.mkdirSync(tools);
     const dumps: Record<string, string> = {};
-    for (const f of ["xmltree.txt", "badging.txt", "apksigner.txt", "resources.txt"]) dumps[f] = fs.readFileSync(path.join(FIXTURES, f), "utf8");
+    for (const f of ["xmltree.txt", "nsc.txt", "badging.txt", "apksigner.txt", "resources.txt"]) dumps[f] = fs.readFileSync(path.join(FIXTURES, f), "utf8");
     edit(dumps);
     for (const [f, text] of Object.entries(dumps)) fs.writeFileSync(path.join(tools, f), text);
     const sh = (body: string) => `#!/bin/sh\nd=$(dirname "$0")\n${body}\n`;
-    fs.writeFileSync(path.join(tools, "aapt"), sh('case "$2" in xmltree) cat "$d/xmltree.txt" ;; badging) cat "$d/badging.txt" ;; --values) cat "$d/resources.txt" ;; *) exit 1 ;; esac'), { mode: 0o755 });
+    // aapt dump xmltree <apk> <file>: the manifest, or the network security config at the path the resources give.
+    const aapt = [
+      'case "$2" in',
+      '  xmltree) case "$4" in AndroidManifest.xml) cat "$d/xmltree.txt" ;; res/8G.xml) cat "$d/nsc.txt" ;; *) exit 1 ;; esac ;;',
+      '  badging) cat "$d/badging.txt" ;;',
+      '  --values) cat "$d/resources.txt" ;;',
+      "  *) exit 1 ;;",
+      "esac",
+    ].join("\n");
+    fs.writeFileSync(path.join(tools, "aapt"), sh(aapt), { mode: 0o755 });
     fs.writeFileSync(path.join(tools, "apksigner"), sh('cat "$d/apksigner.txt"'), { mode: 0o755 });
     fs.writeFileSync(path.join(root, "app.apk"), "not really an APK");
     return { root, check: (...extra: string[]) => run(root, "apk-check", "app.apk", "--app", "store", "--build-tools", tools, ...extra) };
@@ -441,7 +467,7 @@ describe("apk-check: a built APK against Meta's release rules", () => {
 
   it("passes the store test build on every rule, as a test build and, signed with the real key, as a release", () => {
     const test = setup().check("--test");
-    expect(test.out).toMatch(/all 23 rules pass \(test build\)/);
+    expect(test.out).toMatch(/all 24 rules pass \(test build\)/);
     expect(test.status).toBe(0);
     for (const rule of [
       /ok {3}targetSdkVersion 34 \(apps created since 2026-03-01\): 34/,
@@ -455,11 +481,12 @@ describe("apk-check: a built APK against Meta's release rules", () => {
       /ok {3}horizonos\.pwa\.APP_MODE immersive: immersive/,
       /ok {3}opens its own host: https:\/\/shadowlocks\.pages\.dev\//,
       /ok {3}APK Signature Scheme v2, verified \(VRC\.Quest\.Packaging\.2\): v2/,
+      /ok {3}network security config, no clear text \(VRC\.Quest\.Packaging\.4\): cleartextTrafficPermitted=false/,
     ]) expect(test.out).toMatch(rule);
     const release = setup(realKey).check();
     expect(release.out).toMatch(/ok {3}Meta App ID: 1534131276441915/);
     expect(release.out).toMatch(/ok {3}signed with the key in the asset links/);
-    expect(release.out).toMatch(/all 23 rules pass$/m);
+    expect(release.out).toMatch(/all 24 rules pass$/m);
     expect(release.status).toBe(0);
   });
 
@@ -482,11 +509,13 @@ describe("apk-check: a built APK against Meta's release rules", () => {
       ["v3 only", (d) => { d["apksigner.txt"] = d["apksigner.txt"]!.replace("(APK Signature Scheme v2): true", "(APK Signature Scheme v2): false"); }, /FAIL APK Signature Scheme v2, verified .*: no v2/],
       ["debuggable", (d) => { d["badging.txt"] += "application-debuggable\n"; }, /FAIL not debuggable: debuggable/],
       ["other label", (d) => { d["badging.txt"] = d["badging.txt"]!.replace("application-label:'Shadow Locks'", "application-label:'Shadow'"); }, /FAIL application label, unique on the platform: "Shadow"/],
+      ["no network config", (d) => { d["xmltree.txt"] = d["xmltree.txt"]!.replace(/^.*android:networkSecurityConfig.*\n/m, ""); }, /FAIL network security config, no clear text .*: no android:networkSecurityConfig/],
+      ["clear text", (d) => { d["nsc.txt"] = d["nsc.txt"]!.replace("cleartextTrafficPermitted=(type 0x12)0x0", "cleartextTrafficPermitted=(type 0x12)0xffffffff"); }, /FAIL network security config, no clear text .*: cleartextTrafficPermitted=true/],
     ];
     for (const [name, edit, want] of cases) {
       const r = setup((d) => { realKey(d); edit(d); }).check();
       expect(r.out, name).toMatch(want);
-      expect(r.out, name).toMatch(/1 of 23 rules FAIL/);
+      expect(r.out, name).toMatch(/1 of 24 rules FAIL/);
       expect(r.status, name).toBe(1);
     }
   });
