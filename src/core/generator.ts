@@ -138,7 +138,7 @@ const START_COVER_MAX = 0.45;
  */
 export const FRAME_CORNER_CAP = 350;
 /** A box from 10 may place up to this share fewer decoys to stay within FRAME_CORNER_CAP; the Daily Box none (box 7's). */
-const DECOY_TRIM_MAX = 0.5;
+export const DECOY_TRIM_MAX = 0.5;
 /** Corners of a decoy's shadow: a triangle. */
 const DECOY_CORNERS = 3;
 
@@ -386,8 +386,11 @@ export interface BoxBuild {
   failures: Partial<Record<Reason, number>>;
 }
 
-/** Builds a box and says how hard it was: generateBox plus the attempt count and why attempts failed. */
-export function buildBox(spec: BoxSpec): BoxBuild {
+/**
+ * Builds a box and says how hard it was: generateBox plus the attempt count and why attempts failed. `cornerCap` is
+ * FRAME_CORNER_CAP; a test passes a lower one to see a box place fewer decoys and be redrawn.
+ */
+export function buildBox(spec: BoxSpec, cornerCap = FRAME_CORNER_CAP): BoxBuild {
   const key = seedKey(spec), gen = genOf(spec);
   if (!BUILDABLE_VERSIONS.includes(gen)) throw new Error(`The generator cannot build version ${gen} boxes: ${key}`);
   const v3 = gen === 3;
@@ -506,13 +509,15 @@ export function buildBox(spec: BoxSpec): BoxBuild {
     for (const l of ringOrder.slice(0, P.ringless)) l.rings = false;
 
     // The frame cost cap (from box 10 and in the Daily Box): the shadow corners of the scraps and rings are known before
-    // any is placed, so a box that cannot fit FRAME_CORNER_CAP with its fewest decoys is turned down here, and one that
+    // any is placed, so a box that cannot fit the cap with its fewest decoys is turned down here, and one that
     // fits places as many decoys as the cap leaves room for, up to its kind's.
     let decoys = P.decoys;
     if (capped) {
       let corners = 0;
-      for (const l of locks) corners += l.target.reduce((n, p) => n + p.length, 0) + (l.rings ? 4 * RING_SIDES : 0);
-      decoys = Math.min(P.decoys, Math.floor((FRAME_CORNER_CAP - corners) / DECOY_CORNERS));
+      // A ringed lock places every one of RINGS (or the attempt fails), and each ring casts two circles.
+      const ringCorners = RINGS.length * 2 * RING_SIDES;
+      for (const l of locks) corners += l.target.reduce((n, p) => n + p.length, 0) + (l.rings ? ringCorners : 0);
+      decoys = Math.min(P.decoys, Math.floor((cornerCap - corners) / DECOY_CORNERS));
       if (decoys < fewestDecoys) return "cost";
     }
 

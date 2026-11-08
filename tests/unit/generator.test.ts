@@ -5,6 +5,7 @@ import {
   BUILDABLE_VERSIONS,
   boxFrame,
   buildBox,
+  DECOY_TRIM_MAX,
   FRAME_CORNER_CAP,
   GENERATOR_VERSION,
   generateBox,
@@ -23,6 +24,7 @@ import type { Box, BoxSpec, ShapeName, V2 } from "../../src/core/types";
 import GEN3 from "./fixtures/gen3-boxes.json";
 import { FINGER_MODEL_MARGIN, fingerCoverage } from "./helpers/finger-model";
 import {
+  checkBox,
   checkCounts,
   checkFingerAndDepth,
   checkSilhouettes,
@@ -279,6 +281,34 @@ describe("generateBox", () => {
     for (const key of ["", "shadow-locks/0", "shadow-locks/-3", "shadow-locks/1.5", "shadow-locks/daily/2026-02-30", "box/3", "lesson/l1"]) {
       expect(specOfKey(key), key).toBeNull();
     }
+  });
+});
+
+describe("the frame cost cap at work (a cap lower than FRAME_CORNER_CAP, so that it binds)", () => {
+  const decoys = (b: Box) => b.elements.filter((e) => e.kind === "decoy").length;
+
+  it("leaves decoys out to fit, at most DECOY_TRIM_MAX of them, and the box keeps every guarantee", () => {
+    // Box 52, the heaviest from 10 to 60, under a cap 16 corners below its own: its scraps and rings fit, its 14
+    // decoys do not all.
+    const corners = boxFrame(generateBox({ kind: "box", n: 52 })).corners, cap = corners - 16;
+    const { box } = buildBox({ kind: "box", n: 52 }, cap), P = boxParams(52);
+    expect(boxFrame(box).corners).toBeLessThanOrEqual(cap);
+    expect(decoys(box)).toBeLessThan(P.decoys);
+    expect(decoys(box)).toBeGreaterThanOrEqual(P.decoys - Math.floor(P.decoys * DECOY_TRIM_MAX));
+    expect(checkBox(box)).toEqual([]);
+  });
+
+  it("draws a box again when even its fewest decoys would not fit, and the Daily Box keeps all of its decoys", () => {
+    const tight = buildBox({ kind: "box", n: 52 }, 300);
+    expect(tight.failures.cost, JSON.stringify(tight.failures)).toBeGreaterThan(0);
+    expect(boxFrame(tight.box).corners).toBeLessThanOrEqual(300);
+    expect(checkBox(tight.box)).toEqual([]);
+    const day: BoxSpec = { kind: "daily", day: "2026-11-06" }, cap = boxFrame(generateBox(day)).corners - 1;
+    const daily = buildBox(day, cap);
+    expect(daily.failures.cost, JSON.stringify(daily.failures)).toBeGreaterThan(0);
+    expect(boxFrame(daily.box).corners).toBeLessThanOrEqual(cap);
+    expect(decoys(daily.box)).toBe(dailyParams().decoys);
+    expect(checkBox(daily.box)).toEqual([]);
   });
 });
 

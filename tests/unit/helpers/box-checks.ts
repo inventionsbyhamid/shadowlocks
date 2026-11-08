@@ -1,6 +1,7 @@
 // Independent checks of the generator's guarantees, shared by the generator and mirror tests. They rebuild the sample
 // grid and the shadows from geom.ts alone, so a bug in the generator's own checks cannot hide here.
 import { ENVELOPE } from "../../../src/core/envelope";
+import { DECOY_TRIM_MAX } from "../../../src/core/generator";
 import { area, bbox, circlePts, elongation, inPoly, polyDist, proj, segDist } from "../../../src/core/geom";
 import { boxParams, boxParamsV3, dailyParams, silhouetteCount } from "../../../src/core/params";
 import { SILHOUETTES } from "../../../src/core/shapes";
@@ -167,9 +168,10 @@ export function checkCounts(box: Box): string[] {
   if (box.locks.length !== P.locks) errs.push(`${box.locks.length} locks, want ${P.locks}`);
   const fingers = box.locks.filter((l) => l.finger).length;
   if (fingers !== P.fingerLocks) errs.push(`${fingers} finger locks, want ${P.fingerLocks}`);
-  // A version 4 box from 10 may give up to half its decoys to the frame cost cap (generator.ts FRAME_COST_CAP).
+  // A version 4 box from 10 may leave out up to DECOY_TRIM_MAX of its decoys for the frame cost cap (generator.ts
+  // FRAME_CORNER_CAP).
   const decoys = count((e) => e.kind === "decoy"), trimmable = box.spec.kind === "box" && box.spec.n >= 10 && box.spec.gen !== 3;
-  const fewest = trimmable ? P.decoys - Math.floor(P.decoys / 2) : P.decoys;
+  const fewest = trimmable ? P.decoys - Math.floor(P.decoys * DECOY_TRIM_MAX) : P.decoys;
   if (decoys > P.decoys || decoys < fewest) errs.push(`${decoys} decoys, want ${trimmable ? `${fewest} to ` : ""}${P.decoys}`);
   const ringless = box.locks.filter((l) => !l.rings).length;
   if (ringless !== P.ringless) errs.push(`${ringless} ringless locks, want ${P.ringless}`);
