@@ -9,7 +9,8 @@ export const COPY = {
   /** The 2D page, under the Open the box button. */
   page: {
     enterFailed: "Could not start. Tap Open the box to try again.",
-    noXr: "Open this page in the Meta Quest browser to play.",
+    /** A device with no WebXR (a computer, an iPhone): where the game plays, and where a phone previews it in AR. */
+    noXr: "Open this page in the Meta Quest browser to play. On an Android phone, Chrome shows a preview in AR.",
     startupFailed: "Something went wrong. Reload to try again.",
   },
   /** Notices on the page and the home panel. */

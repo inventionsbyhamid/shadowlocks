@@ -6,7 +6,9 @@
 #                      <stop script text> <signing 0|1> <docker run args...>
 #   <signing> 1 (remote.sh --signing-key): the first line of stdin, before the heartbeat, is the keystore
 #   password. It is kept in this shell's memory and given to the container's stdin; the keystore at
-#   SIGNING_STORE must be there, and its folder is removed when this run ends, however it ends.
+#   SIGNING_STORE must be there. Its folder goes when this run ends (finish: the build's end, a lock wait
+#   given up, a missing upload or keystore), or, when the run is stopped (remote-stop.sh's SIGKILL, so
+#   finish never runs), by remote-stop.sh, which finds the locks/<name>.signing this run leaves until finish.
 #   <lock> is <name> (held exclusively: remote.sh --lock) or <name>:<slots> (held shared, plus one of
 #   <slots> slot locks: remote.sh --lock-shared). Both use the file locks/<name>.lock, so an exclusive
 #   holder (from these scripts or older ones) and shared holders never overlap.
@@ -30,6 +32,9 @@ NAME=$1 LANE=$2 LOCK=$3 WAIT=$4 MAX_RUN=$5 NEED_GB=$6 PULLS=$7 RUN_USER=$8 STOP_
 shift 10
 # remote.sh's SIGNING_STORE: an APK build's keystore, only during that build.
 SIGNING_STORE=/root/shadowlocks/twa-key/shadowlocks-android.keystore
+# Unset first: a SECRET that came in exported stays exported through an assignment, and would hand the
+# password to every program this script starts.
+unset SECRET
 SECRET=
 if [ "$SIGN" = 1 ]; then IFS= read -r SECRET || SECRET=; fi
 LOCKS=/root/shadowlocks/locks
@@ -39,6 +44,8 @@ OWNER=$LOCKS/lane-$LANE.owner
 PULL_MAX=$((2 * 1024 * 1024 * 1024))
 KEEP_FREE=$((50 * 1024 * 1024 * 1024))
 
+# A signing run's mark, before the pid file a stop looks for: remote-stop.sh then removes the keystore.
+if [ "$SIGN" = 1 ]; then : > "$LOCKS/$NAME.signing"; fi
 echo $$ > "$LOCKS/$NAME.pgid"
 # The watchdog ignores SIGPIPE: its stderr may be the dead ssh channel.
 exec 3<&0
@@ -50,10 +57,11 @@ watch=$!
 
 finish() {
   kill "$watch" 2>/dev/null
-  # The keystore leaves the server with the run, built or not.
+  # The keystore leaves the server with the run, built or not (and then the mark that would have had
+  # remote-stop.sh remove it).
   if [ "$SIGN" = 1 ]; then rm -rf "$(dirname "$SIGNING_STORE")"; fi
   if [ "$(cat "$OWNER" 2>/dev/null)" = "$NAME" ]; then rm -f "$OWNER"; fi
-  rm -f "$LOCKS/$NAME.pgid" "$LOCKS/$NAME.uploaded"
+  rm -f "$LOCKS/$NAME.pgid" "$LOCKS/$NAME.uploaded" "$LOCKS/$NAME.signing"
   if [ "$1" -eq 255 ]; then touch "$LOCKS/$NAME.exit255"; fi
   exit "$1"
 }
@@ -174,7 +182,7 @@ if [ "$SIGN" = 1 ]; then
     finish 3
   fi
   chown "$RUN_USER" "$SIGNING_STORE" && chmod 400 "$SIGNING_STORE"
-  printf '%s\n' "$SECRET" | "$@"
+  builtin printf '%s\n' "$SECRET" | "$@"
   rc=$?
   SECRET=
 else
