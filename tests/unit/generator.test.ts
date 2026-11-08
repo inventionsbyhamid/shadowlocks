@@ -18,7 +18,7 @@ import { mirrorBox } from "../../src/core/mirror";
 import { boxKind, boxParams, boxParamsV3, dailyParams } from "../../src/core/params";
 import { FIRST_SILHOUETTES, SHAPES, SILHOUETTES } from "../../src/core/shapes";
 import { boxSilhouettes, REPEAT_GAP } from "../../src/core/silhouette-deck";
-import { type Coverage, measure, meets, prepareLock, RULE, shadowPolys, SKIP_MISSING, warmth, WARMTH_RANGE } from "../../src/core/solve";
+import { type Coverage, measure, meets, prepareLock, RULE, shadowPolys, SKIP_MISSING } from "../../src/core/solve";
 import { LOOT, OWNERS } from "../../src/core/story";
 import type { Box, BoxSpec, ShapeName, V2 } from "../../src/core/types";
 import GEN3 from "./fixtures/gen3-boxes.json";
@@ -41,6 +41,7 @@ import {
   nearHorizontal,
   paramsFor,
 } from "./helpers/box-checks";
+import { notWarmest } from "./helpers/warmth";
 
 /** A box's fingerprint: its JSON's sha256, the spec's `gen` left out (a version 3 box rebuilt for a save carries it). */
 const sha = (box: Box) => {
@@ -213,20 +214,9 @@ describe("generateBox", () => {
   });
 
   it("is strictly warmest at each spot along the line in from 0.2 toward the start, for either hand", () => {
-    const fails: string[] = [];
-    for (const box of built.flatMap(({ box }) => [box, mirrorBox(box)])) {
-      for (const l of box.locks) {
-        const s = prepareLock(l), d0 = [box.start[0] - l.L[0], box.start[1] - l.L[1], box.start[2] - l.L[2]];
-        const len = Math.hypot(d0[0]!, d0[1]!, d0[2]!), cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 0 };
-        const w = (d: number) => {
-          const L: [number, number, number] = [l.L[0] + (d0[0]! / len) * d, l.L[1] + (d0[1]! / len) * d, l.L[2] + (d0[2]! / len) * d];
-          const scraps: V2[][] = [];
-          return warmth(measure(s, scraps, shadowPolys(box.elements, L, scraps, SKIP_MISSING), [], 0, cov), d);
-        };
-        const peak = w(0);
-        for (let k = 0; k < 9; k++) if (!(w(WARMTH_RANGE * (1 - k / 9)) < peak)) fails.push(`${box.key}${box.mirrored ? " (left)" : ""} lock ${l.i}, ${k}`);
-      }
-    }
+    const fails = built
+      .flatMap(({ box }) => [box, mirrorBox(box)])
+      .flatMap((box) => notWarmest(box).map((f) => `${box.key}${box.mirrored ? " (left)" : ""} ${f}`));
     expect(fails).toEqual([]);
   });
 

@@ -15,9 +15,10 @@ import { describe, expect, it } from "vitest";
 import { boxFrame, buildBox, FRAME_CORNER_CAP } from "../../src/core/generator";
 import { mirrorBox } from "../../src/core/mirror";
 import { boxKind, boxParams } from "../../src/core/params";
-import { type Coverage, measure, meets, prepareLock, RULE, shadowPolys, SKIP_MISSING, warmth, WARMTH_RANGE } from "../../src/core/solve";
-import type { Box, BoxSpec, V2, V3 } from "../../src/core/types";
+import { meets, RULE } from "../../src/core/solve";
+import type { BoxSpec } from "../../src/core/types";
 import { FINGER_MODEL_MARGIN, fingerCoverage } from "./helpers/finger-model";
+import { notWarmest } from "./helpers/warmth";
 
 /** Attempts a box may take before the sweep calls it close to giving up. */
 const ATTEMPTS_MAX = 100;
@@ -37,22 +38,6 @@ const LEFT_HAND_TIES = [
   "shadow-locks/daily/2027-02-18 (left hand) lock 2 at 8",
   "shadow-locks/daily/2027-10-19 (left hand) lock 1 at 8",
 ];
-
-/** Locks of `box` not strictly warmest at their spot along the line in from WARMTH_RANGE toward the start (9 samples). */
-function notWarmest(box: Box): string[] {
-  const out: string[] = [], scraps: V2[][] = [], cov: Coverage = { cover: 0, spill: 0, spillAll: 0, gap: 0 };
-  for (const l of box.locks) {
-    const s = prepareLock(l), d = [box.start[0] - l.L[0], box.start[1] - l.L[1], box.start[2] - l.L[2]];
-    const len = Math.hypot(d[0]!, d[1]!, d[2]!);
-    const w = (t: number) => {
-      const L: V3 = [l.L[0] + (d[0]! / len) * t, l.L[1] + (d[1]! / len) * t, l.L[2] + (d[2]! / len) * t];
-      return warmth(measure(s, scraps, shadowPolys(box.elements, L, scraps, SKIP_MISSING), [], 0, cov), t);
-    };
-    const peak = w(0);
-    for (let k = 0; k < 9; k++) if (!(w(WARMTH_RANGE * (1 - k / 9)) < peak)) out.push(`lock ${l.i} at ${k}`);
-  }
-  return out;
-}
 
 describe.runIf(process.env.GEN_SWEEP)("generator sweep", () => {
   it("builds boxes 10 to 2000 and 365 days quickly, none near giving up, finger locks filled and warmth strict for either hand, every frame within the cap", () => {
