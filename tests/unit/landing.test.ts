@@ -78,14 +78,17 @@ describe("the landing page", () => {
     expect(d.els.status!.textContent).toBe(tableFor("es").page.enterFailed);
   });
 
-  it("names Touch controllers beside hands, in every language (the store app declares both; the store's Website opens this page)", () => {
+  it("says only what is true on every device the page opens on (the store's Website opens it; phones play by touch)", () => {
     const controller: Record<string, RegExp> = { en: /controllers/, es: /controladores/, fr: /manettes/, de: /Controllern/, "pt-BR": /controles/, ja: /コントローラー/ };
+    const handsOnly = /hands only|solo con las manos|juste avec les mains|nur mit den händen|só com as mãos|手だけ/i;
     for (const l of LANGS) {
       const { facts, description } = tableFor(l).landing;
-      for (const line of [facts, description]) {
-        expect(line, `${l}: ${line}`).toMatch(controller[l]!);
-        expect(line, `${l}: ${line}`).not.toMatch(/hands only|solo con las manos|juste avec les mains|nur mit den händen|só com as mãos|手だけ/i);
-      }
+      // The facts line shows on a headset and on a phone alike: it names no input.
+      expect(facts, `${l}: ${facts}`).not.toMatch(controller[l]!);
+      expect(facts, `${l}: ${facts}`).not.toMatch(/\b(hands?|manos|mains|händen|mãos)\b|手/i);
+      // The meta description is about Meta Quest: hands or Touch controllers, as the store declares.
+      expect(description, `${l}: ${description}`).toMatch(controller[l]!);
+      expect(description, `${l}: ${description}`).not.toMatch(handsOnly);
     }
     // The static page says the same as the English table until the script paints it.
     expect(fs.readFileSync("index.html", "utf8")).toContain(`<p id="facts" class="facts">${COPY.landing.facts}</p>`);

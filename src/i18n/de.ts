@@ -221,7 +221,7 @@ export const DE: Copy = {
   landing: {
     open: "Box öffnen",
     tagline: "Eine Rätselbox aus Licht und Schatten.",
-    facts: "Im Sitzen. Mit den Händen oder Controllern. Offline spielbar.",
+    facts: "Im Sitzen. Offline spielbar.",
     loading: "Wird geladen",
     description: "Eine Rätselbox aus Licht und Schatten für Meta Quest. Im Sitzen, mit den Händen oder Controllern, offline spielbar.",
   },

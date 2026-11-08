@@ -222,7 +222,7 @@ export const PT_BR: Copy = {
   landing: {
     open: "Abrir a caixa",
     tagline: "Uma caixa de enigmas de luz e sombra.",
-    facts: "Sem se levantar. Com as mãos ou os controles. Funciona offline.",
+    facts: "Sem se levantar. Funciona offline.",
     loading: "Carregando",
     description: "Uma caixa de enigmas de luz e sombra para Meta Quest. Sem se levantar, com as mãos ou os controles, funciona offline.",
   },
