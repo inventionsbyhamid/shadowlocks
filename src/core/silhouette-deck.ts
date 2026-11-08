@@ -62,9 +62,9 @@ function deck(series: "box" | "daily", d: number): ShapeName[] {
   return order;
 }
 
-/** The k-th silhouette dealt in a series (k from 0). */
+/** The k-th silhouette dealt in a series (k from 0; the Daily Box's k is negative for days before 1970). */
 export function dealt(series: "box" | "daily", k: number): ShapeName {
-  return deck(series, Math.floor(k / N))[k % N]!;
+  return deck(series, Math.floor(k / N))[((k % N) + N) % N]!;
 }
 
 /** How many silhouettes the boxes before box n dealt: counted from the boxes' kinds, block by block from box 10. */

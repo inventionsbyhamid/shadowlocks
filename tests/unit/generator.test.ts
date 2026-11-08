@@ -439,6 +439,16 @@ describe("box kinds and silhouettes", () => {
     expect(FIRST_SILHOUETTES.every((s) => counts.has(s))).toBe(true);
   });
 
+  it("deals a Daily Box a silhouette for a day before 1970 too, and builds it", () => {
+    // Days before 1970-01-01 count back from it: the deck's index wraps the right way round.
+    for (const day of ["1969-12-31", "1900-01-01"]) {
+      const [shape] = boxSilhouettes({ kind: "daily", day });
+      expect(SILHOUETTES, day).toContain(shape);
+    }
+    const box = generateBox({ kind: "daily", day: "1900-01-01" });
+    expect(box.locks.filter((l) => SILHOUETTES.includes(l.shape)).map((l) => l.shape)).toEqual(boxSilhouettes({ kind: "daily", day: "1900-01-01" }));
+  });
+
   it("keeps the Daily Box's difficulty (box 7's settings) and deals it a new silhouette each day", () => {
     const days = built.filter((b) => b.spec.kind === "daily");
     for (const { box } of days) expect(box.params).toEqual(dailyParams());
