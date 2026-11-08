@@ -22,6 +22,7 @@ import { type Coverage, measure, meets, prepareLock, RULE, shadowPolys, SKIP_MIS
 import { LOOT, OWNERS } from "../../src/core/story";
 import type { Box, BoxSpec, ShapeName, V2 } from "../../src/core/types";
 import GEN3 from "./fixtures/gen3-boxes.json";
+import GEN4 from "./fixtures/gen4-boxes.json";
 import { FINGER_MODEL_MARGIN, fingerCoverage } from "./helpers/finger-model";
 import {
   checkBox,
@@ -48,6 +49,12 @@ const sha = (box: Box) => {
 };
 /** Version 3's boxes, fingerprinted at main before version 4 (boxes 1-200 and the days of November 2026). */
 const V3_HASHES = GEN3 as Record<string, string>;
+/**
+ * Version 4's boxes, fingerprinted at f75c09f, the version 4 preview 61eb1aca shipped (gen4-fixture.test.ts says how):
+ * the same specs as SPECS. A saved box resumes by its key and GENERATOR_VERSION, so a change to any of them is a new
+ * generator version, never a new fixture.
+ */
+const V4_HASHES = GEN4 as Record<string, string>;
 
 const BOXES = 200;
 const DAYS = Array.from({ length: 30 }, (_, i) => `2026-11-${String(i + 1).padStart(2, "0")}`);
@@ -327,6 +334,13 @@ describe("golden boxes", () => {
     expect(GOLDEN.map(([spec]) => [JSON.stringify(spec), sha(generateBox(spec))])).toEqual(
       GOLDEN.map(([spec, hash]) => [JSON.stringify(spec), hash]),
     );
+  });
+
+  it("pins every box it builds (boxes 1 to 200 and 30 days) to version 4 as it shipped", () => {
+    expect(GENERATOR_VERSION).toBe(4);
+    expect(Object.keys(V4_HASHES)).toHaveLength(SPECS.length);
+    const changed = built.filter(({ box }) => sha(box) !== V4_HASHES[box.key]).map(({ box }) => box.key);
+    expect(changed, "version 4 boxes that changed: a saved box would resume on another box (GENERATOR_VERSION 5)").toEqual([]);
   });
 });
 
