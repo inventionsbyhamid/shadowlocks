@@ -1,0 +1,14 @@
+Package Groups (1)
+Package Group 0 id=0x7f packageCount=1 name=com.shadowlocks
+  Package 0 id=0x7f name=com.shadowlocks
+    type 10 configCount=1 entryCount=19
+      spec resource 0x7f0b0000 com.shadowlocks:string/appName: flags=0x00000000
+      spec resource 0x7f0b000a com.shadowlocks:string/horizonOSAppMode: flags=0x00000000
+      spec resource 0x7f0b000c com.shadowlocks:string/launchUrl: flags=0x00000000
+      config (default):
+        resource 0x7f0b0000 com.shadowlocks:string/appName: t=0x03 d=0x00000010 (s=0x0008 r=0x00)
+          (string8) "Shadow Locks"
+        resource 0x7f0b000a com.shadowlocks:string/horizonOSAppMode: t=0x03 d=0x00000011 (s=0x0008 r=0x00)
+          (string8) "immersive"
+        resource 0x7f0b000c com.shadowlocks:string/launchUrl: t=0x03 d=0x00000012 (s=0x0008 r=0x00)
+          (string8) "https://shadowlocks.pages.dev/"
