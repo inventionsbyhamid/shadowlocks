@@ -12,6 +12,10 @@ import { boxInPlay, pokeBoxKey, rewardTaken, rewardUp, sessionState, solveBox } 
 import { expect, test } from "./helpers/test";
 import { addRunNote, SHOTS_DIR } from "./helpers/xr-app";
 
+/** A play time as a result shows it: whole seconds, at least 1 (src/core/result.ts secondsOf), and as m:ss. */
+const secondsOf = (ms: number) => Math.max(1, Math.floor(ms / 1000));
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
 /** A friend's link for the Daily Box of the page's default day (helpers/boot.ts DEFAULT_DATE). */
 const DAILY_LINK = "/?day=2026-11-02&t=252&h=1&g=4";
 /** A friend's "beat my time" link for box 2: 3:42, no hints. */
@@ -48,8 +52,7 @@ test("daily box reward shows the result card", async ({ page, boot }) => {
   expect(card!.tiles).toHaveLength(s.locks.length);
   expect(card!.tiles.filter((t) => t === "hinted")).toHaveLength(Object.keys(hinted).length);
   expect(card!.tiles.filter((t) => t === "clear")).toHaveLength(s.locks.length - Object.keys(hinted).length);
-  const secs = Math.floor(done.elapsedMs / 1000);
-  expect(card!.time).toBe(`${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`);
+  expect(card!.time).toBe(clock(secondsOf(done.elapsedMs)));
   // The streak moved on to 3, and an hour-long Daily Box before it: a new best.
   expect(card!.lines).toEqual([fill(COPY.menus.home.streak, { n: 3 }), COPY.share.newBest]);
   expect(card!.site).toBe("shadowlocks.pages.dev");
@@ -95,14 +98,14 @@ test("a shared daily link lands, explains itself and starts the box", async ({ p
   // The session ends: back on the 2D page, today's result to share, its text selectable by hand.
   await page.evaluate(() => (window.__ns!.world as unknown as { session?: XRSession }).session?.end());
   await app.stepUntil((ns) => !ns.state().xr.presenting, { maxMs: 5_000, label: "out of XR" });
-  const secs = Math.floor(opened.elapsedMs / 1000);
+  const secs = secondsOf(opened.elapsedMs);
   const url = `https://shadowlocks.pages.dev/?day=2026-11-02&t=${secs}&h=0&g=4`;
   await expect(page.locator("#result")).toBeVisible();
   await expect(page.locator("#share-result")).toHaveText(COPY.share.shareToday);
   const text = (await page.locator("#result-text").textContent())!;
   expect(text.split("\n")).toEqual([
     "Shadow Locks · Daily Box Nov 2",
-    `${"🟨".repeat(s.locks.length)} ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`,
+    `${"🟨".repeat(s.locks.length)} ${clock(secs)}`,
     "Streak 1",
     url,
   ]);
@@ -166,12 +169,15 @@ test("beat my time: the receiver sees both results", async ({ page, boot }) => {
   await expect(page.locator("#shared-note")).toHaveText(COPY.share.practiceTurn);
   const s = await boxInPlay(app, "the friend's box 2");
   expect([s.key, s.practice]).toEqual(["shadow-locks/2", true]);
+  // A few seconds of play, a hint, then the locks.
+  await app.step(30, 100);
   await page.evaluate(() => window.__sl!.session.hint());
   await solveBox(app, s);
   await rewardUp(app, 100);
   const done = (await sessionState(page))!;
-  const secs = Math.floor(done.elapsedMs / 1000);
-  const mine = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+  const secs = secondsOf(done.elapsedMs);
+  expect(secs).toBeGreaterThanOrEqual(3);
+  const mine = clock(secs);
   const { shown, card, world } = await page.evaluate(() => window.__sl!.session.card());
   expect(shown).toBe(true);
   // Their own record of box 2, then both results.
