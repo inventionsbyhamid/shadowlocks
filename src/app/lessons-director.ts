@@ -18,6 +18,8 @@
 import { type LessonId, type LessonPlan, lessonPlan } from "../core/lessons-data";
 import type { TipId } from "../core/profile";
 import type { Box, Lock, V3 } from "../core/types";
+import { LESSON_STUCK_MS } from "../feel/constants";
+import { StuckWatch } from "../feel/stuck-watch";
 import { COPY } from "../ui/copy";
 import {
   buildScript,
@@ -65,6 +67,34 @@ export const YOUR_TURN_MS = 3000;
  * chord and the words land before the ghost takes the lantern.
  */
 export const BEAT_MS = 1800;
+/**
+ * Help on a lesson lock for a player making no progress (its warmth never rising 0.1, the stuck watch's rule): each
+ * nudge from its time on, by the example the step follows. Every lock says "Stuck? ..." at the lesson's stuck time,
+ * as the hint lantern starts to glow (LESSON_STUCK_MS). The clocks start over with the step.
+ */
+export const NUDGES: Readonly<Record<ExampleId, readonly { readonly ms: number; readonly key: LessonLine }[]>> = {
+  move: [
+    { ms: 12000, key: "moveIdle" },
+    { ms: 25000, key: "growShrink" },
+    { ms: LESSON_STUCK_MS, key: "stuck" },
+  ],
+  "near-far": [
+    { ms: 20000, key: "turnNearFarIdle" },
+    { ms: LESSON_STUCK_MS, key: "stuck" },
+  ],
+  rings: [
+    { ms: 20000, key: "turnRingsIdle" },
+    { ms: LESSON_STUCK_MS, key: "stuck" },
+  ],
+  finger: [
+    { ms: 15000, key: "fingerIdle" },
+    { ms: LESSON_STUCK_MS, key: "stuck" },
+  ],
+};
+/** Once (a page load), after the lantern has been held this long without a break, the line that it can be let go... */
+export const LET_GO_AFTER_MS = 15000;
+/** ...shown this long. */
+export const LET_GO_SHOW_MS = 6000;
 /** The rings' line changes only once the rings have stayed lined up (or apart) this long. */
 export const LINE_HOLD_MS = 500;
 /** The idle ghost fades in and out over these. */
@@ -141,6 +171,8 @@ export interface DirectorDeps {
   leftHanded(): boolean;
   /** A lesson reached step n (save it: a reload resumes there). Also when a lesson starts. */
   onStep?(id: LessonId, n: number): void;
+  /** Step n's idle clocks start: it began (the session's stuck watch starts over with it). */
+  onRestart?(id: LessonId, n: number): void;
   /** A lesson is finished. */
   onDone?(id: LessonId): void;
   /** A replay starts (show `lesson`'s box afresh) or ends (put back what was there). */
@@ -244,6 +276,13 @@ export class LessonsDirector {
   private won = false;
   /** The beat before a demo step's example: how long it has run, or -1 for none. */
   private beatMs = -1;
+  /** A lesson lock's progress (its warmth rising), as the session's stuck watch counts it; started over each step. */
+  private readonly progress = new StuckWatch(LESSON_STUCK_MS);
+  /** How long the lantern has been held without a break, and the let-go line's showing (-1: not showing). */
+  private heldMs = 0;
+  private letGoMs = -1;
+  /** The let-go line has been said (once a page load). */
+  private letGoSaid = false;
   private readonly at: V3 = [0, 0, 0];
 
   constructor(private readonly deps: DirectorDeps) {}
@@ -378,17 +417,20 @@ export class LessonsDirector {
     switch (s.kind) {
       case "intro":
       case "move": {
-        this.show(s.kind === "move" ? "goal" : formed ? "pickUp" : null, "step");
         const held = inp.held();
         this.idleMs = held || inp.active() ? 0 : this.idleMs + dt;
         this.idleGhost(dt, !held && this.idleMs >= IDLE_GHOST_MS, "reach");
-        if (s.kind === "intro" ? held : inp.isOpen(s.lock)) this.advance(s.kind === "move");
+        if (s.kind === "intro") {
+          this.show(formed ? "pickUp" : null, "step");
+          if (held) this.advance();
+        } else if (inp.isOpen(s.lock)) this.advance(true);
+        else this.lockLine(s, dt, held);
         break;
       }
       case "turn":
-        this.show(this.turnLine(s, dt), "step");
         this.idleGhost(dt, false, null);
         if (inp.isOpen(s.lock)) this.advance(true);
+        else this.lockLine(s, dt, inp.held());
         break;
       case "reward":
         // The box opening has its own moment; once its reward is up, the line says to take it.
@@ -453,6 +495,42 @@ export class LessonsDirector {
     return this.ringsLined ? "slide" : "lineUp";
   }
 
+  /**
+   * A lesson lock's line (lock I, or a turn): the step's own; a nudge once the player has made no progress for a
+   * while (NUDGES); or, once, after the lantern has been held a long time, that it can be let go.
+   */
+  private lockLine(s: LessonStep, dt: number, held: boolean): void {
+    const own = s.kind === "move" ? "goal" : this.turnLine(s, dt);
+    this.progress.update(dt, this.deps.inputs.warmth(s.lock), false);
+    this.heldMs = held ? this.heldMs + dt : 0;
+    if (!this.letGoSaid && this.heldMs >= LET_GO_AFTER_MS) {
+      this.letGoSaid = true;
+      this.letGoMs = 0;
+    }
+    if (this.letGoMs >= 0) {
+      if ((this.letGoMs += dt) < LET_GO_SHOW_MS) {
+        this.show("letGo", "idle");
+        return;
+      }
+      this.letGoMs = -1;
+    }
+    const nudge = this.nudge(s.example ?? "move", this.progress.idleMs);
+    if (nudge) this.show(nudge, "idle");
+    else this.show(own, "step");
+  }
+
+  /** The nudge due after `idleMs` without progress on a lock taught by example `ex`, or null. */
+  private nudge(ex: ExampleId, idleMs: number): LessonLine | null {
+    const list = NUDGES[ex];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const n = list[i]!;
+      if (idleMs < n.ms) continue;
+      // The Key's nudge only while its rings are apart: lined up, its own line says what to do next.
+      return n.key === "turnRingsIdle" && this.ringsLined ? null : n.key;
+    }
+    return null;
+  }
+
   /** Put line `key` on the coach line (null: none), shown for reason `why`. Allocates nothing. */
   private show(key: LessonLine | null, why: LineWhy | null): void {
     const f = this.frame;
@@ -500,6 +578,9 @@ export class LessonsDirector {
     this.ringsLined = false;
     this.ringsMs = 0;
     this.beatMs = -1;
+    this.progress.reset();
+    this.heldMs = 0;
+    this.letGoMs = -1;
     if (n >= steps.length) {
       this.finished = true;
       this.show(null, null);
@@ -507,6 +588,7 @@ export class LessonsDirector {
       return;
     }
     this.deps.onStep?.(id, n);
+    this.deps.onRestart?.(id, n);
     const s = steps[n]!, formed = this.frame.form >= 1;
     // The step's first line shows from this very frame (a demo's comes from its script).
     if (s.kind === "intro") this.show(formed ? "pickUp" : null, "step");

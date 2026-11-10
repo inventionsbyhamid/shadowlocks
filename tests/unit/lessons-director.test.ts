@@ -79,6 +79,7 @@ function rig(left = false): Rig {
     inputs: inp,
     leftHanded: () => left,
     onStep: vi.fn(),
+    onRestart: vi.fn(),
     onDone: vi.fn(),
     onReplay: vi.fn(),
   };
@@ -233,7 +234,8 @@ describe("LessonsDirector: lesson 1", () => {
     r.inp.isHeld = true;
     r.run(16);
     expect([r.d.frame.key, r.d.frame.why, r.d.frame.line]).toEqual(["goal", "step", "Move the lantern until the shadow fills the moon."]);
-    // The goal stays while the player works (warmth rising: no help needed).
+    // The goal stays while the player works (warmth rising: no help needed), letting go now and then.
+    r.inp.isHeld = false;
     for (let k = 1; k <= 8; k++) {
       r.inp.warm.set(0, 0.1 * k);
       r.run(2000);
@@ -535,6 +537,124 @@ describe("LessonsDirector: lesson 1", () => {
       }
     }
     expect(compared).toBeGreaterThan(100);
+  });
+});
+
+describe("LessonsDirector: help for an idle player", () => {
+  /** The key and why shown now. */
+  const said = (r: Rig) => [r.d.frame.key, r.d.frame.why];
+
+  it("on lock I: the moon outline at 12 s, nearer or farther at 25 s without progress, and none while warmth rises", () => {
+    const r = rig();
+    r.d.start("l1", 1);
+    r.run(11_900);
+    expect(said(r)).toEqual(["goal", "step"]);
+    r.run(200);
+    expect(said(r)).toEqual(["moveIdle", "idle"]);
+    r.run(12_800);
+    expect(said(r)).toEqual(["moveIdle", "idle"]);
+    r.run(200);
+    expect(said(r)).toEqual(["growShrink", "idle"]);
+    // Progress (warmth up 0.1): back to the goal, and the nudges only after another idle stretch.
+    r.inp.warm.set(0, 0.12);
+    r.run(16);
+    expect(said(r)).toEqual(["goal", "step"]);
+    r.run(11_800);
+    expect(r.d.frame.key).toBe("goal");
+    r.run(300);
+    expect(r.d.frame.key).toBe("moveIdle");
+    // A player getting warmer all along never sees one (warmth falling back and coming again is no progress).
+    const q = rig();
+    q.d.start("l1", 1);
+    for (let k = 1; k <= 9; k++) {
+      q.inp.warm.set(0, 0.1 * k);
+      q.run(10_000, () => expect(q.d.frame.key).toBe("goal"));
+    }
+  });
+
+  it("every lesson lock says Stuck? at 40 s; the arrow nudges at 20 s, the Key at 20 s while its rings are apart, the crown at 15 s", () => {
+    const arrow = rig();
+    arrow.d.start("l1", 3);
+    arrow.run(19_900);
+    expect(said(arrow)).toEqual(["turnNearFar", "step"]);
+    arrow.run(200);
+    expect(said(arrow)).toEqual(["turnNearFarIdle", "idle"]);
+    arrow.run(20_000);
+    expect(said(arrow)).toEqual(["stuck", "idle"]);
+    const key = rig();
+    key.d.start("l1", 5);
+    key.run(20_100);
+    expect(said(key)).toEqual(["turnRingsIdle", "idle"]);
+    // Rings lined up: the slide line says what to do next, no nudge over it.
+    key.inp.alignedLocks.add(2);
+    key.run(600);
+    expect(said(key)).toEqual(["slide", "step"]);
+    key.run(19_400);
+    expect(said(key)).toEqual(["stuck", "idle"]);
+    const crown = rig();
+    crown.d.start("l2", 2);
+    crown.run(14_900);
+    expect(said(crown)).toEqual(["turnFinger", "step"]);
+    crown.run(200);
+    expect(said(crown)).toEqual(["fingerIdle", "idle"]);
+    crown.run(25_000);
+    expect(said(crown)).toEqual(["stuck", "idle"]);
+  });
+
+  it("starts its idle clocks over with the step (a resumed step waits the full time again), and says so", () => {
+    const r = rig();
+    r.d.start("l1", 3);
+    expect(r.deps.onRestart).toHaveBeenLastCalledWith("l1", 3);
+    r.run(30_000);
+    expect(r.d.frame.key).toBe("turnNearFarIdle");
+    // A reload: the same step, from its start.
+    r.d.start("l1", 3);
+    r.run(19_900);
+    expect(r.d.frame.key).toBe("turnNearFar");
+    // Each step's start says so too (the session starts its stuck watch over with it).
+    r.inp.open.add(1);
+    r.run(16);
+    expect(r.deps.onRestart).toHaveBeenLastCalledWith("l1", 4);
+  });
+
+  it("says once, after the lantern is held 15 s without a break, that it can be let go, and never again", () => {
+    const r = rig();
+    r.d.start("l1", 1);
+    r.inp.isHeld = true;
+    // Getting warmer the whole time: no nudge in the way.
+    let w = 0;
+    const warmer = () => {
+      w = Math.min(1, w + 0.0007);
+      r.inp.warm.set(0, w);
+    };
+    r.run(14_900, warmer);
+    expect(said(r)).toEqual(["goal", "step"]);
+    r.run(200, warmer);
+    expect(said(r)).toEqual(["letGo", "idle"]);
+    r.run(5_700, warmer);
+    expect(r.d.frame.key).toBe("letGo");
+    r.run(300, warmer);
+    expect(said(r)).toEqual(["goal", "step"]);
+    // Held on, let go and held again, a new step: never again.
+    r.run(20_000, warmer);
+    r.inp.isHeld = false;
+    r.run(100);
+    r.inp.isHeld = true;
+    r.run(20_000, () => expect(r.d.frame.key).not.toBe("letGo"));
+    r.inp.open.add(0);
+    r.run(16);
+    r.until(() => r.d.step === 3);
+    r.inp.isHeld = true;
+    r.run(19_000, () => expect(r.d.frame.key).not.toBe("letGo"));
+    // Held with breaks, it never comes at all.
+    const q = rig();
+    q.d.start("l1", 1);
+    for (let i = 0; i < 6; i++) {
+      q.inp.isHeld = true;
+      q.run(10_000, () => expect(q.d.frame.key).not.toBe("letGo"));
+      q.inp.isHeld = false;
+      q.run(100);
+    }
   });
 });
 

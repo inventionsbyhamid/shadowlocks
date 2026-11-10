@@ -165,6 +165,17 @@ describe("Lessons", () => {
     expect(b.lessons.director.frame.form).toBeLessThan(0.7);
   });
 
+  it("starts the session's stuck watch over with every lesson step, so the hint lantern glows 40 s into a step", () => {
+    const b = bench();
+    b.lessons.start("l1", { step: 1 });
+    expect(b.session.restartStuck).toHaveBeenCalledTimes(1);
+    b.run(500);
+    b.open.add(0);
+    b.run(32);
+    expect(b.lessons.director.step).toBe(2);
+    expect(b.session.restartStuck).toHaveBeenCalledTimes(2);
+  });
+
   it("waits under a menu, its ghost and line put away", () => {
     const b = bench();
     b.lessons.start("l1");

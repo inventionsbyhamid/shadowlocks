@@ -130,6 +130,8 @@ export class Lessons implements MenuLessons {
       inputs,
       leftHanded: () => settings.get().handed === "left",
       onStep: (id, n) => this.stepped(id, n),
+      // A step's idle clocks start: the hint lantern's glow counts its 40 s from there too.
+      onRestart: () => session.restartStuck(),
       onDone: (id) => this.finished(id),
       onReplay: (ex, lesson, start) => this.replayed(ex, lesson, start),
     });
