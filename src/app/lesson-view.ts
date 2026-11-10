@@ -2,7 +2,8 @@
 // the world) and ghost lantern (in the box), the ghost's bones casting through the box's one shadow cast, the shadows
 // cast from the ghost lantern while it solves an example, the scraps swinging between the twin's layout and the
 // player's, the player's lantern flying into its cradle on the frame and out again, the near scrap's glow, the twin
-// lit when the ghost clicks it, the ghost finger's piece forming, the coach line, and the box forming out of light.
+// lit when the ghost clicks it, the ghost finger's piece forming, lock I marked through its step (its outline
+// breathing, its scraps lit), the coach line, and the box forming out of light.
 //
 // Reduced motion: the lantern goes to and from its cradle in one cut (no flight), the swing takes the director's
 // no-overshoot curve, and every fade is opacity only. One click (one flash) per example. Allocation-free per frame.
@@ -18,7 +19,7 @@ import {
   type World,
 } from "@iwsdk/core";
 import { type LessonId, type LessonPlan, lessonPlan } from "../core/lessons-data";
-import type { Box, V2, V3 } from "../core/types";
+import type { Box, Lock, V2, V3 } from "../core/types";
 import { onLangChange } from "../i18n";
 import type { HandJoints, HandSide } from "../input/hand-joints";
 import type { BoxScene } from "../render/box-scene";
@@ -30,6 +31,7 @@ import { LIGHT_BLEND } from "../render/light-blend";
 import { boxToWorld } from "../render/placement";
 import { COLORS } from "../render/theme";
 import { CoachLine, CoachLineView } from "../ui/coach-line";
+import { HINT_LOOK } from "./hints";
 import { type LayoutSink, LessonLayout } from "./lesson-layout";
 import type { LessonFrame } from "./lessons-director";
 
@@ -48,6 +50,24 @@ export const LESSON_LOOK = {
   /** The ghost casts once it is this solid (a ghost fading in or out casts nothing). */
   castFrom: 0.3,
 } as const;
+
+/** What lock I's mark changes: the panel's warmth per lock and the scraps' glow (the box scene has both). */
+export interface MarkScene {
+  readonly panelArt: { setWarmth(lock: number, w: number): void; warmthOf(lock: number): number };
+  scrapMesh(lock: number, piece: number): { setGlow(v: number): void };
+}
+
+/**
+ * Lock `lock` marked as the one to open: its outline at `warmth` or its own warmth (the session's, set earlier this
+ * frame), whichever is more; as the mark starts (`starting`), its scraps glow as a first hint's do. The glow is left
+ * as it is when the mark ends: the lock opening (its own celebration) or a new box takes it over.
+ */
+export function markLock(scene: MarkScene, lock: Lock, warmth: number, starting: boolean): void {
+  const own = scene.panelArt.warmthOf(lock.i);
+  scene.panelArt.setWarmth(lock.i, own > warmth ? own : warmth);
+  if (!starting) return;
+  for (let p = 0; p < lock.target.length; p++) if (p !== lock.missing) scene.scrapMesh(lock.i, p).setGlow(HINT_LOOK.scrapGlow);
+}
 
 export interface LessonViewDeps {
   world: World;
@@ -100,6 +120,8 @@ export class LessonView {
   private glowLock = -1;
   private glowPiece = -1;
   private solvedLock = -1;
+  /** The lock marked last frame (-1: none). */
+  private marked = -1;
   private sizeM = 0;
   private readonly vAt = new Vector3();
   private readonly vF = new Vector3();
@@ -220,6 +242,11 @@ export class LessonView {
       scene.panelArt.setWarmth(this.solvedLock, 0);
       this.solvedLock = -1;
     }
+    // Lock I marked through its step: its outline breathing, its scraps lit (after the solved twin's warmth above,
+    // so the mark comes back on the frame an example lets go of the lock).
+    const mark = ours && box && f.mark >= 0 ? box.locks[f.mark] : undefined;
+    if (mark) markLock(scene, mark, f.markWarmth, this.marked !== f.mark);
+    this.marked = mark ? f.mark : -1;
     if (ours && f.fill >= 1 && !this.formed && this.plan && f.solvedLock >= 0) {
       const twin = this.plan.twins[f.solvedLock];
       if (twin) {

@@ -19,6 +19,7 @@ import {
   IDLE_GHOST_MS,
   LESSON_STEPS,
   type LessonInputs,
+  MARK_WARMTH,
   LessonsDirector,
   openBefore,
   PUPPET_MAX_MS,
@@ -711,6 +712,41 @@ describe("LessonsDirector: help for an idle player", () => {
       q.inp.isHeld = false;
       q.run(100);
     }
+  });
+});
+
+describe("LessonsDirector: lock I marked", () => {
+  it("marks lock I through its step: its outline breathes softly (about 0.25, slowly), never during its example", () => {
+    const r = rig(), f = r.d.frame;
+    r.d.start("l1");
+    r.run(FORM_MS + 500, () => expect(f.mark).toBe(-1));
+    r.inp.isHeld = true;
+    r.run(16);
+    r.inp.isHeld = false;
+    const w: number[] = [];
+    r.run(6400, () => {
+      expect(f.mark).toBe(0);
+      w.push(f.markWarmth);
+    });
+    // Softly: at most MARK_WARMTH, never out; slowly: one breath every few seconds (no flashing).
+    expect(Math.max(...w)).toBeCloseTo(MARK_WARMTH, 2);
+    expect(Math.min(...w)).toBeGreaterThan(0.1);
+    expect(Math.max(...w) - Math.min(...w)).toBeGreaterThan(0.08);
+    let turns = 0;
+    for (let i = 2; i < w.length; i++) if ((w[i]! - w[i - 1]!) * (w[i - 1]! - w[i - 2]!) < 0) turns++;
+    expect(turns).toBeLessThanOrEqual(5);
+    // The last-resort example owns the look: no mark while it plays, the mark back after.
+    r.run(40_000, () => {
+      if (r.d.showing) expect(f.mark).toBe(-1);
+    });
+    r.until(() => !r.d.showing);
+    r.run(16);
+    expect(f.mark).toBe(0);
+    // Open: the next steps mark nothing.
+    r.inp.open.add(0);
+    r.run(16);
+    r.run(30_000, () => expect(f.mark).toBe(-1));
+    expect(r.d.step).toBe(3);
   });
 });
 

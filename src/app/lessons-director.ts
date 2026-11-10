@@ -106,6 +106,14 @@ export const NUDGES: Readonly<Record<ExampleId, readonly { readonly ms: number; 
  * once a visit to the step (in place of its "Stuck?" line, which comes the next time round).
  */
 export const HELP_MS = LESSON_STUCK_MS;
+/**
+ * Lock I is marked through its step, so scrap, shadow and outline read as one thing: its outline breathes between
+ * MARK_FLOOR and all of MARK_WARMTH, once every MARK_BREATH_MS, over any warmth of its own (and its scrap glows as a
+ * first hint's does: the view).
+ */
+export const MARK_WARMTH = 0.25;
+const MARK_FLOOR = 0.55;
+const MARK_BREATH_MS = 3200;
 /** Once (a page load), after the lantern has been held this long without a break, the line that it can be let go... */
 export const LET_GO_AFTER_MS = 15000;
 /** ...shown this long. */
@@ -202,6 +210,9 @@ export interface LessonFrame {
   /** Its copy key (COPY.lessons[key] is `line`), and why it shows; both null with no line. */
   key: LessonLine | null;
   why: LineWhy | null;
+  /** The lock marked as the one to open (lock I through its step), -1 for none, and its outline's warmth now. */
+  mark: number;
+  markWarmth: number;
   /** The box forming from light: 0 not yet, 1 formed. */
   form: number;
   hand: GhostHandFrame;
@@ -237,6 +248,8 @@ function newFrame(): LessonFrame {
     line: null,
     key: null,
     why: null,
+    mark: -1,
+    markWarmth: 0,
     form: 1,
     hand: { opacity: 0, poseA: "relaxed", poseB: "relaxed", poseT: 0, anchor: "grasp", at: v3(), fingers: [0, 0, -1], palm: [0, -1, 0], side: "right" },
     lamp: { opacity: 0, at: v3() },
@@ -305,6 +318,8 @@ export class LessonsDirector {
   private help = false;
   /** How long the intro's line has been up (its reaching ghost comes IDLE_GHOST_MS in). */
   private lineMs = 0;
+  /** The marked lock's breathing clock. */
+  private markMs = 0;
   /** The reaching ghost's shift clear of a real hand (eased), and that hand's pinch point. */
   private readonly off: V3 = [0, 0, 0];
   private readonly real: V3 = [0, 0, 0];
@@ -440,6 +455,7 @@ export class LessonsDirector {
     this.formMs += dt;
     this.stepMs += dt;
     f.form = clamp01(this.formMs / FORM_MS);
+    f.mark = -1;
     const s = LESSON_STEPS[this.id][this.n]!, inp = this.deps.inputs, formed = f.form >= 1;
     switch (s.kind) {
       case "intro": {
@@ -456,8 +472,17 @@ export class LessonsDirector {
         const held = inp.held();
         this.idleMs = held || inp.active() ? 0 : this.idleMs + dt;
         this.idleGhost(dt, !held && this.idleMs >= IDLE_GHOST_MS, "reach");
-        if (inp.isOpen(s.lock)) this.advance(true);
-        else this.lockLine(s, dt, held);
+        if (inp.isOpen(s.lock)) {
+          this.advance(true);
+          break;
+        }
+        this.lockLine(s, dt, held);
+        // Lock I marked while its step runs (its last-resort example, once it starts, owns the look).
+        if (!this.script) {
+          this.markMs = (this.markMs + dt) % MARK_BREATH_MS;
+          f.mark = s.lock;
+          f.markWarmth = MARK_WARMTH * (MARK_FLOOR + (1 - MARK_FLOOR) * (0.5 - 0.5 * Math.cos((2 * Math.PI * this.markMs) / MARK_BREATH_MS)));
+        }
         break;
       }
       case "turn":
@@ -654,9 +679,10 @@ export class LessonsDirector {
       this.endScript();
       return;
     }
-    // The example owns the ghost hand; an idle ghost that was showing is simply replaced.
+    // The example owns the ghost hand (an idle ghost that was showing is simply replaced) and the look: no mark.
     this.ghost = 0;
     this.ghostKind = null;
+    f.mark = -1;
     let key: LessonLine | null = null;
     for (let i = 0; i < s.lines.length && s.lines[i]!.t <= t; i++) key = s.lines[i]!.key;
     this.show(key, "example");
@@ -717,6 +743,7 @@ export class LessonsDirector {
       this.resetFrame();
       return;
     }
+    f.mark = -1;
     handAt(s.hand, t, f.hand, null);
     f.hand.anchor = s.anchor;
     copy3(s.fingers, f.hand.fingers);
@@ -731,6 +758,8 @@ export class LessonsDirector {
   private resetFrame(): void {
     const f = this.frame;
     this.show(null, null);
+    f.mark = -1;
+    f.markWarmth = 0;
     f.form = 1;
     f.hand.opacity = 0;
     f.lamp.opacity = 0;
