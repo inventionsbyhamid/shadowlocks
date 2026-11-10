@@ -10,7 +10,7 @@ import { FORM_MS } from "../../src/app/lessons-director";
 import { currentScreen, go } from "../../src/app/screens";
 import type { Stage } from "../../src/app/session-deps";
 import { newProfile } from "../../src/core/profile";
-import type { BoxSnapshot } from "../../src/core/profile";
+import type { BoxSnapshot, Profile } from "../../src/core/profile";
 import type { Box, BoxSpec } from "../../src/core/types";
 import type { BoxScene } from "../../src/render/box-scene";
 import { COPY } from "../../src/ui/copy";
@@ -53,10 +53,19 @@ function bench(o: { presenting?: boolean; autoStart?: boolean } = {}) {
   const view = { update: vi.fn(), coach: { text: null, opacity: 0 }, ghost: { opacity: 0 } };
   const play = { game, session, view: { coachLine: null as "controllerFinger" | null } };
   const env = { presenting: o.presenting ?? true };
+  /** The profile store's onAdopt listeners (another window's profile taken in place of this one's). */
+  const adopters: ((before: Profile, held: Profile) => void)[] = [];
   const deps = {
     world: {} as World,
     scene: {} as BoxScene,
-    profiles: { profile, save: vi.fn(async () => {}) },
+    profiles: {
+      profile,
+      save: vi.fn(async () => {}),
+      onAdopt: (fn: (before: Profile, held: Profile) => void) => {
+        adopters.push(fn);
+        return () => {};
+      },
+    },
     settings: { get: () => ({ reducedMotion: false, handed: "right" }) },
     lantern: { grab: { holder: null, brightness: 0 }, feel: { aligned: () => false }, ctrl: { pos: [0.3, -0.3, 1.3] } },
     hands: { n: 0 },
@@ -79,7 +88,18 @@ function bench(o: { presenting?: boolean; autoStart?: boolean } = {}) {
   /** Whether the view was last told a tip's demo is on screen. */
   const tipShown = () => (view.update.mock.calls.at(-1)![1] as { tip?: boolean }).tip === true;
   const lantern = (deps as unknown as { lantern: { grab: { holder: string | null } } }).lantern;
-  return { lessons, profile, session, plays, open, env, run, shown, tipShown, play, lantern };
+  /**
+   * Another window's profile taken in place of this one's, as profile-store.ts does it: `change` makes the other
+   * window's from this one's, which is copied in place, and the listeners hear of this one's as it was.
+   */
+  const adopt = (change: (p: Profile) => void) => {
+    const before = JSON.parse(JSON.stringify(profile)) as Profile;
+    const theirs = JSON.parse(JSON.stringify(profile)) as Profile;
+    change(theirs);
+    Object.assign(profile, theirs);
+    for (const fn of adopters) fn(before, before);
+  };
+  return { lessons, profile, session, plays, open, env, run, shown, tipShown, play, lantern, adopt };
 }
 
 describe("Lessons", () => {
@@ -344,6 +364,54 @@ describe("Lessons", () => {
     const d = bench();
     expect(d.lessons.replayTip!("drawer")).toBe(true);
     expect(d.lessons.director.replaying).toBe("finger");
+  });
+
+  it("lets a replay's kept box go when another window moved that box's save on: the replay ends on Home, nothing put back", () => {
+    const snapOf = (key: string) => ({ key, lantern: [0, 0, 1], open: [0], crystal: [], elapsedMs: 1234, hints: 0, hintLevel: {} }) as BoxSnapshot;
+    const box7: BoxSpec = { kind: "box", n: 7 }, daily: BoxSpec = { kind: "daily", day: "2026-11-08" };
+    /** The other window solved box 7 and started box 8. */
+    const solved7 = (p: Profile) => {
+      p.nextBox = 8;
+      p.current = snapOf("shadow-locks/8");
+    };
+    const cases: { name: string; spec: BoxSpec; practice: boolean; tip: boolean; other: (p: Profile) => void; back: boolean }[] = [
+      { name: "an example over box 7, solved there", spec: box7, practice: false, tip: false, other: solved7, back: false },
+      { name: "a tip over box 7, solved there", spec: box7, practice: false, tip: true, other: solved7, back: false },
+      {
+        name: "an example over the Daily Box, solved there",
+        spec: daily,
+        practice: false,
+        tip: false,
+        other: (p) => (p.daily = { ...p.daily, streak: 1, best: 1, lastDay: "2026-11-08", current: null }),
+        back: false,
+      },
+      // Its own save did not move (the other window played the Daily Box): box 7 comes back.
+      { name: "an example over box 7, the Daily played there", spec: box7, practice: false, tip: false, other: (p) => (p.daily.streak = 4), back: true },
+      // A practice box saves nowhere, so nothing it puts back can roll a save back: it comes back.
+      { name: "a tip over practice box 7, box 7 solved there", spec: box7, practice: true, tip: true, other: solved7, back: true },
+    ];
+    for (const c of cases) {
+      const b = bench();
+      b.play.game.play(c.spec, null, c.practice);
+      // As the lifecycle saved it (a practice box never is).
+      if (!c.practice && c.spec.kind === "box") b.profile.current = snapOf("shadow-locks/7");
+      if (c.spec.kind === "daily") b.profile.daily.current = snapOf("shadow-locks/daily/2026-11-08");
+      b.profile.tipsSeen = ["decoys"];
+      expect(c.tip ? b.lessons.replayTip!("decoys") : b.lessons.replay("move"), c.name).toBe(true);
+      b.run(500);
+      const n = b.plays.length;
+      b.adopt(c.other);
+      b.run(40_000);
+      expect([b.lessons.running, b.lessons.director.replaying], c.name).toEqual([false, null]);
+      if (c.back) {
+        expect(b.plays.length, c.name).toBe(n + 1);
+        expect(b.plays.at(-1), c.name).toMatchObject({ spec: c.spec, practice: c.practice });
+        expect(currentScreen(), c.name).toBe("play");
+      } else {
+        expect(b.plays.length, c.name).toBe(n);
+        expect(currentScreen(), c.name).toBe("home");
+      }
+    }
   });
 
   it("refuses \"Show me\" during a tip replay: the player ends back on the real box, never a practice copy", () => {

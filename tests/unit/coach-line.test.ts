@@ -1,5 +1,5 @@
 import { type MeshBasicMaterial, SRGBColorSpace } from "@iwsdk/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { COACH, CoachLine, CoachLineView, coachChars, LineHold, wrapCoach } from "../../src/ui/coach-line";
 import { COPY } from "../../src/ui/copy";
 
@@ -165,5 +165,26 @@ describe("CoachLineView", () => {
       const shown = m.color.getRGB({ r: 0, g: 0, b: 0 }, SRGBColorSpace);
       expect(shown.r).toBeCloseTo(a, 4);
     }
+  });
+
+  it("does the colour work only when the opacity changes (it is set every frame)", () => {
+    const v = new CoachLineView();
+    const m = v.object.material as MeshBasicMaterial;
+    const tint = vi.spyOn(m.color, "setRGB");
+    v.opacity = 0.5;
+    v.opacity = 0.5;
+    v.opacity = 0.5;
+    expect(tint).toHaveBeenCalledTimes(1);
+    expect([m.opacity, v.object.visible]).toEqual([0.5, true]);
+    v.opacity = 0.75;
+    expect(tint).toHaveBeenCalledTimes(2);
+    expect(m.color.getRGB({ r: 0, g: 0, b: 0 }, SRGBColorSpace).r).toBeCloseTo(0.75, 4);
+    v.opacity = 0;
+    v.opacity = 0;
+    expect(tint).toHaveBeenCalledTimes(3);
+    expect([m.opacity, v.object.visible]).toEqual([0, false]);
+    v.opacity = 1;
+    expect(tint).toHaveBeenCalledTimes(4);
+    expect([m.color.r, m.opacity, v.object.visible]).toEqual([1, 1, true]);
   });
 });
