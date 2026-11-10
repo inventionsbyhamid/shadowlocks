@@ -227,10 +227,12 @@ function handNow(hands: HandsInBox, side: "left" | "right", m: Matrix4): SlHand 
   };
   if (!handJoints.tracked(side)) return null;
   const minZ = Math.min(...HAND_JOINTS.map((j) => box(j)[2]));
+  handJoints.pinchPoint(side, v);
   return {
     outlines: hands.shadow.cast[side === "left" ? 0 : 1]!,
     minZ,
     index: [box("index-finger-phalanx-intermediate"), box("index-finger-phalanx-distal"), box("index-finger-tip")],
+    pinch: worldToBox(m, v, [0, 0, 0]),
   };
 }
 

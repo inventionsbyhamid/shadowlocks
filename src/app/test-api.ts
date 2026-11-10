@@ -342,6 +342,8 @@ export interface SlHand {
   minZ: number;
   /** Its index finger's intermediate, distal and tip joints (box units). */
   index: [V3, V3, V3];
+  /** Its pinch point as the lantern reads it: halfway between thumb and index tips (box units). */
+  pinch: V3;
 }
 
 /** The hands in the box this frame. */
