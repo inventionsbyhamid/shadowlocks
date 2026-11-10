@@ -1,7 +1,8 @@
 // The box in play, one frame at a time: each lock measured from where the lantern is (only locks within WARMTH_RANGE
 // of it, and only when the lantern or a finger moved), its warmth on the panel and in its hum, its rings lining up,
 // a finger lock's hold and its piece forming (session-fingers.ts), locks opening (the rule met for OPEN_DWELL_MS with
-// the lantern at rest), the head's gaze choosing the lock in focus, the stuck watch lighting the hint lantern, then
+// the lantern at rest), the head's gaze choosing the lock in focus, the stuck watch lighting the hint lantern (after
+// 90 s without progress, 40 s in a lesson's box, whose steps start it over: restartStuck), then
 // the box opening, its reward taken, and the next box offered on the plate. It owns the rules around a box
 // (session-rules.ts): the Warmth setting, hints, saves (every 2 s of play, and whenever the lifecycle asks), the
 // collection, the next box and the daily streak. Play time counts only while the player can see the box.
@@ -16,7 +17,7 @@ import { mirrorBox } from "../core/mirror";
 import type { BoxSnapshot } from "../core/profile";
 import { type Coverage, measure, meets, prepareLock, ShadowCaster, SKIP_MISSING, warmth, WARMTH_RANGE } from "../core/solve";
 import type { Box, BoxSpec, Lock, V3, Vec3 } from "../core/types";
-import { LANTERN_MIN_Z, LANTERN_RESTORE, MAX_STEP_MS, OPEN_DWELL_MS } from "../feel/constants";
+import { LANTERN_MIN_Z, LANTERN_RESTORE, LESSON_STUCK_MS, MAX_STEP_MS, OPEN_DWELL_MS, STUCK_MS } from "../feel/constants";
 import { GazeFocus } from "../feel/gaze-focus";
 import type { FeelEvent } from "../feel/lantern-controller";
 import { StuckWatch } from "../feel/stuck-watch";
@@ -300,10 +301,18 @@ export class BoxSession {
     d.sound.hint(lock, this.view.hintLanternAt(this.at) ? this.at : undefined);
     this.view.hint(lock, level);
     // Help taken: the watch starts over and the hint lantern goes quiet.
-    this.watch = new StuckWatch();
-    if (this.stuckOn) this.setStuck(false);
+    this.restartStuck();
     this.saveSoon();
     return level;
+  }
+
+  /**
+   * The stuck watch starts over and the hint lantern goes quiet (help was taken; or a lesson's step began, which
+   * counts its own 40 s from there).
+   */
+  restartStuck(): void {
+    this.watch.reset();
+    if (this.stuckOn) this.setStuck(false);
   }
 
   /** The hint lantern's "Hint": the next hint for the lock in focus (else the warmest closed one). Null when all are open. */
@@ -336,7 +345,8 @@ export class BoxSession {
     this.caster = new ShadowCaster(box.elements, SKIP_MISSING);
     this.fingers.setBox(box, this.locks.map((s) => s.samples));
     this.book = new HintBook(box.locks.length);
-    this.watch = new StuckWatch();
+    // A lesson's box glows sooner (its steps teach one lock at a time); every other box after STUCK_MS.
+    this.watch = new StuckWatch(spec.kind === "lesson" ? LESSON_STUCK_MS : STUCK_MS);
     this.gazeFocus = new GazeFocus();
     this.focused = null;
     this.stuckOn = false;

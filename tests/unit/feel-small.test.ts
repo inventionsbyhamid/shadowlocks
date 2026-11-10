@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FingerHold } from "../../src/feel/finger-hold";
 import { GazeFocus } from "../../src/feel/gaze-focus";
+import { LESSON_STUCK_MS, STUCK_MS } from "../../src/feel/constants";
 import { StuckWatch } from "../../src/feel/stuck-watch";
 
 const DT = 1000 / 90;
@@ -102,5 +103,23 @@ describe("StuckWatch", () => {
     expect(watch(s, 1, 0.2, true)).toBe(false); // a lock opening resets it too
     expect(watch(s, 8090, 0.25)).toBe(false);
     expect(watch(s, 20, 0.25)).toBe(true);
+  });
+
+  it("takes its own time (a lesson's 40 s), tells how long since the last progress, and starts over when told", () => {
+    expect(LESSON_STUCK_MS).toBe(40_000);
+    expect(STUCK_MS).toBe(90_000);
+    const s = new StuckWatch(LESSON_STUCK_MS);
+    expect(watch(s, 3590, 0)).toBe(false); // 39.9 s
+    expect(s.idleMs).toBeCloseTo(3590 * DT, 6);
+    expect(watch(s, 20, 0)).toBe(true); // 40.1 s
+    // Progress: the time since it is 0 again.
+    expect(watch(s, 1, 0.15)).toBe(false);
+    expect(s.idleMs).toBe(0);
+    expect(watch(s, 1000, 0.15)).toBe(false);
+    // Told to start over: from 0, and from no warmth (a step that starts afresh).
+    s.reset();
+    expect(s.idleMs).toBe(0);
+    expect(watch(s, 3590, 0.05)).toBe(false);
+    expect(watch(s, 20, 0.05)).toBe(true);
   });
 });
