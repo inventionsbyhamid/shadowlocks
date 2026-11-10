@@ -205,6 +205,30 @@ export function inViewOffsets(pitch: number, sizeM: number, distanceM: number, t
   };
 }
 
+/**
+ * A seated head's neck: the eyes this far above and in front of the neck's pivot (m; the usual head model's numbers).
+ * When the head pitches, the eyes swing round the pivot: looking 60 degrees down they sit about 11 cm lower and 2.5 cm
+ * further forward than looking level.
+ */
+export const NECK_M = { up: 0.075, forward: 0.0805 } as const;
+/**
+ * The pitch a seated player looks at the box with (radians): down at the panel's centre, BOX_FORWARD_M ahead and
+ * BOX_BELOW_HEAD_M below (about 27 degrees). The lap's numbers were set with the head at this pitch.
+ */
+export const PLAY_PITCH = -Math.atan2(BOX_BELOW_HEAD_M, BOX_FORWARD_M);
+
+/**
+ * The eyes at `pos` (the head turned `yaw`, pitched `pitch` radians) moved to where they would be with the head pitched
+ * PLAY_PITCH instead, round the neck's pivot (NECK_M), in place. In the heading's frame (y up, z back toward the
+ * player) the eyes sit at (0, up cos p + forward sin p, up sin p - forward cos p) from the pivot.
+ */
+export function playEye(pos: Vector3, yaw: number, pitch: number): Vector3 {
+  const u = NECK_M.up, f = NECK_M.forward, p = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch)), q = PLAY_PITCH;
+  const dy = u * Math.cos(q) + f * Math.sin(q) - (u * Math.cos(p) + f * Math.sin(p));
+  const back = u * Math.sin(q) - f * Math.cos(q) - (u * Math.sin(p) - f * Math.cos(p));
+  return pos.set(pos.x + back * Math.sin(yaw), pos.y + dy, pos.z + back * Math.cos(yaw));
+}
+
 /** The back panel's centre (world), the box's heading and its lean, for what lays itself out around the box. */
 export interface BoxPose {
   position: Vec3;
@@ -260,9 +284,15 @@ export class Placement {
     return this.sizeCm / 100;
   }
 
-  /** Place the box from the head (session start, Recenter). The size stays. */
-  start(head: HeadPose): void {
+  /**
+   * Place the box from the head (session start, Recenter); the size stays. With the head's `pitch` (radians; a headset's
+   * first placement), from where the eyes will be while the player looks at the box (playEye), not where they are now:
+   * the box then lands in the same place whether the head looked level, at the lap or steeply down as it was placed.
+   * Without, from the eyes as they are (Recenter and Quest's own recenter, as before).
+   */
+  start(head: HeadPose, pitch?: number): void {
     this.eye.pos.set(head.position[0], head.position[1], head.position[2]);
+    if (pitch !== undefined) playEye(this.eye.pos, head.yaw, pitch);
     this.eye.yaw = head.yaw;
     this.forwardM = BOX_FORWARD_M;
     this.belowM = BOX_BELOW_HEAD_M;

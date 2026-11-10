@@ -4,7 +4,9 @@
 //
 // The first placement of a session waits for a steady head (a phone's camera): held still 0.4 s in a looking pose, 2.5 s
 // at most (PlaceGate). Until then the box and its panels are hidden, so nothing stands where the head or phone happened
-// to point as the session started, and nothing moves in front of the player.
+// to point as the session started, and nothing moves in front of the player. A headset's first placement is from where
+// the eyes will be while the player looks at the box (Placement.start with the head's pitch), so it lands in the same
+// place whatever the head did then.
 //
 // Once placed, a box out of view (lost-box.ts): a phone's comes back in front by itself after 2 s, held still, with no
 // touch down and the lantern not held ("box out of view: placed again" in the console); a headset's never moves by
@@ -70,9 +72,11 @@ export class ShellSystem extends createSystem({}) {
   /**
    * Place the box from the current head pose (Recenter, and the test hooks); the box size stays. False
    * while the head is not tracked. A phone's session (the touch system tells, earlier in the frame) places it
-   * in the camera's view instead of the lap, as far as the camera's own projection needs to show it whole.
+   * in the camera's view instead of the lap, as far as the camera's own projection needs to show it whole. A headset's
+   * `first` placement of a session is from where the eyes will be while the player looks at the box (Placement.start's
+   * pitch): placed while looking steeply down, the box still lands within the comfort envelope.
    */
-  recenter(): boolean {
+  recenter(first = false): boolean {
     if (!shell) return false;
     const phone = onPhone();
     if (!this.readHead(phone)) return false;
@@ -82,6 +86,7 @@ export class ShellSystem extends createSystem({}) {
     this.headPose.position[2] = this.headPos.z;
     this.headPose.yaw = yawFromQuaternion(q.x, q.y, q.z, q.w);
     if (phone) placement.startInView(this.headPose, pitchFromQuaternion(q.x, q.y, q.z, q.w), this.cameraView());
+    else if (first) placement.start(this.headPose, pitchFromQuaternion(q.x, q.y, q.z, q.w));
     else placement.start(this.headPose);
     return true;
   }
@@ -133,7 +138,7 @@ export class ShellSystem extends createSystem({}) {
     // frames) so nothing compiles the first time it shows. Until then the box and its panels are hidden.
     const waiting = !!xrSession && this.placedFor !== xrSession;
     this.hide(waiting);
-    if (waiting && tracked && this.gate.ready && this.recenter()) {
+    if (waiting && tracked && this.gate.ready && this.recenter(true)) {
       this.placedFor = xrSession;
       s.recenterAsked = false;
       this.hide(false);
