@@ -1,6 +1,6 @@
-// The shared e2e slots a run gets from scripts/remote.sh: the lock it sends the server (a stand-in ssh and rsync
-// record it; nothing reaches a network), and remote-run.sh's shared hold (lock_shared, lifted out of the script) run
-// against a scratch locks folder.
+// The CPUs and the shared e2e slots a run gets from scripts/remote.sh: the docker options and the lock it sends the
+// server (a stand-in ssh and rsync record them; nothing reaches a network), and remote-run.sh's shared hold
+// (lock_shared, lifted out of the script) run against a scratch locks folder.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -23,6 +23,17 @@ function constant(name: string): string {
   const v = fs.readFileSync("scripts/remote.sh", "utf8").match(new RegExp(`^${name}=(\\S+)$`, "m"))?.[1];
   expect(v, name).toBeDefined();
   return v!;
+}
+
+/** The CPUs a cpuset string names ("10-19,30-39"). */
+function cpus(set: string): number[] {
+  return set.split(",").flatMap((part) => {
+    const m = part.match(/^(\d+)(?:-(\d+))?$/);
+    expect(m, `CPU range ${part}`).not.toBeNull();
+    const a = Number(m![1]);
+    const b = Number(m![2] ?? m![1]);
+    return Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  });
 }
 
 /** printf %q's escapes, as they matter here: "\," and "\ ". */
@@ -52,15 +63,63 @@ function sent(opts: string[]): { docker: string; lock: string } {
   return { docker: ` ${unq(docker!)} `, lock: unq(lock!) };
 }
 
-describe("remote.sh: the shared slots", () => {
-  it("holds a functional e2e run (--lock-shared e2e) in one of two slots of two slot files each", () => {
-    expect(sent(["--lock-shared", "e2e"]).lock).toBe("e2e:2:2");
-    expect(sent(["--lock", "e2e"]).lock).toBe("e2e");
-    expect(sent([]).lock).toBe("");
+describe("remote.sh: the CPUs each kind of run gets", () => {
+  it("gives a functional e2e run (--lock-shared e2e) an 11-CPU quota on any CPU, in two slot files", () => {
+    const s = sent(["--lock-shared", "e2e"]);
+    expect(s.docker).toContain(" --cpus 11 ");
+    expect(s.docker).not.toContain("--cpuset-cpus");
+    expect(s.lock).toBe("e2e:2:2");
   });
 
-  it("uses the same four slot files older scripts take one of each", () => {
-    expect(Number(constant("SHARED_SLOTS")) * Number(constant("SHARED_SLOT_FILES"))).toBe(4);
+  it("pins a timed run (--lock e2e --timing-cpus) to all of NUMA node 1 with no quota", () => {
+    const s = sent(["--lock", "e2e", "--timing-cpus"]);
+    expect(s.docker).toContain(" --cpuset-cpus 10-19,30-39 ");
+    expect(s.docker).not.toContain("--cpus ");
+    expect(s.lock).toBe("e2e");
+  });
+
+  it("keeps the e2e lock's other exclusive holders (video renders) at 6 CPUs on any CPU", () => {
+    const s = sent(["--lock", "e2e"]);
+    expect(s.docker).toContain(" --cpus 6 ");
+    expect(s.docker).not.toContain("--cpuset-cpus");
+    expect(s.lock).toBe("e2e");
+  });
+
+  it("keeps unit tests, typechecks and builds at 6 CPUs on node 0, off the timing cores", () => {
+    const s = sent([]);
+    expect(s.docker).toContain(" --cpus 6 --cpuset-cpus 0-9,20-29 ");
+    expect(s.lock).toBe("");
+  });
+
+  it("keeps a shared hold of any other lock off the timing cores too: it does not keep a timed run away", () => {
+    const s = sent(["--lock-shared", "slotprobe"]);
+    expect(s.docker).toContain(" --cpus 6 --cpuset-cpus 0-9,20-29 ");
+    expect(s.lock).toBe("slotprobe:2:2");
+  });
+
+  it("caps every run's memory at 8g and names it shadowlocks-*", () => {
+    for (const opts of [["--lock-shared", "e2e"], ["--lock", "e2e", "--timing-cpus"], ["--lock", "e2e"], []]) {
+      const s = sent(opts);
+      expect(s.docker, opts.join(" ")).toContain(" --memory 8g ");
+      expect(s.docker, opts.join(" ")).toMatch(/^ --rm --name shadowlocks-slot-test-/);
+    }
+  });
+
+  it("keeps the timing cores and the others apart, together the host's 40", () => {
+    const timing = cpus(constant("TIMING_CPUS"));
+    const other = cpus(constant("OTHER_CPUS"));
+    expect(timing.filter((c) => other.includes(c))).toEqual([]);
+    expect([...timing, ...other].sort((a, b) => a - b)).toEqual(Array.from({ length: 40 }, (_, i) => i));
+  });
+
+  it("keeps functional e2e runs at 24 CPUs in all, counted in the same four 6-CPU slot files older scripts take", () => {
+    const slots = Number(constant("SHARED_SLOTS"));
+    const files = Number(constant("SHARED_SLOT_FILES"));
+    const quota = Number(constant("SHARED_QUOTA"));
+    expect(slots * quota).toBeLessThanOrEqual(24);
+    // A slot file stands for one older run's 6 CPUs: a run's files cover its quota, and there are four files.
+    expect(quota).toBeLessThanOrEqual(files * Number(constant("CPU_QUOTA")));
+    expect(slots * files).toBe(4);
   });
 });
 
@@ -92,7 +151,7 @@ const slotFiles = "held e2e.slot1.lock; held e2e.slot2.lock; held e2e.slot3.lock
 const hold = (n: number, fd: number) => `exec ${fd}>"$LOCKS/e2e.slot${n}.lock"; flock -n ${fd}`;
 
 describe("remote-run.sh: a shared hold takes a pair of slot files", () => {
-  it("takes the first free pair, then the e2e lock shared", () => {
+  it("takes the first free pair, then the e2e lock shared, which keeps a timed run's exclusive hold out", () => {
     const after = `${slotFiles}; flock -n -s "$LOCKS/e2e.lock" true && echo shared ok; flock -n "$LOCKS/e2e.lock" true || echo exclusive kept out`;
     expect(lockShared("", "lock_shared e2e 2 2", after)).toEqual([
       "took",
@@ -102,6 +161,14 @@ describe("remote-run.sh: a shared hold takes a pair of slot files", () => {
       "e2e.slot4.lock free",
       "shared ok",
       "exclusive kept out",
+    ]);
+  });
+
+  it("never starts while a timed run holds the e2e lock alone", () => {
+    // It gives up with its pair still open; the run then exits (finish 75), which lets the pair go.
+    expect(lockShared('exec 3>"$LOCKS/e2e.lock"; flock -n 3', "lock_shared e2e 2 2", "flock -n -s \"$LOCKS/e2e.lock\" true || echo still out")).toEqual([
+      "gave up",
+      "still out",
     ]);
   });
 

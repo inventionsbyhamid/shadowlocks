@@ -87,11 +87,13 @@ lock while the browser runs, so lanes take turns. Needs the `shadowlocks-e2e` im
 (`scripts/e2e-image/build.sh`).
 
 Functional runs of named specs share that lock: up to two go at once, from any lanes, and one
-starts while the server's load is 34 or less (40 cores less one run's 6). Exclusive runs start only at
+starts while the server's load is 34 or less (Ruling 111). Exclusive runs start only at
 load 25 or less. These gates are named defaults at the top of `scripts/e2e.sh`
 (`FUNCTIONAL_SLOTS`, which must match `SHARED_SLOTS` in `scripts/remote.sh`, `FUNCTIONAL_MAX_LOAD`
-and `EXCLUSIVE_MAX_LOAD`); `NS_MAX_LOAD` overrides the load limit for one run. Exclusive runs go
-alone:
+and `EXCLUSIVE_MAX_LOAD`); `NS_MAX_LOAD` overrides the load limit for one run. A functional run gets
+an 11-CPU quota on any CPU (`SHARED_QUOTA` in `scripts/remote.sh`), so two take at most 22. An
+exclusive run is pinned to all of NUMA node 1 (`TIMING_CPUS`) with no quota, so the kernel never
+pauses it mid-frame. Exclusive runs go alone:
 - the full suite (no spec named);
 - any argument mentioning `cost`, `perf-budget`, `bot`, `store`, `shadows`, `lantern` or
   `tests/video`;

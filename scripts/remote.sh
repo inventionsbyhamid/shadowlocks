@@ -12,7 +12,8 @@
 #                  --lock-shared runs at once, each in a slot of two slot files (<name>.slot1.lock and
 #                  slot2, or slot3 and slot4; see SHARED_SLOTS), never together with a --lock run of that
 #                  name, older scripts' included. A --lock run that is waiting goes first: no new
-#                  --lock-shared run starts until it has run. Same wait limit and exit 75.
+#                  --lock-shared run starts until it has run. Same wait limit and exit 75. A run of
+#                  --lock-shared e2e gets SHARED_QUOTA CPUs on any CPU (see TIMING_CPUS below).
 #   --timing-cpus  run on TIMING_CPUS, pinned, with no CPU quota, instead of the usual 6-CPU quota (see
 #                  TIMING_CPUS below). Only with --lock e2e: holding that lock alone is what keeps two timed
 #                  runs off the same CPUs. scripts/e2e.sh asks for it on every exclusive run.
@@ -53,23 +54,33 @@ NPM_VOLUME=shadowlocks-npm-user
 # How many --lock-shared runs of one lock may go at once (keep scripts/e2e.sh's FUNCTIONAL_SLOTS the same),
 # and how many slot files (<name>.slot<k>.lock) each holds: slot 1 is files 1 and 2, slot 2 files 3 and 4.
 # Older copies of these scripts hold one file a run, up to four, at 6 CPUs each (Ruling 111). A run here
-# holds two, so it may use two such runs' CPUs: with older runs beside ours, the four files still keep
-# all functional e2e runs together at 24 CPUs or fewer.
+# holds two, so it may use two such runs' CPUs (its SHARED_QUOTA, 11): with older runs beside ours, the
+# four files still keep all functional e2e runs together at 24 CPUs or fewer.
 SHARED_SLOTS=2
 SHARED_SLOT_FILES=2
-# CPUs (Task 27, plan/sdd/sl-v1/task-27-report.md). A run normally gets a CFS quota of CPU_QUOTA CPUs. On this 40-CPU
-# host a browser's software renderer starts threads for all 40, spends the quota early in each 100 ms period, and the
-# kernel then stops the whole container for the rest of it: pauses of 46 to 80 ms, in every period of a timed window,
-# that land in whatever the page was doing. A run that times real milliseconds (--timing-cpus: scripts/e2e.sh's
-# exclusive runs) gets TIMING_CPUS to itself instead, pinned and with no quota, so nothing stops it: all of NUMA node 1
-# (10 cores, 20 threads), which takes none of the network card's interrupts. Its browser then uses about 11 CPUs and
-# leaves the page's main thread a free one. Fewer starve it: 6 threads on 3 cores gave our JS a p95 of 8.5 ms at 4x,
-# and 12 threads on 6 cores, filled to 11.2, gave 3.5 to 4.2 ms, where the quota gave 2.2 to 2.9. The runs that can
-# overlap a timed run, those holding no e2e lock (unit tests, typechecks, builds), keep the quota and are pinned to
-# OTHER_CPUS (node 0), off the timing cores. Runs holding the e2e lock never overlap a timed run (it holds that lock
-# alone), so they keep the quota on all 40 CPUs, as before. Other people's containers on this server are not ours to
-# pin and may still run on the timing cores. The two sets must not overlap and together cover the host's 40 CPUs.
+# CPUs. A CFS quota (--cpus) stops the whole container once it has spent its share of a 100 ms period. On this
+# 40-CPU host a browser's software renderer starts threads for every CPU it sees, so under a quota it spends it early
+# in most periods and the kernel then stops it for the rest: pauses of 46 to 80 ms that land in whatever the page was
+# doing.
+# - A run that times real milliseconds (--timing-cpus: scripts/e2e.sh's exclusive runs) gets TIMING_CPUS to itself,
+#   pinned and with no quota, so nothing stops it: all of NUMA node 1 (10 cores, 20 threads), which takes none of the
+#   network card's interrupts. Its browser then uses about 11 CPUs and leaves the page's main thread a free one. Fewer
+#   starve it: 6 threads on 3 cores gave our JS a p95 of 8.5 ms at 4x, and 12 threads on 6 cores, filled to 11.2, gave
+#   3.5 to 4.2 ms, where the quota gave 2.2 to 2.9.
+# - A --lock-shared e2e run (scripts/e2e.sh's functional runs) gets a quota of SHARED_QUOTA CPUs on any CPU. The kernel
+#   still stops it in part of its periods, which costs it time only: functional specs time nothing on the wall
+#   clock, and such a run never runs beside a timed one (both hold locks/e2e.lock, a timed run alone). session.spec
+#   (8 tests) took 9.8 min under 6 CPUs (stopped in 78% of periods), 6.4 under 11 (41%) and 6.3 under 12 (37%): the
+#   renderer wants more than 12 when it sees 40. Pinned to 10 threads of node 0 with no quota it was never stopped,
+#   but took 7.3, sharing those CPUs with other work.
+# - The runs that can overlap a timed run, those holding no e2e lock (unit tests, typechecks, builds), keep CPU_QUOTA
+#   and are pinned to OTHER_CPUS (node 0), off the timing cores. The e2e lock's other exclusive holders, video renders
+#   (scripts/video.sh, store-inline.sh's too), keep CPU_QUOTA on all 40 CPUs. Store art is an exclusive scripts/e2e.sh
+#   run, so it gets TIMING_CPUS with no quota, as a timed run does.
+# Other people's containers on this server are not ours to pin and may still run on the timing cores. The two sets
+# must not overlap and together cover the host's 40 CPUs.
 CPU_QUOTA=6
+SHARED_QUOTA=11
 TIMING_CPUS=10-19,30-39
 OTHER_CPUS=0-9,20-29
 # Where an APK build's keystore waits on the server (--signing-key); remote-run.sh names the same path,
@@ -195,11 +206,13 @@ if [ ! -d node_modules ] || [ "$(cat node_modules/.install-sum 2>/dev/null)" != 
 fi
 exec "$@"'
 
-# The CPUs (see TIMING_CPUS): a timed run pinned with no quota; a run holding the e2e lock otherwise, the quota on any
-# CPU; any other run, the quota, off the timing cores.
+# The CPUs (see TIMING_CPUS): a timed run pinned with no quota; a functional e2e run (--lock-shared e2e) SHARED_QUOTA on
+# any CPU; any other run holding the e2e lock, CPU_QUOTA on any CPU; any other run, CPU_QUOTA, off the timing cores
+# (a shared hold of another lock does not keep it away from a timed run).
 case $TIMING:$LOCK_SPEC in
   1:*) CPU_OPTS=(--cpuset-cpus "$TIMING_CPUS") ;;
-  0:e2e | 0:e2e:*) CPU_OPTS=(--cpus "$CPU_QUOTA") ;;
+  0:e2e:*) CPU_OPTS=(--cpus "$SHARED_QUOTA") ;;
+  0:e2e) CPU_OPTS=(--cpus "$CPU_QUOTA") ;;
   *) CPU_OPTS=(--cpus "$CPU_QUOTA" --cpuset-cpus "$OTHER_CPUS") ;;
 esac
 # The label lets the server find this lane's containers (no upload while one exists).
