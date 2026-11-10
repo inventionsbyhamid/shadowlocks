@@ -96,6 +96,27 @@ export function pitchFromQuaternion(x: number, y: number, z: number, w: number):
 /** A phone pointed steeper than this, down or up (degrees), places the box as if it were not: upright, still ahead. */
 export const IN_VIEW_PITCH_DEG = { down: 60, up: 10 } as const;
 
+const clampPitch = (pitch: number) => Math.min(IN_VIEW_PITCH_DEG.up * DEG, Math.max(-IN_VIEW_PITCH_DEG.down * DEG, pitch));
+
+/**
+ * How far above the box's own axis a phone's camera sees it from (degrees): the seated eye's angle (the eye 55 cm ahead
+ * of and 28 cm above the panel sees the box's middle about 21 degrees above its axis). The lantern spots sit below the
+ * box's centre so that, seen from there, the lantern stays under the line of sight to the panel.
+ */
+export const VIEW_ELEVATION_DEG = 20;
+/** A phone's box leans back at most this much, and toward the phone (negative) at most this much (degrees). */
+export const PHONE_LEAN_DEG = { min: -20, max: 40 } as const;
+
+/**
+ * How far a phone's box leans back (degrees) for a camera pitched `pitch` radians: so the camera sees it from
+ * VIEW_ELEVATION_DEG above its axis. Pointed 30 degrees down: 10 (the lap's); held level: its top leans 20 toward the
+ * phone; 45 down: back 25. Past PHONE_LEAN_DEG it stops (pointed up past level, the camera then sees it from lower).
+ */
+export function phoneLean(pitch: number): number {
+  const deg = clampPitch(pitch) / DEG;
+  return Math.min(PHONE_LEAN_DEG.max, Math.max(PHONE_LEAN_DEG.min, -deg - VIEW_ELEVATION_DEG));
+}
+
 /**
  * What of the box a phone's view must show, from the box's middle (box units; the middle is half a box in front of the
  * panel): the frame and its posts across and up, the plinth under it (bottom at -0.645, back at -0.06; box-scene's
@@ -131,7 +152,18 @@ export function viewOf(e: ArrayLike<number> | null | undefined, out: ViewTangent
   return out;
 }
 
-const clampPitch = (pitch: number) => Math.min(IN_VIEW_PITCH_DEG.up * DEG, Math.max(-IN_VIEW_PITCH_DEG.down * DEG, pitch));
+/**
+ * The same with the wider side each way, (1 + |P[8]|) / P[0] and (1 + |P[9]|) / P[5]: for a headset's left eye, about
+ * the view of both eyes together (whether anything of the box can still be seen). PHONE_VIEW's where the matrix gives
+ * none. Into `out`.
+ */
+export function wideViewOf(e: ArrayLike<number> | null | undefined, out: ViewTangents): ViewTangents {
+  const sx = e ? e[0]! : Number.NaN, sy = e ? e[5]! : Number.NaN, ox = e ? e[8]! : 0, oy = e ? e[9]! : 0;
+  const h = (1 + Math.abs(ox)) / sx, v = (1 + Math.abs(oy)) / sy;
+  out.tanH = h > 0 && Number.isFinite(h) ? h : PHONE_VIEW.tanH;
+  out.tanV = v > 0 && Number.isFinite(v) ? v : PHONE_VIEW.tanV;
+  return out;
+}
 
 /**
  * How far along a phone camera's view (m) the box's middle must stand for the whole box (BOX_EXTENT: plinth and
@@ -173,10 +205,12 @@ export function inViewOffsets(pitch: number, sizeM: number, distanceM: number, t
   };
 }
 
-/** The back panel's centre (world) and the box's heading, for what lays itself out around the box. */
+/** The back panel's centre (world), the box's heading and its lean, for what lays itself out around the box. */
 export interface BoxPose {
   position: Vec3;
   yaw: number;
+  /** How far it leans back (degrees): TILT_DEG in the lap, a phone's lean in its view (phoneLean). */
+  tiltDeg: number;
 }
 
 export interface HeadPose {
@@ -202,8 +236,10 @@ export class Placement {
   private belowM = BOX_BELOW_HEAD_M;
   /** Placed in a phone's view: how far its middle stands along the camera's view (m); NaN for the lap. */
   inViewM = Number.NaN;
+  /** How far the box leans back (degrees): TILT_DEG in the lap, phoneLean in a phone's view. */
+  tiltDeg = TILT_DEG;
   private readonly m = new Matrix4();
-  private readonly current: BoxPose = { position: [0, 0, 0], yaw: 0 };
+  private readonly current: BoxPose = { position: [0, 0, 0], yaw: 0, tiltDeg: TILT_DEG };
 
   constructor() {
     this.apply();
@@ -231,6 +267,7 @@ export class Placement {
     this.forwardM = BOX_FORWARD_M;
     this.belowM = BOX_BELOW_HEAD_M;
     this.inViewM = Number.NaN;
+    this.tiltDeg = TILT_DEG;
     this.source = "head";
     this.apply();
   }
@@ -238,11 +275,13 @@ export class Placement {
   /**
    * Place the box in a phone's view (session start, Recenter): its middle along the camera's view, `pitch` radians up
    * or down, as far as the whole box needs to show in a view with half-angle tangents `view` (the camera's own
-   * projection; inViewDistance), upright and facing it. A size change after keeps the panel where it is, as for the lap.
+   * projection; inViewDistance), facing it and leaning so the camera sees it from the seated eye's angle (phoneLean). A
+   * size change after keeps the panel where it is, as for the lap.
    */
   startInView(head: HeadPose, pitch: number, view: ViewTangents = PHONE_VIEW): void {
-    this.inViewM = inViewDistance(pitch, this.sizeM, view);
-    const o = inViewOffsets(pitch, this.sizeM, this.inViewM);
+    this.tiltDeg = phoneLean(pitch);
+    this.inViewM = inViewDistance(pitch, this.sizeM, view, this.tiltDeg);
+    const o = inViewOffsets(pitch, this.sizeM, this.inViewM, this.tiltDeg);
     this.eye.pos.set(head.position[0], head.position[1], head.position[2]);
     this.eye.yaw = head.yaw;
     this.forwardM = o.forwardM;
@@ -259,13 +298,82 @@ export class Placement {
   }
 
   private apply(): void {
-    placeBox(this.eye, this.sizeCm, TILT_DEG, this.m, this.forwardM, this.belowM);
+    placeBox(this.eye, this.sizeCm, this.tiltDeg, this.m, this.forwardM, this.belowM);
     const e = this.m.elements;
     this.current.position[0] = e[12]!;
     this.current.position[1] = e[13]!;
     this.current.position[2] = e[14]!;
     this.current.yaw = this.eye.yaw;
+    this.current.tiltDeg = this.tiltDeg;
     this.version++;
+  }
+}
+
+/**
+ * The steady pose a placement waits for: the head (a phone's camera) turning under `turnDegPerS` for `stillMs`, looking
+ * between `pitchDeg.down` below the horizon and `pitchDeg.up` above it; a first placement goes ahead after `capMs`
+ * anyway. The turn rate is smoothed over about `smoothMs`, so one jittery frame does not restart the wait.
+ */
+export const STEADY = { turnDegPerS: 30, stillMs: 400, capMs: 2500, pitchDeg: { down: 60, up: 20 }, smoothMs: 100 } as const;
+
+/**
+ * Whether the head (or a phone's camera) is held still in a looking pose, fed its forward each frame. A box placed from
+ * the first tracked frame stays wherever the head or phone happened to point as the session started (a phone still
+ * turning as AR starts, a head turned away): the first placement waits for `ready`, a phone's re-place for `steady`.
+ * Allocation free.
+ */
+export class PlaceGate {
+  private firstMs = Number.NaN;
+  private lastMs = Number.NaN;
+  private stillSince = Number.NaN;
+  /** The smoothed turn rate (degrees a second). */
+  private rate = 0;
+  private looking = false;
+  private fx = 0;
+  private fy = 0;
+  private fz = -1;
+
+  /** Start over (a new session). */
+  reset(): void {
+    this.firstMs = this.lastMs = this.stillSince = Number.NaN;
+    this.rate = 0;
+    this.looking = false;
+  }
+
+  /**
+   * This frame's forward `f` (a unit vector, world, y up) at `nowMs`; feed only tracked frames. One vector, not three
+   * numbers: a float passed to a call the engine does not inline is boxed, every frame.
+   */
+  update(nowMs: number, f: Readonly<{ x: number; y: number; z: number }>): void {
+    const fx = f.x, fy = f.y, fz = f.z;
+    const pitch = Math.asin(Math.max(-1, Math.min(1, fy))) / DEG;
+    this.looking = pitch >= -STEADY.pitchDeg.down && pitch <= STEADY.pitchDeg.up;
+    if (this.firstMs !== this.firstMs) {
+      this.firstMs = this.stillSince = nowMs;
+      this.rate = 0;
+    } else {
+      const dt = nowMs - this.lastMs;
+      if (dt > 0) {
+        const cx = this.fy * fz - this.fz * fy, cy = this.fz * fx - this.fx * fz, cz = this.fx * fy - this.fy * fx;
+        const turn = Math.atan2(Math.sqrt(cx * cx + cy * cy + cz * cz), this.fx * fx + this.fy * fy + this.fz * fz) / DEG;
+        this.rate += ((turn * 1000) / dt - this.rate) * (1 - Math.exp(-dt / STEADY.smoothMs));
+      }
+    }
+    if (!this.looking || this.rate > STEADY.turnDegPerS) this.stillSince = nowMs;
+    this.fx = fx;
+    this.fy = fy;
+    this.fz = fz;
+    this.lastMs = nowMs;
+  }
+
+  /** Held still for STEADY.stillMs in a looking pose (as of the last frame fed). */
+  get steady(): boolean {
+    return this.looking && this.lastMs - this.stillSince >= STEADY.stillMs;
+  }
+
+  /** Steady, or fed for STEADY.capMs already: a first placement goes ahead. */
+  get ready(): boolean {
+    return this.steady || this.lastMs - this.firstMs >= STEADY.capMs;
   }
 }
 

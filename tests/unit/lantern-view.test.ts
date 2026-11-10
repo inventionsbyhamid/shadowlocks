@@ -15,7 +15,7 @@ import {
   type SpriteMaterial,
   Vector3,
 } from "@iwsdk/core";
-import { LanternView } from "../../src/render/lantern-view";
+import { LanternView, SEE_THROUGH } from "../../src/render/lantern-view";
 import { LANTERN_GLOW } from "../../src/render/theme";
 
 const named = (v: LanternView, name: string): Object3D => v.group.getObjectByName(name)!;
@@ -155,6 +155,75 @@ describe("LanternView", () => {
     lantern.update(10);
     expect(visibleLights(root)[0]!.intensity).toBeCloseTo(intensity, 9);
     expect(drawn(root)).toEqual(["Lantern Body", "Lantern Glow"]);
+  });
+
+  it("see-through: the body dithers and the glow shrinks to a small flame; the light, its place and the two draw calls stay", () => {
+    const root = new Group();
+    const v = new LanternView(mats());
+    root.add(v.group);
+    v.setBoxSize(0.24);
+    v.setPos([0.1, -0.3, 1.3]);
+    const body = named(v, "Lantern Body") as Mesh, glow = named(v, "Lantern Glow") as unknown as { scale: Vector3; material: SpriteMaterial };
+    const m = body.material as MeshStandardMaterial;
+    const compiled = () => {
+      const shader = { uniforms: {} as Record<string, unknown>, vertexShader: ShaderLib.standard.vertexShader, fragmentShader: ShaderLib.standard.fragmentShader };
+      m.onBeforeCompile(shader as never, undefined as never);
+      return shader;
+    };
+    // A headset's body: no dither in its program at all (nothing changes for it), whatever is asked.
+    v.setSeeThrough(1);
+    v.update(1);
+    expect(v.seeThrough).toBe(0);
+    expect(compiled().fragmentShader).not.toContain("discard");
+    expect(m.customProgramCacheKey()).toBe("sl-lantern-body");
+    // A phone's: the dither compiled in (a program of its own), off until asked.
+    const version = m.version;
+    v.allowSeeThrough();
+    expect(m.version).toBeGreaterThan(version);
+    expect(m.customProgramCacheKey()).toBe("sl-lantern-body-see");
+    const s = compiled();
+    expect(s.fragmentShader).toContain("uniform float uSee;");
+    expect(s.fragmentShader).toMatch(/if \( slDither\( gl_FragCoord\.xy \) < uSee \* [0-9.]+ \) discard;/);
+    // Right at the start of main: nothing is shaded for a pixel it throws away.
+    expect(s.fragmentShader.indexOf("discard;")).toBeLessThan(s.fragmentShader.indexOf("#include <color_fragment>"));
+    const uSee = (s.uniforms as { uSee: { value: number } }).uSee;
+    v.setSeeThrough(0);
+    v.update(1);
+    expect(uSee.value).toBe(0);
+    // About two thirds of the pixels go at full: the ordered dither's thresholds below the cut.
+    expect(SEE_THROUGH.discard).toBeCloseTo(2 / 3, 1);
+    const rest = glow.scale.x, restOpacity = glow.material.opacity, light = v.light.intensity;
+    // Eased in over about 150 ms.
+    v.setSeeThrough(1);
+    v.update(0.05);
+    expect(uSee.value).toBeGreaterThan(0.2);
+    expect(uSee.value).toBeLessThan(0.5);
+    v.update(0.2);
+    expect(uSee.value).toBe(1);
+    expect(v.seeThrough).toBe(1);
+    // The glow a small flame (0.5 across to about 0.15), dimmer; the light, its place and the draw calls as they were.
+    expect(glow.scale.x).toBeCloseTo(rest * SEE_THROUGH.glow, 9);
+    expect(glow.scale.x).toBeLessThan(0.16);
+    expect(glow.material.opacity).toBeLessThan(restOpacity);
+    expect(v.light.intensity).toBe(light);
+    expect(v.getPos([0, 0, 0])).toEqual([0.1, -0.3, 1.3]);
+    expect(drawn(root)).toEqual(["Lantern Body", "Lantern Glow"]);
+    // A settle ripple while see-through: the sprite still holds the ring.
+    v.ripple();
+    let widest = 0;
+    for (let t = 0; t < LANTERN_GLOW.rippleS; t += 1 / 72) {
+      v.update(1 / 72);
+      widest = Math.max(widest, glow.scale.x);
+    }
+    expect(widest).toBeGreaterThanOrEqual(2 * LANTERN_GLOW.rippleRadius * 0.99);
+    v.update(1);
+    expect(glow.scale.x).toBeCloseTo(rest * SEE_THROUGH.glow, 9);
+    // Let go: solid again, the glow as it was.
+    v.setSeeThrough(0);
+    v.update(1);
+    expect(uSee.value).toBe(0);
+    expect(glow.scale.x).toBeCloseTo(rest, 9);
+    expect(glow.material.opacity).toBeCloseTo(restOpacity, 9);
   });
 
   it("put away and quiet are independent: either hides the glow, only put away hides the body, the light stays", () => {

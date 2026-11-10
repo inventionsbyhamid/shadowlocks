@@ -24,6 +24,8 @@ import {
   TOUCH_POKE,
 } from "../../src/input/touch";
 import { DRAWER, HANDLE, HANDLE_AT } from "../../src/render/drawer";
+import { ENVELOPE } from "../../src/core/envelope";
+import { LESSON_1, LESSON_2 } from "../../src/core/lessons-data";
 import {
   BOX_EXTENT,
   boxToWorld,
@@ -31,10 +33,14 @@ import {
   IN_VIEW_PITCH_DEG,
   IN_VIEW_RANGE_M,
   inViewDistance,
+  PHONE_LEAN_DEG,
   PHONE_VIEW,
+  phoneLean,
   Placement,
   placeBox,
   pitchFromQuaternion,
+  TILT_DEG,
+  VIEW_ELEVATION_DEG,
   viewOf,
   worldToBox,
 } from "../../src/render/placement";
@@ -131,14 +137,27 @@ const RIG = { matrixWorld: new Matrix4() };
 function bench(box: Box | null = null, lanternAt: V3 = [0.1, 0.05, 1.3], mode = "screen-space", sizeCm = 24) {
   const lantern = { ctrl: { pos: lanternAt }, grab: { holder: null as "left" | "right" | null }, frozen: false, away: false };
   const m = sizeCm === 24 ? BOX : placeBox({ pos: EYE.clone(), yaw: 0 }, sizeCm);
-  const scene = { root: { matrixWorld: m }, box, size: sizeCm / 100 };
+  /** The lantern's look: see-through asked (and how often), the see-through program asked for. */
+  const view = {
+    see: 0,
+    calls: 0,
+    allowed: false,
+    setSeeThrough(k: number) {
+      this.see = k;
+      this.calls++;
+    },
+    allowSeeThrough() {
+      this.allowed = true;
+    },
+  };
+  const scene = { root: { matrixWorld: m, visible: true }, box, size: sizeCm / 100, lantern: view };
   const t = new Touches({ scene, lantern } as unknown as TouchDeps);
   const phone = new FakePhone(mode);
   const step = () => t.update(phone.frame, REF, RIG, EYE);
   step();
   /** A box point (box units) in the world, for this bench's box size. */
   const toWorld = (v: V3) => boxToWorld(m, v, new Vector3());
-  return { t, phone, step, lantern, toWorld };
+  return { t, phone, step, lantern, toWorld, view, scene };
 }
 
 const newHand = (): HandPinch => ({
@@ -214,6 +233,33 @@ describe("telling a phone's session", () => {
     expect(t.roles()).toEqual([]);
     expect(t.virtualHand(TOUCH_SIDE, newHand())).toBe(false);
     expect(phone.listening("selectstart")).toBe(0);
+  });
+
+  it("decides no touch while the box waits, hidden, for its first placement; once it shows, the touch is decided", () => {
+    const { t, phone, step, scene } = bench();
+    scene.root.visible = false;
+    phone.touch(w([0.1, 0.05, 1.3]));
+    step();
+    step();
+    expect(t.roles()).toEqual([null]);
+    expect(t.busy).toBe(true);
+    scene.root.visible = true;
+    step();
+    expect(t.roles()).toEqual(["lantern"]);
+  });
+
+  it("is busy while a touch is down or the lantern is held, so the box is never placed again under a finger", () => {
+    const { t, phone, step, lantern } = bench(null, [0.35, 0.35, 1.3]);
+    expect(t.busy).toBe(false);
+    const src = phone.touch(w([-0.2, -0.1, 0.4]));
+    step();
+    expect(t.busy).toBe(true);
+    phone.lift(src);
+    step();
+    step();
+    expect(t.busy).toBe(false);
+    lantern.grab.holder = "right";
+    expect(t.busy).toBe(true);
   });
 });
 
@@ -609,7 +655,7 @@ describe("a touch on a key pokes it", () => {
 });
 
 describe("the box in a phone's view", () => {
-  it("stands its middle along the camera's view, upright and facing it, whatever the camera's pitch", () => {
+  it("stands its middle along the camera's view, facing it, whatever the camera's pitch", () => {
     const p = new Placement();
     for (const pitchDeg of [0, -20, -45, 5]) {
       const pitch = pitchDeg * DEG, yaw = 0.7;
@@ -704,7 +750,120 @@ describe("the box in a phone's view", () => {
     p.startInView({ position: [0, 1.2, 0], yaw: 0 }, -0.3);
     p.start({ position: [0, 1.2, 0], yaw: 0 });
     expect(p.source).toBe("head");
+    expect(p.tiltDeg).toBe(TILT_DEG);
+    expect(p.pose().tiltDeg).toBe(TILT_DEG);
     expect((p.matrix() as Matrix4).equals(placeBox({ pos: EYE.clone(), yaw: 0 }, 24))).toBe(true);
+  });
+
+  it("leans the box so the phone sees it from the seated eye's angle: 20 degrees above its axis from 60 down to level", () => {
+    expect(VIEW_ELEVATION_DEG).toBe(20);
+    expect(PHONE_LEAN_DEG).toEqual({ min: -20, max: 40 });
+    // Pointed 30 degrees down: the lap's 10; level: its top leans 20 toward the phone; 45 down: back 25.
+    expect(phoneLean(-30 * DEG)).toBeCloseTo(10, 9);
+    expect(phoneLean(0)).toBeCloseTo(-20, 9);
+    expect(phoneLean(-45 * DEG)).toBeCloseTo(25, 9);
+    expect(phoneLean(-60 * DEG)).toBeCloseTo(40, 9);
+    // Past the limits it stops.
+    expect(phoneLean(-85 * DEG)).toBeCloseTo(40, 9);
+    expect(phoneLean(10 * DEG)).toBe(-20);
+    const head = new Vector3(0.1, 1.25, -0.3);
+    for (const pitchDeg of [-60, -45, -30, -15, 0]) {
+      const p = new Placement();
+      p.startInView({ position: [head.x, head.y, head.z], yaw: 0.6 }, pitchDeg * DEG);
+      expect(p.tiltDeg).toBeCloseTo(phoneLean(pitchDeg * DEG), 9);
+      expect(p.pose().tiltDeg).toBe(p.tiltDeg);
+      // The camera, in box units, seen from the box's middle: 20 degrees above the box's own axis.
+      const c = worldToBox(p.matrix() as Matrix4, head, [0, 0, 0]);
+      expect(Math.abs(c[0])).toBeLessThan(1e-9);
+      expect((Math.atan2(c[1], c[2] - 0.5) / DEG), `pitch ${pitchDeg}`).toBeCloseTo(VIEW_ELEVATION_DEG, 9);
+    }
+  });
+
+  it("sees the box from the seated eye's angle at any pitch: no lantern spot stands in front of the panel", () => {
+    // The lantern's drawn shape round its light (box units): the foot's rim 0.058 out and 0.087 down, the ring's top
+    // 0.174 up.
+    const shape: V3[] = [];
+    for (const x of [-0.058, 0.058]) for (const y of [-0.087, 0.174]) for (const z of [-0.058, 0.058]) shape.push([x, y, z]);
+    // Lesson 1's and 2's spots, the start, and a 7 x 5 x 4 grid over the whole envelope (and its mirror: x both ways).
+    const E = ENVELOPE, spots: V3[] = [...LESSON_1.locks.map((l) => l.L), ...LESSON_2.locks.map((l) => l.L), [...E.START]];
+    for (let i = 0; i < 7; i++) {
+      for (let j = 0; j < 5; j++) {
+        for (let k = 0; k < 4; k++) {
+          spots.push([-E.LX_MAX + (2 * E.LX_MAX * i) / 6, E.LY[0] + ((E.LY[1] - E.LY[0]) * j) / 4, E.LZ[0] + ((E.LZ[1] - E.LZ[0]) * k) / 3]);
+        }
+      }
+    }
+    const short = Math.tan(16.5 * DEG), long = Math.tan(33 * DEG);
+    const views = { square: PHONE_VIEW, portrait: { tanH: short, tanV: long }, landscape: { tanH: long, tanV: short } };
+    const head = new Vector3(0.1, 1.25, -0.3);
+    let highest = -Infinity, worst = "";
+    for (const [name, view] of Object.entries(views)) {
+      for (const cm of [18, 24, 30]) {
+        for (let pitchDeg = -60; pitchDeg <= 0; pitchDeg += 5) {
+          const p = new Placement();
+          p.setSize(cm);
+          p.startInView({ position: [head.x, head.y, head.z], yaw: -0.4 }, pitchDeg * DEG, view);
+          const c = worldToBox(p.matrix() as Matrix4, head, [0, 0, 0]);
+          for (const s of spots) {
+            for (const d of shape) {
+              const q: V3 = [s[0] + d[0], s[1] + d[1], s[2] + d[2]];
+              // Between the camera and the panel; seen from the camera, where it falls on the panel's plane.
+              expect(c[2]).toBeGreaterThan(q[2]);
+              const t = c[2] / (c[2] - q[2]), y = c[1] + (q[1] - c[1]) * t;
+              if (y > highest) {
+                highest = y;
+                worst = `${name} ${cm} cm pitch ${pitchDeg}, spot ${s.join(", ")}`;
+              }
+            }
+          }
+        }
+      }
+    }
+    console.log(`phone view: the lantern's highest point falls at y ${highest.toFixed(3)} on the panel's plane (${worst})`);
+    // Below the panel's lower edge (y -0.5) everywhere: the lantern never stands in front of the panel.
+    expect(highest, worst).toBeLessThan(-0.5);
+  });
+
+  it("a phone's held lantern turns see-through, and back once let go; a headset's never does", () => {
+    // At rest below the panel as the camera sees it: solid.
+    const { t, phone, step, view, lantern } = bench(null, [0.1, -0.35, 1.3]);
+    expect(t.phone).toBe(true);
+    expect(view.allowed).toBe(true);
+    expect(view.see).toBe(0);
+    const src = phone.touch(w([0.1, -0.35, 1.3]));
+    step();
+    expect(t.roles()).toEqual(["lantern"]);
+    expect(view.see).toBe(1);
+    // Held for a while: asked once, not every frame.
+    const calls = view.calls;
+    step();
+    step();
+    expect(view.calls).toBe(calls);
+    phone.lift(src);
+    step();
+    expect(view.see).toBe(0);
+    // Not held, but its light seen in front of the panel (the phone moved after the box was placed): see-through too.
+    lantern.ctrl.pos[1] = 0.2;
+    step();
+    expect(view.see).toBe(1);
+    lantern.ctrl.pos[1] = -0.35;
+    step();
+    expect(view.see).toBe(0);
+    // A headset: never, held or in front of the panel, and its program is never asked for the see-through.
+    const hs = bench(null, [0, 0.2, 1.3], "world-space");
+    hs.phone.trackedPointer();
+    for (let i = 0; i < 3; i++) hs.step();
+    expect(hs.t.phone).toBe(false);
+    hs.lantern.grab.holder = "right";
+    hs.step();
+    expect(hs.view.calls).toBe(0);
+    expect(hs.view.allowed).toBe(false);
+    // A session that showed itself a headset's after all (a controller appeared) goes solid again.
+    const mixed = bench(null, [0, 0.2, 1.3]);
+    expect(mixed.view.see).toBe(1);
+    mixed.phone.trackedPointer();
+    mixed.step();
+    expect(mixed.view.see).toBe(0);
   });
 });
 

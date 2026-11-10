@@ -5,9 +5,10 @@
 // game's own: the box placed in the camera's view, the lantern dragged with its shadows moving, the drawer tapped
 // open, a menu key tapped, a finger cast in the light. The owner's phone check covers the real touch input sources.
 import type { Page } from "@playwright/test";
-import type { Vec3 } from "../../src/core/types";
-import { add, dist, lantern, shadows, sub, toWorld, unit } from "./helpers/lantern";
-import { relaxIwer } from "./helpers/page-scripts";
+import { LESSON_1 } from "../../src/core/lessons-data";
+import type { V3, Vec3 } from "../../src/core/types";
+import { add, dist, lantern, type P3, shadows, sub, toWorld, unit } from "./helpers/lantern";
+import { relaxIwer, setHeadset, type XYZ } from "./helpers/page-scripts";
 import { type BootFn, expect, test } from "./helpers/test";
 import type { XrApp } from "./helpers/xr-app";
 
@@ -17,16 +18,41 @@ import type { XrApp } from "./helpers/xr-app";
  */
 const BOX_EXTENT = { x: 0.56, up: 0.56, down: 0.65, back: 0.56, front: 0.59 };
 
-/** Holding a phone at the chest, pointed down at a table in front. */
-const PHONE = { position: { x: 0, y: 1.25, z: -1.4 }, lookAt: { x: 0, y: 0.95, z: -1.95 } };
+type HeadPose = { position: XYZ; lookAt: XYZ };
+
+/** Holding a phone at the chest, pointed down at a table in front (29 degrees down). */
+const PHONE: HeadPose = { position: { x: 0, y: 1.25, z: -1.4 }, lookAt: { x: 0, y: 0.95, z: -1.95 } };
+/** Holding a phone level at the chest: the pose that put the lantern in front of the panel. */
+const PHONE_LEVEL: HeadPose = { position: { x: 0, y: 1.25, z: -1.4 }, lookAt: { x: 0, y: 1.25, z: -1.95 } };
 
 /**
- * Boot into XR as a phone: the session's interaction mode set to screen-space before it is accepted (unless
- * `screenSpace` is false: a browser that does not say so), and no controllers from the start (a session that ever
- * lists a hand or a controller is a headset's).
+ * Far enough round that no part of the box is left in view: IWER's emulated view is wide (90 degrees up and down, about
+ * 120 across in the 16:9 page), and at its 0.4 m the box's sphere spans 37 degrees each way, so a quarter turn still
+ * shows its edge.
  */
-async function bootPhone(boot: BootFn, page: Page, screenSpace = true): Promise<XrApp> {
-  const app = await boot({ enterXR: false, head: PHONE });
+const AWAY_DEG = 135;
+
+/** `p` turned `deg` to the left about the up axis, in the same place. */
+function turnedLeft(p: HeadPose, deg: number): HeadPose {
+  const a = (deg * Math.PI) / 180, dx = p.lookAt.x - p.position.x, dz = p.lookAt.z - p.position.z;
+  return { position: p.position, lookAt: { x: p.position.x + dx * Math.cos(a) + dz * Math.sin(a), y: p.lookAt.y, z: p.position.z - dx * Math.sin(a) + dz * Math.cos(a) } };
+}
+
+const along = (p: HeadPose): Vec3 => unit([p.lookAt.x - p.position.x, p.lookAt.y - p.position.y, p.lookAt.z - p.position.z]);
+
+/** A world point in box units, through the box root's matrix (a turn and one uniform scale). */
+function boxUnits(m: number[], p: P3): Vec3 {
+  const d = [p[0] - m[12]!, p[1] - m[13]!, p[2] - m[14]!], s2 = m[0]! * m[0]! + m[1]! * m[1]! + m[2]! * m[2]!;
+  return [0, 4, 8].map((c) => (m[c]! * d[0]! + m[c + 1]! * d[1]! + m[c + 2]! * d[2]!) / s2) as Vec3;
+}
+
+/**
+ * Start XR as a phone: the session's interaction mode set to screen-space before it is accepted (unless `screenSpace`
+ * is false: a browser that does not say so), and no controllers from the start (a session that ever lists a hand or a
+ * controller is a headset's). Returns once the session presents, before the box is placed.
+ */
+async function startPhone(boot: BootFn, page: Page, screenSpace = true, head: HeadPose = PHONE): Promise<XrApp> {
+  const app = await boot({ enterXR: false, head });
   await page.evaluate((screen) => {
     const d = (window as any).IWER_DEVICE;
     d.controllers.left.connected = false;
@@ -40,6 +66,12 @@ async function bootPhone(boot: BootFn, page: Page, screenSpace = true): Promise<
   await app.command("accept_session");
   await app.stepUntil((ns) => ns.state().xr.presenting, { maxMs: 5_000, label: "XR presenting" });
   await page.evaluate(relaxIwer);
+  return app;
+}
+
+/** Boot into XR as a phone (startPhone), held still at `head` until the box is placed. */
+async function bootPhone(boot: BootFn, page: Page, screenSpace = true, head: HeadPose = PHONE): Promise<XrApp> {
+  const app = await startPhone(boot, page, screenSpace, head);
   await app.stepUntil(
     (ns) => {
       const st = ns.state();
@@ -246,4 +278,153 @@ test("on a phone a touch on the box puts a finger in the light, its shadow under
   await touch(page, []);
   await app.step(3);
   expect((await page.evaluate(() => window.__sl!.hands())).finger.length).toBe(0);
+});
+
+/** Where box points (box units) are drawn through the XR camera: normalised device x and y each (the first view). */
+const ndcOf = (page: Page, pts: V3[]) =>
+  page.evaluate((P) => {
+    const w = window.__ns!.world as any;
+    const cam = w.renderer.xr.getCamera().cameras[0];
+    const root = w.scene.getObjectByName("Box");
+    const V = root.position.constructor;
+    return P.map((p) => {
+      const v = new V(p[0], p[1], p[2]).applyMatrix4(root.matrixWorld).project(cam);
+      return [v.x, v.y] as [number, number];
+    });
+  }, pts);
+
+/** The lantern's drawn shape round its light (box units): the foot's rim 0.058 out and 0.087 down, the ring's top 0.174 up. */
+function lanternCorners(L: P3): V3[] {
+  const out: V3[] = [];
+  for (const x of [-0.058, 0.058]) for (const y of [-0.087, 0.174]) for (const z of [-0.058, 0.058]) out.push([L[0] + x, L[1] + y, L[2] + z]);
+  return out;
+}
+
+/** Box `n` played through the box session (its clock, its locks), the menus away. */
+async function playBox(app: XrApp, page: Page, n: number) {
+  await page.evaluate(() => window.__ns!.ui.go("play"));
+  await app.stepUntil((ns) => !ns.ui.busy(), { maxMs: 3_000, label: "menus away" });
+  await page.evaluate((k) => window.__sl!.session.play({ kind: "box", n: k }), n);
+  await app.stepUntil(
+    (_ns, w) => {
+      const s = w.__sl.session.state();
+      return s?.stage === "playing" && s.revealed;
+    },
+    { maxMs: 10_000, label: `box ${n} in play` },
+  );
+  return (await page.evaluate(() => window.__sl!.session.state()))!;
+}
+
+test("on a phone held level the lantern at each of lesson 1's spots is drawn below the panel", async ({ page, boot }) => {
+  const app = await bootPhone(boot, page, true, PHONE_LEVEL);
+  const st = await app.state();
+  expect(st.boxPose.source).toBe("view");
+  // Held level, the box leans 20 degrees toward the phone: seen from 20 degrees above its axis, as a seated eye sees it.
+  expect(st.boxPose.tiltDeg).toBeCloseTo(-20, 1);
+  // The menus keep the lap's angle to the box: Home stands in front of the box's mouth (box z > 1), top and bottom.
+  await app.stepUntil((ns) => !ns.ui.busy(), { maxMs: 3_000, label: "Home at rest" });
+  const home = (await page.evaluate(() => window.__ns!.ui.panelBox("home")))!;
+  const m = await page.evaluate(() => window.__ns!.scene.matrix());
+  const top = boxUnits(m, add(home.center, home.up, home.height / 2)), bottom = boxUnits(m, add(home.center, home.up, -home.height / 2));
+  console.log(`phone held level: Home's top at box z ${top[2].toFixed(3)} (y ${top[1].toFixed(3)}), its bottom at z ${bottom[2].toFixed(3)}`);
+  expect(top[2], "Home's top in front of the box mouth").toBeGreaterThan(1);
+  expect(bottom[2], "Home's bottom in front of the box mouth").toBeGreaterThan(1);
+
+  await showBox(app, page, 1);
+  // The panel's lower edge as drawn.
+  const [bl, br] = await ndcOf(page, [[-0.5, -0.5, 0], [0.5, -0.5, 0]]);
+  const panelBottom = Math.min(bl![1], br![1]);
+  for (const l of LESSON_1.locks) {
+    await page.evaluate((L) => window.__sl!.placeLantern(L), [l.L[0], l.L[1], l.L[2]] as V3);
+    await app.step(2);
+    const at = (await lantern(page)).pos;
+    expect(dist(at, l.L)).toBeLessThan(1e-6);
+    const top = Math.max(...(await ndcOf(page, lanternCorners(at))).map((p) => p[1]));
+    console.log(`phone held level, lesson 1 lock ${l.i}: the lantern's top drawn at ${top.toFixed(3)}, the panel's lower edge at ${panelBottom.toFixed(3)}`);
+    expect(top, `lock ${l.i}'s spot: the lantern below the panel`).toBeLessThan(panelBottom);
+  }
+});
+
+test("on a phone a held lantern is drawn see-through, and solid again once let go", async ({ page, boot }) => {
+  const app = await bootPhone(boot, page);
+  await showBox(app, page, 1);
+  // At its start, below the panel as the camera sees it: solid.
+  expect((await lantern(page)).see).toBe(0);
+  const start = await toWorld(page, (await lantern(page)).pos);
+  await touch(page, [{ id: 1, at: start }]);
+  await app.step(20);
+  expect(await lantern(page)).toMatchObject({ held: true, see: 1 });
+  await touch(page, []);
+  await app.step(20);
+  expect(await lantern(page)).toMatchObject({ held: false, see: 0 });
+});
+
+test("on a phone the box first appears where the phone points once it is held still", async ({ page, boot }) => {
+  // AR starts with the phone pointed 80 degrees to the left, then it swings round to the table in front.
+  const app = await startPhone(boot, page, true, turnedLeft(PHONE, 80));
+  for (let deg = 70; deg >= 0; deg -= 10) {
+    await page.evaluate(setHeadset, turnedLeft(PHONE, deg));
+    await app.step(3);
+    const st = await app.state();
+    expect(st.boxPose.source, `${deg} degrees left: not placed while it turns`).toBe("default");
+    expect(st.box.visible, `${deg} degrees left: hidden until placed`).toBe(false);
+  }
+  const still = await app.now();
+  await app.stepUntil((ns) => ns.state().boxPose.source !== "default", { maxMs: 3_000, label: "the box placed" });
+  // Placed once held still for 0.4 s, where the phone points now; and shown.
+  expect((await app.now()) - still).toBeGreaterThanOrEqual(400);
+  const st = await app.state();
+  expect(st.boxPose.source).toBe("view");
+  expect(st.box.visible).toBe(true);
+  const h = await head(page);
+  const mid = await toWorld(page, [0, 0, 0.5]);
+  expect(dist(unit(sub(mid, h)), along(PHONE))).toBeLessThan(0.02);
+});
+
+test("on a phone a box out of view comes back in front, the lantern and open locks unchanged", async ({ page, boot }) => {
+  const app = await bootPhone(boot, page);
+  const s = await playBox(app, page, 2);
+  const plain = s.locks.filter((l) => !l.finger);
+  expect(s.locks.length, "box 2 keeps a lock closed after the first opens").toBeGreaterThanOrEqual(2);
+  await page.evaluate((L) => window.__sl!.placeLantern(L), plain[0]!.spot);
+  await app.stepUntil((_ns, w, i) => w.__sl.session.state().open.includes(i), { arg: plain[0]!.i, maxMs: 2_000, batch: 1, label: "lock open" });
+  const before = { pose: (await app.state()).boxPose, lantern: (await lantern(page)).pos, open: (await page.evaluate(() => window.__sl!.session.state()))!.open };
+  // The phone turned well round to the left (AWAY_DEG) and held there.
+  const away = turnedLeft(PHONE, AWAY_DEG);
+  await page.evaluate(setHeadset, away);
+  await app.step(2);
+  const turnedAt = await app.now();
+  expect((await page.evaluate(() => window.__sl!.summon())).lostMs).toBeGreaterThan(0);
+  await app.stepUntil((ns, _w, y) => Math.abs(ns.state().boxPose.yaw - y) > 0.5, { arg: before.pose.yaw, maxMs: 3_000, label: "the box placed again" });
+  const waited = (await app.now()) - turnedAt;
+  console.log(`phone turned away: the box came back after ${waited.toFixed(0)} ms`);
+  expect(waited).toBeGreaterThanOrEqual(2000);
+  // In front again, along the new view; nothing in the box changed.
+  const h = await head(page);
+  const mid = await toWorld(page, [0, 0, 0.5]);
+  expect(dist(unit(sub(mid, h)), along(away))).toBeLessThan(0.02);
+  expect(dist((await lantern(page)).pos, before.lantern)).toBeLessThan(1e-9);
+  expect((await page.evaluate(() => window.__sl!.session.state()))!.open).toEqual(before.open);
+  expect(app.consoleLines.filter((l) => l.includes("box out of view: placed again"))).toHaveLength(1);
+  // A headset's arrow never shows on a phone.
+  expect((await page.evaluate(() => window.__sl!.summon())).arrow).toBeNull();
+});
+
+test("on a phone the box never moves while the lantern is held", async ({ page, boot }) => {
+  const app = await bootPhone(boot, page);
+  await showBox(app, page, 1);
+  const pose = (await app.state()).boxPose;
+  const start = await toWorld(page, (await lantern(page)).pos);
+  await touch(page, [{ id: 1, at: start }]);
+  await app.step(3);
+  expect(await lantern(page)).toMatchObject({ held: true });
+  // Turned away for 3 s, the finger still on the lantern: the box stays where it is.
+  await page.evaluate(setHeadset, turnedLeft(PHONE, AWAY_DEG));
+  const t0 = await app.now();
+  await app.stepUntil((_ns, w, end) => w.__vt.now >= end, { arg: t0 + 3000, maxMs: 4_000, label: "3 s turned away" });
+  expect((await app.state()).boxPose).toEqual(pose);
+  expect((await page.evaluate(() => window.__sl!.summon())).lostMs).toBeGreaterThanOrEqual(2000);
+  // The finger lifts: then it comes back in front.
+  await touch(page, []);
+  await app.stepUntil((ns, _w, y) => Math.abs(ns.state().boxPose.yaw - y) > 0.5, { arg: pose.yaw, maxMs: 1_000, label: "placed again once let go" });
 });

@@ -151,6 +151,29 @@ describe("Placement", () => {
     close(pl.sizeM, 0.18);
   });
 
+  it("placed again in view, the box keeps its size, and a lantern in box units stays in the box", () => {
+    const pl = new Placement();
+    pl.setSize(27);
+    pl.startInView(head(1.3, 0.4, 0.1, -0.2), -30 * DEG);
+    const first = pl.matrix().clone();
+    // The lantern, an open lock's spot and a crystallised piece: all box units.
+    const pts: V3[] = [[0.2, -0.3, 1.35], [-0.12, -0.32, 1.32], [0.1, 0.05, 0.45]];
+    // The phone turned half round and held level: placed again in its new view, and back in the lap (a headset's Recenter).
+    for (const place of [() => pl.startInView(head(1.25, 2.6, 0.3, 0.1), 0), () => pl.start(head(1.2, -1, 0.3, 0.1))]) {
+      place();
+      close(pl.sizeM, 0.27);
+      const m = pl.matrix(), panel = world(m, [0, 0, 0]), was = world(first, [0, 0, 0]);
+      expect(panel.distanceTo(was)).toBeGreaterThan(0.2);
+      for (const p of pts) {
+        const w = world(m, p);
+        // The same numbers put it in the same place in the box, wherever the box is now, at the same size.
+        close(w.distanceTo(panel), world(first, p).distanceTo(was));
+        const back = worldToBox(m, w, [0, 0, 0]);
+        for (let i = 0; i < 3; i++) close(back[i]!, p[i]!);
+      }
+    }
+  });
+
   it("returns the same pose and matrix objects every call", () => {
     const pl = new Placement();
     pl.start(head());

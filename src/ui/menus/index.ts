@@ -9,7 +9,7 @@ import type { ProfileStore } from "../../app/profile-store";
 import { go, type Screen } from "../../app/screens";
 import type { SettingsStore } from "../../app/settings";
 import { DRAWER_PANEL_ANCHOR } from "../../render/drawer";
-import type { BoxPose } from "../../render/placement";
+import { type BoxPose, TILT_DEG } from "../../render/placement";
 import type { Vec3 } from "../../core/types";
 import type { KeyHit } from "../../input/touch";
 import { batch } from "@preact/signals-core";
@@ -40,6 +40,15 @@ export const MENU_SPECS: readonly MenuSpec[] = [HOME, LESSONS, COLLECTION, SETTI
  * that edge (UIKit anchor bottom).
  */
 export const MENU_PLACE = { toward: 0.015, leanRad: (15 * Math.PI) / 180 };
+
+/**
+ * How far a panel leans back from upright (radians) on a box leaning back `tiltDeg`: MENU_PLACE.leanRad on the lap's
+ * box, and the same angle to the box on a phone's leaning one (a box leaning toward the phone would otherwise reach its
+ * mouth over a panel leaning away from it). A headset's is the lap's, exactly.
+ */
+export function panelLean(tiltDeg: number): number {
+  return MENU_PLACE.leanRad + ((tiltDeg - TILT_DEG) * Math.PI) / 180;
+}
 
 /** One UIKit unit is 1 mm (scene scale 0.1, UIKit pixel size 1 cm): 1 mm in the panel's local units. */
 const MM = 1 / 100;
@@ -92,7 +101,9 @@ export class Menus {
   private readonly byScreen = new Map<Screen, LivePanel>();
   private screen: Screen = "boot";
   /** The box pose and matrix panels follow, and whether a move waits for the finger to leave. */
-  private readonly pose: BoxPose = { position: [0, 0, 0], yaw: 0 };
+  private readonly pose: BoxPose = { position: [0, 0, 0], yaw: 0, tiltDeg: TILT_DEG };
+  /** Hidden while a session waits for the box's first placement: nothing draws, nothing takes a finger. */
+  private hidden = false;
   private readonly box = new Vector3();
   private hasPose = false;
   private layoutWaiting = false;
@@ -217,6 +228,7 @@ export class Menus {
     this.pose.position[1] = pose.position[1];
     this.pose.position[2] = pose.position[2];
     this.pose.yaw = pose.yaw;
+    this.pose.tiltDeg = pose.tiltDeg;
     anchor.set(DRAWER_PANEL_ANCHOR[0], DRAWER_PANEL_ANCHOR[1], DRAWER_PANEL_ANCHOR[2]).applyMatrix4(box);
     this.box.copy(anchor);
     this.hasPose = true;
@@ -246,12 +258,24 @@ export class Menus {
     const s = Math.sin(yaw);
     const c = Math.cos(yaw);
     const t = MENU_PLACE.toward;
+    const lean = panelLean(this.pose.tiltDeg);
     for (const p of this.live) {
       const o = p.asset;
       o.position.set(this.box.x + s * t, this.box.y, this.box.z + c * t);
-      o.rotation.set(-MENU_PLACE.leanRad, yaw, 0, "YXZ");
+      o.rotation.set(-lean, yaw, 0, "YXZ");
       o.updateMatrixWorld(true);
     }
+  }
+
+  /**
+   * Hidden (true) while a session waits for the box's first placement, so nothing stands where the head happened to
+   * point; shown again once the box is placed (before the session's prewarm, which compiles what is shown).
+   */
+  setHidden(hidden: boolean): void {
+    if (hidden === this.hidden) return;
+    this.hidden = hidden;
+    for (const p of this.live) this.applyPanel(p);
+    this.drawSlabs();
   }
 
   /** Per frame. Allocation free. */
@@ -260,7 +284,7 @@ export class Menus {
     const reduced = this.deps.settings.get().reducedMotion;
     // Fingertips only matter while the current screen has a panel up.
     const cur = this.byScreen.get(this.screen);
-    const tips = cur && cur.motion.visible ? this.tips.read() : NO_TIPS;
+    const tips = cur && cur.motion.visible && !this.hidden ? this.tips.read() : NO_TIPS;
     for (let i = 0; i < this.live.length; i++) {
       const p = this.live[i] as LivePanel;
       if (!p.motion.visible) continue;
@@ -294,12 +318,12 @@ export class Menus {
   /** A slab under every visible panel, from where UIKit has it now. */
   private drawSlabs(): void {
     let any = false;
-    for (let i = 0; i < this.live.length; i++) if ((this.live[i] as LivePanel).motion.visible) any = true;
+    if (!this.hidden) for (let i = 0; i < this.live.length; i++) if ((this.live[i] as LivePanel).motion.visible) any = true;
     if (!any && !this.slabsShown) return;
     this.slabsShown = any;
     for (let i = 0; i < this.live.length; i++) {
       const p = this.live[i] as LivePanel;
-      this.slabs.draw(p.view.root, p.motion.visible ? p.motion.opacity : 0);
+      this.slabs.draw(p.view.root, p.motion.visible && !this.hidden ? p.motion.opacity : 0);
     }
   }
 
@@ -314,7 +338,7 @@ export class Menus {
    */
   tapHit(o: Readonly<Vec3>, d: Readonly<Vec3>, out: KeyHit): boolean {
     const p = this.byScreen.get(this.screen);
-    if (!p || !p.motion.visible) return false;
+    if (!p || !p.motion.visible || this.hidden) return false;
     let hit = false;
     for (let i = 0; i < p.keys.length; i++) {
       const k = p.keys[i] as KeyView;
@@ -358,14 +382,16 @@ export class Menus {
   }
 
   /** A screen's panel as laid out: world centre and size in metres (tests and screenshots). */
-  panelBox(screen: Screen): { center: [number, number, number]; width: number; height: number } | null {
+  panelBox(screen: Screen): { center: [number, number, number]; width: number; height: number; up: [number, number, number] } | null {
     const p = this.byScreen.get(screen);
     if (!p) return null;
     const e = p.view.root.matrixWorld.elements;
+    const height = Math.hypot(e[4] as number, e[5] as number, e[6] as number);
     return {
       center: [e[12] as number, e[13] as number, e[14] as number],
       width: Math.hypot(e[0] as number, e[1] as number, e[2] as number),
-      height: Math.hypot(e[4] as number, e[5] as number, e[6] as number),
+      height,
+      up: [(e[4] as number) / height, (e[5] as number) / height, (e[6] as number) / height],
     };
   }
 
@@ -422,7 +448,7 @@ export class Menus {
     root.position.y = p.motion.liftMm * MM;
     root.scale.setScalar(p.motion.scale);
     p.view.opacity.value = p.motion.opacity;
-    p.asset.visible = p.motion.visible;
+    p.asset.visible = p.motion.visible && !this.hidden;
   }
 
   /** Give a panel's keys their states: `disabled` ones move but never click; `lit` ones show on. */
