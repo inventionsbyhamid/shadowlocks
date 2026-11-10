@@ -9,11 +9,11 @@
 // looks at the box (Placement.start with the head's pitch), so it lands in the same place whatever the head did then.
 //
 // Once placed, a box out of view (lost-box.ts): a phone's comes back in front by itself after 2 s, held still, with no
-// touch down and the lantern not held ("box out of view: placed again" in the console); a headset's never moves by
-// itself, an arrow at the edge of the view points to it instead (not while the lantern is held), and a pinch or poke on
-// the arrow brings it in front with a short fade (summon.ts), which always ends: the head tracked or not, and called off
-// if the lantern is taken meanwhile. Quest's own recenter (the reference space's reset) and the Settings key place it
-// at once.
+// touch down and the lantern not held, on the frame that is decided ("box out of view: placed again" in the console); a
+// headset's never moves by itself, an arrow at the edge of the view points to it instead (not while the lantern is
+// held), and a pinch or poke on the arrow brings it in front with a short fade (summon.ts), which always ends: the head
+// tracked or not, and called off if the lantern is taken meanwhile. Quest's own recenter (the reference space's reset)
+// and the Settings key place it at once.
 import { createSystem, Quaternion, Vector3 } from "@iwsdk/core";
 import { hands } from "../input/grab-system";
 import { BOX_SPHERE, boxInView, type LostInput, LostBox } from "../render/lost-box";
@@ -171,9 +171,9 @@ export class ShellSystem extends createSystem({}) {
 
   /**
    * The placed box out of view, every frame of a placed session (`tracked`: the head is, and headPos and headQuat hold
-   * it): a phone's placed again in front (held still, no touch down, the lantern not held); a headset's arrow toward
-   * it and the summon it starts (lost-box.ts, summon.ts). The summon steps on every frame, so its fade always ends,
-   * and it never moves the box under a held lantern.
+   * it): a phone's placed again in front, on the frame that is decided (held still, no touch down, the lantern not
+   * held); a headset's arrow toward it and the summon it starts (lost-box.ts, summon.ts). The summon steps on every
+   * frame, so its fade always ends, and it never moves the box under a held lantern.
    */
   private watchLost(s: Shell, now: number, phone: boolean, tracked: boolean): void {
     const held = s.lanternHeld();
@@ -187,10 +187,9 @@ export class ShellSystem extends createSystem({}) {
       L.touchDown = touchBusy();
       L.held = held;
       L.pinchDown = hands[0].pinching || hands[1].pinching;
-      if (this.lost.update(now, inView, L)) {
-        s.recenterAsked = true;
-        console.info("box out of view: placed again");
-      }
+      // Asked only with no touch down and the lantern not held this frame (the touch and lantern systems ran first):
+      // placed now, on this frame, so nothing starts under it before it moves.
+      if (this.lost.update(now, inView, L) && this.recenter()) console.info("box out of view: placed again");
     }
     if (phone) {
       s.summon.reset(this.lastEye);
