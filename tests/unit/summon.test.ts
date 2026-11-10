@@ -184,4 +184,31 @@ describe("the summon arrow", () => {
     r.s.placed(false, r.now() + SUMMON.holdMaxMs + SUMMON.outMs);
     expect(r.s.phase).toBe("in");
   });
+
+  it("called off while the view fades out (the lantern taken meanwhile): it fades back in from where it was, and asks no placement", () => {
+    const { s, hands, step } = rig();
+    step();
+    pinch(hands[1]!, s.view.at);
+    expect(step()).toBe("taken");
+    hands[1]!.edge = null;
+    for (let i = 0; i < 5; i++) expect(step(false)).toBeNull();
+    const dark = s.view.fadeNow;
+    expect(dark).toBeGreaterThan(0);
+    expect(dark).toBeLessThan(1);
+    s.cancel();
+    expect(s.phase).toBe("in");
+    let last = dark;
+    let asked = 0;
+    for (let i = 0; i < 30 && s.phase !== "idle"; i++) {
+      if (step(false) === "place") asked++;
+      expect(s.view.fadeNow).toBeLessThanOrEqual(last);
+      last = s.view.fadeNow;
+    }
+    expect(asked).toBe(0);
+    expect(s.phase).toBe("idle");
+    expect(s.view.fade.visible).toBe(false);
+    // Nothing to call off while idle or fading in.
+    s.cancel();
+    expect(s.phase).toBe("idle");
+  });
 });
