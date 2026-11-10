@@ -156,8 +156,9 @@ function pairLines(en: unknown, to: unknown, out: Map<string, string>): void {
 
 /**
  * A coach line in the language shown: a lesson's line, a tip or the session's suggestion, which the lessons and the
- * session give in English (COPY.lessons, COPY.game, and a phone's wording of them, COPY.phone). A line the tables lack
- * stays as given; null stays null. Read every frame: a map lookup, nothing allocated once the language's map is made.
+ * session give in English (COPY.lessons, COPY.game, and a phone's or a controller's wording of them, COPY.phone and
+ * COPY.controller). A line the tables lack stays as given; null stays null. Read every frame: a map lookup, nothing
+ * allocated once the language's map is made.
  */
 export function localLine(en: string | null, l: Lang = current): string | null {
   if (en === null || l === "en") return en;
@@ -167,6 +168,7 @@ export function localLine(en: string | null, l: Lang = current): string | null {
     pairLines(COPY.lessons, TABLES[l].lessons, m);
     pairLines(COPY.game, TABLES[l].game, m);
     pairLines(COPY.phone, TABLES[l].phone, m);
+    pairLines(COPY.controller, TABLES[l].controller, m);
     lines.set(l, m);
   }
   return m.get(en) ?? en;
