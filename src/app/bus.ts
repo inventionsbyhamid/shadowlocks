@@ -30,6 +30,8 @@ export interface Bus {
   on<T extends FeedbackType>(type: T, fn: (e: EventOf<T>) => void): () => void;
   /** Every event, in order (logging, test hooks). */
   onAny(fn: (e: FeedbackEvent) => void): () => void;
+  /** How many listeners are subscribed now, typed and catch-all together (the soak checks a long session gathers none). */
+  listeners(): number;
 }
 
 /**
@@ -71,6 +73,11 @@ export function createBus(): Bus {
         any = any.filter((x) => x !== fn);
       };
     },
+    listeners() {
+      let n = any.length;
+      for (const list of byType.values()) n += list.length;
+      return n;
+    },
   };
 }
 
@@ -79,3 +86,4 @@ export const bus = createBus();
 export const emit = bus.emit;
 export const on = bus.on;
 export const onAny = bus.onAny;
+export const listenerCount = bus.listeners;
