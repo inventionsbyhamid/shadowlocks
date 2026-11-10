@@ -10,6 +10,7 @@ import type { Box, BoxSpec, V3 } from "../../src/core/types";
 import { JOINT_COUNT } from "../../src/input/hand-joints";
 import { GhostHand } from "../../src/render/ghost-hand";
 import {
+  BEAT_MS,
   type DirectorDeps,
   EXAMPLES,
   exampleFor,
@@ -280,11 +281,12 @@ describe("LessonsDirector: lesson 1", () => {
     expect(r.d.step).toBe(1);
     r.inp.open.add(0);
     r.run(16);
-    // Example 1: staged on the twin, three beats, one click, the scraps swing back, the lantern lifts out.
+    // The win named, a pause, then Example 1: staged on the twin, three beats, one click, the scraps swing back, the
+    // lantern lifts out.
     expect(r.d.step).toBe(2);
-    expect(r.d.frame.line).toBe(C.watchNearFar);
+    expect(r.d.frame.line).toBe(C.lockOpen);
     const ex1 = watch(r);
-    expect(ex1.lines).toEqual([C.watchNearFar, C.nearSwing, C.turnNearFar]);
+    expect(ex1.lines).toEqual([C.lockOpen, C.watchNearFar, C.nearSwing, C.turnNearFar]);
     expect(ex1.clicks).toBe(1);
     expect(ex1.minLayout[1]).toBe(0);
     expect(ex1.minLayout[0]).toBe(1);
@@ -309,7 +311,7 @@ describe("LessonsDirector: lesson 1", () => {
     // Example 2: line up, ride the line, slide to the click.
     expect(r.d.step).toBe(4);
     const ex2 = watch(r);
-    expect(ex2.lines).toEqual([C.watchRings, C.lineUp, C.slide, C.yourTurn]);
+    expect(ex2.lines).toEqual([C.twoOpen, C.watchRings, C.lineUp, C.slide, C.yourTurn]);
     expect(ex2.clicks).toBe(1);
     expect(ex2.minLayout[2]).toBe(0);
     expect(r.d.step).toBe(5);
@@ -328,9 +330,14 @@ describe("LessonsDirector: lesson 1", () => {
     expect(r.d.frame.line).toBe(C.slide);
     r.inp.open.add(2);
     r.run(16);
-    // The box opens: no line until the reward is out of the box.
+    // The box opens: no line while it does, then the reward's once it is up.
     expect(r.d.step).toBe(6);
     expect(r.d.frame.line).toBeNull();
+    r.run(3000);
+    expect(r.d.frame.line).toBeNull();
+    r.inp.isRewardUp = true;
+    r.run(16);
+    expect([r.d.frame.key, r.d.frame.why]).toEqual(["boxOpen", "win"]);
     r.run(5000);
     expect(r.d.done).toBe(false);
     r.inp.isSettled = true;
@@ -341,6 +348,59 @@ describe("LessonsDirector: lesson 1", () => {
     expect((r.deps.onStep as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[1])).toEqual([0, 1, 2, 3, 4, 5, 6]);
     expect(r.d.frame.line).toBeNull();
     expect(r.d.frame.hand.opacity).toBe(0);
+  });
+
+  it("names each win, then pauses 1.8 s before the next example (the gold and the chord land first)", () => {
+    r.d.start("l1", 1);
+    r.run(500);
+    r.inp.isHeld = true;
+    r.inp.open.add(0);
+    r.run(16);
+    const f = r.d.frame;
+    expect([r.d.step, f.key, f.why, r.d.showing]).toEqual([2, "lockOpen", "win", false]);
+    // The pause: the lantern stays in the hand, no ghost, no cradle.
+    r.run(BEAT_MS - 100);
+    expect([f.key, r.d.showing, f.park, f.hand.opacity]).toEqual(["lockOpen", false, 0, 0]);
+    r.run(200);
+    expect([r.d.showing, f.key, f.why]).toEqual([true, "watchNearFar", "example"]);
+    watch(r);
+    // The second lock: one to go.
+    r.inp.open.add(1);
+    r.run(16);
+    expect([r.d.step, f.key, f.why]).toEqual([4, "twoOpen", "win"]);
+    r.run(BEAT_MS + 100);
+    expect([r.d.showing, f.key]).toEqual([true, "watchRings"]);
+    // Lesson 2's crown opening: the reward's line while it is up, then the drawer's.
+    r.d.start("l2", 2);
+    r.run(500);
+    r.inp.open.add(0);
+    r.run(16);
+    expect([r.d.step, f.key]).toEqual([3, null]);
+    r.inp.isRewardUp = true;
+    r.run(16);
+    expect([f.key, f.why]).toEqual(["boxOpen", "win"]);
+    r.inp.isRewardUp = false;
+    r.inp.isSettled = true;
+    r.run(16);
+    expect([f.key, f.why]).toEqual(["drawer", "step"]);
+  });
+
+  it("goes straight into the example on a resumed step (no win named for a lock opened before), and names a lock opened in the pause", () => {
+    r.inp.open.add(0);
+    r.d.start("l1", 2);
+    expect([r.d.showing, r.d.frame.key]).toEqual([true, "watchNearFar"]);
+    // The player opens the arrow during the pause after the Moon: its example is skipped, and that win named instead.
+    const q = rig();
+    q.d.start("l1", 1);
+    q.run(500);
+    q.inp.open.add(0);
+    q.run(16);
+    q.run(500);
+    q.inp.open.add(1);
+    q.run(BEAT_MS);
+    expect([q.d.step, q.d.frame.key, q.d.showing]).toEqual([4, "twoOpen", false]);
+    q.run(BEAT_MS);
+    expect([q.d.showing, q.d.frame.key]).toEqual([true, "watchRings"]);
   });
 
   it("runs Example 1 in about twelve seconds of ghost work, its near scrap glowing", () => {

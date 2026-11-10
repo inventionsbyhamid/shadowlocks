@@ -60,6 +60,11 @@ export const PUPPET_MS = 5000;
 export const PUPPET_MAX_MS = 12000;
 /** The Key's turn: "Your turn." stays this long before the rings' own line. */
 export const YOUR_TURN_MS = 3000;
+/**
+ * A lesson lock opened: its win is named ("Lock open! ...") and the next example waits this long, so the gold, the
+ * chord and the words land before the ghost takes the lantern.
+ */
+export const BEAT_MS = 1800;
 /** The rings' line changes only once the rings have stayed lined up (or apart) this long. */
 export const LINE_HOLD_MS = 500;
 /** The idle ghost fades in and out over these. */
@@ -235,6 +240,10 @@ export class LessonsDirector {
   /** The rings' line shown (lined up or not) and how long the other state has held. */
   private ringsLined = false;
   private ringsMs = 0;
+  /** The step just ended on the player opening its lock (the next example then waits a beat, its win named). */
+  private won = false;
+  /** The beat before a demo step's example: how long it has run, or -1 for none. */
+  private beatMs = -1;
   private readonly at: V3 = [0, 0, 0];
 
   constructor(private readonly deps: DirectorDeps) {}
@@ -373,16 +382,17 @@ export class LessonsDirector {
         const held = inp.held();
         this.idleMs = held || inp.active() ? 0 : this.idleMs + dt;
         this.idleGhost(dt, !held && this.idleMs >= IDLE_GHOST_MS, "reach");
-        if (s.kind === "intro" ? held : inp.isOpen(s.lock)) this.advance();
+        if (s.kind === "intro" ? held : inp.isOpen(s.lock)) this.advance(s.kind === "move");
         break;
       }
       case "turn":
         this.show(this.turnLine(s, dt), "step");
         this.idleGhost(dt, false, null);
-        if (inp.isOpen(s.lock)) this.advance();
+        if (inp.isOpen(s.lock)) this.advance(true);
         break;
       case "reward":
-        this.show(null, null);
+        // The box opening has its own moment; once its reward is up, the line says to take it.
+        this.show(inp.rewardUp() ? "boxOpen" : null, "win");
         this.idleGhost(dt, false, null);
         if (inp.settled()) this.advance();
         break;
@@ -396,11 +406,22 @@ export class LessonsDirector {
         break;
       }
       case "drawer":
-        this.show(inp.settled() ? "drawer" : null, "step");
+        // Lesson 2's box opened: its reward's line while the reward is up, then the drawer's.
+        if (inp.settled()) this.show("drawer", "step");
+        else this.show(inp.rewardUp() ? "boxOpen" : null, "win");
         this.idleGhost(dt, false, null);
         if (inp.drawerPulled()) this.advance();
         break;
       case "demo":
+        if (this.beatMs >= 0) {
+          // The beat after a win: then the example, unless its lock was opened meanwhile (that win is named next).
+          this.idleGhost(dt, false, null);
+          if ((this.beatMs += dt) < BEAT_MS) break;
+          this.beatMs = -1;
+          if (inp.isOpen(s.lock)) this.advance(true);
+          else this.startScript(s.example!);
+          break;
+        }
         // A demo step always has its script running; reaching here means it was skipped.
         this.advance();
         break;
@@ -440,8 +461,25 @@ export class LessonsDirector {
     f.line = key === null ? null : COPY.lessons[key];
   }
 
-  private advance(): void {
+  /** On to the next step; `won`: this one ended on the player opening its lock. */
+  private advance(won = false): void {
+    this.won = won;
     this.enter(this.n + 1);
+  }
+
+  /** The win just named: the first lesson lock open, else how many are. */
+  private winLine(): LessonLine {
+    const inp = this.deps.inputs, locks = this.plan!.box.locks.length;
+    let open = 0;
+    for (let i = 0; i < locks; i++) if (inp.isOpen(i)) open++;
+    return open <= 1 ? "lockOpen" : "twoOpen";
+  }
+
+  /** Start example `ex` as the lesson's own (its end moves the lesson on). */
+  private startScript(ex: ExampleId): void {
+    this.script = buildScript(ex, this.plan!, this.left, false);
+    this.scriptMs = 0;
+    this.runScript(0);
   }
 
   /** Go to step n, past any steps already done (a lock the player opened early), and start its example. */
@@ -453,12 +491,15 @@ export class LessonsDirector {
       if (!already) break;
       n++;
     }
+    const won = this.won;
+    this.won = false;
     this.n = n;
     this.stepMs = 0;
     this.idleMs = 0;
     this.beamMs = 0;
     this.ringsLined = false;
     this.ringsMs = 0;
+    this.beatMs = -1;
     if (n >= steps.length) {
       this.finished = true;
       this.show(null, null);
@@ -472,12 +513,15 @@ export class LessonsDirector {
     else if (s.kind === "move") this.show("goal", "step");
     else if (s.kind === "turn") this.show(this.turnLine(s, 0), "step");
     else if (s.kind === "puppets") this.show(formed ? "puppets" : null, "step");
-    else if (s.kind === "drawer") this.show(inp.settled() ? "drawer" : null, "step");
+    else if (s.kind === "drawer") this.show(inp.settled() ? "drawer" : inp.rewardUp() ? "boxOpen" : null, inp.settled() ? "step" : "win");
+    else if (s.kind === "reward") this.show(inp.rewardUp() ? "boxOpen" : null, "win");
     else this.show(null, null);
     if (s.kind === "demo" && s.example) {
-      this.script = buildScript(s.example, this.plan!, this.left, false);
-      this.scriptMs = 0;
-      this.runScript(0);
+      // Reached by opening a lock: the win named and a beat first. Resumed (a reload), the example starts at once.
+      if (won) {
+        this.beatMs = 0;
+        this.show(this.winLine(), "win");
+      } else this.startScript(s.example);
     }
   }
 
