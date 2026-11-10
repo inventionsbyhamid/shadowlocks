@@ -35,4 +35,16 @@ describe("the sharing words", () => {
       }
     }
   });
+
+  it("the landing's and the 2D page's lines are sentences; keys and counts are labels; Meta Quest on its button", () => {
+    for (const l of LANGS) {
+      const t = tableFor(l).share;
+      for (const s of [t.sentDaily, t.sentBox, t.says, t.saysHints, t.todayTurn, t.practiceTurn, t.otherDay, t.copied, t.copyFailed, t.manual]) {
+        expect(s, `${l}: ${s}`).toMatch(/[.。]$/);
+      }
+      for (const s of [t.openQuest, t.copyLink, t.shareToday, t.noHints, t.hints.one, t.hints.other]) expect(s, `${l}: ${s}`).not.toMatch(/[.。]$/);
+      // Meta asks for its brand on a Web Launch button.
+      expect(t.openQuest, l).toMatch(/Meta\sQuest/);
+    }
+  });
 });
