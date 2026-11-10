@@ -5,7 +5,7 @@ import type { V3, Vec3 } from "../../src/core/types";
 import { SEATED } from "./helpers/boot";
 import { type Quat, turnQuat } from "./helpers/finger";
 import { Hands } from "./helpers/hands";
-import { add, dist, sub, unit } from "./helpers/lantern";
+import { add, dist, lantern, sub, toWorld, unit } from "./helpers/lantern";
 import { relaxIwer, setHeadset, type XYZ } from "./helpers/page-scripts";
 import { expect, test } from "./helpers/test";
 import type { XrApp } from "./helpers/xr-app";
@@ -27,6 +27,40 @@ const summon = (page: Page) => page.evaluate(() => window.__sl!.summon());
 const AWAY_DEG = 135;
 /** The heading of a head turned AWAY_DEG to the left from SEATED's (which looks down -z: heading 0). */
 const AWAY_YAW = (AWAY_DEG * Math.PI) / 180;
+
+/**
+ * From the next frame on, the headset keeps turning at `degPerFrame` (seated pitch), so it is never held still: the
+ * first placement then waits for its 2.5 s cap. `stopTurning` holds it where it is.
+ */
+function keepTurning(degPerFrame: number): void {
+  const w = window as any;
+  const d = w.IWER_DEVICE;
+  const pitch = Math.atan2(-0.28, 0.55);
+  let yaw = 0;
+  w.__turning = true;
+  if (w.__turnHooked) return;
+  w.__turnHooked = true;
+  const update = w.__ns.world.update.bind(w.__ns.world);
+  w.__ns.world.update = (dt: number, t: number) => {
+    if (w.__turning) {
+      yaw += (w.__turnDeg ?? 0) * (Math.PI / 180);
+      const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(pitch / 2), sp = Math.sin(pitch / 2);
+      d.quaternion.set(cy * sp, sy * cp, -sy * sp, cy * cp);
+    }
+    update(dt, t);
+  };
+  w.__turnDeg = degPerFrame;
+}
+
+const stopTurning = (page: Page) => page.evaluate(() => ((window as any).__turning = false));
+
+/** Accept the session IWER offers (boot with enterXR false), as a player does, and wait until it presents. */
+async function acceptSession(app: XrApp, page: Page): Promise<void> {
+  await app.waitReal((_ns, w) => w.IWER_DEVICE.sessionOffered === true, { label: "XR session offer" });
+  await app.command("accept_session");
+  await app.stepUntil((ns) => ns.state().xr.presenting, { maxMs: 5_000, label: "XR presenting" });
+  await page.evaluate(relaxIwer);
+}
 
 /** The head turned well round to the left, away from the box, until the arrow shows (it waits 2 s); its place. */
 async function lookAwayForArrow(app: XrApp, page: Page): Promise<Vec3> {
@@ -302,4 +336,132 @@ test("headset: a controller's trigger with its ray on the arrow brings the box b
   await app.stepUntil((ns, w, y) => w.__sl.summon().phase === "idle" && Math.abs(ns.state().boxPose.yaw - y) < 0.01, { arg: AWAY_YAW, maxMs: 2_000, label: "the box brought back" });
   await app.queue("set_gamepad_state", { device: "controller-right", buttons: [{ index: 0, value: 0 }] });
   await app.settle();
+});
+
+test("headset: an arrow pinched while the lantern is held does not move the box; the lantern does not jump", async ({ page, boot }) => {
+  const app = await boot();
+  await page.evaluate(() => window.__ns!.ui.go("play"));
+  await page.evaluate(() => window.__ns!.scene.show({ n: 1 }));
+  await app.stepUntil((ns) => !ns.ui.busy(), { maxMs: 3_000, label: "menus away" });
+  const pose = (await app.state()).boxPose;
+  const arrow = await lookAwayForArrow(app, page);
+  // Still looking away, the left hand takes the lantern by feel where it stands in the box.
+  const left = new Hands(app, "left");
+  await left.pinchAt(await toWorld(page, (await lantern(page)).pos));
+  await app.stepUntil((_ns, w) => w.__sl.lantern().holder === "left", { maxMs: 2_000, label: "the lantern held" });
+  await app.step(20);
+  const held = (await lantern(page)).pos;
+  // While it is held the arrow is not offered; the right hand pinching where it stood brings nothing.
+  expect((await summon(page)).arrow).toBeNull();
+  const right = new Hands(app, "right");
+  await right.pinchAt(arrow);
+  await app.step(60);
+  expect((await app.state()).boxPose).toEqual(pose);
+  const s = await summon(page);
+  expect(s.phase).toBe("idle");
+  expect(s.fade).toBe(0);
+  const now = await lantern(page);
+  expect(now.holder).toBe("left");
+  expect(dist(now.pos, held), "the lantern does not jump").toBeLessThan(0.002);
+  await right.release();
+  // Let go: the arrow is offered again (the box is still out of view), and a pinch on it brings the box back.
+  await left.release();
+  await left.moveTo(add(await toWorld(page, held), [0, 0.15, 0]), 200);
+  await app.stepUntil((_ns, w) => w.__sl.summon().arrow !== null, { maxMs: 1_000, label: "the arrow offered again" });
+  await app.step(60);
+  await right.pinchAt((await summon(page)).arrow!);
+  await app.stepUntil((ns, w, y) => w.__sl.summon().phase === "idle" && Math.abs(ns.state().boxPose.yaw - y) < 0.01, { arg: AWAY_YAW, maxMs: 2_000, label: "the box brought back" });
+  expect(dist((await lantern(page)).pos, held)).toBeLessThan(0.002);
+  await right.release();
+});
+
+test("headset: the view comes back from the fade even when the head stops tracking while it fades", async ({ page, boot }) => {
+  const app = await boot();
+  await page.evaluate(() => window.__ns!.ui.go("play"));
+  await page.evaluate(() => window.__ns!.scene.show({ n: 1 }));
+  await app.stepUntil((ns) => !ns.ui.busy(), { maxMs: 3_000, label: "menus away" });
+  const pose = (await app.state()).boxPose;
+  const arrow = await lookAwayForArrow(app, page);
+  // The frame the view starts to fade, the head drops out of tracking (it reads below 20 cm) and stays out; every
+  // frame's fade is recorded.
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__fades = [];
+    const step = w.__vt.step.bind(w.__vt);
+    w.__vt.step = (ms: number) => {
+      const r = step(ms);
+      const x = w.__sl.summon();
+      w.__fades.push({ t: w.__vt.now, phase: x.phase, fade: x.fade });
+      if (x.phase === "out" && !w.__dropped) {
+        w.__dropped = w.__vt.now;
+        w.IWER_DEVICE.position.y = 0.1;
+      }
+      return r;
+    };
+  });
+  const hand = new Hands(app, "right");
+  await hand.pinchAt(arrow);
+  await app.stepUntil((_ns, w) => w.__sl.summon().phase === "idle", { maxMs: 2_000, label: "the summon over" });
+  const fades: { t: number; phase: string; fade: number }[] = await page.evaluate(() => (window as any).__fades);
+  const dropped: number = await page.evaluate(() => (window as any).__dropped);
+  expect(dropped, "the head dropped out mid-fade").toBeGreaterThan(0);
+  const back = fades.find((f) => f.t > dropped && f.phase === "idle")!;
+  console.log(`head lost mid-fade: the view was dark at most ${Math.max(...fades.map((f) => f.fade)).toFixed(2)}, clear again ${(back.t - dropped).toFixed(0)} ms later`);
+  // Clear again within the fade, the half second it waits for the head, and the fade back in.
+  expect(back.t - dropped).toBeLessThan(150 + 500 + 150 + 50);
+  expect((await summon(page)).fade).toBe(0);
+  // Not placed from a head out of tracking.
+  expect((await app.state()).boxPose).toEqual(pose);
+  await hand.release();
+});
+
+test("headset: before the box is placed nothing in it runs: lesson 1 waits", async ({ page, boot }) => {
+  // A first launch goes straight into lesson 1. The head keeps turning, so the box is placed only at the 2.5 s cap.
+  const app = await boot({ enterXR: false, lessons: true });
+  await page.evaluate(keepTurning, 1);
+  await acceptSession(app, page);
+  const lessonNow = () =>
+    page.evaluate(() => {
+      const l = window.__sl!.lessons.state();
+      return { lesson: l.lesson, step: l.step, line: l.line, hand: l.hand.opacity, lamp: l.lamp.opacity, ghostLight: l.ghostLight, clicks: l.clicks };
+    });
+  const start = await lessonNow();
+  expect(start.lesson).toBe("l1");
+  for (let i = 0; i < 8; i++) {
+    await app.step(15);
+    const st = await app.state();
+    if (st.boxPose.source !== "default") break;
+    expect(st.box.visible).toBe(false);
+    expect(await lessonNow(), "lesson 1 waits for the box").toEqual(start);
+  }
+  await app.stepUntil((ns) => ns.state().boxPose.source === "head", { maxMs: 3_000, label: "placed at the cap" });
+  await stopTurning(page);
+  // Placed: lesson 1 runs from now (its ghost and lamp come in).
+  await app.step(150);
+  expect(await lessonNow(), "lesson 1 runs once the box is placed").not.toEqual(start);
+});
+
+test("headset: before the box is placed nothing in it runs or can be taken: not the box's clock, not the lantern", async ({ page, boot }) => {
+  // A box in play from the address (?box=1), so it is the session's box from the first frame.
+  const app = await boot({ enterXR: false, url: "/?box=1" });
+  await page.evaluate(keepTurning, 1);
+  await acceptSession(app, page);
+  await app.stepUntil((_ns, w) => w.__sl.session.state()?.stage === "playing", { maxMs: 3_000, label: "box 1 in play" });
+  expect((await app.state()).boxPose.source).toBe("default");
+  const clock = () => page.evaluate(() => window.__sl!.session.state()!.elapsedMs);
+  const before = await clock();
+  // A hand pinching the invisible lantern where it stands at the default placement: not taken.
+  const hand = new Hands(app, "right");
+  await hand.pinchAt(await toWorld(page, (await lantern(page)).pos));
+  await app.step(10);
+  expect((await app.state()).boxPose.source, "still waiting").toBe("default");
+  expect((await lantern(page)).held).toBe(false);
+  expect(await clock(), "the box's clock waits").toBe(before);
+  await hand.release();
+  await hand.moveTo([0.4, 0.9, -1.0], 100);
+  await app.stepUntil((ns) => ns.state().boxPose.source === "head", { maxMs: 3_000, label: "placed at the cap" });
+  await stopTurning(page);
+  // Placed: the clock runs from now.
+  await app.step(72);
+  expect(await clock()).toBeGreaterThan(before + 500);
 });
