@@ -242,9 +242,24 @@ describe("telling a phone's session", () => {
     step();
     step();
     expect(t.roles()).toEqual([null]);
+    expect(t.busy).toBe(true);
     scene.root.visible = true;
     step();
     expect(t.roles()).toEqual(["lantern"]);
+  });
+
+  it("is busy while a touch is down or the lantern is held, so the box is never placed again under a finger", () => {
+    const { t, phone, step, lantern } = bench(null, [0.35, 0.35, 1.3]);
+    expect(t.busy).toBe(false);
+    const src = phone.touch(w([-0.2, -0.1, 0.4]));
+    step();
+    expect(t.busy).toBe(true);
+    phone.lift(src);
+    step();
+    step();
+    expect(t.busy).toBe(false);
+    lantern.grab.holder = "right";
+    expect(t.busy).toBe(true);
   });
 });
 

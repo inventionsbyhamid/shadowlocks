@@ -198,6 +198,14 @@ export class Touches implements TouchFinger {
     return this.live;
   }
 
+  /** A phone's touch is down, or the lantern is held: the box must not be placed again under it. */
+  get busy(): boolean {
+    if (!this.live) return false;
+    if (this.d.lantern.grab.holder !== null) return true;
+    for (const s of this.slots) if (s.id !== null && s.endMs !== s.endMs) return true;
+    return false;
+  }
+
   /** Test builds: touches as rays from the head through world points (null: back to the session's own). */
   inject(list: TestTouch[] | null): void {
     this.testTouches = list;
@@ -600,6 +608,11 @@ export class TouchSystem extends createSystem({}) {
 /** The session is a phone's (the touch system decided this frame); false before it runs or with none. */
 export function onPhone(): boolean {
   return current?.phone ?? false;
+}
+
+/** On a phone, a touch is down or the lantern is held (Touches.busy); false on a headset or before the system runs. */
+export function touchBusy(): boolean {
+  return current?.busy ?? false;
 }
 
 /**

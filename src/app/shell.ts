@@ -70,6 +70,8 @@ export class Shell {
   room: Object3D | null = null;
   /** Recenter was asked for (a key, or Quest's own recenter); ShellSystem places the box on its next frame. */
   recenterAsked = false;
+  /** Whether the lantern is held (set once the lantern exists): a lost box is never moved, nor its arrow shown, then. */
+  lanternHeld: () => boolean = () => false;
   /** The headset the last session was tuned for (headset.ts), and the frame rate it asked for (null: none). */
   headset: Headset | null = null;
   frameRateAsked: number | null = null;

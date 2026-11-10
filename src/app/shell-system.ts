@@ -5,7 +5,13 @@
 // The first placement of a session waits for a steady head (a phone's camera): held still 0.4 s in a looking pose, 2.5 s
 // at most (PlaceGate). Until then the box and its panels are hidden, so nothing stands where the head or phone happened
 // to point as the session started, and nothing moves in front of the player.
+//
+// Once placed, a phone's box out of view (lost-box.ts) comes back in front by itself after 2 s, held still, with no
+// touch down and the lantern not held ("box out of view: placed again" in the console). A headset's is never moved by
+// itself. Quest's own recenter (the reference space's reset) and the Settings key place it at once.
 import { createSystem, Quaternion, Vector3 } from "@iwsdk/core";
+import { hands } from "../input/grab-system";
+import { boxInView, type LostInput, LostBox } from "../render/lost-box";
 import {
   PHONE_VIEW,
   PlaceGate,
@@ -13,10 +19,11 @@ import {
   placement,
   type ViewTangents,
   viewOf,
+  wideViewOf,
   yawFromQuaternion,
 } from "../render/placement";
 import type { Shell } from "./shell";
-import { onPhone } from "./touch-system";
+import { onPhone, touchBusy } from "./touch-system";
 
 let shell: Shell | null = null;
 
@@ -33,11 +40,15 @@ export class ShellSystem extends createSystem({}) {
   private readonly headQuat = new Quaternion();
   private readonly headPose = { position: [0, 0, 0] as [number, number, number], yaw: 0 };
   private readonly view: ViewTangents = { tanH: PHONE_VIEW.tanH, tanV: PHONE_VIEW.tanV };
+  private readonly wide: ViewTangents = { tanH: PHONE_VIEW.tanH, tanV: PHONE_VIEW.tanV };
   private readonly forward = new Vector3();
-  /** The steady pose the first placement waits for. */
+  /** The steady pose the first placement waits for, and a phone's re-place. */
   readonly gate = new PlaceGate();
+  /** How long the box has been out of view, and what then. */
+  readonly lost = new LostBox();
+  private readonly lostIn: LostInput = { phone: false, steady: false, touchDown: false, held: false, pinchDown: false };
   private placedFor: XRSession | null = null;
-  /** The session the gate was last started for. */
+  /** The session the gate and the lost box were last started for. */
   private watchedFor: XRSession | null = null;
   /** The box and its panels are hidden, waiting for the first placement. */
   private hidden = false;
@@ -82,6 +93,11 @@ export class ShellSystem extends createSystem({}) {
     return viewOf(this.projection(), this.view);
   }
 
+  /** The same, the wider side each way (wideViewOf): about both eyes' view together, for whether the box can be seen. */
+  private seenView(): ViewTangents {
+    return wideViewOf(this.projection(), this.wide);
+  }
+
   private projection(): ArrayLike<number> | undefined {
     const xr = this.renderer.xr.getCamera() as { cameras?: { projectionMatrix: { elements: ArrayLike<number> } }[] };
     return xr.cameras?.[0]?.projectionMatrix.elements;
@@ -101,10 +117,11 @@ export class ShellSystem extends createSystem({}) {
     const dt = Math.min(Math.max(delta, 0), 0.1);
     const xrSession = this.world.session ?? null;
     const phone = onPhone();
-    // A new session (or none): the steady gate starts afresh.
+    // A new session (or none): the steady gate and the lost box start afresh.
     if (xrSession !== this.watchedFor) {
       this.watchedFor = xrSession;
       this.gate.reset();
+      this.lost.reset();
     }
     const tracked = !!xrSession && !!this.world.xrFrame && this.readHead(phone);
     if (tracked) {
@@ -130,6 +147,7 @@ export class ShellSystem extends createSystem({}) {
       if (xrSession && placement.source !== "default" && (placement.source === "view") !== phone) s.recenterAsked = true;
       // A Recenter waits for a frame with a tracked head.
       if (s.recenterAsked && this.recenter()) s.recenterAsked = false;
+      if (xrSession && tracked) this.watchLost(s, now, phone);
     }
     if (placement.version !== this.laidOut) {
       this.laidOut = placement.version;
@@ -139,5 +157,23 @@ export class ShellSystem extends createSystem({}) {
     // The theatre's veil stays round the head wherever it goes.
     s.theatre.update(dt, this.world.player.head.getWorldPosition(this.headPos));
     s.lifecycle.tick(now);
+  }
+
+  /**
+   * The placed box out of view: a phone's placed again in front (held still, no touch down, the lantern not held;
+   * lost-box.ts). headPos and headQuat hold this frame's head.
+   */
+  private watchLost(s: Shell, now: number, phone: boolean): void {
+    const inView = boxInView(placement.matrix(), this.headPos, this.headQuat, this.seenView());
+    const L = this.lostIn;
+    L.phone = phone;
+    L.steady = this.gate.steady;
+    L.touchDown = touchBusy();
+    L.held = s.lanternHeld();
+    L.pinchDown = hands[0].pinching || hands[1].pinching;
+    if (this.lost.update(now, inView, L)) {
+      s.recenterAsked = true;
+      console.info("box out of view: placed again");
+    }
   }
 }
