@@ -344,13 +344,24 @@ export class Placement {
  * between `pitchDeg.down` below the horizon and `pitchDeg.up` above it; a first placement goes ahead after `capMs`
  * anyway. The turn rate is smoothed over about `smoothMs`, so one jittery frame does not restart the wait.
  */
-export const STEADY = { turnDegPerS: 30, stillMs: 400, capMs: 2500, pitchDeg: { down: 60, up: 20 }, smoothMs: 100 } as const;
+export const STEADY = {
+  turnDegPerS: 30,
+  stillMs: 400,
+  capMs: 2500,
+  pitchDeg: { down: 60, up: 20 },
+  smoothMs: 100,
+  /** No frame fed for longer than this (ms: untracked frames, a long stall) starts the wait for stillness again. */
+  gapMs: 150,
+  /** No frame fed for longer than this (ms: the session hidden, the headset off) starts the cap again too. */
+  pauseMs: 1000,
+} as const;
 
 /**
  * Whether the head (or a phone's camera) is held still in a looking pose, fed its forward each frame. A box placed from
  * the first tracked frame stays wherever the head or phone happened to point as the session started (a phone still
  * turning as AR starts, a head turned away): the first placement waits for `ready`, a phone's re-place for `steady`.
- * Allocation free.
+ * A gap in the frames fed is never stillness: over STEADY.gapMs the wait for stillness starts again, over
+ * STEADY.pauseMs (the session hidden) the cap too. Allocation free.
  */
 export class PlaceGate {
   private firstMs = Number.NaN;
@@ -378,16 +389,19 @@ export class PlaceGate {
     const fx = f.x, fy = f.y, fz = f.z;
     const pitch = Math.asin(Math.max(-1, Math.min(1, fy))) / DEG;
     this.looking = pitch >= -STEADY.pitchDeg.down && pitch <= STEADY.pitchDeg.up;
-    if (this.firstMs !== this.firstMs) {
+    const dt = nowMs - this.lastMs;
+    if (this.firstMs !== this.firstMs || dt > STEADY.pauseMs) {
+      // The first frame, or the first after a pause (the session hidden): the wait starts here, cap and all.
       this.firstMs = this.stillSince = nowMs;
       this.rate = 0;
-    } else {
-      const dt = nowMs - this.lastMs;
-      if (dt > 0) {
-        const cx = this.fy * fz - this.fz * fy, cy = this.fz * fx - this.fx * fz, cz = this.fx * fy - this.fy * fx;
-        const turn = Math.atan2(Math.sqrt(cx * cx + cy * cy + cz * cz), this.fx * fx + this.fy * fy + this.fz * fz) / DEG;
-        this.rate += ((turn * 1000) / dt - this.rate) * (1 - Math.exp(-dt / STEADY.smoothMs));
-      }
+    } else if (dt > STEADY.gapMs) {
+      // A gap is not stillness: whatever the head did meanwhile went unseen.
+      this.stillSince = nowMs;
+      this.rate = 0;
+    } else if (dt > 0) {
+      const cx = this.fy * fz - this.fz * fy, cy = this.fz * fx - this.fx * fz, cz = this.fx * fy - this.fy * fx;
+      const turn = Math.atan2(Math.sqrt(cx * cx + cy * cy + cz * cz), this.fx * fx + this.fy * fy + this.fz * fz) / DEG;
+      this.rate += ((turn * 1000) / dt - this.rate) * (1 - Math.exp(-dt / STEADY.smoothMs));
     }
     if (!this.looking || this.rate > STEADY.turnDegPerS) this.stillSince = nowMs;
     this.fx = fx;
