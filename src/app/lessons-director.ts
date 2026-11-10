@@ -33,6 +33,7 @@ import {
   handAt,
   type HandKey,
   lampAt,
+  LANTERN_GRIP_Y,
   type LessonLine,
   PUPPET_AT,
   PUPPET_FINGERS,
@@ -54,8 +55,17 @@ export type LineWhy = "step" | "idle" | "win" | "example";
 
 /** The box forms from light over this long when a lesson starts. */
 export const FORM_MS = 2000;
-/** The ghost hand shows a step's move after this long without input. */
+/**
+ * The ghost hand shows a step's move after this long without input; the reach for the lantern this long after
+ * "Pick up the lantern." shows, whatever the hands do (a player reaching and failing to pinch needs it most).
+ */
 export const IDLE_GHOST_MS = 4000;
+/**
+ * A real hand this near the lantern's loop (box units, about 11 cm in a 24 cm box): the reaching ghost works this far
+ * from it instead, so it shows the pinch beside the hand rather than inside it. Its move there eases over this long.
+ */
+export const GHOST_CLEAR = 0.45;
+const GHOST_EASE_MS = 250;
 /** Lesson 2's shadow puppets: this long with a hand in the beam... */
 export const PUPPET_MS = 5000;
 /** ...or this long in all, the ghost showing how. */
@@ -168,6 +178,8 @@ export interface LessonInputs {
   reducedMotion(): boolean;
   /** Where the player's lantern is, into `out`. */
   lantern(out: V3): V3;
+  /** Where the real hand nearest the lantern pinches, into `out`; false with no hand in tracking. */
+  hand(out: V3): boolean;
 }
 
 export interface DirectorDeps {
@@ -291,6 +303,11 @@ export class LessonsDirector {
   /** Lock I's example has played this visit to its step; and the running example is that help (it ends back there). */
   private helped = false;
   private help = false;
+  /** How long the intro's line has been up (its reaching ghost comes IDLE_GHOST_MS in). */
+  private lineMs = 0;
+  /** The reaching ghost's shift clear of a real hand (eased), and that hand's pinch point. */
+  private readonly off: V3 = [0, 0, 0];
+  private readonly real: V3 = [0, 0, 0];
   private readonly at: V3 = [0, 0, 0];
 
   constructor(private readonly deps: DirectorDeps) {}
@@ -425,15 +442,21 @@ export class LessonsDirector {
     f.form = clamp01(this.formMs / FORM_MS);
     const s = LESSON_STEPS[this.id][this.n]!, inp = this.deps.inputs, formed = f.form >= 1;
     switch (s.kind) {
-      case "intro":
+      case "intro": {
+        // The reach for the lantern 4 s after the line, even with a hand near (kept clear of it), until it is held.
+        const held = inp.held();
+        if (formed) this.lineMs += dt;
+        this.show(formed ? "pickUp" : null, "step");
+        this.idleGhost(dt, !held && this.lineMs >= IDLE_GHOST_MS, "reach");
+        if (held) this.advance();
+        break;
+      }
       case "move": {
+        // Let go and idle, the ghost shows how to pick the lantern up again.
         const held = inp.held();
         this.idleMs = held || inp.active() ? 0 : this.idleMs + dt;
         this.idleGhost(dt, !held && this.idleMs >= IDLE_GHOST_MS, "reach");
-        if (s.kind === "intro") {
-          this.show(formed ? "pickUp" : null, "step");
-          if (held) this.advance();
-        } else if (inp.isOpen(s.lock)) this.advance(true);
+        if (inp.isOpen(s.lock)) this.advance(true);
         else this.lockLine(s, dt, held);
         break;
       }
@@ -680,6 +703,7 @@ export class LessonsDirector {
   /** A step's idle clocks from 0: progress, the hold, the idle ghost's wait. */
   private restartClocks(): void {
     this.idleMs = 0;
+    this.lineMs = 0;
     this.progress.reset();
     this.heldMs = 0;
     this.letGoMs = -1;
@@ -724,11 +748,55 @@ export class LessonsDirector {
   }
 
   /**
+   * Where the reaching ghost works (its loop is keyed around this, the lantern's light): the lantern, moved clear of
+   * a real hand near its loop, so the ghost pinches GHOST_CLEAR from that hand's pinch, away from it (never into the
+   * box: the shift never points deeper; a hand right at the loop sends the ghost up and out to the dominant side).
+   * The shift eases (`snap`: at once). Into this.at; allocates nothing.
+   */
+  private reachBase(dt: number, snap: boolean, side: number): V3 {
+    const inp = this.deps.inputs, at = inp.lantern(this.at), h = this.real, o = this.off;
+    let tx = 0, ty = 0, tz = 0;
+    if (inp.hand(h)) {
+      // From the hand to the lantern's loop.
+      const gx = at[0] - h[0], gy = at[1] + LANTERN_GRIP_Y - h[1], gz = at[2] - h[2];
+      const d2 = gx * gx + gy * gy + gz * gz;
+      if (d2 < GHOST_CLEAR * GHOST_CLEAR) {
+        let ux = gx, uy = gy, uz = gz > 0 ? gz : 0;
+        let l = Math.sqrt(ux * ux + uy * uy + uz * uz);
+        if (l < 1e-6) {
+          ux = side;
+          uy = 1;
+          uz = 0;
+          l = Math.SQRT2;
+        }
+        ux /= l;
+        uy /= l;
+        uz /= l;
+        // The shift along u that puts the ghost's pinch exactly GHOST_CLEAR from the hand's.
+        const gu = gx * ux + gy * uy + gz * uz, k = -gu + Math.sqrt(gu * gu + GHOST_CLEAR * GHOST_CLEAR - d2);
+        tx = ux * k;
+        ty = uy * k;
+        tz = uz * k;
+      }
+    }
+    const e = snap ? 1 : 1 - Math.exp(-dt / GHOST_EASE_MS);
+    o[0] += (tx - o[0]) * e;
+    o[1] += (ty - o[1]) * e;
+    o[2] += (tz - o[2]) * e;
+    at[0] += o[0];
+    at[1] += o[1];
+    at[2] += o[2];
+    return at;
+  }
+
+  /**
    * The idle ghost: fades in while `show` (playing `kind`'s loop), and out otherwise, still playing the loop it
    * showed until it is gone.
    */
   private idleGhost(dt: number, show: boolean, kind: "reach" | "puppet" | null): void {
     const f = this.frame, left = this.left, side = left ? -1 : 1;
+    // Just coming in: the ghost takes its place clear of a real hand at once, rather than easing out of it.
+    const appearing = this.ghost <= 0;
     if (show && kind) {
       this.ghostKind = kind;
       this.ghost = Math.min(1, this.ghost + dt / GHOST_IN_MS);
@@ -749,7 +817,7 @@ export class LessonsDirector {
     this.loopMs = (this.loopMs + dt) % period;
     f.hand.side = left ? "left" : "right";
     if (k === "reach") {
-      handAt(keys, this.loopMs, f.hand, this.deps.inputs.lantern(this.at));
+      handAt(keys, this.loopMs, f.hand, this.reachBase(dt, appearing, side));
       f.hand.anchor = "grasp";
       copy3(this.loops.grasp, f.hand.fingers);
       copy3(this.loops.palm, f.hand.palm);

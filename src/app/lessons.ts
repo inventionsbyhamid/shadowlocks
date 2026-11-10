@@ -125,6 +125,7 @@ export class Lessons implements MenuLessons {
         out[2] = p[2];
         return out;
       },
+      hand: (out) => lantern.grab.nearestPinch(out),
     };
     this.director = new LessonsDirector({
       inputs,

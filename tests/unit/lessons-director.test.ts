@@ -15,6 +15,7 @@ import {
   EXAMPLES,
   exampleFor,
   FORM_MS,
+  GHOST_CLEAR,
   IDLE_GHOST_MS,
   LESSON_STEPS,
   type LessonInputs,
@@ -43,6 +44,8 @@ class FakeInputs implements LessonInputs {
   /** Each lock's warmth (0 unless set). */
   warm = new Map<number, number>();
   at: V3 = [0.35, -0.3, 1.35];
+  /** The real hand nearest the lantern: where it pinches (null: no hand in tracking). */
+  handAt: V3 | null = null;
   held = () => this.isHeld;
   active = () => this.isActive;
   isOpen = (lock: number) => this.open.has(lock);
@@ -51,6 +54,13 @@ class FakeInputs implements LessonInputs {
   inBeam = () => this.beam;
   settled = () => this.isSettled;
   rewardUp = () => this.isRewardUp;
+  hand = (out: V3): boolean => {
+    if (!this.handAt) return false;
+    out[0] = this.handAt[0];
+    out[1] = this.handAt[1];
+    out[2] = this.handAt[2];
+    return true;
+  };
   drawerPulled = () => this.pulled;
   reducedMotion = () => this.reduced;
   lantern = (out: V3): V3 => {
@@ -428,15 +438,17 @@ describe("LessonsDirector: lesson 1", () => {
     expect(near && near.kind === "piece" && near.piece).toBe(0);
   });
 
-  it("shows the ghost hand only after 4 s without input, and lets it go when the player moves", () => {
+  it("shows the reaching ghost 4 s after the line whatever the hands do, until the lantern is held", () => {
     r.d.start("l1");
-    r.run(IDLE_GHOST_MS - 16);
+    // A hand near the lantern all along (reaching, not pinching): the ghost comes anyway.
+    r.inp.isActive = true;
+    r.run(FORM_MS + 16);
+    expect(r.d.frame.key).toBe("pickUp");
+    r.run(IDLE_GHOST_MS - 100);
     expect(r.d.frame.hand.opacity).toBe(0);
-    r.run(500);
+    r.run(600);
     expect(r.d.frame.hand.opacity).toBeGreaterThan(0);
-    r.run(2000);
-    // It reaches for the lantern: its pinch within a few centimetres of the lantern's handle loop at some point of its
-    // loop.
+    // With no hand there, it reaches the lantern's own loop: its pinch within a few millimetres of it.
     let nearest = Infinity;
     r.run(4000, () => {
       const a = r.d.frame.hand.at, b = gripOf(r.inp.at);
@@ -445,24 +457,68 @@ describe("LessonsDirector: lesson 1", () => {
     expect(nearest).toBeLessThan(0.02);
     expect(r.d.frame.hand.anchor).toBe("grasp");
     expect(r.d.frame.hand.side).toBe("right");
+    // Picked up: gone within a fade.
+    r.inp.isHeld = true;
+    r.run(400);
+    expect([r.d.step, r.d.frame.hand.opacity]).toEqual([1, 0]);
+  });
+
+  it("keeps the intro ghost clear of a real hand at the lantern: it shows the pinch beside the hand, not inside it", () => {
+    const grip = gripOf(r.inp.at);
+    const hands: V3[] = [
+      grip,
+      [grip[0] + 0.1, grip[1], grip[2]],
+      [grip[0], grip[1] - 0.05, grip[2] + 0.15],
+      [grip[0] - 0.12, grip[1] + 0.05, grip[2] - 0.05],
+    ];
+    for (const at of hands) {
+      const q = rig();
+      q.inp.isActive = true;
+      q.inp.handAt = at;
+      q.d.start("l1");
+      q.run(FORM_MS + IDLE_GHOST_MS + 1500);
+      let atHold = Infinity, any = Infinity, seen = 0;
+      q.run(8000, () => {
+        const h = q.d.frame.hand;
+        if (h.opacity < 0.5) return;
+        seen++;
+        const d = Math.hypot(h.at[0] - at[0], h.at[1] - at[1], h.at[2] - at[2]);
+        any = Math.min(any, d);
+        if (h.poseA === "hold" && h.poseB === "hold") atHold = Math.min(atHold, d);
+      });
+      expect(seen, `${at}`).toBeGreaterThan(100);
+      // Where it pinches, a hand's width from the real hand's pinch; never closer than about 8 cm on its way.
+      expect(atHold, `${at}`).toBeGreaterThanOrEqual(GHOST_CLEAR - 1e-3);
+      expect(any, `${at}`).toBeGreaterThan(0.3);
+    }
+    // The hand away from the lantern: the ghost goes back to the lantern's own loop.
+    const q = rig();
+    q.inp.handAt = [grip[0] + 0.8, grip[1], grip[2] + 0.3];
+    q.d.start("l1");
+    let nearest = Infinity;
+    q.run(FORM_MS + IDLE_GHOST_MS + 9000, () => {
+      const a = q.d.frame.hand.at;
+      if (q.d.frame.hand.opacity > 0.5) nearest = Math.min(nearest, Math.hypot(a[0] - grip[0], a[1] - grip[1], a[2] - grip[2]));
+    });
+    expect(nearest).toBeLessThan(0.02);
+  });
+
+  it("on lock I, shows how to pick the lantern up again only after 4 s without input, and lets it go when the player moves", () => {
+    r.d.start("l1", 1);
+    r.run(IDLE_GHOST_MS - 16);
+    expect(r.d.frame.hand.opacity).toBe(0);
+    r.run(500);
+    expect(r.d.frame.hand.opacity).toBeGreaterThan(0);
     // Input sends it away within a fade, and restarts the 4 s.
     r.inp.isActive = true;
     r.run(400);
     expect(r.d.frame.hand.opacity).toBe(0);
     r.inp.isActive = false;
-    r.run(IDLE_GHOST_MS - 100);
-    expect(r.d.frame.hand.opacity).toBe(0);
-    r.run(600);
-    expect(r.d.frame.hand.opacity).toBeGreaterThan(0);
-  });
-
-  it("restarts the idle clock with any input before the 4 s are up", () => {
-    r.d.start("l1");
     r.run(3000);
     r.inp.isActive = true;
     r.run(16);
     r.inp.isActive = false;
-    r.run(3900);
+    r.run(IDLE_GHOST_MS - 100);
     expect(r.d.frame.hand.opacity).toBe(0);
     r.run(600);
     expect(r.d.frame.hand.opacity).toBeGreaterThan(0);

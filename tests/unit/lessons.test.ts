@@ -60,7 +60,7 @@ function bench(o: { presenting?: boolean; autoStart?: boolean } = {}) {
     scene: {} as BoxScene,
     profiles: { profile, save: vi.fn(async () => {}) },
     settings: { get: () => ({ reducedMotion: false, handed: "right" }) },
-    lantern: { grab: { holder: null, brightness: 0 }, feel: { aligned: () => false }, ctrl: { pos: [0.3, -0.3, 1.3] } },
+    lantern: { grab: { holder: null, brightness: 0, nearestPinch: () => false }, feel: { aligned: () => false }, ctrl: { pos: [0.3, -0.3, 1.3] } },
     hands: { n: 0 },
     sound: { game: { lessonStep: vi.fn(), settle: vi.fn(), crystallise: vi.fn() } },
     play,
