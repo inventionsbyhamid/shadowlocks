@@ -95,6 +95,8 @@ async function main(): Promise<void> {
   attachInput(world);
   // The lantern (priority -3, right after the hands): held, carried, let go, settled on a spot.
   const lantern = attachLantern(world, shell.box);
+  // A lost box is never moved (nor its arrow shown) while the lantern is held.
+  shell.lanternHeld = () => lantern.grab.holder !== null;
   // A phone's touches in AR (priority -3.3, before the hands; off on a headset): the lantern dragged, keys tapped, a
   // finger cast in the light.
   const touch = attachTouch(world, { scene: shell.box, lantern });

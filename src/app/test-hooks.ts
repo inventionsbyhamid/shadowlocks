@@ -302,7 +302,7 @@ export function installTestHooks(
         blendMode: world.session?.environmentBlendMode ?? null,
         visibility: String(world.visibilityState.value),
       },
-      boxPose: { position: [...pose.position] as Vec3, yaw: pose.yaw, source: placement.source },
+      boxPose: { position: [...pose.position] as Vec3, yaw: pose.yaw, tiltDeg: pose.tiltDeg, source: placement.source },
       box: {
         exists: !!root && shell.box.entity.object3D === root,
         world: root ? v3(root.getWorldPosition(tmp)) : null,
@@ -498,6 +498,7 @@ export function installTestHooks(
       holder: lan.grab.holder,
       glow: lan.grab.brightness,
       ripple: shell.box.lantern.ringOpacity,
+      see: shell.box.lantern.seeThrough,
     };
   };
 
@@ -734,6 +735,16 @@ export function installTestHooks(
       phone: () => app.touch.phone,
       set: (list) => app.touch.inject(list === null ? null : list.map((t) => ({ id: t.id, at: [t.at[0], t.at[1], t.at[2]] }))),
       roles: () => app.touch.roles(),
+    },
+    summon: () => {
+      const v = shell.summon.view;
+      return {
+        phase: shell.summon.phase,
+        arrow: v.arrow.visible ? v3(v.at) : null,
+        fade: v.fadeNow,
+        lostMs: system.lost.lostMs,
+        calls: (v.arrow.visible ? 1 : 0) + (v.fade.visible ? 1 : 0),
+      };
     },
     i18n: {
       lang: () => ({ shown: lang(), doc: document.documentElement.lang }),

@@ -3,6 +3,12 @@
 // the box root in box units, so it scales with the box. Brightness follows the hand (Task 11), a
 // flare marks a grab and a ripple a settle. Two draw calls, ripple or not (the body in one mesh, the
 // glow carrying the ripple's ring); one while it waits quiet in a lesson's cradle. No allocation per frame.
+//
+// On a phone it can turn see-through (the touch system asks while a touch holds it, or while its light stands in front
+// of the panel as the camera sees it): the body drops about two thirds of its pixels in an ordered dither, so the panel
+// shows through it, and the glow shrinks to a small flame. The light, its strength and the shadows do not change. The
+// dither is compiled only into a phone's program (allowSeeThrough, before the session's prewarm): a headset's body
+// shader has no discard in it at all.
 import {
   BoxGeometry,
   type BufferGeometry,
@@ -59,6 +65,17 @@ export function radialTexture(size: number, ring: boolean): DataTexture {
 
 const at = (g: BufferGeometry, x: number, y: number, z: number, ry = 0) => g.applyMatrix4(new Matrix4().makeRotationY(ry).setPosition(x, y, z));
 
+/** A phone's see-through lantern: eased in and out over `easeMs`; at full, `discard` of the body's pixels go and the glow is `glow` its size and `dim` its opacity. */
+export const SEE_THROUGH = { easeMs: 150, discard: 0.67, glow: 0.3, dim: 0.6 } as const;
+
+/** A 4 x 4 ordered (Bayer) dither threshold for a pixel, in (0, 1): two 2 x 2 levels. */
+const DITHER_GLSL = `uniform float uSee;
+float slDither( vec2 p ) {
+  vec2 q = mod( floor( p ), 4.0 ), a = mod( q, 2.0 ), b = floor( q * 0.5 );
+  float lo = 2.0 * a.x + 3.0 * a.y - 4.0 * a.x * a.y, hi = 2.0 * b.x + 3.0 * b.y - 4.0 * b.x * b.y;
+  return ( 4.0 * lo + hi + 0.5 ) / 16.0;
+}`;
+
 export class LanternView {
   /** The lantern (box units); its origin is the light. */
   readonly group = new Group();
@@ -80,6 +97,11 @@ export class LanternView {
   private shown = true;
   /** The parts that hide when it is put away (the glow and ripple follow it in apply, with the cradle's quiet). */
   private readonly parts: Object3D[];
+  /** A phone's: the body's program has the dither (allowSeeThrough). */
+  private seeAllowed = false;
+  /** How see-through it is now (the body's uSee), eased toward `seeWant`. */
+  private readonly see = { value: 0 };
+  private seeWant = 0;
   private readonly budget: FlashBudget;
   /** The budget is this view's own (it steps it), not the box's shared one. */
   private readonly ownBudget: boolean;
@@ -120,7 +142,18 @@ export class LanternView {
       emissive: this.coreColor.clone(),
       emissiveIntensity: 1,
     });
+    const see = this.see;
     this.bodyMat.onBeforeCompile = (s) => {
+      // A phone's program: the ordered dither, first thing in main (a pixel thrown away is never shaded).
+      if (this.seeAllowed) {
+        s.uniforms.uSee = see;
+        s.fragmentShader = s.fragmentShader
+          .replace("#include <common>", `#include <common>\n${DITHER_GLSL}`)
+          .replace(
+            "#include <clipping_planes_fragment>",
+            `#include <clipping_planes_fragment>\nif ( slDither( gl_FragCoord.xy ) < uSee * ${SEE_THROUGH.discard.toFixed(2)} ) discard;`,
+          );
+      }
       s.fragmentShader = s.fragmentShader
         .replace("vec3 totalEmissiveRadiance = emissive;", "vec3 totalEmissiveRadiance = emissive * step( 0.5, vColor.b );")
         .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - step( 0.5, vColor.b );")
@@ -132,7 +165,7 @@ export class LanternView {
           "#include <tonemapping_fragment>\ngl_FragColor.rgb = mix( gl_FragColor.rgb, totalEmissiveRadiance, step( 0.5, vColor.b ) );",
         );
     };
-    this.bodyMat.customProgramCacheKey = () => "sl-lantern-body";
+    this.bodyMat.customProgramCacheKey = () => (this.seeAllowed ? "sl-lantern-body-see" : "sl-lantern-body");
     const body = new Mesh(geometry, this.bodyMat);
     body.name = "Lantern Body";
     // The glow, carrying the settle ripple's gold ring in the same sprite (one draw call, ripple or not).
@@ -227,35 +260,64 @@ export class LanternView {
     this.apply();
   }
 
-  /** Advance flare and ripple by `dt` seconds. */
+  /**
+   * A phone's lantern: the body's program gets the see-through dither (compiled once, so call it before the session's
+   * prewarm). A headset never calls it, and its lantern never turns see-through.
+   */
+  allowSeeThrough(): void {
+    if (this.seeAllowed) return;
+    this.seeAllowed = true;
+    this.bodyMat.needsUpdate = true;
+  }
+
+  /** 0 (solid) to 1 (see-through, a small flame), eased over SEE_THROUGH.easeMs; nothing until allowSeeThrough. */
+  setSeeThrough(k: number): void {
+    this.seeWant = this.seeAllowed ? clamp01(k) : 0;
+  }
+
+  /** How see-through it is now (0 to 1). */
+  get seeThrough(): number {
+    return this.see.value;
+  }
+
+  /** Advance flare, ripple and the see-through by `dt` seconds. */
   update(dt: number): void {
     if (this.ownBudget) this.budget.step(dt);
-    const busy = this.flareT < LANTERN_GLOW.flareS || this.rippleT < LANTERN_GLOW.rippleS;
+    const seeing = this.see.value !== this.seeWant;
+    const busy = seeing || this.flareT < LANTERN_GLOW.flareS || this.rippleT < LANTERN_GLOW.rippleS;
     if (!busy) return;
     this.flareT += dt;
     this.rippleT += dt;
+    if (seeing) {
+      const step = (Math.max(0, dt) * 1000) / SEE_THROUGH.easeMs, v = this.see.value, want = this.seeWant;
+      this.see.value = want > v ? Math.min(want, v + step) : Math.max(want, v - step);
+    }
     this.apply();
   }
 
   private apply(): void {
-    const g = LANTERN_GLOW, b = this.brightness;
+    const g = LANTERN_GLOW, b = this.brightness, see = this.see.value;
     const flare = this.flareT < g.flareS ? 1 - outCubic(this.flareT / g.flareS) : 0;
     const k = g.lightFloor + (1 - g.lightFloor) * b;
     // Physical point light: intensity scales with area (size squared), range with size. Dark while put away.
     this.light.intensity = this.shown ? LIGHTS.lantern.intensity * k * (1 + 0.3 * flare) * this.sizeM * this.sizeM : 0;
     this.light.distance = LIGHTS.lantern.range * this.sizeM;
-    const s = g.size * (0.85 + 0.15 * b) * (1 + g.flareGain * flare);
-    this.glow.scale.set(s, s, 1);
-    (this.glow.material as SpriteMaterial).opacity = Math.min(1, g.opacity[0] + (g.opacity[1] - g.opacity[0]) * b + 0.4 * flare);
+    // See-through, the glow is a small flame (SEE_THROUGH.glow its size, dimmer).
+    let s = g.size * (0.85 + 0.15 * b) * (1 + g.flareGain * flare) * (1 + (SEE_THROUGH.glow - 1) * see);
+    const opacity = Math.min(1, g.opacity[0] + (g.opacity[1] - g.opacity[0]) * b + 0.4 * flare) * (1 + (SEE_THROUGH.dim - 1) * see);
+    (this.glow.material as SpriteMaterial).opacity = opacity;
     // The glow and ripple show only while the lantern is shown (no menu has put it away) and not quiet in a cradle.
     this.glow.visible = this.shown && !this.quiet;
     this.bodyMat.emissive.copy(this.coreColor).lerp(this.hotColor, Math.min(1, 0.4 * b + flare));
-    // The ring grows to 2 * rippleRadius across (always inside the glow's sprite) and fades: in the sprite's uv, the
-    // ring texture is sampled this many times faster than the sprite is wide.
+    // The ring grows to 2 * rippleRadius across and fades: in the sprite's uv, the ring texture is sampled this many
+    // times faster than the sprite is wide. The sprite is always wide enough to hold it (a see-through flame grows
+    // for it while it runs).
     const ring = this.ring.value;
     if (this.rippleT < g.rippleS && !this.quiet) {
       const q = this.rippleT / g.rippleS, r = 2 * g.rippleRadius * outCubic(q);
+      if (s < r) s = r;
       ring.set(r > 1e-4 ? s / r : 0, r > 1e-4 ? 1 - q : 0);
     } else ring.set(0, 0);
+    this.glow.scale.set(s, s, 1);
   }
 }
