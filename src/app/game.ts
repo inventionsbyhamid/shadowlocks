@@ -79,6 +79,8 @@ export class GameView implements SessionView {
   private opened: BoxResult | null = null;
   /** Told of every box that opens, with its result (the 2D page's share block keeps the latest). */
   onResult: ((r: BoxResult) => void) | null = null;
+  /** A friend's result for the box with this seed key (a shared link's), shown on its card beside the player's. */
+  friendFor: ((key: string) => { t: number; h: number | null } | null) | null = null;
 
   constructor(private readonly d: GameViewDeps) {
     const scene = d.scene, root = scene.root;
@@ -393,13 +395,13 @@ export function attachGame(d: GameDeps): { game: Game; session: BoxSession; view
   const { world, shell } = d;
   const scene = shell.box;
   let session: BoxSession | null = null;
-  const view = new GameView({
+  const view: GameView = new GameView({
     world,
     scene,
     settings: shell.settings,
     lantern: d.lantern,
     canShowMe: () => session?.showMe != null,
-    card: (r) => resultCard(r, shell.profiles.profile),
+    card: (r): ResultCard | null => resultCard(r, shell.profiles.profile, view.friendFor?.(r.key) ?? null),
   });
   session = new BoxSession({
     // The finger locks (session-fingers.ts): the hands' finger shadow, a FingerLockLoop per finger lock, and the

@@ -59,6 +59,18 @@ describe("the result card", () => {
     expect(resultCard(result({ spec: { kind: "lesson", id: "l1" }, key: "lesson/l1", levels: [0] }), p)).toBeNull();
   });
 
+  it("a friend's box shows both results: the player's and what the friend says (with or without their hints)", () => {
+    const p = profile({ collection: [item("shadow-locks/12", 160_000)] });
+    const r = result({ spec: { kind: "box", n: 12 }, key: "shadow-locks/12", levels: [1, 0], hints: 1, timeMs: 178_000, practice: true, recorded: false });
+    expect(resultCard(r, p, { t: 222, h: 0 })!.lines).toEqual(["Your best 2:40", "You 2:58, 1 hint", "Your friend says 3:42, no hints"]);
+    expect(resultCard({ ...r, hints: 0 }, p, { t: 222, h: null })!.lines).toEqual(["Your best 2:40", "You 2:58, no hints", "Your friend says 3:42"]);
+    expect(resultCard({ ...r, hints: 3 }, p, { t: 222, h: 2 })!.lines.slice(1)).toEqual(["You 2:58, 3 hints", "Your friend says 3:42, 2 hints"]);
+    // Today's Daily Box from a friend's link, played for real: the streak and the best stay, both results after them.
+    const d = profile({ streak: 2 });
+    const own = resultCard(result({ spec: { kind: "daily", day: "2026-11-10" }, key: "shadow-locks/daily/2026-11-10", levels: [0] }), d, { t: 252, h: 1 })!;
+    expect(own.lines).toEqual(["Streak 2", "You 4:12, no hints", "Your friend says 4:12, 1 hint"]);
+  });
+
   it("is in the language shown", () => {
     setLang("de");
     const p = profile({ streak: 2, collection: [item("shadow-locks/daily/2026-11-01", 100_000)] });

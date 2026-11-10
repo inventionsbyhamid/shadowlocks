@@ -2,8 +2,7 @@
 // hint, a hint, the spot shown; never which shape it was), the time, the Daily Box's streak, the player's best and the
 // site's name. Made to be read in a system screenshot or a cast: the headset's way to share (the 2D page has the share
 // button). Built once when the box opens and again when the language changes, never per frame.
-import { formatDay } from "../i18n";
-import { copy } from "../i18n";
+import { copy, count, formatDay } from "../i18n";
 import type { Profile } from "../core/profile";
 import { bestOf, type BoxResult, clockText, secondsOf, type Tile, tilesOf } from "../core/result";
 import { PUBLIC_ORIGIN } from "../platform/site-origin";
@@ -34,11 +33,18 @@ export function cardTitle(spec: BoxResult["spec"]): string {
   return "";
 }
 
+/** A hint count as the card and the landing say it: "no hints", "1 hint", "3 hints". */
+export function hintsText(n: number): string {
+  const c = copy().share;
+  return n === 0 ? c.noHints : count(n, c.hints);
+}
+
 /**
  * The card for a box that opened with result `r`, the profile as it is once the box opened (streak, collection); null
- * for a lesson's box (the lessons have their own words).
+ * for a lesson's box (the lessons have their own words). A friend's result (a shared link's, for this box) adds both
+ * results: the player's, and what the friend says.
  */
-export function resultCard(r: BoxResult, p: Readonly<Profile>): ResultCard | null {
+export function resultCard(r: BoxResult, p: Readonly<Profile>, friend: { t: number; h: number | null } | null = null): ResultCard | null {
   if (r.spec.kind === "lesson") return null;
   const c = copy();
   const lines: string[] = [];
@@ -46,5 +52,10 @@ export function resultCard(r: BoxResult, p: Readonly<Profile>): ResultCard | nul
   const best = bestOf(p.collection, r);
   if (best?.kind === "new") lines.push(c.share.newBest);
   else if (best) lines.push(fill(c.share.best, { time: clockText(secondsOf(best.ms)) }));
+  if (friend) {
+    lines.push(fill(c.share.you, { time: clockText(secondsOf(r.timeMs)), help: hintsText(r.hints) }));
+    const time = clockText(friend.t);
+    lines.push(friend.h === null ? fill(c.share.friendTime, { time }) : fill(c.share.friend, { time, help: hintsText(friend.h) }));
+  }
   return { title: cardTitle(r.spec), tiles: tilesOf(r.levels), time: clockText(secondsOf(r.timeMs)), lines, site: CARD_SITE };
 }
