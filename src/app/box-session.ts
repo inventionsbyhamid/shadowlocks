@@ -46,6 +46,11 @@ const EPS_MS = 1e-6;
 export class BoxSession {
   /** "Show me" on the hint lantern: replays the example the lock needs (wired by the lessons). */
   showMe: ((lock: Lock) => void) | null = null;
+  /**
+   * The plate's Next, asked first: true when it took the press (a friend's shared box goes on to lesson 2 or Home,
+   * never to another box). Wired by the app's shared link.
+   */
+  nextHook: (() => boolean) | null = null;
   private current: Box | null = null;
   private currentSpec: BoxSpec | null = null;
   private stageNow: Stage = "idle";
@@ -217,6 +222,7 @@ export class BoxSession {
    */
   next(): Promise<void> {
     if (this.stageNow !== "offered") return Promise.resolve();
+    if (this.nextHook?.()) return Promise.resolve();
     // Every Next is an endless box: asked of the entitlement first (a trial over keeps only the Daily Box and lessons).
     if (!(this.deps.canPlayBox?.() ?? true)) {
       this.deps.boxRefused?.();

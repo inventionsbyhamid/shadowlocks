@@ -1078,6 +1078,40 @@ describe("box session", () => {
     expect(h.session.isOpen(0)).toBe(true);
   });
 
+  it("a Next hook can take the plate's Next (a friend's box goes on to lesson 2 or Home), before the entitlement", async () => {
+    let refuse = true;
+    const h = harness({ canPlayBox: () => !refuse });
+    let asked = 0;
+    h.session.nextHook = () => {
+      asked++;
+      return h.session.practice;
+    };
+    await h.session.start(BOX(3), null, { practice: true });
+    openPlainLocks(h);
+    for (const l of h.session.box!.locks) if (l.finger) openFingerLock(h, l);
+    h.until(() => h.session.stage === "reward", LOCK_TO_BOX_MS + REWARD_UP_MS + 100);
+    h.view.acts = ACT_TAKE;
+    h.frames(1);
+    h.view.acts = ACT_NEXT;
+    h.frames(1);
+    await new Promise((r) => setTimeout(r, 0));
+    // Taken by the hook: no next box, no trial screen, the box stays where it was.
+    expect([asked, h.refused(), h.session.box?.key, h.session.stage]).toEqual([1, 0, generateBox(BOX(3)).key, "offered"]);
+    // A box the hook leaves alone goes on as before.
+    refuse = false;
+    await h.session.start(BOX(3));
+    openPlainLocks(h);
+    for (const l of h.session.box!.locks) if (l.finger) openFingerLock(h, l);
+    h.until(() => h.session.stage === "reward", LOCK_TO_BOX_MS + REWARD_UP_MS + 100);
+    h.view.acts = ACT_TAKE;
+    h.frames(1);
+    h.view.acts = ACT_NEXT;
+    h.frames(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(asked).toBe(2);
+    expect(h.session.box?.key).toBe(generateBox(BOX(4)).key);
+  });
+
   it("Next after a Daily Box resumes the box in progress, as Continue does, even one that is not the next box", async () => {
     const profile = newProfile(0, "test");
     // Box 2 in progress while the next box is 5 (a box in progress is never dropped for another).
