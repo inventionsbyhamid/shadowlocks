@@ -33,6 +33,10 @@ describe("privacy page", () => {
       "shadowlocks.pages.dev, or shadowlocks-judge.pages.dev for the Competition build",
       "13 and over",
       "Meta will handle the payment",
+      // Sharing: nothing is sent by the game; a link holds only what it shows; Web Launch only when chosen.
+      "The game sends nothing itself",
+      "Share links hold only what they show",
+      "only if you choose it, it takes you to Meta's own",
     ]) {
       expect(text, phrase).toContain(phrase);
     }
