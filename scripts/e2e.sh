@@ -17,7 +17,7 @@
 #                no spec here at all (Playwright reads filters as patterns: "hand" runs
 #                hand-cost.spec.ts too), or
 #              - NS_E2E_EXCLUSIVE is set to anything but empty or 0.
-#   functional anything else: up to four functional runs (of any lanes) go at once.
+#   functional anything else: up to two functional runs (of any lanes) go at once.
 # An exclusive run waits until every other run has ended. Once its lock request waits on the server
 # (after the pre-wait below), no new run starts ahead of it; during its pre-wait on this Mac,
 # functional runs still start. scripts/e2e.sh --print-mode <args> says which kind a run would be,
@@ -26,13 +26,13 @@
 # First waits up to NS_E2E_PREWAIT seconds (default 1800) while the server is busy or too many browser
 # containers run. The gates (Ruling 111) are the named defaults below:
 #   - a functional run starts at load FUNCTIONAL_MAX_LOAD (34: the 40 cores less one run's 6) or
-#     less, with fewer than FUNCTIONAL_SLOTS (4) browser runs going;
+#     less, with fewer than FUNCTIONAL_SLOTS (2) browser runs going;
 #   - an exclusive run starts at load EXCLUSIVE_MAX_LOAD (25) or less, with none going.
 # NS_MAX_LOAD, when set, is the load limit for both, here and in remote.sh's own gate. Then:
 #   - a functional run still facing FUNCTIONAL_SLOTS runs gives up (exit 75);
 #   - an exclusive run queues for the lock anyway, and starts as soon as the runs holding it end.
 # It then holds the "e2e" lock while the browser container runs: exclusively (remote.sh --lock e2e) or
-# shared in one of four slots (remote.sh --lock-shared e2e). Waiting for the lock gives up after
+# shared in one of two slots (remote.sh --lock-shared e2e). Waiting for the lock gives up after
 # NS_LOCK_WAIT seconds (default 3600) with exit 75. Older copies of this script hold the same lock
 # exclusively, so they never overlap with any run of this one.
 # CPUs (Task 27): an exclusive run's container is pinned to remote.sh's TIMING_CPUS (NUMA node 1)
@@ -46,7 +46,7 @@ set -euo pipefail
 HOST=ioflood
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 # The gates (Ruling 111; the header). FUNCTIONAL_SLOTS must equal remote.sh's SHARED_SLOTS.
-FUNCTIONAL_SLOTS=4
+FUNCTIONAL_SLOTS=2
 FUNCTIONAL_MAX_LOAD=34
 EXCLUSIVE_MAX_LOAD=25
 

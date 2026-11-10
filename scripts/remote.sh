@@ -8,11 +8,11 @@
 #                  (process list, docker inspect): never pass secrets this way.
 #   --lock <name>  wait (up to NS_LOCK_WAIT s, default 3600; exit 75 when it gives up) for a server-wide
 #                  lock and hold it until the container is gone (one run at a time)
-#   --lock-shared <name>  the same lock (same file, locks/<name>.lock), held shared: up to four
-#                  --lock-shared runs at once (each also holds one of four slots, <name>.slot1..4.lock),
-#                  never together with a --lock run of that name, older scripts' included. A --lock run
-#                  that is waiting goes first: no new --lock-shared run starts until it has run. Same
-#                  wait limit and exit 75.
+#   --lock-shared <name>  the same lock (same file, locks/<name>.lock), held shared: up to two
+#                  --lock-shared runs at once, each in a slot of two slot files (<name>.slot1.lock and
+#                  slot2, or slot3 and slot4; see SHARED_SLOTS), never together with a --lock run of that
+#                  name, older scripts' included. A --lock run that is waiting goes first: no new
+#                  --lock-shared run starts until it has run. Same wait limit and exit 75.
 #   --timing-cpus  run on TIMING_CPUS, pinned, with no CPU quota, instead of the usual 6-CPU quota (see
 #                  TIMING_CPUS below). Only with --lock e2e: holding that lock alone is what keeps two timed
 #                  runs off the same CPUs. scripts/e2e.sh asks for it on every exclusive run.
@@ -50,9 +50,13 @@ MAX_LOAD=${NS_MAX_LOAD:-25}
 MIN_FREE_GB=${NS_MIN_FREE_GB:-100}
 RUN_USER=1000:1000
 NPM_VOLUME=shadowlocks-npm-user
-# How many --lock-shared runs of one lock may go at once (Ruling 111: four functional e2e runs; keep
-# scripts/e2e.sh's FUNCTIONAL_SLOTS the same).
-SHARED_SLOTS=4
+# How many --lock-shared runs of one lock may go at once (keep scripts/e2e.sh's FUNCTIONAL_SLOTS the same),
+# and how many slot files (<name>.slot<k>.lock) each holds: slot 1 is files 1 and 2, slot 2 files 3 and 4.
+# Older copies of these scripts hold one file a run, up to four, at 6 CPUs each (Ruling 111). A run here
+# holds two, so it may use two such runs' CPUs: with older runs beside ours, the four files still keep
+# all functional e2e runs together at 24 CPUs or fewer.
+SHARED_SLOTS=2
+SHARED_SLOT_FILES=2
 # CPUs (Task 27, plan/sdd/sl-v1/task-27-report.md). A run normally gets a CFS quota of CPU_QUOTA CPUs. On this 40-CPU
 # host a browser's software renderer starts threads for all 40, spends the quota early in each 100 ms period, and the
 # kernel then stops the whole container for the rest of it: pauses of 46 to 80 ms, in every period of a timed window,
@@ -103,8 +107,8 @@ while [ $# -gt 0 ]; do
       # dots, so a name never reaches a slot file (<name>.slot1.lock).
       [[ $2 =~ ^[A-Za-z0-9_-]+$ && $2 != lane-* ]] \
         || { echo "bad $1 name: $2 (letters, digits, _ and -; not starting with lane-)" >&2; exit 2; }
-      # remote-run.sh reads <name> as exclusive, <name>:<slots> as shared. The last one given wins.
-      if [ "$1" = --lock ]; then LOCK_SPEC=$2; else LOCK_SPEC=$2:$SHARED_SLOTS; fi
+      # remote-run.sh reads <name> as exclusive, <name>:<slots>:<files> as shared. The last one given wins.
+      if [ "$1" = --lock ]; then LOCK_SPEC=$2; else LOCK_SPEC=$2:$SHARED_SLOTS:$SHARED_SLOT_FILES; fi
       shift 2 ;;
     --timing-cpus) TIMING=1; shift ;;
     --signing-key) SIGNING=1; shift ;;

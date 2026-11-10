@@ -86,7 +86,7 @@ Helpers:
 lock while the browser runs, so lanes take turns. Needs the `shadowlocks-e2e` image
 (`scripts/e2e-image/build.sh`).
 
-Functional runs of named specs share that lock: up to four go at once, from any lanes, and one
+Functional runs of named specs share that lock: up to two go at once, from any lanes, and one
 starts while the server's load is 34 or less (40 cores less one run's 6). Exclusive runs start only at
 load 25 or less. These gates are named defaults at the top of `scripts/e2e.sh`
 (`FUNCTIONAL_SLOTS`, which must match `SHARED_SLOTS` in `scripts/remote.sh`, `FUNCTIONAL_MAX_LOAD`
@@ -107,7 +107,7 @@ An exclusive run waits for every other run to end. It first waits on this Mac fo
 until no browser run goes; during that pre-wait functional runs still start. Then it queues for the
 lock on the server, even if runs are still going, and from that moment no new run starts ahead of
 it. Only the lock wait itself (`NS_LOCK_WAIT`) ends it with exit 75. A functional run that still
-finds four browser runs going after its 30-minute pre-wait gives up (exit 75).
+finds two browser runs going after its 30-minute pre-wait gives up (exit 75).
 `scripts/e2e.sh --print-mode <args>` says which kind a run would be, and `--print-limits <args>`
 also gives the load and the number of browser runs it starts under. The rule is in the script's
 header.

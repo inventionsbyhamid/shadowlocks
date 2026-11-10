@@ -127,8 +127,8 @@ function limits(args: string[], env: Record<string, string> = {}): string {
 }
 
 describe("e2e start gates (Ruling 111)", () => {
-  it("starts a functional run at load 34 or less beside up to three others", () => {
-    expect(limits(["tests/e2e/boot.spec.ts"])).toBe("functional 34 3");
+  it("starts a functional run at load 34 or less beside at most one other", () => {
+    expect(limits(["tests/e2e/boot.spec.ts"])).toBe("functional 34 1");
   });
 
   it("starts an exclusive run at load 25 or less with no other browser run", () => {
@@ -138,13 +138,13 @@ describe("e2e start gates (Ruling 111)", () => {
   });
 
   it("lets NS_MAX_LOAD set the load limit of either kind", () => {
-    expect(limits(["tests/e2e/boot.spec.ts"], { NS_MAX_LOAD: "20" })).toBe("functional 20 3");
+    expect(limits(["tests/e2e/boot.spec.ts"], { NS_MAX_LOAD: "20" })).toBe("functional 20 1");
     expect(limits([], { NS_MAX_LOAD: "20" })).toBe("exclusive 20 0");
   });
 
   it("keeps e2e.sh's functional slots equal to remote.sh's shared slots", () => {
     const slots = (file: string, name: string) => readFileSync(file, "utf8").match(new RegExp(`^${name}=(\\d+)$`, "m"))?.[1];
-    expect(slots("scripts/e2e.sh", "FUNCTIONAL_SLOTS")).toBe("4");
-    expect(slots("scripts/remote.sh", "SHARED_SLOTS")).toBe("4");
+    expect(slots("scripts/e2e.sh", "FUNCTIONAL_SLOTS")).toBe("2");
+    expect(slots("scripts/remote.sh", "SHARED_SLOTS")).toBe("2");
   });
 });
