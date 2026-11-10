@@ -85,7 +85,7 @@ export const RESULT_LOOK = {
   site: 34,
   room: 768 - 60,
   /** A tile's colour: no hint, a hint, the spot shown (the share text's yellow, orange and red squares). */
-  colors: { clear: "#f2c94c", hinted: "#f2994a", shown: "#e5534b" },
+  colors: { clear: "#fdcb58", hinted: "#f4900c", shown: "#dd2e44" },
 } as const;
 
 /**
