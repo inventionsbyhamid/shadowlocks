@@ -127,10 +127,7 @@ export class ShellSystem extends createSystem({}) {
       s.summon.reset(this.headPos);
     }
     const tracked = !!xrSession && !!this.world.xrFrame && this.readHead(phone);
-    if (tracked) {
-      const f = this.forward.set(0, 0, -1).applyQuaternion(this.headQuat);
-      this.gate.update(now, f.x, f.y, f.z);
-    }
+    if (tracked) this.gate.update(now, this.forward.set(0, 0, -1).applyQuaternion(this.headQuat));
     // Once per XR session, once the head (a phone's camera) has held still in a looking pose (or the gate's cap has
     // passed): place the box, show it, and compile every shader for the session's render target (set only inside its
     // frames) so nothing compiles the first time it shows. Until then the box and its panels are hidden.
@@ -150,7 +147,7 @@ export class ShellSystem extends createSystem({}) {
       if (xrSession && placement.source !== "default" && (placement.source === "view") !== phone) s.recenterAsked = true;
       // A Recenter waits for a frame with a tracked head.
       if (s.recenterAsked && this.recenter()) s.recenterAsked = false;
-      if (xrSession && tracked) this.watchLost(s, now, dt, phone);
+      if (xrSession && tracked) this.watchLost(s, now, phone);
     }
     if (placement.version !== this.laidOut) {
       this.laidOut = placement.version;
@@ -167,7 +164,7 @@ export class ShellSystem extends createSystem({}) {
    * headset's arrow toward it, and the summon it starts (lost-box.ts, summon.ts). headPos and headQuat hold this frame's
    * head.
    */
-  private watchLost(s: Shell, now: number, dt: number, phone: boolean): void {
+  private watchLost(s: Shell, now: number, phone: boolean): void {
     const inView = boxInView(placement.matrix(), this.headPos, this.headQuat, this.seenView());
     const L = this.lostIn;
     L.phone = phone;
@@ -185,7 +182,7 @@ export class ShellSystem extends createSystem({}) {
     }
     const c = BOX_SPHERE.center;
     this.boxMid.set(c[0], c[1], c[2]).applyMatrix4(placement.matrix());
-    const step = s.summon.update(now, dt, this.lost.arrow, this.headPos, this.headQuat, this.boxMid);
+    const step = s.summon.update(now, this.lost.arrow, this.headPos, this.headQuat, this.boxMid);
     if (step === "taken") this.lost.reset();
     else if (step === "place") {
       const ok = this.recenter();

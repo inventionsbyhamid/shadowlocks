@@ -34,15 +34,19 @@ export class Summon {
   readonly view = new SummonView();
   phase: SummonPhase = "idle";
   private t0 = 0;
+  /** The last frame's time (ms; NaN before the first). */
+  private lastMs = Number.NaN;
 
   constructor(private readonly input: SummonInput) {}
 
   /**
    * One frame: `arrow` (the lost-box rule: the arrow is up), the head at `eye` turned `head`, the box's middle at `box`
-   * (world), at `nowMs`, `dtS` since the last frame. "place": place the box in front now, then call `placed`.
+   * (world), at `nowMs`. "place": place the box in front now, then call `placed`.
    */
-  update(nowMs: number, dtS: number, arrow: boolean, eye: Readonly<Vector3>, head: Readonly<Quaternion>, box: Readonly<Vector3>): SummonStep {
+  update(nowMs: number, arrow: boolean, eye: Readonly<Vector3>, head: Readonly<Quaternion>, box: Readonly<Vector3>): SummonStep {
     const v = this.view;
+    const dtS = this.lastMs === this.lastMs ? Math.min(Math.max(nowMs - this.lastMs, 0), 100) / 1000 : 0;
+    this.lastMs = nowMs;
     if (this.phase === "out") {
       const k = (nowMs - this.t0) / SUMMON.outMs;
       v.setFade(smoothstep(0, 1, Math.min(1, k)), eye);

@@ -340,8 +340,12 @@ export class PlaceGate {
     this.looking = false;
   }
 
-  /** This frame's forward (a unit vector, world, y up) at `nowMs`; feed only tracked frames. */
-  update(nowMs: number, fx: number, fy: number, fz: number): void {
+  /**
+   * This frame's forward `f` (a unit vector, world, y up) at `nowMs`; feed only tracked frames. One vector, not three
+   * numbers: a float passed to a call the engine does not inline is boxed, every frame.
+   */
+  update(nowMs: number, f: Readonly<{ x: number; y: number; z: number }>): void {
+    const fx = f.x, fy = f.y, fz = f.z;
     const pitch = Math.asin(Math.max(-1, Math.min(1, fy))) / DEG;
     this.looking = pitch >= -STEADY.pitchDeg.down && pitch <= STEADY.pitchDeg.up;
     if (this.firstMs !== this.firstMs) {

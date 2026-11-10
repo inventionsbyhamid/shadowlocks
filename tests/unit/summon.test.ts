@@ -40,7 +40,7 @@ function rig() {
   let t = 0;
   const step = (arrow = true, head = look(0)) => {
     t += FRAME_MS;
-    return s.update(t, FRAME_MS / 1000, arrow, EYE, head, BOX);
+    return s.update(t, arrow, EYE, head, BOX);
   };
   return { s, hands, tips, rays, step, now: () => t };
 }

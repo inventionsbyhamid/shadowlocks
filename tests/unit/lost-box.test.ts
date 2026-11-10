@@ -39,16 +39,16 @@ describe("a box lost from view", () => {
 
   it("tells a sphere in view, at its edge and out of it, ahead, aside and behind", () => {
     const v: ViewTangents = { tanH: 0.5, tanV: 0.5 };
-    expect(sphereInView(0, 0, -1, 0.1, v)).toBe(true);
+    expect(sphereInView({ x: 0, y: 0, z: -1 }, 0.1, v)).toBe(true);
     // Just past the right edge: in while the edge of the sphere still crosses it, out once it is wholly past.
     const edge = 0.5 * 1;
-    expect(sphereInView(edge + 0.1, 0, -1, 0.1, v)).toBe(true);
-    expect(sphereInView(edge + 0.2, 0, -1, 0.1, v)).toBe(false);
-    expect(sphereInView(0, -(edge + 0.2), -1, 0.1, v)).toBe(false);
+    expect(sphereInView({ x: edge + 0.1, y: 0, z: -1 }, 0.1, v)).toBe(true);
+    expect(sphereInView({ x: edge + 0.2, y: 0, z: -1 }, 0.1, v)).toBe(false);
+    expect(sphereInView({ x: 0, y: -(edge + 0.2), z: -1 }, 0.1, v)).toBe(false);
     // Behind the camera.
-    expect(sphereInView(0, 0, 0.5, 0.1, v)).toBe(false);
+    expect(sphereInView({ x: 0, y: 0, z: 0.5 }, 0.1, v)).toBe(false);
     // Round the camera itself (closer than its radius): in view.
-    expect(sphereInView(0, 0, 0.05, 0.1, v)).toBe(true);
+    expect(sphereInView({ x: 0, y: 0, z: 0.05 }, 0.1, v)).toBe(true);
   });
 
   it("a phone's box out of view for 2 s asks to be placed again", () => {

@@ -22,10 +22,11 @@ export const BOX_SPHERE = {
 } as const;
 
 /**
- * Whether any part of a sphere is inside a view: its centre (x, y, z) in camera space (x right, y up, looking down -z),
- * radius `r`, the view's half-angle tangents `view`. Conservative near the view's corners (it may say "in" there).
+ * Whether any part of a sphere is inside a view: its centre `c` in camera space (x right, y up, looking down -z), radius
+ * `r`, the view's half-angle tangents `view`. Conservative near the view's corners (it may say "in" there).
  */
-export function sphereInView(x: number, y: number, z: number, r: number, view: ViewTangents): boolean {
+export function sphereInView(c: Readonly<{ x: number; y: number; z: number }>, r: number, view: ViewTangents): boolean {
+  const x = c.x, y = c.y, z = c.z;
   if (z > r) return false;
   const h = view.tanH, v = view.tanV;
   // Past a side plane (through the eye, its outward normal (±1, 0, tan) / |...|) by more than the radius: out.
@@ -47,7 +48,7 @@ export function boxInView(box: Readonly<Matrix4>, eye: Readonly<Vector3>, turn: 
   const scale = Math.sqrt(e[0]! * e[0]! + e[1]! * e[1]! + e[2]! * e[2]!);
   c.set(s[0], s[1], s[2]).applyMatrix4(box as Matrix4).sub(eye);
   c.applyQuaternion(inv.copy(turn).invert());
-  return sphereInView(c.x, c.y, c.z, BOX_SPHERE.radius * scale, view);
+  return sphereInView(c, BOX_SPHERE.radius * scale, view);
 }
 
 /** What the lost-box rule reads each frame (filled in place). */

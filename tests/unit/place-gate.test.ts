@@ -9,23 +9,22 @@ const DEG = Math.PI / 180;
 const FRAME_MS = 1000 / 72;
 
 /** The forward of a head turned `yawDeg` (to the left) and pitched `pitchDeg` (up). */
-function forward(yawDeg: number, pitchDeg: number): [number, number, number] {
+function forward(yawDeg: number, pitchDeg: number): Vector3 {
   const q = new Quaternion().setFromEuler(new Euler(pitchDeg * DEG, yawDeg * DEG, 0, "YXZ"));
-  const f = new Vector3(0, 0, -1).applyQuaternion(q);
-  return [f.x, f.y, f.z];
+  return new Vector3(0, 0, -1).applyQuaternion(q);
 }
 
 /** Feed `ms` of frames from `t0`, the pose from `pose(t)`; returns the time after the last frame. */
 function feed(g: PlaceGate, t0: number, ms: number, pose: (t: number) => [number, number]): number {
   let t = t0;
-  for (; t < t0 + ms; t += FRAME_MS) g.update(t, ...forward(...pose(t)));
+  for (; t < t0 + ms; t += FRAME_MS) g.update(t, forward(...pose(t)));
   return t;
 }
 
 /** When the gate first says ready (ms after `t0`), feeding `pose` frame by frame; NaN if not within `maxMs`. */
 function readyAfter(g: PlaceGate, pose: (t: number) => [number, number], maxMs = 5000): number {
   for (let t = 0; t <= maxMs; t += FRAME_MS) {
-    g.update(t, ...forward(...pose(t)));
+    g.update(t, forward(...pose(t)));
     if (g.ready) return t;
   }
   return Number.NaN;
@@ -56,7 +55,7 @@ describe("the steady gate", () => {
     const g = new PlaceGate();
     let t = feed(g, 0, 300, () => [0, -25]);
     // A 1 degree jump in one frame (72 degrees a second for that frame): the smoothed rate stays under the limit.
-    g.update(t, ...forward(1, -25));
+    g.update(t, forward(1, -25));
     t += FRAME_MS;
     t = feed(g, t, 120, () => [1, -25]);
     expect(g.steady).toBe(true);
@@ -81,7 +80,7 @@ describe("the steady gate", () => {
     // A reset (a new session) starts the cap again.
     sweep.reset();
     expect(sweep.ready).toBe(false);
-    sweep.update(10_000, ...forward(0, 0));
+    sweep.update(10_000, forward(0, 0));
     expect(sweep.ready).toBe(false);
   });
 
@@ -110,6 +109,6 @@ describe("the steady gate", () => {
     expect(t).toBeLessThan(STEADY.capMs);
     // Placed then, the head faces forward: the box goes in front, not where the head was at the start.
     const f = forward(...head(t));
-    expect(Math.abs(Math.atan2(-f[0], -f[2]))).toBeLessThan(1e-9);
+    expect(Math.abs(Math.atan2(-f.x, -f.z))).toBeLessThan(1e-9);
   });
 });
