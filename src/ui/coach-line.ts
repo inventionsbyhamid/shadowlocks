@@ -216,7 +216,10 @@ function roundRect(g: Ctx, x: number, y: number, w: number, h: number, r: number
 /** The coach line's chip: a canvas texture on a plane, sized in metres. */
 export class CoachLineView implements CoachPainter {
   readonly object: Mesh;
-  /** The chip as last painted (mm, within the plane, centred on it); a two-line guess before the first paint. */
+  /**
+   * The chip as last painted (mm, within the plane, centred on it); before the first paint, a guess at one line: 13 mm
+   * letters and 8 mm of padding above and below.
+   */
   readonly chipMm = { w: 200, h: 29 };
   private readonly g: Ctx | null;
   private readonly texture: CanvasTexture;
