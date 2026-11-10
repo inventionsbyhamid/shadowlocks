@@ -15,7 +15,7 @@ import type { V3 } from "../../src/core/types";
 import { axisOf, fingerLocks, onRay, Pointer, worldOf } from "./helpers/finger";
 import { Hands } from "./helpers/hands";
 import { add, sub, unit } from "./helpers/lantern";
-import { storedInProgress } from "./helpers/page-scripts";
+import { relaxIwer, storedInProgress } from "./helpers/page-scripts";
 import { expect, test } from "./helpers/test";
 import { POKE_DEPTH_M, type XrApp } from "./helpers/xr-app";
 
@@ -298,6 +298,32 @@ test("lesson 1 states the goal and helps an idle player", async ({ page, boot })
   // Long enough to read "Lock open! Every shape on the wall is a lock." (2.6 s).
   expect(pause).toBeGreaterThan(2_400);
   expect(app.logs()).not.toMatch(/PAGEERROR/);
+});
+
+// Lesson 1's own timeline from the moment its box first shows (the box waits for a steady head to be placed). The wait
+// itself holding the lesson, a long one with the head turning, is the placement's own test (shell.spec.ts, "before the
+// box is placed nothing in it runs").
+test("lesson 1 forms from light, says its line and shows the ghost on time, counted from the moment its box shows", async ({
+  page,
+  boot,
+}) => {
+  // A first launch goes straight into lesson 1; the session is accepted as a player does.
+  const app = await boot({ enterXR: false, lessons: true });
+  await app.waitReal((_ns, w) => w.IWER_DEVICE.sessionOffered === true, { label: "XR session offer" });
+  await app.command("accept_session");
+  await app.stepUntil((ns) => ns.state().xr.presenting, { maxMs: 5_000, label: "XR presenting" });
+  await page.evaluate(relaxIwer);
+  // Frame by frame to the first one the box shows in (it waits for a steady head): nothing of the lesson has run yet.
+  await app.stepUntil((ns) => ns.state().box.visible, { maxMs: 4_000, batch: 1, label: "the box shown" });
+  const s = await lessons(page);
+  expect([s.lesson, s.step, s.key, s.hand.opacity]).toEqual(["l1", 0, null, 0]);
+  expect(s.form, "the box forms from light as it shows").toBeLessThan(0.05);
+  // Its line when it has formed (2 s), by the lantern; the ghost 4 s after the line.
+  const line = await app.stepUntil((_ns, w) => w.__sl.lessons.state().key === "pickUp", { maxMs: 3_000, label: "the first line" });
+  expect(line).toBeGreaterThan(1_900);
+  expect((await lessons(page)).coach.near).toBe(1);
+  const ghost = await app.stepUntil((_ns, w) => w.__sl.lessons.state().hand.opacity > 0, { maxMs: 5_000, label: "the ghost" });
+  expect(ghost).toBeGreaterThan(3_900);
 });
 
 test("lesson 2 completes and teaches the drawer", async ({ page, boot }) => {
