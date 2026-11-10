@@ -45,6 +45,16 @@ export const COPY = {
     /** The 2D page after a session, under the result's text. */
     shareToday: "Share today's result",
     manual: "Take a screenshot, or copy the text.",
+    /** A new player's landing: Lesson 1 plays first (about 2.5 minutes), then the shared box. */
+    lessonFirst: "Lesson 1 comes first, then your friend's box.",
+    /** The result card on a shared box: both results ("your friend says": a link's time can be edited). */
+    you: "You {time}, {help}",
+    friend: "Your friend says {time}, {help}",
+    friendTime: "Your friend says {time}",
+    /** The 2D page's share button after any other box, and after a friend's box; the line the text asks. */
+    challenge: "Challenge a friend",
+    sendBack: "Send yours back",
+    beat: "Can you beat my time?",
   },
   /** Settings rows: a toggle's label and the short note under it; slider labels; values. */
   settings: {

@@ -33,6 +33,13 @@ export const JA: Copy = {
     copyFailed: "コピーできませんでした。アドレスバーからコピーしてください。",
     shareToday: "今日の結果をシェアする",
     manual: "スクリーンショットを撮るか、テキストをコピーしてください。",
+    lessonFirst: "まずレッスン1、それから友だちの箱です。",
+    you: `あなた${NB}{time}、{help}`,
+    friend: `友だちの記録${NB}{time}、{help}`,
+    friendTime: `友だちの記録${NB}{time}`,
+    challenge: "友だちに挑戦状を送る",
+    sendBack: "自分の記録を送り返す",
+    beat: "私の記録を超えられる？",
   },
   settings: {
     on: "オン",

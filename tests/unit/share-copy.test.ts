@@ -1,8 +1,8 @@
 // The sharing words (COPY.share) in every language: plain, no dashes, each keeping the {names} its English line fills
 // in, short enough for the result card's lines.
 import { describe, expect, it } from "vitest";
-import { LANGS, tableFor } from "../../src/i18n";
-import { COPY } from "../../src/ui/copy";
+import { count, LANGS, tableFor } from "../../src/i18n";
+import { COPY, fill } from "../../src/ui/copy";
 import { expectCleanCopy } from "./helpers/ui";
 
 /** Every string under `v` with its key path. */
@@ -42,7 +42,15 @@ describe("the sharing words", () => {
       for (const s of [t.sentDaily, t.sentBox, t.says, t.saysHints, t.todayTurn, t.practiceTurn, t.otherDay, t.copied, t.copyFailed, t.manual]) {
         expect(s, `${l}: ${s}`).toMatch(/[.。]$/);
       }
-      for (const s of [t.openQuest, t.copyLink, t.shareToday, t.noHints, t.hints.one, t.hints.other]) expect(s, `${l}: ${s}`).not.toMatch(/[.。]$/);
+      for (const s of [t.openQuest, t.copyLink, t.shareToday, t.noHints, t.hints.one, t.hints.other, t.challenge, t.sendBack]) expect(s, `${l}: ${s}`).not.toMatch(/[.。]$/);
+      expect(t.lessonFirst, l).toMatch(/[.。]$/);
+      // The text's question is a question.
+      expect(t.beat, l).toMatch(/[?？]$/);
+      // The card's two results: short labels.
+      for (const s of [t.you, t.friend, t.friendTime]) {
+        expect(s, `${l}: ${s}`).not.toMatch(/[.。]$/);
+        expect(fill(s, { time: "12:34", help: count(12, t.hints, l) }).length, `${l}: ${s}`).toBeLessThanOrEqual(44);
+      }
       // Meta asks for its brand on a Web Launch button.
       expect(t.openQuest, l).toMatch(/Meta\sQuest/);
     }

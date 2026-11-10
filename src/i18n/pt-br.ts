@@ -31,6 +31,13 @@ export const PT_BR: Copy = {
     copyFailed: "Não foi possível copiar. Copie o endereço da barra de endereços.",
     shareToday: "Compartilhar o resultado de hoje",
     manual: "Tire uma captura de tela ou copie o texto.",
+    lessonFirst: "Primeiro a lição 1, depois a caixa do seu amigo.",
+    you: "Você: {time}, {help}",
+    friend: "Seu amigo diz: {time}, {help}",
+    friendTime: "Seu amigo diz: {time}",
+    challenge: "Desafiar um amigo",
+    sendBack: "Mandar o seu de volta",
+    beat: "Consegue bater meu tempo?",
   },
   settings: {
     on: "Sim",

@@ -31,6 +31,13 @@ export const FR: Copy = {
     copyFailed: "Copie impossible. Copie l'adresse depuis la barre d'adresse.",
     shareToday: "Partager le résultat du jour",
     manual: "Fais une capture d'écran, ou copie le texte.",
+    lessonFirst: "D'abord la leçon 1, puis la boîte de ton ami.",
+    you: `Toi${NB}: {time}, {help}`,
+    friend: "Ton ami annonce {time}, {help}",
+    friendTime: "Ton ami annonce {time}",
+    challenge: "Défier un ami",
+    sendBack: "Renvoyer le tien",
+    beat: `Peux-tu battre mon temps${NB}?`,
   },
   settings: {
     on: "Oui",

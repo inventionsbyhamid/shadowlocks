@@ -30,6 +30,13 @@ export const DE: Copy = {
     copyFailed: "Kopieren ging nicht. Kopiere die Adresse aus der Adresszeile.",
     shareToday: "Heutiges Ergebnis teilen",
     manual: "Mach einen Screenshot oder kopiere den Text.",
+    lessonFirst: "Zuerst Lektion 1, dann die Box deines Freundes.",
+    you: "Du: {time}, {help}",
+    friend: "Dein Freund sagt: {time}, {help}",
+    friendTime: "Dein Freund sagt: {time}",
+    challenge: "Freund herausfordern",
+    sendBack: "Deins zurückschicken",
+    beat: "Schaffst du es schneller?",
   },
   settings: {
     on: "An",
