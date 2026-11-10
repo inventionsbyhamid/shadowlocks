@@ -5,9 +5,11 @@ import { type Object3D, SessionMode, type World } from "@iwsdk/core";
 import { todayKey } from "../core/daily";
 import { specOfKey } from "../core/generator";
 import type { BoxSnapshot, Profile } from "../core/profile";
+import { hands } from "../input/grab-system";
 import { BoxScene } from "../render/box-scene";
 import { placement } from "../render/placement";
 import { type RoomLight, RoomLights, Theatre } from "../render/theatre";
+import { frameTips } from "../ui/fingertips";
 import type { ContinueTo } from "../ui/menus/home";
 import type { LessonRow } from "../ui/menus/lessons";
 import type { Behind } from "../ui/menus/types";
@@ -21,6 +23,7 @@ import { Panels } from "./panels";
 import { type ProfileStore, type Slot, slotMoved } from "./profile-store";
 import { currentScreen, go } from "./screens";
 import type { SettingsStore } from "./settings";
+import { Summon } from "./summon";
 
 /** How long Enter waits for the browser to answer a session request before offering a retry. */
 export const ENTER_TIMEOUT_MS = 120_000;
@@ -70,6 +73,10 @@ export class Shell {
   room: Object3D | null = null;
   /** Recenter was asked for (a key, or Quest's own recenter); ShellSystem places the box on its next frame. */
   recenterAsked = false;
+  /** A headset's lost box brought back on the player's word: the arrow toward it and the fade (ShellSystem runs it). */
+  readonly summon: Summon;
+  /** Whether the lantern is held (set once the lantern exists): a lost box is never moved, nor its arrow shown, then. */
+  lanternHeld: () => boolean = () => false;
   /** The headset the last session was tuned for (headset.ts), and the frame rate it asked for (null: none). */
   headset: Headset | null = null;
   frameRateAsked: number | null = null;
@@ -87,6 +94,9 @@ export class Shell {
     this.box = new BoxScene(world);
     this.theatre = new Theatre();
     world.scene.add(this.theatre.veil, this.theatre.room);
+    // In the scene from the start, hidden, so the session's prewarm compiles them.
+    this.summon = new Summon({ hands, tips: () => frameTips(world).read(), rays: world.player.raySpaces });
+    world.scene.add(this.summon.view.arrow, this.summon.view.fade);
     this.room = this.theatre.room;
     this.updateRoomVisibility();
     // Menus dim the room half way, a box in play the most, and the light comes up when the box opens until the next
@@ -127,7 +137,7 @@ export class Shell {
     placement.setSize(this.settings.get().boxSizeCm);
     this.settings.subscribe((s) => placement.setSize(s.boxSizeCm));
     // Another window (the hosted link in a second tab) played on: its profile is taken in place of this one's.
-    profiles.onAdopt((before) => this.adopted(before));
+    profiles.onAdopt((before, held) => this.adopted(before, held));
     this.watchPage();
     this.watchXr();
   }
@@ -196,6 +206,16 @@ export class Shell {
   /** Place the box again from the head on the next frame (the Recenter key, Quest's recenter). */
   requestRecenter(): void {
     this.recenterAsked = true;
+  }
+
+  /**
+   * Hide the box and its panels (true) while a session waits for the box's first placement, so nothing stands where the
+   * head or phone happened to point as it started; shown again once placed, before the prewarm (which compiles for the
+   * lights shown).
+   */
+  hideUntilPlaced(hidden: boolean): void {
+    this.box.root.visible = !hidden;
+    this.panels.setHidden(hidden);
   }
 
   /** Lay out the box and the panels after the placement (or the box size) changed. */
@@ -304,10 +324,12 @@ export class Shell {
   /**
    * Another window's newer profile was taken in place of this one's (profile-store.ts). What is in the lap was saved
    * to the old one: when the other window moved its save on (played that box on, solved it, played another, went on
-   * with the lessons), it is let go unsaved and Home offers the stored one; else it plays on. The settings and the
-   * menus follow the new profile.
+   * with the lessons), it is let go unsaved and Home offers the stored one; else it plays on (a replay's kept box is
+   * the lessons' to let go, lessons.ts). The settings follow the new profile where they differ from those this window
+   * held (`held`: a change of its own whose save was refused is undone on screen), after the lap is let go, so the
+   * Left hand setting never rebuilds a box let go. The menus follow it too.
    */
-  private adopted(before: Profile): void {
+  private adopted(before: Profile, held: Profile): void {
     const p = this.profiles.profile;
     const slot: Slot | null = this.flow?.slot() ?? (this.game?.behind()?.kind === "lesson" ? "lesson" : null);
     if (slot && slotMoved(before, p, slot)) {
@@ -315,7 +337,7 @@ export class Shell {
       this.game?.dropped();
       go("home");
     }
-    if (JSON.stringify(before.settings) !== JSON.stringify(p.settings)) this.settings.changed();
+    this.settings.replaced(held.settings);
     this.panels.refresh();
   }
 

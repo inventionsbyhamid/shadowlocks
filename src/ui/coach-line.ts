@@ -285,9 +285,11 @@ export class CoachLineView implements CoachPainter {
   /**
    * 0 draws nothing. Premultiplied, the colour fades with the alpha (the blend adds the texel's colour as it is). The
    * blend works on display values, so the tint is `v` as a display value (sRGB, made linear here): the letters fade
-   * with the chip, not ahead of it (a linear `v` left them at about 0.66 against an alpha of 0.5).
+   * with the chip, not ahead of it (a linear `v` left them at about 0.66 against an alpha of 0.5). Set every frame
+   * (lesson-view.ts), it does that work only when the value changes.
    */
   set opacity(v: number) {
+    if (v === this.material.opacity) return;
     this.material.opacity = v;
     this.material.color.setRGB(v, v, v, SRGBColorSpace);
     this.object.visible = v > 0;

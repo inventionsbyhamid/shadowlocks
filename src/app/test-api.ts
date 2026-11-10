@@ -25,8 +25,11 @@ export interface NsState {
     blendMode: string | null;
     visibility: string;
   };
-  /** The box placement: back panel centre and heading; source "default" until placed from the head. */
-  boxPose: { position: Vec3; yaw: number; source: string };
+  /**
+   * The box placement: back panel centre, heading and how far it leans back (degrees); source "default" until placed
+   * from the head.
+   */
+  boxPose: { position: Vec3; yaw: number; tiltDeg: number; source: string };
   /**
    * The box in the scene: whether the "Box" root entity is there, its world origin (the back panel's
    * centre), its edge in metres, and whether it is drawn.
@@ -89,7 +92,7 @@ export interface NsUi {
   /** A box move waits for the finger to leave the current panel. */
   layoutHeld(): boolean;
   /** A panel as laid out: world centre and size (m). */
-  panelBox(screen: Screen): { center: Vec3; width: number; height: number } | null;
+  panelBox(screen: Screen): { center: Vec3; width: number; height: number; up: Vec3 } | null;
   /** World position of a panel's root (its bottom centre). */
   panelPosition(screen: Screen): Vec3 | null;
   /**
@@ -244,6 +247,8 @@ export interface SlLantern {
   glow: number;
   /** The settle ripple's ring opacity (0: none); drawn in the glow's sprite. */
   ripple: number;
+  /** How see-through it is drawn (a phone's: 0 solid, 1 dithered with a small flame). */
+  see: number;
   /**
    * Where the tracked hand nearest the lantern pinches, as the lantern grab read it this frame (box units; the point
    * the lessons' reaching ghost keeps clear of), or null with no hand in tracking.
@@ -497,6 +502,22 @@ export interface SlApi {
   i18n: SlI18n;
   /** A phone's touches (AR on a phone: the screen is the only input). */
   touch: SlTouch;
+  /** A lost box: how long it has been out of view, and a headset's arrow toward it and the fade that brings it back. */
+  summon(): SlSummon;
+}
+
+/** A lost box, for tests (lost-box.ts, summon.ts). */
+export interface SlSummon {
+  /** idle, the arrow up, the view fading out, or back in. */
+  phase: string;
+  /** The arrow's middle (world) while it shows, else null. */
+  arrow: Vec3 | null;
+  /** The view's fade (0 clear, 1 black). */
+  fade: number;
+  /** How long (ms) no part of the box has been in view. */
+  lostMs: number;
+  /** Draw calls the arrow and the fade add now (per view). */
+  calls: number;
 }
 
 /** A phone's touches, for tests: IWER has no screen input, so touches go in as rays from the head. */

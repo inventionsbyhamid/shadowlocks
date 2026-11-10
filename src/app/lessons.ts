@@ -12,14 +12,16 @@
 // lesson's box and then puts back the box that was in play, from a snapshot taken as it started: that box's clock
 // cannot run meanwhile (it is not in the lap), and nothing is saved (a lesson box has no save), so neither lesson nor
 // box progress changes. The director runs only while the player is in XR. Under a menu a lesson waits, its ghost and
-// line put away; the drawer stays shut while an example shows; a progress reset lets the lesson or replay go.
+// line put away; the drawer stays shut while an example shows; a progress reset lets the lesson or replay go. When
+// another window's profile is taken meanwhile (the hosted link in two tabs, profile-store.ts) and that window moved the
+// kept box's save on, the kept box is let go: the replay ends on Home, where Continue offers the stored box.
 //
 // Tips: the first time a box brings in a mechanic (decoys, a lock without rings, a hidden outline), its line shows
 // on the coach line until the player has done what it says, with a ghost demo of about 6 s as it first shows (the
 // finger pointing at decoys, or a ghost lantern swept near the lock's spot; lesson-scripts.ts).
 import { createSystem, type World } from "@iwsdk/core";
 import type { LessonId } from "../core/lessons-data";
-import type { BoxSnapshot, TipId } from "../core/profile";
+import type { BoxSnapshot, Profile, TipId } from "../core/profile";
 import type { BoxSpec } from "../core/types";
 import { localLine } from "../i18n";
 import type { BoxScene } from "../render/box-scene";
@@ -34,7 +36,7 @@ import { lessonSnapshot } from "./lesson-boxes";
 import { LessonView } from "./lesson-view";
 import { EXAMPLES, type ExampleId, exampleFor, type LessonInputs, LessonsDirector } from "./lessons-director";
 import type { MenuLessons } from "./menu-game";
-import type { ProfileStore } from "./profile-store";
+import { type ProfileStore, slotMoved } from "./profile-store";
 import { go, isMenuScreen } from "./screens";
 import type { SettingsStore } from "./settings";
 import { registerAppSystem } from "./systems";
@@ -138,6 +140,7 @@ export class Lessons implements MenuLessons {
       onReplay: (ex, lesson, start) => this.replayed(ex, lesson, start),
     });
     this.view = d.view ?? new LessonView({ world: d.world, scene: d.scene, lantern, sound: d.sound.game, reducedMotion: () => settings.get().reducedMotion });
+    d.profiles.onAdopt((before) => this.forgetKept(before));
   }
 
   /**
@@ -314,6 +317,20 @@ export class Lessons implements MenuLessons {
     this.tipReplay = null;
     if (saved) this.d.play.game.play(saved.spec, saved.snap, saved.practice);
     else if (!this.dropping) go("home");
+  }
+
+  /**
+   * Another window's profile was taken in place of this one's (profile-store.ts): the box a replay keeps to put back
+   * was saved to the old one (`before`). When the other window moved that box's save on (played it on, solved it,
+   * played another), the box is let go, so the replay's end puts nothing back over the newer save: it brings up Home,
+   * where Continue offers the stored box (the shell does the same with a box in the lap). A practice box saves nowhere
+   * and is kept; a kept lesson's step is the shell's to judge (in a replay the lap's save is the lessons').
+   */
+  private forgetKept(before: Profile): void {
+    const after = this.d.profiles.profile;
+    const stale = (k: Kept | null): boolean => k !== null && !k.practice && k.spec.kind !== "lesson" && slotMoved(before, after, k.spec.kind);
+    if (stale(this.saved)) this.saved = null;
+    if (this.tipReplay && stale(this.tipReplay.saved)) this.tipReplay.saved = null;
   }
 
   /**

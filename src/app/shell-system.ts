@@ -1,10 +1,30 @@
 // Per-frame shell work: place the box in the lap (on a phone, in the camera's view) once per XR session
 // (and again on Recenter), lay out what follows the placement, step the box's own motion and the theatre
 // lights, and run debounced saves. Allocation-free per frame.
+//
+// The first placement of a session waits for a steady head (a phone's camera): held still 0.4 s in a looking pose, 2.5 s
+// at most (PlaceGate). Until then the box and its panels are hidden, so nothing stands where the head or phone happened
+// to point as the session started, and nothing moves in front of the player.
+//
+// Once placed, a box out of view (lost-box.ts): a phone's comes back in front by itself after 2 s, held still, with no
+// touch down and the lantern not held ("box out of view: placed again" in the console); a headset's never moves by
+// itself, an arrow at the edge of the view points to it instead, and a pinch or poke on the arrow brings it in front
+// with a short fade (summon.ts). Quest's own recenter (the reference space's reset) and the Settings key place it at once.
 import { createSystem, Quaternion, Vector3 } from "@iwsdk/core";
-import { PHONE_VIEW, pitchFromQuaternion, placement, type ViewTangents, viewOf, yawFromQuaternion } from "../render/placement";
+import { hands } from "../input/grab-system";
+import { BOX_SPHERE, boxInView, type LostInput, LostBox } from "../render/lost-box";
+import {
+  PHONE_VIEW,
+  PlaceGate,
+  pitchFromQuaternion,
+  placement,
+  type ViewTangents,
+  viewOf,
+  wideViewOf,
+  yawFromQuaternion,
+} from "../render/placement";
 import type { Shell } from "./shell";
-import { onPhone } from "./touch-system";
+import { onPhone, touchBusy } from "./touch-system";
 
 let shell: Shell | null = null;
 
@@ -21,8 +41,31 @@ export class ShellSystem extends createSystem({}) {
   private readonly headQuat = new Quaternion();
   private readonly headPose = { position: [0, 0, 0] as [number, number, number], yaw: 0 };
   private readonly view: ViewTangents = { tanH: PHONE_VIEW.tanH, tanV: PHONE_VIEW.tanV };
+  private readonly wide: ViewTangents = { tanH: PHONE_VIEW.tanH, tanV: PHONE_VIEW.tanV };
+  private readonly forward = new Vector3();
+  private readonly boxMid = new Vector3();
+  /** The steady pose the first placement waits for, and a phone's re-place. */
+  readonly gate = new PlaceGate();
+  /** How long the box has been out of view, and what then. */
+  readonly lost = new LostBox();
+  private readonly lostIn: LostInput = { phone: false, steady: false, touchDown: false, held: false, pinchDown: false };
   private placedFor: XRSession | null = null;
+  /** The session the gate and the lost box were last started for. */
+  private watchedFor: XRSession | null = null;
+  /** The box and its panels are hidden, waiting for the first placement. */
+  private hidden = false;
   private laidOut = -1;
+
+  /**
+   * The head's (a phone camera's) world pose into headPos and headQuat; false while it is not tracked. A phone held low
+   * (sitting at a table) can be lower than a seated head: only a head at the origin is untracked.
+   */
+  private readHead(phone: boolean): boolean {
+    const head = this.world.player.head;
+    head.getWorldPosition(this.headPos);
+    head.getWorldQuaternion(this.headQuat);
+    return phone ? this.headPos.lengthSq() !== 0 : this.headPos.y >= MIN_HEAD_Y_M;
+  }
 
   /**
    * Place the box from the current head pose (Recenter, and the test hooks); the box size stays. False
@@ -31,12 +74,8 @@ export class ShellSystem extends createSystem({}) {
    */
   recenter(): boolean {
     if (!shell) return false;
-    const head = this.world.player.head;
-    head.getWorldPosition(this.headPos);
-    head.getWorldQuaternion(this.headQuat);
-    // A phone held low (sitting at a table) can be lower than a seated head: only a head at the origin is untracked.
     const phone = onPhone();
-    if (phone ? this.headPos.lengthSq() === 0 : this.headPos.y < MIN_HEAD_Y_M) return false;
+    if (!this.readHead(phone)) return false;
     const q = this.headQuat;
     this.headPose.position[0] = this.headPos.x;
     this.headPose.position[1] = this.headPos.y;
@@ -53,36 +92,105 @@ export class ShellSystem extends createSystem({}) {
    * yet.
    */
   private cameraView(): ViewTangents {
+    return viewOf(this.projection(), this.view);
+  }
+
+  /** The same, the wider side each way (wideViewOf): about both eyes' view together, for whether the box can be seen. */
+  private seenView(): ViewTangents {
+    return wideViewOf(this.projection(), this.wide);
+  }
+
+  private projection(): ArrayLike<number> | undefined {
     const xr = this.renderer.xr.getCamera() as { cameras?: { projectionMatrix: { elements: ArrayLike<number> } }[] };
-    return viewOf(xr.cameras?.[0]?.projectionMatrix.elements, this.view);
+    return xr.cameras?.[0]?.projectionMatrix.elements;
+  }
+
+  /** Hide or show the box and its panels (only on a change: the test hooks may hide the box themselves). */
+  private hide(on: boolean): void {
+    if (on === this.hidden || !shell) return;
+    this.hidden = on;
+    shell.hideUntilPlaced(on);
   }
 
   update(delta: number): void {
     const s = shell;
     if (!s) return;
     const now = performance.now();
+    const dt = Math.min(Math.max(delta, 0), 0.1);
     const xrSession = this.world.session ?? null;
-    // Once per XR session, on its first frame with a tracked head: place the box, and compile every shader for the
-    // session's render target (set only inside its frames) so nothing compiles the first time it shows.
-    if (xrSession && this.placedFor !== xrSession && this.world.xrFrame && this.recenter()) {
+    const phone = onPhone();
+    // A new session (or none): the steady gate, the lost box and the summon start afresh.
+    if (xrSession !== this.watchedFor) {
+      this.watchedFor = xrSession;
+      this.gate.reset();
+      this.lost.reset();
+      s.summon.reset(this.headPos);
+    }
+    const tracked = !!xrSession && !!this.world.xrFrame && this.readHead(phone);
+    if (tracked) this.gate.update(now, this.forward.set(0, 0, -1).applyQuaternion(this.headQuat));
+    // Once per XR session, once the head (a phone's camera) has held still in a looking pose (or the gate's cap has
+    // passed): place the box, show it, and compile every shader for the session's render target (set only inside its
+    // frames) so nothing compiles the first time it shows. Until then the box and its panels are hidden.
+    const waiting = !!xrSession && this.placedFor !== xrSession;
+    this.hide(waiting);
+    if (waiting && tracked && this.gate.ready && this.recenter()) {
       this.placedFor = xrSession;
       s.recenterAsked = false;
+      this.hide(false);
       void s.prewarm();
     }
-    // Placed for the other kind of session: a phone whose browser does not say it is one, known by its first touch
-    // (the box in the lap is below its view), or a session that turned out not to be a phone's after all (a hand or a
-    // controller appeared). Placed again the right way.
-    if (xrSession && placement.source !== "default" && (placement.source === "view") !== onPhone()) s.recenterAsked = true;
-    // A Recenter waits for a frame with a tracked head.
-    if (s.recenterAsked && this.recenter()) s.recenterAsked = false;
+    // Until then, a Recenter (or Quest's own) waits for that first placement, which is one.
+    if (!waiting) {
+      // Placed for the other kind of session: a phone whose browser does not say it is one, known by its first touch
+      // (the box in the lap is below its view), or a session that turned out not to be a phone's after all (a hand or
+      // a controller appeared). Placed again the right way.
+      if (xrSession && placement.source !== "default" && (placement.source === "view") !== phone) s.recenterAsked = true;
+      // A Recenter waits for a frame with a tracked head.
+      if (s.recenterAsked && this.recenter()) s.recenterAsked = false;
+      if (xrSession && tracked) this.watchLost(s, now, phone);
+    }
     if (placement.version !== this.laidOut) {
       this.laidOut = placement.version;
       s.layout();
     }
-    const dt = Math.min(Math.max(delta, 0), 0.1);
     s.box.update(dt);
     // The theatre's veil stays round the head wherever it goes.
     s.theatre.update(dt, this.world.player.head.getWorldPosition(this.headPos));
     s.lifecycle.tick(now);
+  }
+
+  /**
+   * The placed box out of view: a phone's placed again in front (held still, no touch down, the lantern not held); a
+   * headset's arrow toward it, and the summon it starts (lost-box.ts, summon.ts). headPos and headQuat hold this frame's
+   * head.
+   */
+  private watchLost(s: Shell, now: number, phone: boolean): void {
+    const inView = boxInView(placement.matrix(), this.headPos, this.headQuat, this.seenView());
+    const L = this.lostIn;
+    L.phone = phone;
+    L.steady = this.gate.steady;
+    L.touchDown = touchBusy();
+    L.held = s.lanternHeld();
+    L.pinchDown = hands[0].pinching || hands[1].pinching;
+    if (this.lost.update(now, inView, L)) {
+      s.recenterAsked = true;
+      console.info("box out of view: placed again");
+    }
+    if (phone) {
+      s.summon.reset(this.headPos);
+      return;
+    }
+    const c = BOX_SPHERE.center;
+    this.boxMid.set(c[0], c[1], c[2]).applyMatrix4(placement.matrix());
+    const step = s.summon.update(now, this.lost.arrow, this.headPos, this.headQuat, this.boxMid);
+    if (step === "taken") this.lost.reset();
+    else if (step === "place") {
+      const ok = this.recenter();
+      if (ok) {
+        s.recenterAsked = false;
+        console.info("box out of view: brought back by the arrow");
+      }
+      s.summon.placed(ok, now);
+    }
   }
 }
