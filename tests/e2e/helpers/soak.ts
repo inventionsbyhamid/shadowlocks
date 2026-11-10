@@ -405,8 +405,9 @@ export async function referenceCost(app: XrApp, testInfo: TestInfo, label: strin
   return cost;
 }
 
-/** Both hands open, out of the box and away from the lantern, in the lap beside it. */
+/** Both hands open (hand tracking on), out of the box and away from the lantern, in the lap beside it. */
 export async function handsAway(app: XrApp): Promise<void> {
+  await app.queue("set_input_mode", { mode: "hand" });
   const [l, r] = await worldOf(app.page, [
     [-1.6, -0.6, 2.4],
     [1.6, -0.6, 2.4],
@@ -415,6 +416,7 @@ export async function handsAway(app: XrApp): Promise<void> {
     ["hand-left", l!],
     ["hand-right", r!],
   ] as const) {
+    await app.queue("set_connected", { device, connected: true });
     await app.queue("set_select_value", { device, value: 0 });
     await app.queue("set_hand_pose", { device, poseId: "default" });
     await app.queue("set_transform", { device, anchor: "grasp", position: { x: p[0], y: p[1], z: p[2] }, orientation: "auto" });
