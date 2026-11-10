@@ -119,6 +119,29 @@
       #enter[hidden] { display: none; }
       @media (prefers-reduced-motion: reduce) { #enter { transition: none; } }
       #status { min-height: 1.4em; font-size: 15px; color: var(--dim); }
+      /* Sharing (src/app/share-page.ts): a shared link's landing line, Web Launch and Copy link away from a headset, and
+         after a session the result's text with its share button. All hidden until the script fills them. */
+      #landing [hidden] { display: none !important; }
+      .shared { max-width: 26rem; display: flex; flex-direction: column; gap: 4px; }
+      .shared p { margin: 0; }
+      .shared-line { font-size: 17px; color: var(--ivory); }
+      .shared-says { font-size: 15px; color: var(--gold); }
+      .shared-note { font-size: 14px; color: var(--dim); }
+      .ways { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+      .way {
+        display: inline-flex; align-items: center; min-height: 44px; padding: 10px 20px; box-sizing: border-box; cursor: pointer;
+        border: 1px solid var(--leaf); background: transparent; color: var(--gold); text-decoration: none;
+        font: 700 14px "Shadow Locks Sans", system-ui, sans-serif; letter-spacing: 0.08em; text-transform: uppercase;
+      }
+      .way:hover, .way:focus-visible { border-color: var(--gold-hot); color: var(--gold-hot); outline: none; }
+      .result { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+      .result-text {
+        margin: 0; padding: 12px 16px; max-width: min(88vw, 26rem); box-sizing: border-box; white-space: pre-wrap; overflow-wrap: anywhere;
+        text-align: left; font: 15px/1.5 system-ui, sans-serif; color: var(--ivory); background: var(--lacquer); border: 1px solid var(--leaf);
+        -webkit-user-select: all; user-select: all;
+      }
+      .share-note { margin: 0; font-size: 14px; color: var(--dim); }
+      .share-note:empty { display: none; }
     </style>
   </head>
   <body>
@@ -189,7 +212,21 @@
       <div class="rule" aria-hidden="true"></div>
       <p id="tagline" class="tagline">A puzzle box of light and shadow.</p>
       <p id="facts" class="facts">Seated. Plays offline.</p>
+      <section id="shared" class="shared" hidden>
+        <p id="shared-line" class="shared-line" hidden></p>
+        <p id="shared-says" class="shared-says" hidden></p>
+        <p id="shared-note" class="shared-note" hidden></p>
+      </section>
       <button id="enter" type="button" hidden>Open the box</button>
+      <div id="share-ways" class="ways" hidden>
+        <a id="quest-launch" class="way" target="_blank" rel="noopener" hidden>Open on my Meta Quest</a>
+        <button id="copy-link" class="way" type="button" hidden>Copy link</button>
+      </div>
+      <section id="result" class="result" hidden>
+        <pre id="result-text" class="result-text"></pre>
+        <button id="share-result" class="way" type="button">Share today's result</button>
+      </section>
+      <p id="share-note" class="share-note" role="status"></p>
       <div id="status" role="status">Loading</div>
     </main>
     <script type="module" src="/src/app/main.ts"></script>

@@ -45,6 +45,9 @@ test("boots into XR with the box in the lap and the home panel", async ({ page, 
   // Every character on the panels is in their font atlases (UIKit draws a box for one that is not).
   expect(app.consoleLines.filter((l) => /Missing glyph/i.test(l))).toEqual([]);
   expect(await page.title()).toBe("Shadow Locks");
+  // A plain visit: no shared link's landing line, nothing to share yet.
+  expect(await page.locator("#shared").isHidden()).toBe(true);
+  expect(await page.locator("#result").isHidden()).toBe(true);
   testInfo.annotations.push({
     type: "timing",
     description: `boot ${app.bootRealMs} ms real, ${app.bootVirtualMs.toFixed(0)} ms virtual from XR entry; calls ${perf.calls}, triangles ${perf.triangles}, our systems ${perf.frameMsAvg.toFixed(3)} ms/frame avg over ${perf.frames} frames (${Object.entries(perf.systems)

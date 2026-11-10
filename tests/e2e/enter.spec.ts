@@ -13,7 +13,12 @@ test("the landing page shows the box art, the name and one button, and Open the 
   await expect(landing).toBeVisible();
   await expect(landing.locator(".art svg")).toBeVisible();
   await expect(landing.locator("h1")).toHaveText("Shadow Locks");
-  await expect(landing.locator("button")).toHaveCount(1);
+  // One button on a plain visit (the sharing parts stay hidden: no shared link, no result yet, and a headset gets no
+  // Web Launch).
+  await expect(landing.locator("button:visible")).toHaveCount(1);
+  await expect(landing.locator("#shared")).toBeHidden();
+  await expect(landing.locator("#quest-launch")).toBeHidden();
+  await expect(landing.locator("#result")).toBeHidden();
   await expect(enter).toBeVisible();
   await expect(enter).toHaveText(COPY.landing.open);
   await expect(page.locator("#tagline")).toHaveText(COPY.landing.tagline);
