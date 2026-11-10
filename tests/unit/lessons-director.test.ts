@@ -839,7 +839,7 @@ describe("LessonsDirector: help taken, the session's suggestion, the intro's glo
     expect(said(r)).toEqual(["pickUp", "step"]);
   });
 
-  it("gives the chip to the session's suggestion, but only once a turn's own line has had its time", () => {
+  it("gives the chip to the session's suggestion only on a turn, once the turn's own line has had its time", () => {
     // Lesson 2's crown with controllers: the session suggests setting one down from the turn's start.
     const r = rig();
     r.inp.suggest = "controllerFinger";
@@ -857,15 +857,24 @@ describe("LessonsDirector: help taken, the session's suggestion, the intro's glo
     r.inp.suggest = "controllerFinger";
     r.run(16);
     expect(r.d.frame.key).toBe("game.controllerFinger");
-    // Elsewhere it takes the chip at once (lesson 1's intro, as before), and never over an example.
+    // Anywhere else in a lesson the lesson's own line keeps the chip: lesson 2's puppets (the crown is short from the
+    // start, its lantern on the spot, but the player is not asked to fill it yet), lesson 1's intro, an example, the
+    // drawer once the crown is open.
     const q = rig();
     q.inp.suggest = "controllerFinger";
+    q.d.start("l2");
+    q.run(FORM_MS + 4000, () => expect(q.d.frame.key === null || q.d.frame.key === "puppets").toBe(true));
+    expect(q.d.frame.key).toBe("puppets");
     q.d.start("l1");
-    q.run(500);
-    expect(q.d.frame.key).toBe("game.controllerFinger");
+    q.run(FORM_MS + 4000);
+    expect(q.d.frame.key).toBe("pickUp");
     q.d.start("l2", 1);
     q.run(500);
     expect([q.d.frame.key, q.d.frame.why]).toEqual(["watchFinger", "example"]);
+    q.d.start("l2", 3);
+    q.inp.isSettled = true;
+    q.run(4000);
+    expect(q.d.frame.key).toBe("drawer");
   });
 
   it("tells a line's first showing in a step from the same line coming back", () => {

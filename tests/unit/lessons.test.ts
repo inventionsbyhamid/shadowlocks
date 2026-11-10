@@ -274,28 +274,26 @@ describe("Lessons", () => {
     expect(b.shown().lesson).toBe("l1");
   });
 
-  it("shows the session's controller line under a lesson, with a line of its own or not, but never over an example", () => {
+  it("keeps a lesson's own line over the session's controller line outside a turn, and its example's always", () => {
     const b = bench();
-    b.lessons.start("l1");
+    b.hands.controllers = true;
+    b.lessons.start("l2");
     b.play.view.coachLine = "controllerFinger";
-    // The box still forming (no lesson line yet), then formed ("Pick up the lantern."): the session's line either way,
-    // and the director says that is the line showing.
-    b.run(100);
-    expect(b.shown().line).toBe(COPY.game.controllerFinger);
-    expect([b.lessons.director.frame.key, b.lessons.director.frame.line]).toEqual(["game.controllerFinger", COPY.game.controllerFinger]);
-    b.run(FORM_MS);
-    expect(b.lessons.director.frame.key).toBe("game.controllerFinger");
-    expect(b.shown().line).toBe(COPY.game.controllerFinger);
-    // Gone (after its 1.2 s hold): the lesson's own line.
-    b.play.view.coachLine = null;
-    b.run(1500);
-    expect(b.shown().line).toBe(COPY.lessons.pickUp);
+    // Lesson 2's puppets: the crown is short from the start (its lantern on the spot), but the player is asked for a
+    // hand in the box first, the controllers' way.
+    b.run(FORM_MS + 500);
+    expect(b.shown().line).toBe(COPY.controller.puppets);
+    expect(b.lessons.director.frame.key).toBe("puppets");
     // An example's lines always win.
     b.lessons.start("l1", { step: 2 });
-    b.play.view.coachLine = "controllerFinger";
     b.run(500);
     expect(b.lessons.director.showing).toBe(true);
     expect(b.shown().line).toBe(b.lessons.director.frame.line);
+    // Out of the lessons, a box's finger lock: the session's line, as before.
+    b.lessons.stop();
+    b.play.game.play({ kind: "box", n: 7 });
+    b.run(32);
+    expect(b.shown().line).toBe(COPY.game.controllerFinger);
   });
 
   it("lets the controller line win over a lesson's own line in lesson 2's turn once that has had its 3 s, and says so", () => {

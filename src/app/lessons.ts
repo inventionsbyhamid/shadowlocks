@@ -257,8 +257,8 @@ export class Lessons implements MenuLessons {
     if (this.tipReplay) this.stepTipReplay(session);
     // A tip replay holds any lesson where it is (its box is put back after).
     const on = this.tipReplay ? null : dir.replaying ? EXAMPLES[dir.replaying].lesson : dir.done ? null : dir.lesson;
-    // The session's suggestion, held through brief drops: the director weighs it against a lesson's own line (it only
-    // exists while a controller or phone player faces a short finger lock, lesson 2's turn, who needs it).
+    // The session's suggestion, held through brief drops (it exists while a controller or phone player is at a short
+    // finger lock): in a lesson the director gives it the chip on lesson 2's turn only; out of the lessons, it shows.
     const asked = this.d.play.view.coachLine;
     if (asked) this.askedKey = asked;
     const held = this.hold.update(asked ? COPY.game[asked] : null, dt);

@@ -682,12 +682,14 @@ export class LessonsDirector {
   }
 
   /**
-   * The session's suggestion takes the chip from the lesson's own line, but a turn's own line keeps it for its first
-   * SUGGEST_AFTER_MS, so it is read before the suggestion follows it; an example never gives the chip up.
+   * The session's suggestion (a controller or a phone at a short finger lock) takes the chip only on a turn, where the
+   * player works that lock, and only once the turn's own line has kept it SUGGEST_AFTER_MS, so that line is read
+   * first. Everywhere else in a lesson its own line stays: lesson 2's puppets ask for a hand in the box though the crown
+   * is already short (its lantern starts on the spot), and an example never gives the chip up.
    */
   private suggest(): void {
     if (this.script || !this.id || this.finished || this.deps.inputs.suggestion() === null) return;
-    if (LESSON_STEPS[this.id][this.n]?.kind === "turn" && this.stepMs < SUGGEST_AFTER_MS) return;
+    if (LESSON_STEPS[this.id][this.n]?.kind !== "turn" || this.stepMs < SUGGEST_AFTER_MS) return;
     this.show(SUGGESTION_KEY, "suggest");
   }
 
