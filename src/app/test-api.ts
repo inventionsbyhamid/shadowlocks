@@ -414,6 +414,9 @@ export interface SlLessonsState {
    */
   key: string | null;
   why: string | null;
+  /** The line showing has shown before in its step (or replay); how many times a line has taken the chip. */
+  again: boolean;
+  shows: number;
   /** `near`: how far the chip is over by the lantern (0 over the box, 1 by the lantern). */
   coach: { text: string | null; opacity: number; near: number };
   /** The ghost hand as drawn now (its opacity; the frame's `hand` is what the director asks for). */

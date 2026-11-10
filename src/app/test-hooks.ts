@@ -578,6 +578,8 @@ export function installTestHooks(
         line: f.line,
         key: f.key,
         why: f.why,
+        again: f.again,
+        shows: f.shows,
         coach: { text: les.view.coach.text, opacity: les.view.coach.opacity, near: les.view.coachNear },
         ghost: les.view.ghost.opacity,
         form: f.form,

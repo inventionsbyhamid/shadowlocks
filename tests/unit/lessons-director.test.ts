@@ -868,6 +868,52 @@ describe("LessonsDirector: help taken, the session's suggestion, the intro's glo
     expect([q.d.frame.key, q.d.frame.why]).toEqual(["watchFinger", "example"]);
   });
 
+  it("tells a line's first showing in a step from the same line coming back", () => {
+    const r = rig(), f = r.d.frame;
+    r.d.start("l1", 1);
+    r.run(16);
+    const first = f.shows;
+    expect([f.key, f.again]).toEqual(["goal", false]);
+    r.run(12_100);
+    expect([f.key, f.again, f.shows]).toEqual(["moveIdle", false, first + 1]);
+    // Getting warmer: the goal comes back, as a line already said; then the nudge again, already said too.
+    r.inp.warm.set(0, 0.15);
+    r.run(16);
+    expect([f.key, f.again, f.shows]).toEqual(["goal", true, first + 2]);
+    r.run(12_100);
+    expect([f.key, f.again, f.shows]).toEqual(["moveIdle", true, first + 3]);
+    // The same line every frame is one showing.
+    r.run(2000);
+    expect(f.shows).toBe(first + 3);
+    // A new step: its lines are new.
+    r.inp.open.add(0);
+    r.run(16);
+    expect([f.key, f.again]).toEqual(["lockOpen", false]);
+    // An example's last line running on into its turn (the same key) is one showing, said once.
+    const e = rig();
+    e.d.start("l1", 2);
+    let atLift = -1;
+    e.until(() => {
+      if (e.d.frame.key === "turnNearFar" && atLift < 0) atLift = e.d.frame.shows;
+      return e.d.step === 3;
+    });
+    e.run(16);
+    expect([e.d.frame.key, e.d.frame.shows, e.d.frame.again]).toEqual(["turnNearFar", atLift, false]);
+    e.run(20_100);
+    expect([e.d.frame.key, e.d.frame.again]).toEqual(["turnNearFarIdle", false]);
+    e.inp.warm.set(1, 0.2);
+    e.run(16);
+    expect([e.d.frame.key, e.d.frame.again]).toEqual(["turnNearFar", true]);
+    // A replay's lines are new each time it is asked for.
+    const q = rig();
+    for (let k = 0; k < 2; k++) {
+      q.d.replay("move");
+      q.run(16);
+      expect([q.d.frame.key, q.d.frame.again]).toEqual(["watch", false]);
+      q.until(() => q.d.replaying === null);
+    }
+  });
+
 });
 
 describe("LessonsDirector: lock I's last resort", () => {

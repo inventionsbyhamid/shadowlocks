@@ -229,6 +229,13 @@ export interface LessonFrame {
    */
   key: ChipKey | null;
   why: LineWhy | null;
+  /**
+   * The line now showing has shown before in this step (the goal back once the player gets warmer, a nudge again, the
+   * Key's lines flipping), so a voice says a line once a step; in a replay, before in that replay. `shows` counts each
+   * time a line takes the chip (a key changing to another), so a new showing can be told even of the same key.
+   */
+  again: boolean;
+  shows: number;
   /** The lock marked as the one to open (lock I through its step), -1 for none, and its outline's warmth now. */
   mark: number;
   markWarmth: number;
@@ -269,6 +276,8 @@ function newFrame(): LessonFrame {
     line: null,
     key: null,
     why: null,
+    again: false,
+    shows: 0,
     mark: -1,
     markWarmth: 0,
     coachNear: false,
@@ -343,6 +352,10 @@ export class LessonsDirector {
   private lineMs = 0;
   /** The marked lock's breathing clock. */
   private markMs = 0;
+  /** The keys shown so far in this step, and in the replay running (a replay's own); the key shown last frame. */
+  private readonly seenStep: ChipKey[] = [];
+  private readonly seenReplay: ChipKey[] = [];
+  private prevKey: ChipKey | null = null;
   /** The reaching ghost's shift clear of a real hand (eased), and that hand's pinch point. */
   private readonly off: V3 = [0, 0, 0];
   private readonly real: V3 = [0, 0, 0];
@@ -461,6 +474,7 @@ export class LessonsDirector {
     this.script = buildScript(example, lessonPlan(lesson, left), left, true);
     this.scriptMs = 0;
     this.replayEx = example;
+    this.seenReplay.length = 0;
     this.frame.box = lesson;
     this.deps.onReplay?.(example, lesson, true);
     this.runScript(0);
@@ -468,6 +482,29 @@ export class LessonsDirector {
   }
 
   update(tMs: number): void {
+    this.frameAt(tMs);
+    this.settleLine();
+  }
+
+  /**
+   * The line this frame ended on: a new showing if its key changed since the last frame (a line that goes and comes
+   * back within one frame, as at an example's end into its turn, keeps showing), and whether it has shown before in
+   * its step (or replay). Allocates nothing once each scope has seen its few keys.
+   */
+  private settleLine(): void {
+    const f = this.frame, k = f.key;
+    if (k !== null) {
+      const seen = this.replayEx ? this.seenReplay : this.seenStep, had = seen.includes(k);
+      if (k !== this.prevKey) {
+        f.again = had;
+        f.shows++;
+      }
+      if (!had) seen.push(k);
+    } else f.again = false;
+    this.prevKey = k;
+  }
+
+  private frameAt(tMs: number): void {
     const dt = Number.isFinite(this.lastT) ? Math.min(Math.max(tMs - this.lastT, 0), MAX_DT_MS) : 0;
     this.lastT = tMs;
     if (this.script) {
@@ -694,6 +731,7 @@ export class LessonsDirector {
     this.beatMs = -1;
     this.helped = false;
     this.restartClocks();
+    this.seenStep.length = 0;
     if (n >= steps.length) {
       this.finished = true;
       this.show(null, null);
