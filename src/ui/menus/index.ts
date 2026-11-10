@@ -19,6 +19,7 @@ import { KeyView, NO_TIPS } from "../key-view";
 import { MOTION } from "../motion";
 import { PanelSlabs } from "../panel-slab";
 import { PanelView } from "../panel-ui";
+import { standPanel } from "./place";
 import { UI } from "../theme";
 import { COPY } from "../copy";
 import { PanelMotion } from "../transitions";
@@ -32,23 +33,7 @@ import type { MenuData, MenuSpec } from "./types";
 
 export const MENU_SPECS: readonly MenuSpec[] = [HOME, LESSONS, COLLECTION, SETTINGS, RESET, TRIAL];
 
-/**
- * Where panels stand: the bottom edge on the open drawer (DRAWER_PANEL_ANCHOR, box units, so it
- * follows the box size), then `toward` metres nearer the player, leaning back `leanRad` from upright
- * (in the world, not with the box's own tilt): enough to face a seated player's eyes, not so much
- * that a tall panel's top reaches back into the box mouth at any box size. Panels grow upward from
- * that edge (UIKit anchor bottom).
- */
-export const MENU_PLACE = { toward: 0.015, leanRad: (15 * Math.PI) / 180 };
-
-/**
- * How far a panel leans back from upright (radians) on a box leaning back `tiltDeg`: MENU_PLACE.leanRad on the lap's
- * box, and the same angle to the box on a phone's leaning one (a box leaning toward the phone would otherwise reach its
- * mouth over a panel leaning away from it). A headset's is the lap's, exactly.
- */
-export function panelLean(tiltDeg: number): number {
-  return MENU_PLACE.leanRad + ((tiltDeg - TILT_DEG) * Math.PI) / 180;
-}
+export { MENU_PLACE, panelLean } from "./place";
 
 /** One UIKit unit is 1 mm (scene scale 0.1, UIKit pixel size 1 cm): 1 mm in the panel's local units. */
 const MM = 1 / 100;
@@ -254,15 +239,9 @@ export class Menus {
   private placePanels(): void {
     this.layoutWaiting = false;
     if (!this.hasPose) return;
-    const yaw = this.pose.yaw;
-    const s = Math.sin(yaw);
-    const c = Math.cos(yaw);
-    const t = MENU_PLACE.toward;
-    const lean = panelLean(this.pose.tiltDeg);
     for (const p of this.live) {
       const o = p.asset;
-      o.position.set(this.box.x + s * t, this.box.y, this.box.z + c * t);
-      o.rotation.set(-lean, yaw, 0, "YXZ");
+      standPanel(this.box, this.pose.yaw, this.pose.tiltDeg, o.position, o.rotation);
       o.updateMatrixWorld(true);
     }
   }

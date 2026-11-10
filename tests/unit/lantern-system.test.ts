@@ -158,4 +158,40 @@ describe("Lantern", () => {
     expect(lantern.grab.holder).toBe("right");
     expect(said).toEqual(["grab right", "release right", "grab right"]);
   });
+
+  it("waits with the box for its first placement: while the box is hidden no hand takes it or moves it; once shown, it can be taken", () => {
+    const a = generateBox({ kind: "box", n: 1 });
+    const scene = fakeScene(a);
+    const pins: [HandPinch, HandPinch] = [newPin(), newPin()];
+    const lantern = new Lantern(scene as unknown as LanternBoxScene, { pinches: pins, joints: {} as HandJoints });
+    const said: string[] = [];
+    offs.push(on("grab", (e) => said.push(`grab ${e.hand}`)));
+    let t = 0;
+    const right = pins[1];
+    const frame = (p: V3, trigger: boolean) => {
+      right.edge = trigger && !right.pinching ? "start" : !trigger && right.pinching ? "end" : null;
+      right.kind = "controller";
+      right.tracked = true;
+      right.pinching = trigger;
+      right.point.set(p[0], p[1], p[2]);
+      t += DT;
+      lantern.update(t);
+    };
+    lantern.setUnplaced(true, t);
+    expect(lantern.unplaced).toBe(true);
+    // A controller's grip on the invisible lantern at its default place, trigger down, then carried: nothing.
+    const grip = add(a.start, [0, u(2), 0]);
+    frame(grip, false);
+    frame(grip, true);
+    for (let i = 1; i <= 20; i++) frame(add(grip, [u(i / 2), 0, 0]), true);
+    expect(lantern.grab.holder).toBeNull();
+    expect(scene.pos).toEqual(a.start);
+    expect(said).toEqual([]);
+    // Placed and shown: a new pinch on it takes it.
+    lantern.setUnplaced(false, t);
+    frame(grip, false);
+    frame(grip, true);
+    expect(lantern.grab.holder).toBe("right");
+    expect(said).toEqual(["grab right"]);
+  });
 });
