@@ -105,6 +105,8 @@ export class Lessons implements MenuLessons {
     onBus("screen", (e) => {
       this.menuUp = isMenuScreen(e.to);
     });
+    // A hint taken from the hint lantern: the lesson's "Stuck?" line has done its work.
+    onBus("hint", () => this.director.helpTaken());
     // Lesson 2's last step: "Pull the drawer to find these lessons again."
     onBus("drawer", () => {
       const dir = this.director;

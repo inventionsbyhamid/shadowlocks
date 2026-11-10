@@ -409,6 +409,17 @@ export class LessonsDirector {
     this.enter(from);
   }
 
+  /**
+   * The player took the help a line asked for: a hint from the hint lantern, or "Show me" (its replay just ended). On a
+   * lesson lock the idle clocks start over, so "Stuck?" goes and the nudges (and lock I's last resort) wait another
+   * stretch: doing what a line asks ends it. Nothing elsewhere (the intro's line follows the hint lantern's glow).
+   */
+  helpTaken(): void {
+    if (!this.id || this.finished || this.script) return;
+    const k = LESSON_STEPS[this.id][this.n]?.kind;
+    if (k === "move" || k === "turn") this.restartClocks();
+  }
+
   /** Leave the lesson (and any replay) without finishing it. */
   stop(): void {
     this.endReplay();
@@ -726,7 +737,8 @@ export class LessonsDirector {
     if (s.replay) {
       this.replayEx = null;
       this.deps.onReplay?.(s.ex, s.lesson, false);
-      // Back to the lesson's step as it stood (its timers paused meanwhile).
+      // Back to the lesson's step as it stood (its timers paused meanwhile); "Show me" was help taken.
+      this.helpTaken();
       return;
     }
     if (this.help) {

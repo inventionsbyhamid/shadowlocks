@@ -782,6 +782,51 @@ describe("LessonsDirector: lock I marked", () => {
   });
 });
 
+describe("LessonsDirector: help taken, the session's suggestion, the intro's glow, lines coming back", () => {
+  const said = (r: Rig) => [r.d.frame.key, r.d.frame.why];
+
+  it("ends the Stuck? line when the player takes a hint: the nudges wait another stretch", () => {
+    const r = rig();
+    r.d.start("l1", 3);
+    r.run(40_100);
+    expect(said(r)).toEqual(["stuck", "idle"]);
+    r.d.helpTaken();
+    r.run(16);
+    expect(said(r)).toEqual(["turnNearFar", "step"]);
+    r.run(19_800);
+    expect(r.d.frame.key).toBe("turnNearFar");
+    r.run(300);
+    expect(r.d.frame.key).toBe("turnNearFarIdle");
+    // On lock I, help taken just before its last-resort example is due: no example now, the clocks start over.
+    const q = rig();
+    q.d.start("l1", 1);
+    q.run(39_000);
+    q.d.helpTaken();
+    q.run(20_000, () => expect(q.d.showing).toBe(false));
+    expect(q.d.frame.key).toBe("moveIdle");
+    // Outside a lesson lock (the intro, no lesson) it changes nothing.
+    const i = rig();
+    i.d.start("l1");
+    i.run(FORM_MS + 16);
+    i.d.helpTaken();
+    expect(i.d.frame.key).toBe("pickUp");
+    rig().d.helpTaken();
+  });
+
+  it("does not bring Stuck? straight back after Show me: the replay's end starts the clocks over", () => {
+    const r = rig();
+    r.d.start("l1", 3);
+    r.run(40_100);
+    expect(r.d.frame.key).toBe("stuck");
+    expect(r.d.replay("near-far")).toBe(true);
+    r.until(() => r.d.replaying === null);
+    r.run(16);
+    expect(said(r)).toEqual(["turnNearFar", "step"]);
+    r.run(19_000, () => expect(r.d.frame.key).toBe("turnNearFar"));
+  });
+
+});
+
 describe("LessonsDirector: lock I's last resort", () => {
   it("plays the Move the light example on lock I after 40 s without progress, once a visit; then Stuck? instead", () => {
     const r = rig();

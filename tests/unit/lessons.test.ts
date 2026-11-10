@@ -210,6 +210,16 @@ describe("Lessons", () => {
     expect(b.shown().line).toBe(COPY.lessons.puppets);
   });
 
+  it("ends the Stuck? line when the player takes a hint from the hint lantern", () => {
+    const b = bench();
+    b.lessons.start("l1", { step: 3 });
+    b.run(40_200);
+    expect(b.shown().line).toBe(COPY.lessons.stuck);
+    emit({ type: "hint", lock: 1, level: 1 });
+    b.run(32);
+    expect(b.shown().line).toBe(COPY.lessons.turnNearFar);
+  });
+
   it("waits under a menu, its ghost and line put away", () => {
     const b = bench();
     b.lessons.start("l1");
