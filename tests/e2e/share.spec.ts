@@ -117,7 +117,8 @@ test("a shared daily link lands, explains itself and starts the box", async ({ p
   expect([COPY.share.copied, COPY.share.manual]).toContain(note);
   if (note === COPY.share.copied) expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(text);
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.screenshot({ path: path.join(SHOTS_DIR, "share-result-page.png"), fullPage: true });
+  await page.locator("#share-result").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(SHOTS_DIR, "share-result-page.png") });
 
   // The same link again: today's Daily Box is solved, so it plays as practice, and its solve changes nothing.
   app = await boot({ url: DAILY_LINK, expectScreen: "play" });
@@ -199,7 +200,15 @@ test("beat my time: the receiver sees both results", async ({ page, boot }) => {
   await app.stepUntil((ns) => !ns.state().xr.presenting, { maxMs: 5_000, label: "out of XR" });
   await expect(page.locator("#share-result")).toHaveText(COPY.share.sendBack);
   expect((await page.locator("#result-text").textContent())!.split("\n").slice(2)).toEqual([COPY.share.beat, `https://shadowlocks.pages.dev/?box=2&t=${secs}&h=1&g=4`]);
-  await page.screenshot({ path: path.join(SHOTS_DIR, "share-send-back-page.png"), fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  // Taller than the window now: the page scrolls, and nothing above is cut off.
+  expect(await page.evaluate(() => document.getElementById("landing")!.scrollHeight > innerHeight)).toBe(true);
+  await page.locator("#share-result").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(SHOTS_DIR, "share-send-back-page.png") });
+  await page.evaluate(() => document.getElementById("landing")!.scrollTo(0, 0));
+  await expect(page.locator("#landing h1")).toBeInViewport();
+  const top = await page.evaluate(() => document.querySelector("#landing .art")!.getBoundingClientRect().top);
+  expect(top).toBeGreaterThanOrEqual(0);
 });
 
 test("a new player with a shared link goes through lesson 1 first", async ({ page, boot }) => {

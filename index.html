@@ -74,10 +74,13 @@
       #scene-container { position: fixed; inset: 0; }
       /* The landing: the hosted link's one page before XR. Gone once XR starts. */
       #landing {
-        position: fixed; inset: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        position: fixed; inset: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
         gap: 14px; padding: 24px 16px; box-sizing: border-box; text-align: center;
         background: radial-gradient(ellipse at 50% 38%, #2a2228 0%, #17131a 46%, #0d0b0e 100%);
       }
+      /* Centred while it fits; once it is taller than the window (a shared link's lines, a result to share, a short phone
+         held sideways) it starts at the top and scrolls, so nothing is cut off above (flex centring alone would). */
+      #landing::before, #landing::after { content: ""; flex: 1 0 0; }
       body.in-xr #landing { display: none; }
       /* The installed Quest apps go straight into XR: no box art or name flashing by as a splash, only the status
          (and the button, should going into XR fail). */
