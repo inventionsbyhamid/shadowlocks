@@ -490,6 +490,22 @@ export interface SlApi {
   i18n: SlI18n;
   /** A phone's touches (AR on a phone: the screen is the only input). */
   touch: SlTouch;
+  /** A lost box: how long it has been out of view, and a headset's arrow toward it and the fade that brings it back. */
+  summon(): SlSummon;
+}
+
+/** A lost box, for tests (lost-box.ts, summon.ts). */
+export interface SlSummon {
+  /** idle, the arrow up, the view fading out, or back in. */
+  phase: string;
+  /** The arrow's middle (world) while it shows, else null. */
+  arrow: Vec3 | null;
+  /** The view's fade (0 clear, 1 black). */
+  fade: number;
+  /** How long (ms) no part of the box has been in view. */
+  lostMs: number;
+  /** Draw calls the arrow and the fade add now (per view). */
+  calls: number;
 }
 
 /** A phone's touches, for tests: IWER has no screen input, so touches go in as rays from the head. */

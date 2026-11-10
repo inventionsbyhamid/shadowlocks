@@ -6,12 +6,13 @@
 // at most (PlaceGate). Until then the box and its panels are hidden, so nothing stands where the head or phone happened
 // to point as the session started, and nothing moves in front of the player.
 //
-// Once placed, a phone's box out of view (lost-box.ts) comes back in front by itself after 2 s, held still, with no
-// touch down and the lantern not held ("box out of view: placed again" in the console). A headset's is never moved by
-// itself. Quest's own recenter (the reference space's reset) and the Settings key place it at once.
+// Once placed, a box out of view (lost-box.ts): a phone's comes back in front by itself after 2 s, held still, with no
+// touch down and the lantern not held ("box out of view: placed again" in the console); a headset's never moves by
+// itself, an arrow at the edge of the view points to it instead, and a pinch or poke on the arrow brings it in front
+// with a short fade (summon.ts). Quest's own recenter (the reference space's reset) and the Settings key place it at once.
 import { createSystem, Quaternion, Vector3 } from "@iwsdk/core";
 import { hands } from "../input/grab-system";
-import { boxInView, type LostInput, LostBox } from "../render/lost-box";
+import { BOX_SPHERE, boxInView, type LostInput, LostBox } from "../render/lost-box";
 import {
   PHONE_VIEW,
   PlaceGate,
@@ -42,6 +43,7 @@ export class ShellSystem extends createSystem({}) {
   private readonly view: ViewTangents = { tanH: PHONE_VIEW.tanH, tanV: PHONE_VIEW.tanV };
   private readonly wide: ViewTangents = { tanH: PHONE_VIEW.tanH, tanV: PHONE_VIEW.tanV };
   private readonly forward = new Vector3();
+  private readonly boxMid = new Vector3();
   /** The steady pose the first placement waits for, and a phone's re-place. */
   readonly gate = new PlaceGate();
   /** How long the box has been out of view, and what then. */
@@ -117,11 +119,12 @@ export class ShellSystem extends createSystem({}) {
     const dt = Math.min(Math.max(delta, 0), 0.1);
     const xrSession = this.world.session ?? null;
     const phone = onPhone();
-    // A new session (or none): the steady gate and the lost box start afresh.
+    // A new session (or none): the steady gate, the lost box and the summon start afresh.
     if (xrSession !== this.watchedFor) {
       this.watchedFor = xrSession;
       this.gate.reset();
       this.lost.reset();
+      s.summon.reset(this.headPos);
     }
     const tracked = !!xrSession && !!this.world.xrFrame && this.readHead(phone);
     if (tracked) {
@@ -147,7 +150,7 @@ export class ShellSystem extends createSystem({}) {
       if (xrSession && placement.source !== "default" && (placement.source === "view") !== phone) s.recenterAsked = true;
       // A Recenter waits for a frame with a tracked head.
       if (s.recenterAsked && this.recenter()) s.recenterAsked = false;
-      if (xrSession && tracked) this.watchLost(s, now, phone);
+      if (xrSession && tracked) this.watchLost(s, now, dt, phone);
     }
     if (placement.version !== this.laidOut) {
       this.laidOut = placement.version;
@@ -160,10 +163,11 @@ export class ShellSystem extends createSystem({}) {
   }
 
   /**
-   * The placed box out of view: a phone's placed again in front (held still, no touch down, the lantern not held;
-   * lost-box.ts). headPos and headQuat hold this frame's head.
+   * The placed box out of view: a phone's placed again in front (held still, no touch down, the lantern not held); a
+   * headset's arrow toward it, and the summon it starts (lost-box.ts, summon.ts). headPos and headQuat hold this frame's
+   * head.
    */
-  private watchLost(s: Shell, now: number, phone: boolean): void {
+  private watchLost(s: Shell, now: number, dt: number, phone: boolean): void {
     const inView = boxInView(placement.matrix(), this.headPos, this.headQuat, this.seenView());
     const L = this.lostIn;
     L.phone = phone;
@@ -174,6 +178,22 @@ export class ShellSystem extends createSystem({}) {
     if (this.lost.update(now, inView, L)) {
       s.recenterAsked = true;
       console.info("box out of view: placed again");
+    }
+    if (phone) {
+      s.summon.reset(this.headPos);
+      return;
+    }
+    const c = BOX_SPHERE.center;
+    this.boxMid.set(c[0], c[1], c[2]).applyMatrix4(placement.matrix());
+    const step = s.summon.update(now, dt, this.lost.arrow, this.headPos, this.headQuat, this.boxMid);
+    if (step === "taken") this.lost.reset();
+    else if (step === "place") {
+      const ok = this.recenter();
+      if (ok) {
+        s.recenterAsked = false;
+        console.info("box out of view: brought back by the arrow");
+      }
+      s.summon.placed(ok, now);
     }
   }
 }

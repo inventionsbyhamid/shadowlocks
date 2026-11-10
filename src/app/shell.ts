@@ -5,9 +5,11 @@ import { type Object3D, SessionMode, type World } from "@iwsdk/core";
 import { todayKey } from "../core/daily";
 import { specOfKey } from "../core/generator";
 import type { BoxSnapshot, Profile } from "../core/profile";
+import { hands } from "../input/grab-system";
 import { BoxScene } from "../render/box-scene";
 import { placement } from "../render/placement";
 import { type RoomLight, RoomLights, Theatre } from "../render/theatre";
+import { frameTips } from "../ui/fingertips";
 import type { ContinueTo } from "../ui/menus/home";
 import type { LessonRow } from "../ui/menus/lessons";
 import type { Behind } from "../ui/menus/types";
@@ -21,6 +23,7 @@ import { Panels } from "./panels";
 import { type ProfileStore, type Slot, slotMoved } from "./profile-store";
 import { currentScreen, go } from "./screens";
 import type { SettingsStore } from "./settings";
+import { Summon } from "./summon";
 
 /** How long Enter waits for the browser to answer a session request before offering a retry. */
 export const ENTER_TIMEOUT_MS = 120_000;
@@ -70,6 +73,8 @@ export class Shell {
   room: Object3D | null = null;
   /** Recenter was asked for (a key, or Quest's own recenter); ShellSystem places the box on its next frame. */
   recenterAsked = false;
+  /** A headset's lost box brought back on the player's word: the arrow toward it and the fade (ShellSystem runs it). */
+  readonly summon: Summon;
   /** Whether the lantern is held (set once the lantern exists): a lost box is never moved, nor its arrow shown, then. */
   lanternHeld: () => boolean = () => false;
   /** The headset the last session was tuned for (headset.ts), and the frame rate it asked for (null: none). */
@@ -89,6 +94,9 @@ export class Shell {
     this.box = new BoxScene(world);
     this.theatre = new Theatre();
     world.scene.add(this.theatre.veil, this.theatre.room);
+    // In the scene from the start, hidden, so the session's prewarm compiles them.
+    this.summon = new Summon({ hands, tips: () => frameTips(world).read(), rays: world.player.raySpaces });
+    world.scene.add(this.summon.view.arrow, this.summon.view.fade);
     this.room = this.theatre.room;
     this.updateRoomVisibility();
     // Menus dim the room half way, a box in play the most, and the light comes up when the box opens until the next

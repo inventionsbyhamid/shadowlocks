@@ -728,6 +728,16 @@ export function installTestHooks(
       set: (list) => app.touch.inject(list === null ? null : list.map((t) => ({ id: t.id, at: [t.at[0], t.at[1], t.at[2]] }))),
       roles: () => app.touch.roles(),
     },
+    summon: () => {
+      const v = shell.summon.view;
+      return {
+        phase: shell.summon.phase,
+        arrow: v.arrow.visible ? v3(v.at) : null,
+        fade: v.fadeNow,
+        lostMs: system.lost.lostMs,
+        calls: (v.arrow.visible ? 1 : 0) + (v.fade.visible ? 1 : 0),
+      };
+    },
     i18n: {
       lang: () => ({ shown: lang(), doc: document.documentElement.lang }),
       texts: () => view.texts(),
