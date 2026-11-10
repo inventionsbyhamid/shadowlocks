@@ -247,6 +247,8 @@ export interface SlLantern {
   glow: number;
   /** The settle ripple's ring opacity (0: none); drawn in the glow's sprite. */
   ripple: number;
+  /** How see-through it is drawn (a phone's: 0 solid, 1 dithered with a small flame). */
+  see: number;
 }
 
 /** A lock's ring line as the lantern feel sees it this frame (box units): mark on the panel, direction out to the spot. */

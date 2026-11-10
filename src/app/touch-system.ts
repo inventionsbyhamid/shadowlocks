@@ -16,6 +16,8 @@
 // - anything else: a finger in the light, cast so its shadow lies under the touch (the hands' TouchFinger), so a
 //   finger lock's gap is filled by touching it and holding still.
 // Up to two touches at once (a phone may report only one): the lantern held by one, the finger cast by the other.
+// The lantern turns see-through on a phone (LanternView.setSeeThrough) while a touch holds it, or while its drawn shape,
+// seen from the camera, stands in front of the panel: the finger and the lantern never hide the lock behind them.
 // Allocation free per frame (the browser's own pose and event objects aside).
 import { createSystem, Vector3, type World } from "@iwsdk/core";
 import type { Box, V2, V3, Vec3 } from "../core/types";
@@ -41,6 +43,7 @@ import {
 } from "../input/touch";
 import type { BoxScene } from "../render/box-scene";
 import { FINGER_RADIUS_CM } from "../render/hand-shadow";
+import type { LanternView } from "../render/lantern-view";
 import { worldToBox } from "../render/placement";
 import { frameTips } from "../ui/fingertips";
 import type { TouchFinger } from "./hand-system";
@@ -65,9 +68,15 @@ export interface TouchTargets {
 }
 
 export interface TouchDeps {
-  scene: Pick<BoxScene, "root" | "box" | "size">;
+  scene: Pick<BoxScene, "root" | "box" | "size"> & { readonly lantern: Pick<LanternView, "allowSeeThrough" | "setSeeThrough"> };
   lantern: Pick<Lantern, "ctrl" | "grab" | "frozen" | "away">;
 }
+
+/**
+ * The lantern's drawn shape round its light (box units: the foot's rim 0.058 out and 0.087 down, the ring's top 0.174
+ * up): what must not stand in front of the panel as the camera sees it.
+ */
+const LANTERN_SHAPE = { side: 0.058, down: 0.087, up: 0.174 } as const;
 
 /** A test build's touch: a ray from the head through `at` (world). */
 export interface TestTouch {
@@ -171,6 +180,10 @@ export class Touches implements TouchFinger {
   private readonly db: V3 = [0, 0, 0];
   private readonly q: V2 = [0, 0];
   private readonly v = new Vector3();
+  /** The camera in box units (the see-through test). */
+  private readonly cam: V3 = [0, 0, 0];
+  /** The see-through last asked of the lantern (0 or 1). */
+  private see = 0;
 
   constructor(private readonly d: TouchDeps) {}
 
@@ -223,6 +236,7 @@ export class Touches implements TouchFinger {
     if (!this.live || !frame || !ref) {
       for (const s of this.slots) s.id = null;
       for (const t of this.taps) t.src = null;
+      this.seeThrough(headAt);
       return;
     }
     for (const s of this.slots) if (s.id !== null && s.endMs !== s.endMs) s.ok = false;
@@ -233,12 +247,43 @@ export class Touches implements TouchFinger {
       const s = this.slots[i]!;
       if (s.id !== null && s.endMs !== s.endMs && !(seen & (1 << i))) s.endMs = now;
     }
-    if (this.latchedNow) return;
-    for (const s of this.slots) {
-      if (s.id === null || s.decided || !s.ok || s.endMs === s.endMs) continue;
-      this.decide(s, now);
-      if (s.endAfterDecide) s.endMs = now;
+    // Not on the frame that first tells a phone (the box is placed in view first).
+    if (!this.latchedNow) {
+      for (const s of this.slots) {
+        if (s.id === null || s.decided || !s.ok || s.endMs === s.endMs) continue;
+        this.decide(s, now);
+        if (s.endAfterDecide) s.endMs = now;
+      }
     }
+    this.seeThrough(headAt);
+  }
+
+  /**
+   * A phone's lantern see-through (its program asked for once): while a touch holds it, or while its drawn shape, seen
+   * from the camera at `headAt`, stands in front of the panel. Told only when it changes.
+   */
+  private seeThrough(headAt: Vector3): void {
+    const view = this.d.scene.lantern;
+    let k = 0;
+    if (this.live) {
+      view.allowSeeThrough();
+      if (this.down("lantern") || this.inFrontOfPanel(headAt)) k = 1;
+    }
+    if (k === this.see) return;
+    this.see = k;
+    view.setSeeThrough(k);
+  }
+
+  /**
+   * The lantern's drawn shape round its light (LANTERN_SHAPE), seen from the camera at `headAt` (world), falls on the
+   * panel: the light's place on the panel's plane, the shape's reach grown by how much nearer the camera it is.
+   */
+  private inFrontOfPanel(headAt: Vector3): boolean {
+    const c = worldToBox(this.d.scene.root.matrixWorld, headAt, this.cam), L = this.d.lantern.ctrl.pos;
+    const gap = c[2] - L[2];
+    if (!(L[2] > 0) || !(gap > 0)) return false;
+    const t = c[2] / gap, x = c[0] + (L[0] - c[0]) * t, y = c[1] + (L[1] - c[1]) * t, S = LANTERN_SHAPE;
+    return Math.abs(x) <= 0.5 + S.side * t && y >= -0.5 - S.up * t && y <= 0.5 + S.down * t;
   }
 
   private pokeOver(s: Slot, now: number): boolean {

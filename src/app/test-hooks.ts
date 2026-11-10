@@ -498,6 +498,7 @@ export function installTestHooks(
       holder: lan.grab.holder,
       glow: lan.grab.brightness,
       ripple: shell.box.lantern.ringOpacity,
+      see: shell.box.lantern.seeThrough,
     };
   };
 

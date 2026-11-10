@@ -137,14 +137,27 @@ const RIG = { matrixWorld: new Matrix4() };
 function bench(box: Box | null = null, lanternAt: V3 = [0.1, 0.05, 1.3], mode = "screen-space", sizeCm = 24) {
   const lantern = { ctrl: { pos: lanternAt }, grab: { holder: null as "left" | "right" | null }, frozen: false, away: false };
   const m = sizeCm === 24 ? BOX : placeBox({ pos: EYE.clone(), yaw: 0 }, sizeCm);
-  const scene = { root: { matrixWorld: m }, box, size: sizeCm / 100 };
+  /** The lantern's look: see-through asked (and how often), the see-through program asked for. */
+  const view = {
+    see: 0,
+    calls: 0,
+    allowed: false,
+    setSeeThrough(k: number) {
+      this.see = k;
+      this.calls++;
+    },
+    allowSeeThrough() {
+      this.allowed = true;
+    },
+  };
+  const scene = { root: { matrixWorld: m, visible: true }, box, size: sizeCm / 100, lantern: view };
   const t = new Touches({ scene, lantern } as unknown as TouchDeps);
   const phone = new FakePhone(mode);
   const step = () => t.update(phone.frame, REF, RIG, EYE);
   step();
   /** A box point (box units) in the world, for this bench's box size. */
   const toWorld = (v: V3) => boxToWorld(m, v, new Vector3());
-  return { t, phone, step, lantern, toWorld };
+  return { t, phone, step, lantern, toWorld, view, scene };
 }
 
 const newHand = (): HandPinch => ({
@@ -785,6 +798,47 @@ describe("the box in a phone's view", () => {
     expect(highest, worst).toBeLessThan(-0.5);
   });
 
+  it("a phone's held lantern turns see-through, and back once let go; a headset's never does", () => {
+    // At rest below the panel as the camera sees it: solid.
+    const { t, phone, step, view, lantern } = bench(null, [0.1, -0.35, 1.3]);
+    expect(t.phone).toBe(true);
+    expect(view.allowed).toBe(true);
+    expect(view.see).toBe(0);
+    const src = phone.touch(w([0.1, -0.35, 1.3]));
+    step();
+    expect(t.roles()).toEqual(["lantern"]);
+    expect(view.see).toBe(1);
+    // Held for a while: asked once, not every frame.
+    const calls = view.calls;
+    step();
+    step();
+    expect(view.calls).toBe(calls);
+    phone.lift(src);
+    step();
+    expect(view.see).toBe(0);
+    // Not held, but its light seen in front of the panel (the phone moved after the box was placed): see-through too.
+    lantern.ctrl.pos[1] = 0.2;
+    step();
+    expect(view.see).toBe(1);
+    lantern.ctrl.pos[1] = -0.35;
+    step();
+    expect(view.see).toBe(0);
+    // A headset: never, held or in front of the panel, and its program is never asked for the see-through.
+    const hs = bench(null, [0, 0.2, 1.3], "world-space");
+    hs.phone.trackedPointer();
+    for (let i = 0; i < 3; i++) hs.step();
+    expect(hs.t.phone).toBe(false);
+    hs.lantern.grab.holder = "right";
+    hs.step();
+    expect(hs.view.calls).toBe(0);
+    expect(hs.view.allowed).toBe(false);
+    // A session that showed itself a headset's after all (a controller appeared) goes solid again.
+    const mixed = bench(null, [0, 0.2, 1.3]);
+    expect(mixed.view.see).toBe(1);
+    mixed.phone.trackedPointer();
+    mixed.step();
+    expect(mixed.view.see).toBe(0);
+  });
 });
 
 describe("the drawer tapped open", () => {
