@@ -188,8 +188,8 @@ export class ShellSystem extends createSystem({}) {
     const step = s.summon.update(now, tracked && this.lost.arrow && !held, this.lastEye, this.lastTurn, this.boxMid);
     if (step === "taken") this.lost.reset();
     else if (step === "place") {
-      // The lantern taken while the view faded: called off, the box stays. Not tracked: it waits, dark, at most
-      // SUMMON.holdMaxMs, then the view comes back anyway.
+      // The lantern taken while the view faded out: at full dark the summon is called off, the view fades back in and
+      // the box stays. Not tracked: it waits, dark, at most SUMMON.holdMaxMs, then the view comes back anyway.
       if (held) s.summon.cancel();
       else {
         const ok = tracked && this.recenter();
