@@ -25,6 +25,7 @@ import { localLine } from "../i18n";
 import type { BoxScene } from "../render/box-scene";
 import type { BoxSession } from "./box-session";
 import { on as onBus } from "./bus";
+import { controllerLine } from "./controller-lines";
 import type { Game } from "./game";
 import type { HandsInBox } from "./hand-system";
 import type { Lantern } from "./lantern-system";
@@ -267,9 +268,10 @@ export class Lessons implements MenuLessons {
           : (held ?? this.tipLine(session));
     if (!shown) this.tipDemo(session);
     this.onScreen.tip = dir.tipping && !this.menuUp;
-    // Lines come in English (the director, the tips, the session); the chip shows them in the language shown, and on a
-    // phone the phone's way.
-    this.view.update(dir.frame, this.onScreen, localLine(this.d.phone?.() ? phoneLine(line) : line), dt, tMs);
+    // Lines come in English (the director, the tips, the session); the chip shows them in the language shown, on a
+    // phone the phone's way, and with controllers in hand the controllers' way.
+    const said = this.d.phone?.() ? phoneLine(line) : this.d.hands.controllers ? controllerLine(line) : line;
+    this.view.update(dir.frame, this.onScreen, localLine(said), dt, tMs);
   }
 
   /**

@@ -81,7 +81,8 @@ function bench(o: { presenting?: boolean; autoStart?: boolean } = {}) {
   /** Whether the view was last told a tip's demo is on screen. */
   const tipShown = () => (view.update.mock.calls.at(-1)![1] as { tip?: boolean }).tip === true;
   const lantern = (deps as unknown as { lantern: { grab: { holder: string | null } } }).lantern;
-  return { lessons, profile, session, plays, open, env, run, shown, tipShown, play, lantern };
+  const hands = (deps as unknown as { hands: { n: number; controllers?: boolean } }).hands;
+  return { lessons, profile, session, plays, open, env, run, shown, tipShown, play, lantern, hands };
 }
 
 describe("Lessons", () => {
@@ -174,6 +175,19 @@ describe("Lessons", () => {
     b.run(32);
     expect(b.lessons.director.step).toBe(2);
     expect(b.session.restartStuck).toHaveBeenCalledTimes(2);
+  });
+
+  it("tells a controller player the lines about a free hand or a finger the controllers' way; the director's stay English", () => {
+    const b = bench();
+    b.hands.controllers = true;
+    b.lessons.start("l2");
+    b.run(FORM_MS + 200);
+    expect(b.lessons.director.frame.line).toBe(COPY.lessons.puppets);
+    expect(b.shown().line).toBe(COPY.controller.puppets);
+    // Hands again: the hands' words.
+    b.hands.controllers = false;
+    b.run(32);
+    expect(b.shown().line).toBe(COPY.lessons.puppets);
   });
 
   it("waits under a menu, its ghost and line put away", () => {
