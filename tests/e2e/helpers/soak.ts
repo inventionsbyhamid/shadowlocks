@@ -4,8 +4,8 @@
 //
 // A sample counts the renderer's geometries, textures and shader programs, the scene's objects, the ECS's live
 // entities, the listeners on the app's bus, on the window, the document, the canvas and the XR session and on three's
-// XR manager, the Web Audio nodes wired into the graph and the sources playing (countAudioNodes, an init script), the
-// JS heap after a forced GC, and the profile as stored. Before every heap sample it clears the three logs only a test
+// XR manager, the Web Audio nodes wired into the graph, the sources playing and the audio buffers alive (countAudioNodes,
+// an init script), the JS heap after a forced GC, and the profile as stored. Before every heap sample it clears the three logs only a test
 // build keeps and nothing caps (the hooks' sound log and lantern feel log, and the IWER command results the helpers
 // keep), so the heap measured is the game's: the audit found nothing else that grows with play.
 //
@@ -41,16 +41,44 @@ export function soakArgs(jit: boolean): string[] {
  * Page script (addInitScript, before boot): counts the Web Audio graph without holding on to any of it. `connected`:
  * nodes with an outgoing connection now (a node wired into the graph is kept alive by it, so this is what a leak of
  * nodes grows); `started` and `ended`: sources started, and their `ended` events; `created`: every node made (it grows
- * with play: reported only).
+ * with play: reported only). Audio buffers too, decoded or made: `buffers` and `pcm` (bytes of 32-bit samples) are the
+ * ones still alive (a FinalizationRegistry takes each collected one off), and `decodes` each decode's file bytes, PCM
+ * bytes and real ms from the call to its buffer (the real clock, taken before the virtual one is installed).
  */
 export function countAudioNodes(): void {
   const w = window as any;
   if (w.__soakAudio) return;
-  const stats = { created: 0, connected: 0, started: 0, ended: 0 };
+  const realNow = performance.now.bind(performance);
+  const stats = { created: 0, connected: 0, started: 0, ended: 0, buffers: 0, pcm: 0, decodes: [] as { file: number; pcm: number; ms: number; at: number }[] };
   w.__soakAudio = stats;
   const out = new WeakMap<object, number>();
   const ctx = (w.BaseAudioContext ?? w.AudioContext)?.prototype;
   if (!ctx) return;
+  const gone = new FinalizationRegistry<number>((bytes) => {
+    stats.buffers--;
+    stats.pcm -= bytes;
+  });
+  const keep = (b: AudioBuffer): number => {
+    const bytes = b.length * b.numberOfChannels * 4;
+    stats.buffers++;
+    stats.pcm += bytes;
+    gone.register(b, bytes);
+    return bytes;
+  };
+  const createBuffer = ctx.createBuffer;
+  ctx.createBuffer = function (this: unknown, ...args: unknown[]) {
+    const b = createBuffer.apply(this, args) as AudioBuffer;
+    keep(b);
+    return b;
+  };
+  const decode = ctx.decodeAudioData;
+  ctx.decodeAudioData = function (this: unknown, data: ArrayBuffer, ...rest: unknown[]) {
+    const t0 = realNow(), file = data?.byteLength ?? 0;
+    return (decode.call(this, data, ...rest) as Promise<AudioBuffer>).then((b) => {
+      stats.decodes.push({ file, pcm: keep(b), ms: realNow() - t0, at: t0 });
+      return b;
+    });
+  };
   for (const name of Object.getOwnPropertyNames(ctx)) {
     if (!/^create[A-Z]/.test(name) || name === "createBuffer" || name === "createPeriodicWave") continue;
     const real = Object.getOwnPropertyDescriptor(ctx, name)?.value;
@@ -108,7 +136,7 @@ export interface Sample {
   /** Listeners on window, document, the canvas and the XR session (CDP), and on three's XR manager. */
   dom: Record<string, number>;
   threeXr: number;
-  audio: { connected: number; playing: number; created: number };
+  audio: { connected: number; playing: number; created: number; buffers: number; pcmMB: number; music: boolean };
   heapKB: number;
   profileBytes: number;
   collection: number;
@@ -126,6 +154,7 @@ export function counts(s: Sample): Record<string, number> {
     threeXr: s.threeXr,
     audioConnected: s.audio.connected,
     audioPlaying: s.audio.playing,
+    audioBuffers: s.audio.buffers,
   };
   for (const [k, v] of Object.entries(s.dom)) c[`dom.${k}`] = v;
   return c;
@@ -240,6 +269,8 @@ export async function sample(app: XrApp, cdp: CDPSession, label: string): Promis
     }
   });
   await cdp.send("HeapProfiler.collectGarbage");
+  // A collected audio buffer is taken off the count by its FinalizationRegistry callback, a task after the GC.
+  await page.waitForTimeout(200);
   const heap = (await cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
   const c = await page.evaluate(() => {
     const w = window as any;
@@ -255,7 +286,8 @@ export async function sample(app: XrApp, cdp: CDPSession, label: string): Promis
     const xl = (r.xr._listeners ?? {}) as Record<string, unknown[] | undefined>;
     let threeXr = 0;
     for (const k of Object.keys(xl)) threeXr += xl[k]?.length ?? 0;
-    const a = w.__soakAudio as { created: number; connected: number; started: number; ended: number } | undefined;
+    const a = w.__soakAudio as { created: number; connected: number; started: number; ended: number; buffers: number; pcm: number } | undefined;
+    const music: boolean = !!w.__ns.audio.music().playing;
     return {
       geometries: r.info.memory.geometries as number,
       textures: r.info.memory.textures as number,
@@ -265,12 +297,30 @@ export async function sample(app: XrApp, cdp: CDPSession, label: string): Promis
       entitySlots: (em?.entityIndex ?? -1) as number,
       bus: w.__ns.busListeners() as number,
       threeXr,
-      audio: a ? { connected: a.connected, playing: a.started - a.ended, created: a.created } : { connected: -1, playing: -1, created: -1 },
+      audio: a
+        ? { connected: a.connected, playing: a.started - a.ended, created: a.created, buffers: a.buffers, pcmMB: a.pcm / 1048576, music }
+        : { connected: -1, playing: -1, created: -1, buffers: -1, pcmMB: -1, music },
     };
   });
   const dom = await domListeners(cdp);
   const stored = await page.evaluate(storedProfile);
   return { label, ...c, dom, heapKB: heap.usedSize / 1024, profileBytes: stored?.bytes ?? 0, collection: stored?.collection ?? 0 };
+}
+
+/** The audio decodes so far, as a line: how many, their files' and buffers' size, and the real ms they took. */
+export async function decodeLine(app: XrApp): Promise<string> {
+  const d = await app.page.evaluate(() => ((window as any).__soakAudio?.decodes ?? []) as { file: number; pcm: number; ms: number; at: number }[]);
+  if (!d.length) return "audio decodes: none";
+  const sum = (k: "file" | "pcm" | "ms") => d.reduce((a, x) => a + x[k], 0);
+  const big = d.reduce((a, x) => (x.pcm > a.pcm ? x : a));
+  const span = Math.max(...d.map((x) => x.at + x.ms)) - Math.min(...d.map((x) => x.at));
+  const rest = d.filter((x) => x !== big);
+  return (
+    `audio decodes: ${d.length} files, ${(sum("file") / 1024).toFixed(0)} KB to ${(sum("pcm") / 1048576).toFixed(2)} MB of PCM; ` +
+    `the largest ${(big.file / 1024).toFixed(0)} KB to ${(big.pcm / 1048576).toFixed(2)} MB in ${big.ms.toFixed(0)} ms; ` +
+    `the other ${rest.length}: ${(rest.reduce((a, x) => a + x.ms, 0) / Math.max(1, rest.length)).toFixed(1)} ms each on average, ` +
+    `${rest.length ? Math.max(...rest.map((x) => x.ms)).toFixed(0) : 0} ms at most; first call to last buffer ${span.toFixed(0)} ms (real, decodes overlap)`
+  );
 }
 
 /** One sample as a line for the run notes. */
@@ -279,7 +329,8 @@ export function sampleLine(what: string, s: Sample): string {
   return (
     `${what} ${s.label}: ${s.geometries} geometries, ${s.textures} textures, ${s.programs} programs, ${s.objects} scene objects, ` +
     `${s.entities} entities (${s.entitySlots} slots), ${s.bus} bus listeners, DOM listeners ${dom}, three XR ${s.threeXr}; ` +
-    `audio ${s.audio.connected} nodes wired, ${s.audio.playing} sources playing, ${s.audio.created} made in all; ` +
+    `audio ${s.audio.connected} nodes wired, ${s.audio.playing} sources playing (music ${s.audio.music ? "on" : "off"}), ${s.audio.created} made in all, ` +
+    `${s.audio.buffers} buffers alive holding ${s.audio.pcmMB.toFixed(2)} MB of PCM; ` +
     `heap ${(s.heapKB / 1024).toFixed(2)} MB after GC; profile ${s.profileBytes} bytes stored, ${s.collection} in the collection`
   );
 }
@@ -503,6 +554,7 @@ export async function soakBoxes(app: XrApp, testInfo: TestInfo, o: SoakOptions):
   const cdp = await page.context().newCDPSession(page);
   await app.stepUntil((ns) => ns.audio.ready(), { maxMs: 10_000, label: "sound effects loaded" });
   const start = await referenceCost(app, testInfo, "start");
+  note(testInfo, await decodeLine(app));
   // The reference box's grab was the gesture the engine waits for: sound plays from here on.
   await app.stepUntil((ns) => ns.audio.running(), { maxMs: 2_000, label: "audio running" });
   await page.evaluate(() => window.__sl!.session.play({ kind: "box", n: 1 }));

@@ -3,10 +3,10 @@
 // (helpers/soak.ts plays them, as session.spec does, on the virtual clock). After box 1 and every 10 boxes, with the
 // reward taken and Next offered, it counts what the session has left behind: the renderer's geometries, textures and
 // shader programs, the scene's objects, the ECS's entities, the listeners on the bus, the page's event targets and
-// three's XR manager, the Web Audio nodes wired into the graph and the sources playing, the JS heap after a forced GC
-// (V8's gc(), exposed for this spec only), and the profile as stored. Before every heap sample the three logs only a
-// test build keeps and nothing caps (the hooks' sound log and feel log, the IWER command results) are cleared, so the
-// heap measured is the game's.
+// three's XR manager, the Web Audio nodes wired into the graph, the sources playing and the audio buffers alive with
+// their PCM, the JS heap after a forced GC (V8's gc(), exposed for this spec only), and the profile as stored. Before
+// every heap sample the three logs only a test build keeps and nothing caps (the hooks' sound log and feel log, the
+// IWER command results) are cleared, so the heap measured is the game's. It also notes each audio file's decode.
 //
 // From box 10 (by then everything a first box, tip or crystallise shows has been made) to box 60:
 // - every count the same, with no slack: everything counted is made once and reused, or made and let go;
