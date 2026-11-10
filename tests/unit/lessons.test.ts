@@ -231,6 +231,34 @@ describe("Lessons", () => {
     expect(b.shown().line).toBe(COPY.lessons.stuck);
   });
 
+  it("holds a lesson lock's idle clocks and the pause after a win while the headset is hidden", () => {
+    const b = bench();
+    b.lessons.start("l1", { step: 1 });
+    b.run(8000);
+    expect(b.lessons.director.frame.key).toBe("goal");
+    // Thirty seconds hidden count nothing: no nudge, no last resort.
+    b.env.presenting = false;
+    b.run(30_000);
+    expect([b.lessons.director.frame.key, b.lessons.director.showing]).toEqual(["goal", false]);
+    // Seen again, the 12 s nudge comes 4 s on (the first frame back counts at most 0.1 s).
+    b.env.presenting = true;
+    b.run(3800);
+    expect(b.lessons.director.frame.key).toBe("goal");
+    b.run(400);
+    expect(b.lessons.director.frame.key).toBe("moveIdle");
+    // The pause after the first win holds too.
+    b.open.add(0);
+    b.run(32);
+    expect([b.lessons.director.frame.key, b.lessons.director.showing]).toEqual(["lockOpen", false]);
+    b.env.presenting = false;
+    b.run(10_000);
+    b.env.presenting = true;
+    b.run(1000);
+    expect([b.lessons.director.frame.key, b.lessons.director.showing]).toEqual(["lockOpen", false]);
+    b.run(1700);
+    expect(b.lessons.director.showing).toBe(true);
+  });
+
   it("waits under a menu, its ghost and line put away", () => {
     const b = bench();
     b.lessons.start("l1");
