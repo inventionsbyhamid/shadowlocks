@@ -1,10 +1,10 @@
 // Playing a box through to its opening, as session.spec.ts does: the lantern put on each spot through the test hooks,
 // and each finger lock filled by the right index finger laid in its gap.
 import type { Page } from "@playwright/test";
-import type { SlSessionState } from "../../../src/app/test-api";
+import type { SlKey, SlSessionState } from "../../../src/app/test-api";
 import type { V3 } from "../../../src/core/types";
 import { axisOf, fingerLocks, onRay, Pointer, worldOf } from "./finger";
-import type { XrApp } from "./xr-app";
+import { POKE_DEPTH_M, type XrApp } from "./xr-app";
 
 /** Play time from the last lock opening until the reward can be taken (box-session.ts), with a margin. */
 export const REWARD_UP_WITHIN_MS = 4_000;
@@ -67,3 +67,27 @@ export async function solveBox(app: XrApp, s: SlSessionState): Promise<void> {
 export async function rewardUp(app: XrApp, dt?: number): Promise<void> {
   await app.stepUntil((_ns, w) => w.__sl.session.state().stage === "reward", { maxMs: REWARD_UP_WITHIN_MS + 2_000, dt, label: "the reward up" });
 }
+
+/** Poke a key of the box (the plate's Next, the hint lantern) with the right index fingertip along its normal, and back out. */
+export async function pokeBoxKey(app: XrApp, id: string): Promise<SlKey> {
+  const keys = () => app.page.evaluate(() => window.__sl!.session.keys());
+  const k = (await keys()).find((x) => x.id === id);
+  if (!k || !k.live) throw new Error(`no live key "${id}" (have: ${(await keys()).map((x) => `${x.id}${x.live ? "" : " (off)"}`).join(", ")})`);
+  const at = (d: number) => ({ x: k.world[0] + k.normal[0] * d, y: k.world[1] + k.normal[1] * d, z: k.world[2] + k.normal[2] * d });
+  const device = "hand-right";
+  await app.queue("set_input_mode", { mode: "hand" });
+  await app.queue("set_connected", { device, connected: true });
+  await app.queue("set_hand_pose", { device, poseId: "point" });
+  await app.queue("set_transform", { device, anchor: "index-tip", position: at(0.15), orientation: "auto" });
+  await app.queue("animate_to", { device, anchor: "index-tip", position: at(0.05), duration: 0.3, easing: "minimum-jerk" });
+  await app.queue("animate_to", { device, anchor: "index-tip", position: at(POKE_DEPTH_M), duration: 0.15, easing: "minimum-jerk" });
+  await app.queue("animate_to", { device, anchor: "index-tip", position: at(0.12), duration: 0.15, easing: "minimum-jerk" });
+  await app.settle();
+  return k;
+}
+
+/** Step until the reward has been taken (by itself after 8 s) and the plate offers Next. */
+export async function rewardTaken(app: XrApp, dt?: number): Promise<void> {
+  await app.stepUntil((_ns, w) => w.__sl.session.state().stage === "offered", { maxMs: REWARD_UP_WITHIN_MS + 10_000, dt, label: "the reward taken" });
+}
+

@@ -6,13 +6,23 @@ import path from "node:path";
 import { webLaunchUrl } from "../../src/core/share";
 import { COPY, fill } from "../../src/ui/copy";
 import { watch } from "./helpers/boot";
-import { storedProfile } from "./helpers/page-scripts";
-import { boxInPlay, rewardUp, sessionState, solveBox } from "./helpers/solve";
+import { storedInProgress, storedProfile } from "./helpers/page-scripts";
+import { LESSON_STEPS } from "../../src/app/lessons-director";
+import { boxInPlay, pokeBoxKey, rewardTaken, rewardUp, sessionState, solveBox } from "./helpers/solve";
 import { expect, test } from "./helpers/test";
 import { addRunNote, SHOTS_DIR } from "./helpers/xr-app";
 
 /** A friend's link for the Daily Box of the page's default day (helpers/boot.ts DEFAULT_DATE). */
 const DAILY_LINK = "/?day=2026-11-02&t=252&h=1&g=4";
+/** A friend's "beat my time" link for box 2: 3:42, no hints. */
+const BOX_LINK = "/?box=2&t=222&h=0&g=4";
+
+/** A player who has done the lessons and solved up to box 5, box 2's reward kept at 2:40. */
+const PLAYER = {
+  nextBox: 6,
+  lessons: { l1: true, l2: true, step: null },
+  collection: [{ key: "shadow-locks/2", owner: "the Clockmaker", loot: "a silver thimble", shapes: ["Key"], atMs: 0, timeMs: 160_000, hints: 0 }],
+};
 
 test("daily box reward shows the result card", async ({ page, boot }) => {
   const app = await boot({ mode: "visual" });
@@ -68,6 +78,7 @@ test("a shared daily link lands, explains itself and starts the box", async ({ p
   await expect(page.locator("#quest-launch")).toBeHidden();
   await expect(page.locator("#copy-link")).toBeHidden();
   await expect(page.locator("#enter")).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.screenshot({ path: path.join(SHOTS_DIR, "share-landing-headset.png") });
 
   // Open the box: the player's own Daily Box, and its solve counts (streak 1, in the collection).
@@ -102,7 +113,8 @@ test("a shared daily link lands, explains itself and starts the box", async ({ p
   const note = await page.locator("#share-note").textContent();
   expect([COPY.share.copied, COPY.share.manual]).toContain(note);
   if (note === COPY.share.copied) expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(text);
-  await page.screenshot({ path: path.join(SHOTS_DIR, "share-result-page.png") });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.screenshot({ path: path.join(SHOTS_DIR, "share-result-page.png"), fullPage: true });
 
   // The same link again: today's Daily Box is solved, so it plays as practice, and its solve changes nothing.
   app = await boot({ url: DAILY_LINK, expectScreen: "play" });
@@ -140,5 +152,115 @@ test("a shared link on a computer: Open on my Meta Quest sends it to the headset
   await page.screenshot({ path: path.join(SHOTS_DIR, "share-landing-desktop.png") });
   // A link is only an address: nothing was fetched from anywhere but our own server.
   expect([...seen.hosts]).toEqual([]);
+});
+
+test("beat my time: the receiver sees both results", async ({ page, boot }) => {
+  let app = await boot();
+  await page.evaluate((p) => window.__ns!.ui.profile(p), PLAYER);
+  await expect.poll(() => page.evaluate(storedProfile)).toMatchObject({ nextBox: 6 });
+
+  // The friend's box 2 as practice, the landing saying so.
+  app = await boot({ mode: "visual", url: BOX_LINK, expectScreen: "play" });
+  await expect(page.locator("#shared-line")).toHaveText(fill(COPY.share.sentBox, { n: 2 }));
+  await expect(page.locator("#shared-says")).toHaveText(fill(COPY.share.saysHints, { time: "3:42", help: COPY.share.noHints }));
+  await expect(page.locator("#shared-note")).toHaveText(COPY.share.practiceTurn);
+  const s = await boxInPlay(app, "the friend's box 2");
+  expect([s.key, s.practice]).toEqual(["shadow-locks/2", true]);
+  await page.evaluate(() => window.__sl!.session.hint());
+  await solveBox(app, s);
+  await rewardUp(app, 100);
+  const done = (await sessionState(page))!;
+  const secs = Math.floor(done.elapsedMs / 1000);
+  const mine = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+  const { shown, card, world } = await page.evaluate(() => window.__sl!.session.card());
+  expect(shown).toBe(true);
+  // Their own record of box 2, then both results.
+  expect(card!.lines).toEqual([
+    fill(COPY.share.best, { time: "2:40" }),
+    fill(COPY.share.you, { time: mine, help: "1 hint" }),
+    fill(COPY.share.friend, { time: "3:42", help: COPY.share.noHints }),
+  ]);
+  await app.captureHeadset("share-beat-card", { x: world[0], y: world[1], z: world[2] });
+
+  // Next goes Home, not to box 3.
+  await rewardTaken(app, 100);
+  await pokeBoxKey(app, "plate-next");
+  await app.stepUntil((ns) => ns.state().screen === "home", { maxMs: 3_000, label: "Home after the friend's box" });
+  expect((await sessionState(page))!.key).toBe("shadow-locks/2");
+
+  // Back on the 2D page: send yours back, with this time and hint.
+  await page.evaluate(() => (window.__ns!.world as unknown as { session?: XRSession }).session?.end());
+  await app.stepUntil((ns) => !ns.state().xr.presenting, { maxMs: 5_000, label: "out of XR" });
+  await expect(page.locator("#share-result")).toHaveText(COPY.share.sendBack);
+  expect((await page.locator("#result-text").textContent())!.split("\n").slice(2)).toEqual([COPY.share.beat, `https://shadowlocks.pages.dev/?box=2&t=${secs}&h=1&g=4`]);
+  await page.screenshot({ path: path.join(SHOTS_DIR, "share-send-back-page.png"), fullPage: true });
+});
+
+test("a new player with a shared link goes through lesson 1 first", async ({ page, boot }) => {
+  // A first launch with a friend's link: Lesson 1, not the friend's box, and the landing says so.
+  const app = await boot({ url: BOX_LINK, lessons: true, expectScreen: "play" });
+  await expect(page.locator("#shared-note")).toHaveText(COPY.share.lessonFirst);
+  const lesson = () => page.evaluate(() => window.__sl!.lessons.state());
+  expect([(await lesson()).lesson, (await sessionState(page))?.spec]).toEqual(["l1", { kind: "lesson", id: "l1" }]);
+  // Lesson 1 from its reward step (as a reload there resumes it): its box opens, the reward is taken by itself, and the
+  // lesson is done. Then the friend's box comes, as practice, in place of lesson 2.
+  const reward = LESSON_STEPS.l1.findIndex((x) => x.kind === "reward");
+  expect(reward).toBeGreaterThan(0);
+  await page.evaluate((n) => window.__sl!.lessons.start("l1", n, false), reward);
+  await app.stepUntil(
+    (_ns, w) => {
+      const st = w.__sl.session.state();
+      return st?.key === "shadow-locks/2" && st.stage === "playing" && st.revealed;
+    },
+    { maxMs: 30_000, dt: 50, label: "the friend's box after lesson 1" },
+  );
+  expect((await lesson()).progress).toEqual({ l1: true, l2: false, step: null });
+  const s = (await sessionState(page))!;
+  expect(s.practice).toBe(true);
+  // The 2D page (seen after the session) now says what this box is.
+  await expect(page.locator("#shared-note")).toHaveText(COPY.share.practiceTurn);
+  // Solved; its Next is lesson 2 (the onboarding goes on), never box 3.
+  await solveBox(app, s);
+  await rewardTaken(app, 100);
+  await pokeBoxKey(app, "plate-next");
+  await app.stepUntil((_ns, w) => w.__sl.lessons.state().lesson === "l2", { maxMs: 5_000, label: "lesson 2 after the friend's box" });
+  expect((await sessionState(page))?.spec).toEqual({ kind: "lesson", id: "l2" });
+  // Nothing of the friend's box was kept: no box moved on, its reward not collected (lesson 1's is).
+  const stored = (await page.evaluate(storedProfile)) as { nextBox: number; collection: { key: string }[] };
+  expect(stored.nextBox).toBe(1);
+  expect(stored.collection.map((c) => c.key)).not.toContain("shadow-locks/2");
+});
+
+test("a shared numbered box does not change saved progress", async ({ page, boot }) => {
+  // Box 7 in progress with one lock open, a streak running, box 2 kept: all saved.
+  let app = await boot();
+  await page.evaluate((p) => window.__ns!.ui.profile({ ...p, nextBox: 7, daily: { streak: 3, best: 3, lastDay: "2026-11-01", current: null } }), PLAYER);
+  await page.evaluate(() => window.__sl!.session.play({ kind: "box", n: 7 }));
+  const s7 = await boxInPlay(app, "box 7 in play");
+  const first = s7.locks.find((l) => !l.finger)!;
+  await page.evaluate((L) => window.__sl!.placeLantern(L), first.spot);
+  await app.stepUntil((_ns, w, i) => w.__sl.session.state().open.includes(i), { arg: first.i, maxMs: 2_000, batch: 1, label: "box 7's first lock" });
+  await page.evaluate(() => window.__sl!.session.save());
+  await expect.poll(() => page.evaluate(storedInProgress)).toMatchObject({ key: s7.key, open: [first.i] });
+  const before = (await page.evaluate(storedProfile)) as Record<string, unknown>;
+
+  // A friend's box 3: practice, solved, its Next poked (Home), saved on the way.
+  app = await boot({ url: "/?box=3&t=100&h=2&g=4", expectScreen: "play" });
+  const s3 = await boxInPlay(app, "the friend's box 3");
+  expect([s3.key, s3.practice]).toEqual(["shadow-locks/3", true]);
+  await solveBox(app, s3);
+  await rewardTaken(app, 100);
+  await pokeBoxKey(app, "plate-next");
+  await app.stepUntil((ns) => ns.state().screen === "home", { maxMs: 3_000, label: "Home after the friend's box" });
+  await page.evaluate(() => window.__sl!.session.save());
+  await app.step(3);
+  const after = (await page.evaluate(storedProfile)) as Record<string, unknown>;
+  for (const k of ["nextBox", "current", "daily", "collection", "lessons", "tipsSeen"]) expect(after[k], k).toEqual(before[k]);
+
+  // Loaded again with no link: box 7 is still the box in progress, one lock open.
+  app = await boot();
+  expect(await page.evaluate(() => window.__sl!.session.continue())).toBe(true);
+  const back = await boxInPlay(app, "box 7 again");
+  expect([back.key, back.open, back.practice]).toEqual([s7.key, [first.i], false]);
 });
 
