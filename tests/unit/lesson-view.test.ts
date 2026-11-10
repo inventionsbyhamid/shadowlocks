@@ -15,7 +15,7 @@ function scene(own = 0) {
   return {
     warmth,
     glow,
-    panelArt: { setWarmth: (lock: number, w: number) => void warmth.push([lock, w]), warmthOf: () => own },
+    panelArt: { setWarmth: (lock: number, w: number) => void warmth.push([lock, w]), warmthTarget: () => own },
     scrapMesh: (lock: number, piece: number) => ({ setGlow: (v: number) => void glow.push(`${lock}.${piece} ${v}`) }),
   };
 }

@@ -99,7 +99,7 @@ export function coachNearPose(L: Readonly<V3>, side: number, sizeM: number, wMm:
 
 /** What lock I's mark changes: the panel's warmth per lock and the scraps' glow (the box scene has both). */
 export interface MarkScene {
-  readonly panelArt: { setWarmth(lock: number, w: number): void; warmthOf(lock: number): number };
+  readonly panelArt: { setWarmth(lock: number, w: number): void; warmthTarget(lock: number): number };
   scrapMesh(lock: number, piece: number): { setGlow(v: number): void };
 }
 
@@ -109,7 +109,7 @@ export interface MarkScene {
  * as it is when the mark ends: the lock opening (its own celebration) or a new box takes it over.
  */
 export function markLock(scene: MarkScene, lock: Lock, warmth: number, starting: boolean): void {
-  const own = scene.panelArt.warmthOf(lock.i);
+  const own = scene.panelArt.warmthTarget(lock.i);
   scene.panelArt.setWarmth(lock.i, own > warmth ? own : warmth);
   if (!starting) return;
   for (let p = 0; p < lock.target.length; p++) if (p !== lock.missing) scene.scrapMesh(lock.i, p).setGlow(HINT_LOOK.scrapGlow);

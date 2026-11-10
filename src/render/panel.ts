@@ -687,7 +687,7 @@ export class Panel {
   }
 
   /** The warmth lock `lock` was last set to (0 for none): what a lesson's mark breathes over. */
-  warmthOf(lock: number): number {
+  warmthTarget(lock: number): number {
     return lock >= 0 && lock < LOCKS ? this.warmTarget[lock]! : 0;
   }
 
