@@ -51,6 +51,8 @@ export class Lantern {
   private frozenNow = false;
   /** Put away while a menu is up over the box: not held, not grabbable (its view is hidden by the app). */
   private awayNow = false;
+  /** The box waits, hidden, for the session's first placement: nothing takes the lantern or moves it. */
+  private unplacedNow = false;
 
   /** `o` swaps the app's hands for scripted ones (tests). */
   constructor(
@@ -109,8 +111,26 @@ export class Lantern {
     this.awayNow = away;
   }
 
+  /** The box waits, hidden, for the session's first placement. */
+  get unplaced(): boolean {
+    return this.unplacedNow;
+  }
+
+  /**
+   * The box waits (true), hidden, for the session's first placement, or it is placed (false). While it waits, no hand
+   * takes the lantern where the box will not be: a hold is let go (none can be under way: it was hidden from the start).
+   */
+  setUnplaced(on: boolean, tMs: number): void {
+    if (on === this.unplacedNow) return;
+    if (on && this.grab.holder) {
+      this.grab.drop(tMs, this.feel.ctx);
+      this.update(tMs);
+    }
+    this.unplacedNow = on;
+  }
+
   update(tMs: number): void {
-    if (this.awayNow) return;
+    if (this.awayNow || this.unplacedNow) return;
     const scene = this.scene;
     if (scene.box !== this.shown) {
       // A new box: a hand holding the lantern lets go of it first (it is put at the new box's start, not carried

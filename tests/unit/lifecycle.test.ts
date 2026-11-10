@@ -130,6 +130,30 @@ describe("lifecycle", () => {
     expect((saved[saved.length - 1] as BoxSnapshot).elapsedMs).toBe(10_000);
   });
 
+  it("a box waits with its clock stopped while the session waits for its first placement, and runs once placed", () => {
+    const { life, audio } = setup();
+    const s = new ClockSession();
+    life.attach(s, 0);
+    // The session starts (seen) with the box still hidden, waiting for a steady head: its clock does not run.
+    life.setPlacing(true, 1000);
+    life.setXrVisibility("visible", 1000);
+    expect(life.active).toBe(true);
+    expect(life.placing).toBe(true);
+    expect(s.elapsed(2500)).toBe(0);
+    // Placed at 2.5 s: it runs from then.
+    life.setPlacing(false, 2500);
+    expect(s.elapsed(4000)).toBe(1500);
+    // Under a menu and waiting at once: it runs only once both are over.
+    life.setHeld(true, 4000);
+    life.setPlacing(true, 4000);
+    life.setHeld(false, 5000);
+    expect(s.elapsed(6000)).toBe(1500);
+    life.setPlacing(false, 6000);
+    expect(s.elapsed(7000)).toBe(2500);
+    // Sound is not the box's: the wait leaves it alone.
+    expect(audio).toEqual([]);
+  });
+
   it("pauses once when the page hides while XR is blurred, and resumes only when both are back", () => {
     const { life } = setup();
     life.setXrVisibility("visible", 0);
