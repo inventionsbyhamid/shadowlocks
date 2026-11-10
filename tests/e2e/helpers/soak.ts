@@ -701,15 +701,35 @@ export async function summonOnce(app: XrApp, away: boolean): Promise<void> {
   await handsAway(app);
 }
 
+/** A path's heap growth over its last block of cycles may be this much and still count as noise (KB). */
+export const HEAP_NOISE_KB = 128;
+/** ...or this share of its first block's growth: warm-up dies away, a leak keeps its pace. */
+export const HEAP_SETTLE_SHARE = 0.75;
+
 /**
- * A long-session path soaked: `warm` cycles first (what shows the first time is made then), a sample, `cycles` more
- * with a sample every `every`, and the last sample against the first (expectNothingGrew).
+ * A path's heap after GC settles: its growth over the last block of cycles is under HEAP_NOISE_KB, or under
+ * HEAP_SETTLE_SHARE of its growth over the first block. A leak of L KB a cycle grows the same in every block and fails
+ * once a block's L exceeds HEAP_NOISE_KB (12.8 KB a cycle in blocks of 10); the engine's and the libraries' own warm-up
+ * (code optimised, caches and pools sized up: what the paths' first soak measured, dying away block by block) passes.
+ */
+export function expectHeapSettles(name: string, samples: readonly Sample[]): void {
+  const g = samples.slice(1).map((s, i) => s.heapKB - samples[i]!.heapKB);
+  const first = g[0]!, last = g[g.length - 1]!;
+  const bound = Math.max(HEAP_NOISE_KB, HEAP_SETTLE_SHARE * first);
+  expect(g.length, `${name}: at least two blocks of cycles`).toBeGreaterThanOrEqual(2);
+  expect(last, `${name}: heap growth over the last block (KB), against ${bound.toFixed(0)} (blocks: ${g.map((x) => x.toFixed(0)).join(", ")})`).toBeLessThan(bound);
+}
+
+/**
+ * A long-session path soaked: `warm` cycles first (long enough for everything the path shows to have shown once: what
+ * shows the first time is made then), a sample, then `cycles` more with a sample every `every`. Every count at the
+ * last sample as at the first (no slack), and the heap settled (expectHeapSettles).
  */
 export async function soakPath(
   app: XrApp,
   testInfo: TestInfo,
   name: string,
-  o: { warm: number; cycles: number; every: number; heapKB: number },
+  o: { warm: number; cycles: number; every: number },
   cycle: (i: number) => Promise<void>,
 ): Promise<Sample[]> {
   const cdp = await app.page.context().newCDPSession(app.page);
@@ -731,8 +751,10 @@ export async function soakPath(
   }
   await cdp.detach();
   const first = samples[0]!, last = samples[samples.length - 1]!;
-  note(testInfo, `${name}: ${first.label} to ${last.label}: heap ${((last.heapKB - first.heapKB) / 1024).toFixed(2)} MB (bound ${(o.heapKB / 1024).toFixed(2)})`);
-  expectNothingGrew(first, last, o.heapKB);
+  const blocks = samples.slice(1).map((s, i) => ((s.heapKB - samples[i]!.heapKB) / 1024).toFixed(2));
+  note(testInfo, `${name}: ${first.label} to ${last.label}: heap ${((last.heapKB - first.heapKB) / 1024).toFixed(2)} MB, by block ${blocks.join(", ")} MB`);
+  expect(counts(last), `${last.label} against ${first.label}`).toEqual(counts(first));
+  expectHeapSettles(name, samples);
   return samples;
 }
 
