@@ -48,6 +48,8 @@ export class ShellSystem extends createSystem({}) {
   private readonly wide: ViewTangents = { tanH: PHONE_VIEW.tanH, tanV: PHONE_VIEW.tanV };
   private readonly forward = new Vector3();
   private readonly boxMid = new Vector3();
+  /** A phone's lost box placed again in front, from this frame's head (made once: LostBox.frame calls it). */
+  private readonly placeAgain = (): boolean => this.recenter();
   /** The last tracked head (the fade stays round it while the head is not tracked). */
   private readonly lastEye = new Vector3();
   private readonly lastTurn = new Quaternion();
@@ -187,9 +189,9 @@ export class ShellSystem extends createSystem({}) {
       L.touchDown = touchBusy();
       L.held = held;
       L.pinchDown = hands[0].pinching || hands[1].pinching;
-      // Asked only with no touch down and the lantern not held this frame (the touch and lantern systems ran first):
-      // placed now, on this frame, so nothing starts under it before it moves.
-      if (this.lost.update(now, inView, L) && this.recenter()) console.info("box out of view: placed again");
+      // Decided only with no touch down and the lantern not held this frame (the touch and lantern systems ran first),
+      // and placed on this same frame, so nothing starts under it before it moves.
+      if (this.lost.frame(now, inView, L, this.placeAgain)) console.info("box out of view: placed again");
     }
     if (phone) {
       s.summon.reset(this.lastEye);
