@@ -6,6 +6,7 @@
 import type { GameSounds } from "../audio/cues";
 import type { BoxClient } from "../core/box-client";
 import type { Profile, Settings } from "../core/profile";
+import type { BoxResult } from "../core/result";
 import type { Box, BoxSpec, V3, Vec3 } from "../core/types";
 import type { FeelEvent } from "../feel/lantern-controller";
 import type { FeedbackEvent } from "./bus";
@@ -75,6 +76,8 @@ export interface SessionView {
   clearHint(lock: number): void;
   /** The box opens: gold sweep, walls, drawer, and the reward rising with its story line. */
   boxOpened(): void;
+  /** The box that opened: its time, hints and each lock's hint level, once its solve is recorded (the result card). */
+  result?(r: BoxResult): void;
   rewardTaken(): void;
   /** The plate offers the next box (on), or not. */
   offerNext(on: boolean): void;

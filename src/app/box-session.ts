@@ -14,6 +14,7 @@ import { HINT_GLOW_GAIN } from "../audio/cues";
 import { genOf, specForSave, specOfKey } from "../core/generator";
 import { mirrorBox } from "../core/mirror";
 import type { BoxSnapshot } from "../core/profile";
+import { levelsOf } from "../core/result";
 import { type Coverage, measure, meets, prepareLock, ShadowCaster, SKIP_MISSING, warmth, WARMTH_RANGE } from "../core/solve";
 import type { Box, BoxSpec, Lock, V3, Vec3 } from "../core/types";
 import { LANTERN_MIN_Z, LANTERN_RESTORE, MAX_STEP_MS, OPEN_DWELL_MS } from "../feel/constants";
@@ -600,11 +601,22 @@ export class BoxSession {
     this.view.boxOpened();
     // Solved: the profile moves on and the reward is in the collection now, with the time and hints final (taking it
     // is the moment the player sees; a reload before that loses nothing). A practice box changes nothing.
+    const recorded = !this.practiceNow && !p.collection.some((c) => c.key === box.key);
     if (!this.practiceNow) {
       solveBox(p, this.currentSpec!);
       collect(p, box, d.wallNow(), this.elapsed, this.book.count);
       void d.profiles.save();
     }
+    // The result card, from the profile as it is now (the streak moved on, the collection has the box).
+    this.view.result?.({
+      spec: this.currentSpec!,
+      key: box.key,
+      practice: this.practiceNow,
+      recorded,
+      timeMs: this.elapsed,
+      hints: this.book.count,
+      levels: levelsOf(this.book.levels(), box.locks.length),
+    });
     d.boxes.prefetch({ kind: "box", n: p.nextBox });
   }
 

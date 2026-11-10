@@ -9,6 +9,7 @@ import { ENVELOPE } from "../../src/core/envelope";
 import { GENERATOR_VERSION, generateBox } from "../../src/core/generator";
 import { mirrorBox } from "../../src/core/mirror";
 import { type BoxSnapshot, defaultSettings, migrate, newProfile, type Profile, type Settings } from "../../src/core/profile";
+import type { BoxResult } from "../../src/core/result";
 import { type Coverage, measure, meets, prepareLock, SKIP_MISSING, shadowBuffers, shadowPolys } from "../../src/core/solve";
 import type { Box, BoxSpec, Lock, V2, V3, Vec3 } from "../../src/core/types";
 import { GAZE_DWELL_MS, LANTERN_MIN_Z, OPEN_DWELL_MS, STUCK_MS } from "../../src/feel/constants";
@@ -65,6 +66,8 @@ interface Harness {
   fingerCalls: { progress: number | null; at: Vec3 | null }[];
   head: { hit: V3 | null };
   view: { acts: number; calls: string[] };
+  /** The results the session reported as boxes opened. */
+  results: BoxResult[];
   saves: () => number;
   /** Which hand holds the lantern, and whether it is at rest (LanternController.atRest). */
   holder: { side: "left" | "right" | null; rest: boolean };
@@ -165,6 +168,7 @@ function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "ri
     muteRelease: rec("muteRelease"),
   };
   const view = { acts: 0, calls: [] as string[] };
+  const results: BoxResult[] = [];
   const vrec =
     (name: string) =>
     (...args: unknown[]) =>
@@ -178,6 +182,7 @@ function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "ri
     hint: vrec("hint"),
     clearHint: vrec("clearHint"),
     boxOpened: vrec("boxOpened"),
+    result: (r) => results.push(r),
     rewardTaken: vrec("rewardTaken"),
     offerNext: vrec("offerNext"),
     hintLanternAt: () => false,
@@ -265,6 +270,7 @@ function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "ri
     fingerCalls,
     head,
     view,
+    results,
     saves: () => saves,
     holder,
     feel: (e) => {
@@ -815,6 +821,36 @@ describe("box session", () => {
     const again = harness({ profile });
     await solve(again);
     expect(profile.daily).toEqual({ streak: 1, best: 1, lastDay: day, current: null });
+  });
+
+  it("reports each box's result as it opens: time, hints, each lock's hint level; recorded only on a first real solve", async () => {
+    const profile = newProfile(0, "test");
+    profile.nextBox = 4;
+    const day = "2026-11-06";
+    const play = async (h: Harness, spec: BoxSpec, practice = false) => {
+      await h.session.start(spec, null, { practice });
+      h.frames(Math.ceil(3000 / DT));
+      if (practice === false && spec.kind === "daily") h.session.nextHint(0);
+      openPlainLocks(h);
+      for (const l of h.session.box!.locks) if (l.finger) openFingerLock(h, l);
+      h.until(() => h.results.length > 0, LOCK_TO_BOX_MS + 100);
+      return h.results;
+    };
+    const first = await play(harness({ profile }), { kind: "daily", day });
+    expect(first).toHaveLength(1);
+    const r = first[0]!;
+    expect([r.key, r.practice, r.recorded, r.hints]).toEqual([`shadow-locks/daily/${day}`, false, true, 1]);
+    expect(r.levels).toHaveLength(generateBox({ kind: "daily", day }).locks.length);
+    expect(r.levels[0]).toBe(1);
+    expect(r.levels.slice(1).every((l) => l === 0)).toBe(true);
+    // Its time is the play time the collection records.
+    expect(r.timeMs).toBe(profile.collection[0]!.timeMs);
+    expect(r.timeMs).toBeGreaterThan(3000);
+    // The same day again: reported, not recorded (the first solve stands). A practice box: never recorded.
+    const again = await play(harness({ profile }), { kind: "daily", day });
+    expect([again[0]!.recorded, again[0]!.practice, profile.collection.length]).toEqual([false, false, 1]);
+    const practice = await play(harness({ profile }), BOX(2), true);
+    expect([practice[0]!.recorded, practice[0]!.practice, profile.collection.length]).toEqual([false, true, 1]);
   });
 
   it("gaze picks the lock looked at after the dwell; hints and hums follow it", async () => {
