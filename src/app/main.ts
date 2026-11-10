@@ -140,6 +140,11 @@ async function main(): Promise<void> {
   // builds can keep Home (the e2e boot does, unless a test asks for the lessons).
   // A shared link names the box to play; else the field flags may.
   const box = shared ? null : startBox(location.search), lesson = shared ? null : startLesson(location.search);
+  let flow: ShareFlow | null = null;
+  /** The shared link's landing line as the flow stands: Lesson 1 first, else what its box is. */
+  const landShared = () => {
+    if (flow) sharing.landed(flow.link, flow.lessonFirst ? "lessonFirst" : landingNote(flow.route!, todayKey(Date.now())));
+  };
   const skipLessons = TEST_HOOKS && !!(window as { __slSkipLessons?: boolean }).__slSkipLessons;
   // The lessons (priority -2.7, after the game): the director, the ghost, the coach line; "Show me" on the hint
   // lantern; the menus' lesson rows.
@@ -155,6 +160,13 @@ async function main(): Promise<void> {
     // In XR and seen: a hidden headset (or page) holds the lesson's clock, as the lifecycle holds the box's.
     presenting: () => shell.sessionMode !== null && shell.lifecycle.active,
     autoStart: () => !box && !lesson && !shared && !skipLessons,
+    // A new player's shared link: Lesson 1 first, then the friend's box in place of lesson 2 (the landing then says
+    // what that box is).
+    afterFirst: () => {
+      const took = flow?.afterLesson() ?? false;
+      if (took) landShared();
+      return took;
+    },
     phone: () => touch.phone,
   });
   // What the menus play through: the box session and the lessons. A progress reset lets a lesson or replay in the
@@ -203,16 +215,31 @@ async function main(): Promise<void> {
   shell.start();
   // The 2D page offers the latest box opened (today's Daily Box played for real), else today's from the collection.
   let latest: BoxResult | null = null;
-  const offer = () => (latest ? shareOffer(latest, shell.profiles.profile, todayKey(Date.now())) : null) ?? todayOffer(shell.profiles.profile, todayKey(Date.now()));
+  const offer = () =>
+    (latest ? shareOffer(latest, shell.profiles.profile, todayKey(Date.now()), flow?.key ?? null) : null) ?? todayOffer(shell.profiles.profile, todayKey(Date.now()));
   play.view.onResult = (r) => {
     latest = r;
     sharing.offer(offer);
   };
   sharing.offer(offer);
   if (shared) {
-    const flow = new ShareFlow({ link: shared, profiles: shell.profiles, game: play.game, now: () => Date.now() });
-    flow.start();
-    sharing.landed(shared, landingNote(flow.route!, todayKey(Date.now())));
+    const f = (flow = new ShareFlow({
+      link: shared,
+      profiles: shell.profiles,
+      game: play.game,
+      now: () => Date.now(),
+      lessons,
+      lessonsFirst: () => !skipLessons,
+      // The friend's box done: lesson 2 for a new player who came by the link, else Home.
+      after: () => {
+        if (!shell.profiles.profile.lessons.l2) lessons.start("l2");
+        else go("home");
+      },
+    }));
+    play.view.friendFor = (key) => f.friendFor(key);
+    play.session.nextHook = () => f.next(play.session);
+    f.start();
+    landShared();
   } else if (box) play.game.playBox(box);
   else if (lesson) lessons.start(lesson, { practice: true });
   sound.loadMusicLater();
