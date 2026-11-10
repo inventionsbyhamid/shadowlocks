@@ -98,6 +98,9 @@ export class Lessons implements MenuLessons {
   private readonly isOpen = (lock: number) => this.d.play.session.isOpen(lock);
   /** The session's suggestion, held through brief drops (a finger lock's coverage crossing its threshold). */
   private readonly hold = new LineHold();
+  /** The suggestion last asked for, and the one held now (what the director is told), or null. */
+  private askedKey: CoachLine = "controllerFinger";
+  private suggested: CoachLine | null = null;
 
   constructor(private readonly d: LessonsDeps) {
     const { lantern, hands, settings } = d;
@@ -121,6 +124,7 @@ export class Lessons implements MenuLessons {
       inBeam: () => hands.n > 0,
       rewardUp: () => session.stage === "reward",
       stuck: () => session.stuck,
+      suggestion: () => this.suggested,
       settled: () => session.stage === "offered",
       drawerPulled: () => this.drawerOpen,
       reducedMotion: () => settings.get().reducedMotion,
@@ -253,25 +257,19 @@ export class Lessons implements MenuLessons {
     if (this.tipReplay) this.stepTipReplay(session);
     // A tip replay holds any lesson where it is (its box is put back after).
     const on = this.tipReplay ? null : dir.replaying ? EXAMPLES[dir.replaying].lesson : dir.done ? null : dir.lesson;
+    // The session's suggestion, held through brief drops: the director weighs it against a lesson's own line (it only
+    // exists while a controller or phone player faces a short finger lock, lesson 2's turn, who needs it).
+    const asked = this.d.play.view.coachLine;
+    if (asked) this.askedKey = asked;
+    const held = this.hold.update(asked ? COPY.game[asked] : null, dt);
+    this.suggested = held === null ? null : this.askedKey;
     // Under a menu the lesson waits, but for the pull that ends lesson 2. A tip's demo runs on the director's clock too.
     if ((on || dir.tipping) && this.d.presenting() && (!this.menuUp || this.drawerOpen)) dir.update(tMs);
-    // One coach line: a lesson's, else the session's suggestion (held through brief drops), else a tip; none under a
-    // menu (the lesson's ghost is put away there too).
-    const asked = this.d.play.view.coachLine;
-    const held = this.hold.update(asked ? COPY.game[asked] : null, dt);
+    // One coach line: a lesson's (the director's, which may be the session's suggestion), else the session's
+    // suggestion, else a tip; none under a menu (the lesson's ghost is put away there too).
     const shown = this.menuUp ? null : on;
     this.onScreen.lesson = shown;
-    // Outside an example, the session's suggestion wins over a lesson's own line: it only exists while a controller
-    // player faces a short finger lock (lesson 2's turn), who needs it; hand players lose nothing.
-    const line = this.menuUp
-      ? null
-      : shown
-        ? dir.showing
-          ? dir.frame.line
-          : (held ?? dir.frame.line)
-        : this.tipReplay
-          ? TIP_LINES[this.tipReplay.tip]
-          : (held ?? this.tipLine(session));
+    const line = this.menuUp ? null : shown ? dir.frame.line : this.tipReplay ? TIP_LINES[this.tipReplay.tip] : (held ?? this.tipLine(session));
     if (!shown) this.tipDemo(session);
     this.onScreen.tip = dir.tipping && !this.menuUp;
     // Lines come in English (the director, the tips, the session); the chip shows them in the language shown, on a

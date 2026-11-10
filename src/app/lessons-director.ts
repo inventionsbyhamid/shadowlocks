@@ -19,6 +19,7 @@ import { type LessonId, type LessonPlan, lessonPlan } from "../core/lessons-data
 import type { TipId } from "../core/profile";
 import type { Box, Lock, V3 } from "../core/types";
 import { LESSON_STUCK_MS } from "../feel/constants";
+import type { CoachLine } from "./events";
 import { StuckWatch } from "../feel/stuck-watch";
 import { COPY } from "../ui/copy";
 import {
@@ -49,9 +50,16 @@ import {
 export { EXAMPLES, PARK_MS, SAID, SWING_MS } from "./lesson-scripts";
 export type { ExampleId, GhostHandFrame, HandAnchor, LessonLine, PoseName } from "./lesson-scripts";
 
-/** Why the coach line shows: a step's own line (as it starts, or as the step's state changes), a nudge after a while
- * with no progress, a win (a lock or the box opened), or an example's line. */
-export type LineWhy = "step" | "idle" | "win" | "example";
+/**
+ * Why the coach line shows: a step's own line (as it starts, or as the step's state changes), a nudge after a while
+ * with no progress, a win (a lock or the box opened), an example's line, or the session's suggestion for the input in
+ * hand ("suggest").
+ */
+export type LineWhy = "step" | "idle" | "win" | "example" | "suggest";
+/** The session's suggestion as the chip's key: COPY.game.controllerFinger (a phone's wording of it is COPY.phone.finger). */
+export const SUGGESTION_KEY = "game.controllerFinger";
+/** What the chip shows, by copy key: a COPY.lessons key, or the session's suggestion. */
+export type ChipKey = LessonLine | typeof SUGGESTION_KEY;
 
 /** The box forms from light over this long when a lesson starts. */
 export const FORM_MS = 2000;
@@ -72,6 +80,8 @@ export const PUPPET_MS = 5000;
 export const PUPPET_MAX_MS = 12000;
 /** The Key's turn: "Your turn." stays this long before the rings' own line. */
 export const YOUR_TURN_MS = 3000;
+/** A turn's own line keeps the chip this long before the session's suggestion may take it (it is read, not flashed). */
+export const SUGGEST_AFTER_MS = 3000;
 /**
  * A lesson lock opened: its win is named ("Two locks open. One to go.") and the next example waits this long, so the
  * gold, the chord and the words land before the ghost takes the lantern...
@@ -183,6 +193,8 @@ export interface LessonInputs {
   rewardUp(): boolean;
   /** The hint lantern glows: the session's stuck watch says the player is stuck. */
   stuck(): boolean;
+  /** The session's suggestion for the input in hand (held through brief drops), or null. */
+  suggestion(): CoachLine | null;
   /** The box-open celebration is over and its reward has been taken (or there is none). */
   settled(): boolean;
   /** The drawer has been pulled open. */
@@ -211,8 +223,11 @@ export interface DirectorDeps {
 export interface LessonFrame {
   /** The coach line (English; the chip shows it in the language up), or none. */
   line: string | null;
-  /** Its copy key (COPY.lessons[key] is `line`), and why it shows; both null with no line. */
-  key: LessonLine | null;
+  /**
+   * Its copy key, as the chip shows it: a COPY.lessons key (COPY.lessons[key] is `line`), or SUGGESTION_KEY for the
+   * session's suggestion; and why it shows. Both null with no line.
+   */
+  key: ChipKey | null;
   why: LineWhy | null;
   /** The lock marked as the one to open (lock I through its step), -1 for none, and its outline's warmth now. */
   mark: number;
@@ -550,6 +565,7 @@ export class LessonsDirector {
         this.advance();
         break;
     }
+    this.suggest();
   }
 
   /** A replay cut short: the view puts back what it showed before. */
@@ -621,11 +637,21 @@ export class LessonsDirector {
   }
 
   /** Put line `key` on the coach line (null: none), shown for reason `why`. Allocates nothing. */
-  private show(key: LessonLine | null, why: LineWhy | null): void {
+  private show(key: ChipKey | null, why: LineWhy | null): void {
     const f = this.frame;
     f.key = key;
     f.why = key === null ? null : why;
-    f.line = key === null ? null : COPY.lessons[key];
+    f.line = key === null ? null : key === SUGGESTION_KEY ? COPY.game.controllerFinger : COPY.lessons[key];
+  }
+
+  /**
+   * The session's suggestion takes the chip from the lesson's own line, but a turn's own line keeps it for its first
+   * SUGGEST_AFTER_MS, so it is read before the suggestion follows it; an example never gives the chip up.
+   */
+  private suggest(): void {
+    if (this.script || !this.id || this.finished || this.deps.inputs.suggestion() === null) return;
+    if (LESSON_STEPS[this.id][this.n]?.kind === "turn" && this.stepMs < SUGGEST_AFTER_MS) return;
+    this.show(SUGGESTION_KEY, "suggest");
   }
 
   /** On to the next step; `won`: this one ended on the player opening its lock. */

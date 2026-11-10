@@ -408,8 +408,9 @@ export interface SlLessonsState {
   /** The coach line the director asks for, and what the chip shows now (text, opacity). */
   line: string | null;
   /**
-   * The director's line as its copy key (COPY.lessons[key] is `line`), and why it shows: "step" (a step's own line),
-   * "idle" (a nudge after a while with no progress), "win" (a lock or the box opened), "example"; null with no line.
+   * The director's line as its copy key: a COPY.lessons key (COPY.lessons[key] is `line`), or "game.controllerFinger"
+   * for the session's suggestion; and why it shows: "step" (a step's own line), "idle" (a nudge after a while with no
+   * progress), "win" (a lock or the box opened), "example", "suggest" (the session's); null with no line.
    */
   key: string | null;
   why: string | null;

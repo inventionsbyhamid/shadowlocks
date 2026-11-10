@@ -12,6 +12,7 @@ import { GhostHand } from "../../src/render/ghost-hand";
 import {
   BEAT_MS,
   type DirectorDeps,
+  SUGGEST_AFTER_MS,
   FIRST_WIN_MS,
   EXAMPLES,
   exampleFor,
@@ -265,7 +266,7 @@ describe("LessonsDirector: lesson 1", () => {
     const seen = new Set<string>();
     const check = () => {
       const f = r.d.frame;
-      expect(f.line).toBe(f.key === null ? null : C[f.key]);
+      expect(f.line).toBe(f.key === null ? null : f.key === "game.controllerFinger" ? COPY.game.controllerFinger : C[f.key]);
       expect(f.why === null).toBe(f.key === null);
       if (f.key) seen.add(`${f.why} ${f.key}`);
     };
@@ -836,6 +837,35 @@ describe("LessonsDirector: help taken, the session's suggestion, the intro's glo
     r.inp.isStuck = false;
     r.run(16);
     expect(said(r)).toEqual(["pickUp", "step"]);
+  });
+
+  it("gives the chip to the session's suggestion, but only once a turn's own line has had its time", () => {
+    // Lesson 2's crown with controllers: the session suggests setting one down from the turn's start.
+    const r = rig();
+    r.inp.suggest = "controllerFinger";
+    r.d.start("l2", 2);
+    expect(SUGGEST_AFTER_MS).toBe(3000);
+    r.run(SUGGEST_AFTER_MS - 100, () => expect(r.d.frame.key).toBe("turnFinger"));
+    r.run(200);
+    expect(said(r)).toEqual(["game.controllerFinger", "suggest"]);
+    expect(r.d.frame.line).toBe(COPY.game.controllerFinger);
+    // Gone (the player set a controller down): the turn's own line, at once.
+    r.inp.suggest = null;
+    r.run(16);
+    expect(r.d.frame.key).toBe("turnFinger");
+    // Back later in the turn: it takes the chip at once (the turn's line has had its time).
+    r.inp.suggest = "controllerFinger";
+    r.run(16);
+    expect(r.d.frame.key).toBe("game.controllerFinger");
+    // Elsewhere it takes the chip at once (lesson 1's intro, as before), and never over an example.
+    const q = rig();
+    q.inp.suggest = "controllerFinger";
+    q.d.start("l1");
+    q.run(500);
+    expect(q.d.frame.key).toBe("game.controllerFinger");
+    q.d.start("l2", 1);
+    q.run(500);
+    expect([q.d.frame.key, q.d.frame.why]).toEqual(["watchFinger", "example"]);
   });
 
 });

@@ -250,12 +250,13 @@ describe("Lessons", () => {
     const b = bench();
     b.lessons.start("l1");
     b.play.view.coachLine = "controllerFinger";
-    // The box still forming (no lesson line yet), then formed ("Pick up the lantern."): the session's line either way.
+    // The box still forming (no lesson line yet), then formed ("Pick up the lantern."): the session's line either way,
+    // and the director says that is the line showing.
     b.run(100);
-    expect(b.lessons.director.frame.line).toBeNull();
     expect(b.shown().line).toBe(COPY.game.controllerFinger);
+    expect([b.lessons.director.frame.key, b.lessons.director.frame.line]).toEqual(["game.controllerFinger", COPY.game.controllerFinger]);
     b.run(FORM_MS);
-    expect(b.lessons.director.frame.line).toBe(COPY.lessons.pickUp);
+    expect(b.lessons.director.frame.key).toBe("game.controllerFinger");
     expect(b.shown().line).toBe(COPY.game.controllerFinger);
     // Gone (after its 1.2 s hold): the lesson's own line.
     b.play.view.coachLine = null;
@@ -269,17 +270,25 @@ describe("Lessons", () => {
     expect(b.shown().line).toBe(b.lessons.director.frame.line);
   });
 
-  it("lets the controller line win over a lesson's own line in lesson 2's turn, where a controller player needs it", () => {
+  it("lets the controller line win over a lesson's own line in lesson 2's turn once that has had its 3 s, and says so", () => {
     const b = bench();
+    b.hands.controllers = true;
     b.lessons.start("l2", { step: 2 });
+    // The session asks from the turn's start (the lock is short and controllers are in hand)...
+    b.play.view.coachLine = "controllerFinger";
     b.run(FORM_MS + 200);
     expect(b.lessons.director.step).toBe(2);
-    expect(b.lessons.director.frame.line).not.toBeNull();
-    b.play.view.coachLine = "controllerFinger";
-    b.run(32);
+    // ...but the turn's own line (the controllers' way) keeps the chip for its first 3 s: no flash of it.
+    expect(b.shown().line).toBe(COPY.controller.turnFinger);
+    expect(b.lessons.director.frame.key).toBe("turnFinger");
+    b.run(1000);
+    // Then the session's line, and the director says it is the one showing.
     expect(b.shown().line).toBe(COPY.game.controllerFinger);
+    expect(b.lessons.director.frame.key).toBe("game.controllerFinger");
+    expect(b.lessons.director.frame.line).toBe(COPY.game.controllerFinger);
     // Hands again: once the session's line has gone (held 1.2 s), the lesson's own line is back.
     b.play.view.coachLine = null;
+    b.hands.controllers = false;
     b.run(2000);
     expect(b.shown().line).not.toBeNull();
     expect(b.shown().line).toBe(b.lessons.director.frame.line);
