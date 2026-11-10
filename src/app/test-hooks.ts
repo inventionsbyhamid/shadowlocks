@@ -302,7 +302,7 @@ export function installTestHooks(
         blendMode: world.session?.environmentBlendMode ?? null,
         visibility: String(world.visibilityState.value),
       },
-      boxPose: { position: [...pose.position] as Vec3, yaw: pose.yaw, source: placement.source },
+      boxPose: { position: [...pose.position] as Vec3, yaw: pose.yaw, tiltDeg: pose.tiltDeg, source: placement.source },
       box: {
         exists: !!root && shell.box.entity.object3D === root,
         world: root ? v3(root.getWorldPosition(tmp)) : null,

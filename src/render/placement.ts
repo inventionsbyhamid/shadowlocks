@@ -96,6 +96,27 @@ export function pitchFromQuaternion(x: number, y: number, z: number, w: number):
 /** A phone pointed steeper than this, down or up (degrees), places the box as if it were not: upright, still ahead. */
 export const IN_VIEW_PITCH_DEG = { down: 60, up: 10 } as const;
 
+const clampPitch = (pitch: number) => Math.min(IN_VIEW_PITCH_DEG.up * DEG, Math.max(-IN_VIEW_PITCH_DEG.down * DEG, pitch));
+
+/**
+ * How far above the box's own axis a phone's camera sees it from (degrees): the seated eye's angle (the eye 55 cm ahead
+ * of and 28 cm above the panel sees the box's middle about 21 degrees above its axis). The lantern spots sit below the
+ * box's centre so that, seen from there, the lantern stays under the line of sight to the panel.
+ */
+export const VIEW_ELEVATION_DEG = 20;
+/** A phone's box leans back at most this much, and toward the phone (negative) at most this much (degrees). */
+export const PHONE_LEAN_DEG = { min: -20, max: 40 } as const;
+
+/**
+ * How far a phone's box leans back (degrees) for a camera pitched `pitch` radians: so the camera sees it from
+ * VIEW_ELEVATION_DEG above its axis. Pointed 30 degrees down: 10 (the lap's); held level: its top leans 20 toward the
+ * phone; 45 down: back 25. Past PHONE_LEAN_DEG it stops (pointed up past level, the camera then sees it from lower).
+ */
+export function phoneLean(pitch: number): number {
+  const deg = clampPitch(pitch) / DEG;
+  return Math.min(PHONE_LEAN_DEG.max, Math.max(PHONE_LEAN_DEG.min, -deg - VIEW_ELEVATION_DEG));
+}
+
 /**
  * What of the box a phone's view must show, from the box's middle (box units; the middle is half a box in front of the
  * panel): the frame and its posts across and up, the plinth under it (bottom at -0.645, back at -0.06; box-scene's
@@ -130,8 +151,6 @@ export function viewOf(e: ArrayLike<number> | null | undefined, out: ViewTangent
   out.tanV = v > 0 && Number.isFinite(v) ? v : PHONE_VIEW.tanV;
   return out;
 }
-
-const clampPitch = (pitch: number) => Math.min(IN_VIEW_PITCH_DEG.up * DEG, Math.max(-IN_VIEW_PITCH_DEG.down * DEG, pitch));
 
 /**
  * How far along a phone camera's view (m) the box's middle must stand for the whole box (BOX_EXTENT: plinth and
@@ -173,10 +192,12 @@ export function inViewOffsets(pitch: number, sizeM: number, distanceM: number, t
   };
 }
 
-/** The back panel's centre (world) and the box's heading, for what lays itself out around the box. */
+/** The back panel's centre (world), the box's heading and its lean, for what lays itself out around the box. */
 export interface BoxPose {
   position: Vec3;
   yaw: number;
+  /** How far it leans back (degrees): TILT_DEG in the lap, a phone's lean in its view (phoneLean). */
+  tiltDeg: number;
 }
 
 export interface HeadPose {
@@ -202,8 +223,10 @@ export class Placement {
   private belowM = BOX_BELOW_HEAD_M;
   /** Placed in a phone's view: how far its middle stands along the camera's view (m); NaN for the lap. */
   inViewM = Number.NaN;
+  /** How far the box leans back (degrees): TILT_DEG in the lap, phoneLean in a phone's view. */
+  tiltDeg = TILT_DEG;
   private readonly m = new Matrix4();
-  private readonly current: BoxPose = { position: [0, 0, 0], yaw: 0 };
+  private readonly current: BoxPose = { position: [0, 0, 0], yaw: 0, tiltDeg: TILT_DEG };
 
   constructor() {
     this.apply();
@@ -231,6 +254,7 @@ export class Placement {
     this.forwardM = BOX_FORWARD_M;
     this.belowM = BOX_BELOW_HEAD_M;
     this.inViewM = Number.NaN;
+    this.tiltDeg = TILT_DEG;
     this.source = "head";
     this.apply();
   }
@@ -238,11 +262,13 @@ export class Placement {
   /**
    * Place the box in a phone's view (session start, Recenter): its middle along the camera's view, `pitch` radians up
    * or down, as far as the whole box needs to show in a view with half-angle tangents `view` (the camera's own
-   * projection; inViewDistance), upright and facing it. A size change after keeps the panel where it is, as for the lap.
+   * projection; inViewDistance), facing it and leaning so the camera sees it from the seated eye's angle (phoneLean). A
+   * size change after keeps the panel where it is, as for the lap.
    */
   startInView(head: HeadPose, pitch: number, view: ViewTangents = PHONE_VIEW): void {
-    this.inViewM = inViewDistance(pitch, this.sizeM, view);
-    const o = inViewOffsets(pitch, this.sizeM, this.inViewM);
+    this.tiltDeg = phoneLean(pitch);
+    this.inViewM = inViewDistance(pitch, this.sizeM, view, this.tiltDeg);
+    const o = inViewOffsets(pitch, this.sizeM, this.inViewM, this.tiltDeg);
     this.eye.pos.set(head.position[0], head.position[1], head.position[2]);
     this.eye.yaw = head.yaw;
     this.forwardM = o.forwardM;
@@ -259,12 +285,13 @@ export class Placement {
   }
 
   private apply(): void {
-    placeBox(this.eye, this.sizeCm, TILT_DEG, this.m, this.forwardM, this.belowM);
+    placeBox(this.eye, this.sizeCm, this.tiltDeg, this.m, this.forwardM, this.belowM);
     const e = this.m.elements;
     this.current.position[0] = e[12]!;
     this.current.position[1] = e[13]!;
     this.current.position[2] = e[14]!;
     this.current.yaw = this.eye.yaw;
+    this.current.tiltDeg = this.tiltDeg;
     this.version++;
   }
 }

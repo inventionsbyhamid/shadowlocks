@@ -9,7 +9,7 @@ import type { ProfileStore } from "../../app/profile-store";
 import { go, type Screen } from "../../app/screens";
 import type { SettingsStore } from "../../app/settings";
 import { DRAWER_PANEL_ANCHOR } from "../../render/drawer";
-import type { BoxPose } from "../../render/placement";
+import { type BoxPose, TILT_DEG } from "../../render/placement";
 import type { Vec3 } from "../../core/types";
 import type { KeyHit } from "../../input/touch";
 import { batch } from "@preact/signals-core";
@@ -40,6 +40,15 @@ export const MENU_SPECS: readonly MenuSpec[] = [HOME, LESSONS, COLLECTION, SETTI
  * that edge (UIKit anchor bottom).
  */
 export const MENU_PLACE = { toward: 0.015, leanRad: (15 * Math.PI) / 180 };
+
+/**
+ * How far a panel leans back from upright (radians) on a box leaning back `tiltDeg`: MENU_PLACE.leanRad on the lap's
+ * box, and the same angle to the box on a phone's leaning one (a box leaning toward the phone would otherwise reach its
+ * mouth over a panel leaning away from it). A headset's is the lap's, exactly.
+ */
+export function panelLean(tiltDeg: number): number {
+  return MENU_PLACE.leanRad + ((tiltDeg - TILT_DEG) * Math.PI) / 180;
+}
 
 /** One UIKit unit is 1 mm (scene scale 0.1, UIKit pixel size 1 cm): 1 mm in the panel's local units. */
 const MM = 1 / 100;
@@ -92,7 +101,7 @@ export class Menus {
   private readonly byScreen = new Map<Screen, LivePanel>();
   private screen: Screen = "boot";
   /** The box pose and matrix panels follow, and whether a move waits for the finger to leave. */
-  private readonly pose: BoxPose = { position: [0, 0, 0], yaw: 0 };
+  private readonly pose: BoxPose = { position: [0, 0, 0], yaw: 0, tiltDeg: TILT_DEG };
   private readonly box = new Vector3();
   private hasPose = false;
   private layoutWaiting = false;
@@ -217,6 +226,7 @@ export class Menus {
     this.pose.position[1] = pose.position[1];
     this.pose.position[2] = pose.position[2];
     this.pose.yaw = pose.yaw;
+    this.pose.tiltDeg = pose.tiltDeg;
     anchor.set(DRAWER_PANEL_ANCHOR[0], DRAWER_PANEL_ANCHOR[1], DRAWER_PANEL_ANCHOR[2]).applyMatrix4(box);
     this.box.copy(anchor);
     this.hasPose = true;
@@ -246,10 +256,11 @@ export class Menus {
     const s = Math.sin(yaw);
     const c = Math.cos(yaw);
     const t = MENU_PLACE.toward;
+    const lean = panelLean(this.pose.tiltDeg);
     for (const p of this.live) {
       const o = p.asset;
       o.position.set(this.box.x + s * t, this.box.y, this.box.z + c * t);
-      o.rotation.set(-MENU_PLACE.leanRad, yaw, 0, "YXZ");
+      o.rotation.set(-lean, yaw, 0, "YXZ");
       o.updateMatrixWorld(true);
     }
   }

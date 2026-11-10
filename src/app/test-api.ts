@@ -25,8 +25,11 @@ export interface NsState {
     blendMode: string | null;
     visibility: string;
   };
-  /** The box placement: back panel centre and heading; source "default" until placed from the head. */
-  boxPose: { position: Vec3; yaw: number; source: string };
+  /**
+   * The box placement: back panel centre, heading and how far it leans back (degrees); source "default" until placed
+   * from the head.
+   */
+  boxPose: { position: Vec3; yaw: number; tiltDeg: number; source: string };
   /**
    * The box in the scene: whether the "Box" root entity is there, its world origin (the back panel's
    * centre), its edge in metres, and whether it is drawn.
