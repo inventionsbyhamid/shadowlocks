@@ -397,7 +397,14 @@ export interface SlLessonsState {
   practice: boolean;
   /** The coach line the director asks for, and what the chip shows now (text, opacity). */
   line: string | null;
-  coach: { text: string | null; opacity: number };
+  /**
+   * The director's line as its copy key (COPY.lessons[key] is `line`), and why it shows: "step" (a step's own line),
+   * "idle" (a nudge after a while with no progress), "win" (a lock or the box opened), "example"; null with no line.
+   */
+  key: string | null;
+  why: string | null;
+  /** `near`: how far the chip is over by the lantern (0 over the box, 1 by the lantern). */
+  coach: { text: string | null; opacity: number; near: number };
   /** The ghost hand as drawn now (its opacity; the frame's `hand` is what the director asks for). */
   ghost: number;
   form: number;
