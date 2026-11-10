@@ -91,6 +91,11 @@ export const NUDGES: Readonly<Record<ExampleId, readonly { readonly ms: number; 
     { ms: LESSON_STUCK_MS, key: "stuck" },
   ],
 };
+/**
+ * Lock I's last resort: this long without progress there, the "Move the light" example plays on the lock itself,
+ * once a visit to the step (in place of its "Stuck?" line, which comes the next time round).
+ */
+export const HELP_MS = LESSON_STUCK_MS;
 /** Once (a page load), after the lantern has been held this long without a break, the line that it can be let go... */
 export const LET_GO_AFTER_MS = 15000;
 /** ...shown this long. */
@@ -283,6 +288,9 @@ export class LessonsDirector {
   private letGoMs = -1;
   /** The let-go line has been said (once a page load). */
   private letGoSaid = false;
+  /** Lock I's example has played this visit to its step; and the running example is that help (it ends back there). */
+  private helped = false;
+  private help = false;
   private readonly at: V3 = [0, 0, 0];
 
   constructor(private readonly deps: DirectorDeps) {}
@@ -354,6 +362,7 @@ export class LessonsDirector {
     this.plan = lessonPlan(id, this.left);
     this.formMs = 0;
     this.script = null;
+    this.help = false;
     this.lastT = Number.NaN;
     this.ghost = 0;
     this.ghostKind = null;
@@ -369,6 +378,7 @@ export class LessonsDirector {
     this.id = null;
     this.plan = null;
     this.script = null;
+    this.help = false;
     this.resetFrame();
   }
 
@@ -514,6 +524,13 @@ export class LessonsDirector {
       }
       this.letGoMs = -1;
     }
+    if (s.kind === "move" && !this.helped && this.progress.idleMs >= HELP_MS) {
+      // Lock I's last resort: the ghost shows it on the lock itself, then the player tries again.
+      this.helped = true;
+      this.help = true;
+      this.startScript("move");
+      return;
+    }
     const nudge = this.nudge(s.example ?? "move", this.progress.idleMs);
     if (nudge) this.show(nudge, "idle");
     else this.show(own, "step");
@@ -573,14 +590,12 @@ export class LessonsDirector {
     this.won = false;
     this.n = n;
     this.stepMs = 0;
-    this.idleMs = 0;
     this.beamMs = 0;
     this.ringsLined = false;
     this.ringsMs = 0;
     this.beatMs = -1;
-    this.progress.reset();
-    this.heldMs = 0;
-    this.letGoMs = -1;
+    this.helped = false;
+    this.restartClocks();
     if (n >= steps.length) {
       this.finished = true;
       this.show(null, null);
@@ -651,7 +666,23 @@ export class LessonsDirector {
       // Back to the lesson's step as it stood (its timers paused meanwhile).
       return;
     }
+    if (this.help) {
+      // Lock I's help is over: the same step, its idle clocks (and the session's stuck watch) from 0 again.
+      this.help = false;
+      this.restartClocks();
+      this.deps.onRestart?.(this.id!, this.n);
+      this.show("goal", "step");
+      return;
+    }
     this.advance();
+  }
+
+  /** A step's idle clocks from 0: progress, the hold, the idle ghost's wait. */
+  private restartClocks(): void {
+    this.idleMs = 0;
+    this.progress.reset();
+    this.heldMs = 0;
+    this.letGoMs = -1;
   }
 
   /** The tip demo at its clock into the frame; over at its end (nothing left showing). */

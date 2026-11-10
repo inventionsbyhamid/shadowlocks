@@ -658,6 +658,67 @@ describe("LessonsDirector: help for an idle player", () => {
   });
 });
 
+describe("LessonsDirector: lock I's last resort", () => {
+  it("plays the Move the light example on lock I after 40 s without progress, once a visit; then Stuck? instead", () => {
+    const r = rig();
+    r.d.start("l1", 1);
+    r.run(39_900);
+    expect([r.d.showing, r.d.frame.key]).toEqual([false, "growShrink"]);
+    (r.deps.onStep as ReturnType<typeof vi.fn>).mockClear();
+    (r.deps.onRestart as ReturnType<typeof vi.fn>).mockClear();
+    r.run(200);
+    expect([r.d.showing, r.d.replaying, r.d.frame.key, r.d.frame.why]).toEqual([true, null, "watch", "example"]);
+    // The example on lock I itself (no twin): the ghost lantern ends on its spot, lit as solved, the player's lantern
+    // in its cradle meanwhile and back where it was after.
+    const f = r.d.frame, lines: string[] = [], L = lessonPlan("l1", false).box.locks[0]!.L;
+    let park = 0, solved = 0, nearest = Infinity;
+    r.until(() => {
+      if (f.key && lines[lines.length - 1] !== f.key) lines.push(f.key);
+      park = Math.max(park, f.park);
+      if (f.solvedLock === 0) solved = Math.max(solved, f.solved);
+      if (f.lamp.opacity > 0) nearest = Math.min(nearest, Math.hypot(f.lamp.at[0] - L[0], f.lamp.at[1] - L[1], f.lamp.at[2] - L[2]));
+      return !r.d.showing;
+    });
+    expect(lines).toEqual(["watch", "watchMove", "goal"]);
+    expect([park, solved, f.lift]).toEqual([1, 1, null]);
+    expect(nearest).toBeLessThan(1e-9);
+    // Back on lock I, the same step: nothing saved, its clocks (and the session's stuck watch) started over.
+    expect([r.d.step, r.d.frame.key, r.d.frame.why, f.park]).toEqual([1, "goal", "step", 0]);
+    expect(r.deps.onStep).not.toHaveBeenCalled();
+    expect(r.deps.onRestart).toHaveBeenCalledWith("l1", 1);
+    r.run(11_900);
+    expect(r.d.frame.key).toBe("goal");
+    // Another 40 s without progress: Stuck?, and no second example this visit.
+    r.run(28_300, () => expect(r.d.showing).toBe(false));
+    expect(r.d.frame.key).toBe("stuck");
+    r.run(30_000, () => expect(r.d.showing).toBe(false));
+    // A new visit to the step (a reload) may play it again.
+    r.d.start("l1", 1);
+    let again = false;
+    r.run(40_200, () => (again ||= r.d.showing));
+    expect(again).toBe(true);
+  });
+
+  it("never plays it while the player gets warmer, nor on any other lesson lock", () => {
+    const r = rig();
+    r.d.start("l1", 1);
+    for (let k = 1; k <= 7; k++) {
+      r.inp.warm.set(0, 0.1 * k);
+      r.run(10_000, () => expect(r.d.showing).toBe(false));
+    }
+    for (const [id, step] of [
+      ["l1", 3],
+      ["l1", 5],
+      ["l2", 2],
+    ] as const) {
+      const q = rig();
+      q.d.start(id, step);
+      q.run(70_000, () => expect(q.d.showing).toBe(false));
+      expect(q.d.frame.key).toBe("stuck");
+    }
+  });
+});
+
 describe("LessonsDirector: lesson 2", () => {
   let r: Rig;
   beforeEach(() => {
