@@ -3,6 +3,7 @@ import type { BoxSnapshot } from "../core/profile";
 import type { BoxSpec, V2, V3, Vec3 } from "../core/types";
 import type { BoxTextFit } from "../ui/box-text";
 import type { PanelTextProblem } from "../ui/panel-fits";
+import type { ResultCard } from "../ui/result-card";
 import type { FeedbackEvent } from "./bus";
 import type { Census, CensusOptions, ProbeResult } from "./gpu-census";
 import type { HeadsetClass } from "./headset";
@@ -332,6 +333,8 @@ export interface SlSession {
   reward(): { world: Vec3; up: boolean; held: boolean } | null;
   /** The hint lantern's "Hint" (the lock in focus); the level shown, or null. */
   hint(): number | null;
+  /** The result card under the reward: what it shows (null: none for this box), whether it is in view, and where (world). */
+  card(): { shown: boolean; card: ResultCard | null; world: Vec3 };
 }
 
 /** One tracked hand in the box this frame. */
