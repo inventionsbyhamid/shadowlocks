@@ -43,7 +43,7 @@ describe("a shared link's route", () => {
 });
 
 describe("the shared link's start", () => {
-  function flow(link: SharedLink, p: Profile) {
+  function flow(link: SharedLink, p: Profile, o: { lessonsFirst?: boolean } = {}) {
     const calls: string[] = [];
     const f = new ShareFlow({
       link,
@@ -53,6 +53,9 @@ describe("the shared link's start", () => {
         playDaily: (now) => calls.push(`daily ${now}`),
       },
       now: () => Date.UTC(2026, 10, 10, 9),
+      lessons: { start: (id, opts) => calls.push(`lesson ${id} ${opts.step ?? 0}`) },
+      lessonsFirst: () => o.lessonsFirst ?? true,
+      after: () => calls.push("after"),
     });
     return { f, calls };
   }
@@ -66,5 +69,41 @@ describe("the shared link's start", () => {
     other.f.start();
     expect(other.calls).toEqual([`play {"kind":"daily","day":"2026-11-09"} true`]);
     expect(other.f.key).toBe("shadow-locks/daily/2026-11-09");
+  });
+
+  it("a new player does Lesson 1 first (resumed at its step), then gets the friend's box, once", () => {
+    const box: SharedLink = { target: { kind: "box", n: 12 }, t: 222, h: 0, g: 4 };
+    const p = newProfile(0, "test");
+    p.lessons = { l1: false, l2: false, step: { id: "l1", index: 3 } };
+    const { f, calls } = flow(box, p);
+    f.start();
+    expect(calls).toEqual(["lesson l1 3"]);
+    expect([f.route, f.lessonFirst]).toEqual([null, true]);
+    // Lesson 1 done: the friend's box instead of lesson 2.
+    p.lessons = { l1: true, l2: false, step: null };
+    expect(f.afterLesson()).toBe(true);
+    expect(calls).toEqual(["lesson l1 3", `play {"kind":"box","n":12} true`]);
+    expect(f.lessonFirst).toBe(false);
+    // Lesson 1 again later (from the menus): nothing more of the link's.
+    expect(f.afterLesson()).toBe(false);
+    // Lessons kept away (a test build), or done already: the box at once.
+    const skip = flow(box, newProfile(0, "test"), { lessonsFirst: false });
+    skip.f.start();
+    expect(skip.calls).toEqual([`play {"kind":"box","n":12} true`]);
+  });
+
+  it("the shared practice box's Next is the flow's (lesson 2 or Home), never another box; other boxes keep theirs", () => {
+    const box: SharedLink = { target: { kind: "box", n: 12 }, t: 222, h: 0, g: 4 };
+    const { f, calls } = flow(box, player());
+    f.start();
+    expect(f.next({ practice: true, box: { key: "shadow-locks/12" } })).toBe(true);
+    expect(calls.at(-1)).toBe("after");
+    expect(f.next({ practice: true, box: { key: "shadow-locks/13" } })).toBe(false);
+    expect(f.next({ practice: false, box: { key: "shadow-locks/12" } })).toBe(false);
+    expect(f.next({ practice: true, box: null })).toBe(false);
+    // The friend's result, for that box only (none without a time).
+    expect(f.friendFor("shadow-locks/12")).toEqual({ t: 222, h: 0 });
+    expect(f.friendFor("shadow-locks/13")).toBeNull();
+    expect(flow({ ...box, t: null }, player()).f.friendFor("shadow-locks/12")).toBeNull();
   });
 });
