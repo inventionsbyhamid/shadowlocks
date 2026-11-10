@@ -100,6 +100,16 @@ export class LostBox {
     return false;
   }
 
+  /**
+   * One frame, deciding and doing: update, and when a phone's box should be placed in front again, `place` it now, on
+   * this frame, so the decision and the move read the same frame's inputs (a touch starting the next frame finds the
+   * box already moved, never moved under it). True when it was placed; a `place` that does not take (the head not
+   * tracked) still starts the timer over. `place` is made once by the caller: nothing is allocated per frame.
+   */
+  frame(nowMs: number, inView: boolean, s: Readonly<LostInput>, place: () => boolean): boolean {
+    return this.update(nowMs, inView, s) && place();
+  }
+
   /** Start over: the box placed again, the arrow taken, or a new session. */
   reset(): void {
     this.since = Number.NaN;

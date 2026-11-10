@@ -6,7 +6,9 @@ import {
   BOX_FORWARD_M,
   boxToWorld,
   DEFAULT_BOX_CM,
+  NECK_M,
   Placement,
+  PLAY_PITCH,
   placeBox,
   TILT_DEG,
   worldToBox,
@@ -172,6 +174,52 @@ describe("Placement", () => {
         for (let i = 0; i < 3; i++) close(back[i]!, p[i]!);
       }
     }
+  });
+
+  it("a headset's first placement lands the box in the same place whether the head looked level, 30 or 60 degrees down", () => {
+    // A seated player's eyes swing round the neck as the head pitches (NECK_M): looking 60 degrees down they are about
+    // 11 cm lower than looking level. The box is placed from where the eyes are while looking at it (PLAY_PITCH, the
+    // pitch the lap's 55 cm and 28 cm give), so it lands in the same place whatever the head did as it was placed.
+    expect(NECK_M).toEqual({ up: 0.075, forward: 0.0805 });
+    expect(PLAY_PITCH / DEG).toBeCloseTo(-Math.atan2(0.28, 0.55) / DEG, 9);
+    const yaw = 0.8, upright = new Vector3(0.2, 1.22, -0.4);
+    const pivot = upright.clone().add(new Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)).multiplyScalar(-NECK_M.forward)).add(new Vector3(0, -NECK_M.up, 0));
+    /** The eyes with the head pitched `deg`, turned `yaw`: round the neck's pivot. */
+    const eyes = (deg: number) => {
+      const p = deg * DEG, back = NECK_M.up * Math.sin(p) - NECK_M.forward * Math.cos(p);
+      return pivot.clone().add(new Vector3(Math.sin(yaw) * back, NECK_M.up * Math.cos(p) + NECK_M.forward * Math.sin(p), Math.cos(yaw) * back));
+    };
+    expect(eyes(0).distanceTo(upright)).toBeLessThan(1e-12);
+    expect(upright.y - eyes(-60).y).toBeCloseTo(0.107, 3);
+    const playing = eyes(PLAY_PITCH / DEG);
+    /** How far the box's middle stands below the eyes `e` (m). */
+    const below = (m: Readonly<Matrix4>, e: Vector3) => e.y - world(m as Matrix4, [0, 0, 0.5]).y;
+    let first: Matrix4 | null = null;
+    for (const deg of [0, -30, -60]) {
+      const pl = new Placement();
+      const e = eyes(deg);
+      pl.start({ position: [e.x, e.y, e.z], yaw }, deg * DEG);
+      const m = (pl.matrix() as Matrix4).clone();
+      if (!first) first = m;
+      for (let i = 0; i < 16; i++) close(m.elements[i]!, first.elements[i]!, 9);
+      // Inside the comfort envelope (box centre 20 to 35 cm below the eyes), sitting up and looking at it.
+      for (const [name, from] of [["upright", upright], ["looking at it", playing]] as const) {
+        const d = below(m, from);
+        expect(d, `${deg} degrees, ${name}`).toBeGreaterThanOrEqual(0.2);
+        expect(d, `${deg} degrees, ${name}`).toBeLessThanOrEqual(0.35);
+      }
+      // 28 cm below the eyes that look at it, as placed.
+      close(playing.y - pl.pose().position[1], BOX_BELOW_HEAD_M, 9);
+    }
+    // Placed straight from the pitched eyes, as before, the 60 degree look put it below the envelope.
+    const raw = new Placement(), e60 = eyes(-60);
+    raw.start({ position: [e60.x, e60.y, e60.z], yaw });
+    expect(below(raw.matrix(), upright)).toBeGreaterThan(0.35);
+    // Recenter and every other placement without a pitch are as they were: from the eyes as they are.
+    const pl = new Placement(), e = eyes(-60);
+    pl.start({ position: [e.x, e.y, e.z], yaw });
+    const want = placeBox({ pos: e.clone(), yaw }, DEFAULT_BOX_CM);
+    for (let i = 0; i < 16; i++) close(pl.matrix().elements[i]!, want.elements[i]!);
   });
 
   it("returns the same pose and matrix objects every call", () => {

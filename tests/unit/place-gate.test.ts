@@ -68,6 +68,44 @@ describe("the steady gate", () => {
     expect(g.steady).toBe(true);
   });
 
+  it("a gap in the frames is not stillness: over 150 ms it starts the wait again, over 1 s (a session hidden) the cap too", () => {
+    expect(STEADY).toMatchObject({ gapMs: 150, pauseMs: 1000 });
+    // Held 0.3 s, then no frame for 0.2 s (untracked frames, a long frame): not steady on the frame after the gap,
+    // only 0.4 s later.
+    const g = new PlaceGate();
+    let t = feed(g, 0, 300, () => [0, -25]);
+    t += 200;
+    g.update(t, forward(0, -25));
+    expect(g.steady).toBe(false);
+    expect(g.ready).toBe(false);
+    t = feed(g, t + FRAME_MS, STEADY.stillMs - 2 * FRAME_MS, () => [0, -25]);
+    expect(g.steady).toBe(false);
+    feed(g, t, 3 * FRAME_MS, () => [0, -25]);
+    expect(g.steady).toBe(true);
+    // A short frame gap (under 150 ms) is a slow frame, not a restart.
+    const slow = new PlaceGate();
+    t = feed(slow, 0, 300, () => [0, -25]);
+    slow.update(t + 120, forward(0, -25));
+    expect(slow.steady).toBe(true);
+    // The headset taken off during the wait for 10 s, the cap long past: put back on, it waits for a steady head
+    // again (not ready on the first frame back), and its cap starts again.
+    const off = new PlaceGate();
+    t = feed(off, 0, 2000, (ms) => [ms * 0.06, -20]);
+    t += 10_000;
+    off.update(t, forward(40, -10));
+    expect(off.ready).toBe(false);
+    t = feed(off, t + FRAME_MS, 2000, (ms) => [40 + (ms - t) * 0.06, -20]);
+    expect(off.ready).toBe(false);
+    feed(off, t, 600, (ms) => [40 + (ms - t) * 0.06, -20]);
+    expect(off.ready).toBe(true);
+    // A gap between 150 ms and 1 s keeps the cap: a session that keeps dropping frames is still placed in time.
+    const choppy = new PlaceGate();
+    let n = 0;
+    for (t = 0; t < STEADY.capMs + 500; t += 300, n++) choppy.update(t, forward(n * 5, -20));
+    expect(choppy.steady).toBe(false);
+    expect(choppy.ready).toBe(true);
+  });
+
   it("places anyway after the cap", () => {
     // Turning the whole time (sweeping the room at 60 degrees a second): ready at the cap, never steady.
     const sweep = new PlaceGate();
