@@ -92,7 +92,7 @@ export interface NsUi {
   /** A box move waits for the finger to leave the current panel. */
   layoutHeld(): boolean;
   /** A panel as laid out: world centre and size (m). */
-  panelBox(screen: Screen): { center: Vec3; width: number; height: number } | null;
+  panelBox(screen: Screen): { center: Vec3; width: number; height: number; up: Vec3 } | null;
   /** World position of a panel's root (its bottom centre). */
   panelPosition(screen: Screen): Vec3 | null;
   /**

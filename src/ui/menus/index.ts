@@ -382,14 +382,16 @@ export class Menus {
   }
 
   /** A screen's panel as laid out: world centre and size in metres (tests and screenshots). */
-  panelBox(screen: Screen): { center: [number, number, number]; width: number; height: number } | null {
+  panelBox(screen: Screen): { center: [number, number, number]; width: number; height: number; up: [number, number, number] } | null {
     const p = this.byScreen.get(screen);
     if (!p) return null;
     const e = p.view.root.matrixWorld.elements;
+    const height = Math.hypot(e[4] as number, e[5] as number, e[6] as number);
     return {
       center: [e[12] as number, e[13] as number, e[14] as number],
       width: Math.hypot(e[0] as number, e[1] as number, e[2] as number),
-      height: Math.hypot(e[4] as number, e[5] as number, e[6] as number),
+      height,
+      up: [(e[4] as number) / height, (e[5] as number) / height, (e[6] as number) / height],
     };
   }
 
