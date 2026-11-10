@@ -198,6 +198,16 @@ export class Shell {
     this.recenterAsked = true;
   }
 
+  /**
+   * Hide the box and its panels (true) while a session waits for the box's first placement, so nothing stands where the
+   * head or phone happened to point as it started; shown again once placed, before the prewarm (which compiles for the
+   * lights shown).
+   */
+  hideUntilPlaced(hidden: boolean): void {
+    this.box.root.visible = !hidden;
+    this.panels.setHidden(hidden);
+  }
+
   /** Lay out the box and the panels after the placement (or the box size) changed. */
   layout(): void {
     this.box.setPlacement(placement.matrix());

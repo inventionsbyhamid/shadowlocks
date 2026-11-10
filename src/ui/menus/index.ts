@@ -102,6 +102,8 @@ export class Menus {
   private screen: Screen = "boot";
   /** The box pose and matrix panels follow, and whether a move waits for the finger to leave. */
   private readonly pose: BoxPose = { position: [0, 0, 0], yaw: 0, tiltDeg: TILT_DEG };
+  /** Hidden while a session waits for the box's first placement: nothing draws, nothing takes a finger. */
+  private hidden = false;
   private readonly box = new Vector3();
   private hasPose = false;
   private layoutWaiting = false;
@@ -265,13 +267,24 @@ export class Menus {
     }
   }
 
+  /**
+   * Hidden (true) while a session waits for the box's first placement, so nothing stands where the head happened to
+   * point; shown again once the box is placed (before the session's prewarm, which compiles what is shown).
+   */
+  setHidden(hidden: boolean): void {
+    if (hidden === this.hidden) return;
+    this.hidden = hidden;
+    for (const p of this.live) this.applyPanel(p);
+    this.drawSlabs();
+  }
+
   /** Per frame. Allocation free. */
   update(dt: number): void {
     const d = Math.min(Math.max(dt, 0), 0.1);
     const reduced = this.deps.settings.get().reducedMotion;
     // Fingertips only matter while the current screen has a panel up.
     const cur = this.byScreen.get(this.screen);
-    const tips = cur && cur.motion.visible ? this.tips.read() : NO_TIPS;
+    const tips = cur && cur.motion.visible && !this.hidden ? this.tips.read() : NO_TIPS;
     for (let i = 0; i < this.live.length; i++) {
       const p = this.live[i] as LivePanel;
       if (!p.motion.visible) continue;
@@ -305,12 +318,12 @@ export class Menus {
   /** A slab under every visible panel, from where UIKit has it now. */
   private drawSlabs(): void {
     let any = false;
-    for (let i = 0; i < this.live.length; i++) if ((this.live[i] as LivePanel).motion.visible) any = true;
+    if (!this.hidden) for (let i = 0; i < this.live.length; i++) if ((this.live[i] as LivePanel).motion.visible) any = true;
     if (!any && !this.slabsShown) return;
     this.slabsShown = any;
     for (let i = 0; i < this.live.length; i++) {
       const p = this.live[i] as LivePanel;
-      this.slabs.draw(p.view.root, p.motion.visible ? p.motion.opacity : 0);
+      this.slabs.draw(p.view.root, p.motion.visible && !this.hidden ? p.motion.opacity : 0);
     }
   }
 
@@ -325,7 +338,7 @@ export class Menus {
    */
   tapHit(o: Readonly<Vec3>, d: Readonly<Vec3>, out: KeyHit): boolean {
     const p = this.byScreen.get(this.screen);
-    if (!p || !p.motion.visible) return false;
+    if (!p || !p.motion.visible || this.hidden) return false;
     let hit = false;
     for (let i = 0; i < p.keys.length; i++) {
       const k = p.keys[i] as KeyView;
@@ -433,7 +446,7 @@ export class Menus {
     root.position.y = p.motion.liftMm * MM;
     root.scale.setScalar(p.motion.scale);
     p.view.opacity.value = p.motion.opacity;
-    p.asset.visible = p.motion.visible;
+    p.asset.visible = p.motion.visible && !this.hidden;
   }
 
   /** Give a panel's keys their states: `disabled` ones move but never click; `lit` ones show on. */

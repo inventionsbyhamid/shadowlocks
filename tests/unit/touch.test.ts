@@ -235,6 +235,17 @@ describe("telling a phone's session", () => {
     expect(phone.listening("selectstart")).toBe(0);
   });
 
+  it("decides no touch while the box waits, hidden, for its first placement; once it shows, the touch is decided", () => {
+    const { t, phone, step, scene } = bench();
+    scene.root.visible = false;
+    phone.touch(w([0.1, 0.05, 1.3]));
+    step();
+    step();
+    expect(t.roles()).toEqual([null]);
+    scene.root.visible = true;
+    step();
+    expect(t.roles()).toEqual(["lantern"]);
+  });
 });
 
 describe("dragging the lantern by touch", () => {

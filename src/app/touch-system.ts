@@ -16,6 +16,7 @@
 // - anything else: a finger in the light, cast so its shadow lies under the touch (the hands' TouchFinger), so a
 //   finger lock's gap is filled by touching it and holding still.
 // Up to two touches at once (a phone may report only one): the lantern held by one, the finger cast by the other.
+// No touch is decided while the box waits, hidden, for its first placement (it is decided once the box shows).
 // The lantern turns see-through on a phone (LanternView.setSeeThrough) while a touch holds it, or while its drawn shape,
 // seen from the camera, stands in front of the panel: the finger and the lantern never hide the lock behind them.
 // Allocation free per frame (the browser's own pose and event objects aside).
@@ -247,8 +248,8 @@ export class Touches implements TouchFinger {
       const s = this.slots[i]!;
       if (s.id !== null && s.endMs !== s.endMs && !(seen & (1 << i))) s.endMs = now;
     }
-    // Not on the frame that first tells a phone (the box is placed in view first).
-    if (!this.latchedNow) {
+    // Not on the frame that first tells a phone, nor while the box waits hidden for its first placement.
+    if (!this.latchedNow && this.d.scene.root.visible) {
       for (const s of this.slots) {
         if (s.id === null || s.decided || !s.ok || s.endMs === s.endMs) continue;
         this.decide(s, now);
