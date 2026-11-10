@@ -8,8 +8,9 @@
 //   there is a real user gesture, which a poke inside XR is not.
 // Every word goes in with textContent. Nothing leaves the device but what the player chooses to share.
 import { clockText } from "../core/result";
+import { hintsText } from "../ui/result-card";
 import { type SharedLink, sharedLinkUrl, webLaunchUrl } from "../core/share";
-import { copy, count, formatDay, onLangChange } from "../i18n";
+import { copy, formatDay, onLangChange } from "../i18n";
 import { PUBLIC_ORIGIN } from "../platform/site-origin";
 import { fill } from "../ui/copy";
 import type { ShareOffer } from "../ui/share-text";
@@ -37,7 +38,7 @@ export interface ShareEnv {
 }
 
 /** What Open the box does with the shared link (the landing's last line). */
-export type LandingNote = "today" | "practice" | "otherDay";
+export type LandingNote = "today" | "practice" | "otherDay" | "lessonFirst";
 
 /** The share note's line, kept as which line it is so a new language paints it again. */
 type Note = "copied" | "copyFailed" | "manual" | null;
@@ -120,10 +121,11 @@ export class SharePage {
     if (l) {
       set("shared-line", l.target.kind === "daily" ? fill(c.sentDaily, { day: formatDay(l.target.day) }) : fill(c.sentBox, { n: l.target.n }));
       const time = l.t === null ? "" : clockText(l.t);
-      const help = l.h === null ? "" : l.h === 0 ? c.noHints : count(l.h, c.hints);
+      const help = l.h === null ? "" : hintsText(l.h);
       set("shared-says", l.t === null ? "" : l.h === null ? fill(c.says, { time }) : fill(c.saysHints, { time, help }));
       const note = this.landing;
-      set("shared-note", note === "today" ? c.todayTurn : note === "practice" ? c.practiceTurn : note === "otherDay" ? c.otherDay : "");
+      const notes: Record<LandingNote, string> = { today: c.todayTurn, practice: c.practiceTurn, otherDay: c.otherDay, lessonFirst: c.lessonFirst };
+      set("shared-note", note === null ? "" : notes[note]);
     }
     // Web Launch and Copy link: a computer or phone only.
     const away = !this.env.quest;
@@ -144,7 +146,7 @@ export class SharePage {
       const text = this.el("result-text");
       if (text) text.textContent = o.text;
       const key = this.el("share-result");
-      if (key) key.textContent = c.shareToday;
+      if (key) key.textContent = o.kind === "today" ? c.shareToday : o.kind === "reply" ? c.sendBack : c.challenge;
     }
     const n = this.note;
     const noteEl = this.el("share-note");

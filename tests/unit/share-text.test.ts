@@ -38,11 +38,23 @@ describe("the shared text", () => {
     expect(o.text.split("\n")).toEqual(["Shadow Locks · Tagesbox vom 10. Nov.", "🟥 4:12", "Serie: 2", "https://shadowlocks.pages.dev/?day=2026-11-10&t=252&h=1&g=4"]);
   });
 
-  it("offers nothing for a lesson's box, nor (yet) for any box but today's Daily Box played for real", () => {
+  it("any other box is a challenge; the friend's own box sends theirs back; a lesson's box offers nothing", () => {
     const p = newProfile(0, "test");
     expect(shareOffer({ ...today, spec: { kind: "lesson", id: "l1" }, key: "lesson/l1" }, p, "2026-11-10")).toBeNull();
-    expect(shareOffer(today, p, "2026-11-11")).toBeNull();
-    expect(shareOffer({ ...today, practice: true, recorded: false }, p, "2026-11-10")).toBeNull();
+    const box: BoxResult = { spec: { kind: "box", n: 12 }, key: "shadow-locks/12", practice: false, recorded: true, timeMs: 178_000, hints: 0, levels: [0, 4] };
+    const c = shareOffer(box, p, "2026-11-10")!;
+    expect(c.kind).toBe("challenge");
+    expect(c.text.split("\n")).toEqual(["Shadow Locks · Box No. 12", "🟨🟥 2:58", "Can you beat my time?", "https://shadowlocks.pages.dev/?box=12&t=178&h=0&g=4"]);
+    // A friend's box (the shared link's), practice: "Send yours back", the same text.
+    const back = shareOffer({ ...box, practice: true, recorded: false }, p, "2026-11-10", "shadow-locks/12")!;
+    expect([back.kind, back.text]).toEqual(["reply", c.text]);
+    // Another day's Daily Box (practice), or today's on a later day: a challenge, by its day.
+    const past = shareOffer({ ...today, practice: true, recorded: false }, p, "2026-11-10")!;
+    expect(past.kind).toBe("challenge");
+    expect(past.url).toBe("https://shadowlocks.pages.dev/?day=2026-11-10&t=252&h=1&g=4");
+    expect(shareOffer(today, p, "2026-11-11")!.kind).toBe("challenge");
+    // Built by an older generator version: the link says so.
+    expect(shareOffer({ ...box, spec: { kind: "box", n: 12, gen: 3 } }, p, "2026-11-10")!.url).toBe("https://shadowlocks.pages.dev/?box=12&t=178&h=0&g=3");
   });
 
   it("is made again from the collection on a later visit (each lock's level kept), not from an older save without them", () => {

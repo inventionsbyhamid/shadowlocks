@@ -84,6 +84,8 @@ describe("the landing for a shared link", () => {
     expect(els["shared-says"]!.textContent).toBe("Your friend says 4:12.");
     p.landed({ ...daily, t: null }, "today");
     expect([els["shared-says"]!.textContent, els["shared-says"]!.hidden]).toEqual(["", true]);
+    p.landed(daily, "lessonFirst");
+    expect(els["shared-note"]!.textContent).toBe(COPY.share.lessonFirst);
   });
 
   it("follows the language", () => {
@@ -121,6 +123,10 @@ describe("sharing a result from the 2D page", () => {
     const { els, p } = page({ quest: true });
     p.offer(() => offer);
     expect([els.result!.hidden, els["result-text"]!.textContent, els["share-result"]!.textContent]).toEqual([false, offer.text, COPY.share.shareToday]);
+    p.offer(() => ({ ...offer, kind: "challenge" }));
+    expect(els["share-result"]!.textContent).toBe(COPY.share.challenge);
+    p.offer(() => ({ ...offer, kind: "reply" }));
+    expect(els["share-result"]!.textContent).toBe(COPY.share.sendBack);
     p.offer(() => null);
     expect(els.result!.hidden).toBe(true);
   });

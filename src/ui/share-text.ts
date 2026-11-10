@@ -11,8 +11,11 @@ import { copy } from "../i18n";
 import { fill } from "./copy";
 import { cardTitle } from "./result-card";
 
-/** Which share it is: today's Daily Box played for real ("Share today's result"). */
-export type OfferKind = "today";
+/**
+ * Which share it is: today's Daily Box played for real ("Share today's result", with the streak); a friend's shared box
+ * ("Send yours back"); any other box ("Challenge a friend"). The last two ask "Can you beat my time?".
+ */
+export type OfferKind = "today" | "reply" | "challenge";
 
 export interface ShareOffer {
   kind: OfferKind;
@@ -23,21 +26,22 @@ export interface ShareOffer {
 }
 
 /**
- * What the 2D page offers for result `r`, the profile as it is once the box opened, on day `today`: today's Daily Box
- * played for real (its streak); null for anything else.
+ * What the 2D page offers for result `r`, the profile as it is once the box opened, on day `today`; `sharedKey` is the
+ * seed key of the box a shared link opened the page with. Null for a lesson's box.
  */
-export function shareOffer(r: BoxResult, p: Readonly<Profile>, today: string): ShareOffer | null {
+export function shareOffer(r: BoxResult, p: Readonly<Profile>, today: string, sharedKey: string | null = null): ShareOffer | null {
   const s = r.spec;
-  if (s.kind !== "daily" || r.practice || s.day !== today) return null;
+  if (s.kind === "lesson") return null;
   const c = copy();
   const url = sharedLinkUrl(linkOf(r));
+  const kind: OfferKind = s.kind === "daily" && !r.practice && s.day === today ? "today" : r.key === sharedKey ? "reply" : "challenge";
   const lines = [
     `${c.panels.home.title} · ${cardTitle(s)}`,
     `${squares(tilesOf(r.levels))} ${clockText(secondsOf(r.timeMs))}`,
-    fill(c.menus.home.streak, { n: p.daily.streak }),
+    kind === "today" ? fill(c.menus.home.streak, { n: p.daily.streak }) : c.share.beat,
     url,
   ];
-  return { kind: "today", text: lines.join("\n"), url };
+  return { kind, text: lines.join("\n"), url };
 }
 
 /**
