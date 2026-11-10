@@ -153,6 +153,19 @@ export function viewOf(e: ArrayLike<number> | null | undefined, out: ViewTangent
 }
 
 /**
+ * The same with the wider side each way, (1 + |P[8]|) / P[0] and (1 + |P[9]|) / P[5]: for a headset's left eye, about
+ * the view of both eyes together (whether anything of the box can still be seen). PHONE_VIEW's where the matrix gives
+ * none. Into `out`.
+ */
+export function wideViewOf(e: ArrayLike<number> | null | undefined, out: ViewTangents): ViewTangents {
+  const sx = e ? e[0]! : Number.NaN, sy = e ? e[5]! : Number.NaN, ox = e ? e[8]! : 0, oy = e ? e[9]! : 0;
+  const h = (1 + Math.abs(ox)) / sx, v = (1 + Math.abs(oy)) / sy;
+  out.tanH = h > 0 && Number.isFinite(h) ? h : PHONE_VIEW.tanH;
+  out.tanV = v > 0 && Number.isFinite(v) ? v : PHONE_VIEW.tanV;
+  return out;
+}
+
+/**
  * How far along a phone camera's view (m) the box's middle must stand for the whole box (BOX_EXTENT: plinth and
  * drawer handle too) to show within IN_VIEW_FILL of a view with half-angle tangents `view`, the camera pitched `pitch`
  * radians, the box `sizeM` m, facing the camera and leaning back `tiltDeg`. Every corner of the box's extent must be
@@ -293,6 +306,70 @@ export class Placement {
     this.current.yaw = this.eye.yaw;
     this.current.tiltDeg = this.tiltDeg;
     this.version++;
+  }
+}
+
+/**
+ * The steady pose a placement waits for: the head (a phone's camera) turning under `turnDegPerS` for `stillMs`, looking
+ * between `pitchDeg.down` below the horizon and `pitchDeg.up` above it; a first placement goes ahead after `capMs`
+ * anyway. The turn rate is smoothed over about `smoothMs`, so one jittery frame does not restart the wait.
+ */
+export const STEADY = { turnDegPerS: 30, stillMs: 400, capMs: 2500, pitchDeg: { down: 60, up: 20 }, smoothMs: 100 } as const;
+
+/**
+ * Whether the head (or a phone's camera) is held still in a looking pose, fed its forward each frame. A box placed from
+ * the first tracked frame stays wherever the head or phone happened to point as the session started (a phone still
+ * turning as AR starts, a head turned away): the first placement waits for `ready`, a phone's re-place for `steady`.
+ * Allocation free.
+ */
+export class PlaceGate {
+  private firstMs = Number.NaN;
+  private lastMs = Number.NaN;
+  private stillSince = Number.NaN;
+  /** The smoothed turn rate (degrees a second). */
+  private rate = 0;
+  private looking = false;
+  private fx = 0;
+  private fy = 0;
+  private fz = -1;
+
+  /** Start over (a new session). */
+  reset(): void {
+    this.firstMs = this.lastMs = this.stillSince = Number.NaN;
+    this.rate = 0;
+    this.looking = false;
+  }
+
+  /** This frame's forward (a unit vector, world, y up) at `nowMs`; feed only tracked frames. */
+  update(nowMs: number, fx: number, fy: number, fz: number): void {
+    const pitch = Math.asin(Math.max(-1, Math.min(1, fy))) / DEG;
+    this.looking = pitch >= -STEADY.pitchDeg.down && pitch <= STEADY.pitchDeg.up;
+    if (this.firstMs !== this.firstMs) {
+      this.firstMs = this.stillSince = nowMs;
+      this.rate = 0;
+    } else {
+      const dt = nowMs - this.lastMs;
+      if (dt > 0) {
+        const cx = this.fy * fz - this.fz * fy, cy = this.fz * fx - this.fx * fz, cz = this.fx * fy - this.fy * fx;
+        const turn = Math.atan2(Math.sqrt(cx * cx + cy * cy + cz * cz), this.fx * fx + this.fy * fy + this.fz * fz) / DEG;
+        this.rate += ((turn * 1000) / dt - this.rate) * (1 - Math.exp(-dt / STEADY.smoothMs));
+      }
+    }
+    if (!this.looking || this.rate > STEADY.turnDegPerS) this.stillSince = nowMs;
+    this.fx = fx;
+    this.fy = fy;
+    this.fz = fz;
+    this.lastMs = nowMs;
+  }
+
+  /** Held still for STEADY.stillMs in a looking pose (as of the last frame fed). */
+  get steady(): boolean {
+    return this.looking && this.lastMs - this.stillSince >= STEADY.stillMs;
+  }
+
+  /** Steady, or fed for STEADY.capMs already: a first placement goes ahead. */
+  get ready(): boolean {
+    return this.steady || this.lastMs - this.firstMs >= STEADY.capMs;
   }
 }
 
