@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { LANGS, tableFor } from "../../src/i18n";
 import { coachLines } from "../../src/ui/box-text";
 import { COPY, fill } from "../../src/ui/copy";
 import { expectCleanCopy } from "./helpers/ui";
@@ -81,6 +82,15 @@ describe("the coach lines", () => {
       expect(words(s), s).toBeLessThanOrEqual(12);
       expect(s, s).toMatch(/^[A-Z].*[.?]$/);
     }
+  });
+
+  it("each is 12 words at most in every language written with spaces (Japanese has none to count)", () => {
+    const over: string[] = [];
+    for (const l of LANGS.filter((x) => x !== "ja")) {
+      // A word has a letter or a digit (French sets "?" and "!" apart with a no-break space).
+      for (const s of coachLines(tableFor(l))) if (s.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length > 12) over.push(`${l}: ${s}`);
+    }
+    expect(over).toEqual([]);
   });
 
   it("no two keys share a line: a line on the chip names its one copy key", () => {

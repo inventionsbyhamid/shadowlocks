@@ -251,7 +251,7 @@ export const FR: Copy = {
     turnFinger: "À toi. Touche le trou et ne bouge plus.",
     growShrink: "Approche ou éloigne le téléphone. L'ombre grandit et rétrécit.",
     stuck: `Tu bloques${NB}? Touche la petite lanterne du cadre pour de l'aide.`,
-    letGo: "Lève le doigt quand tu veux. La lanterne reste où tu la laisses.",
+    letGo: "Lève le doigt quand tu veux. La lanterne reste en place.",
     boxOpen: "La boîte est ouverte. Touche ta récompense pour la prendre.",
   },
   controller: {

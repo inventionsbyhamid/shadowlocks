@@ -168,7 +168,7 @@ export const ES: Copy = {
     stuck: "¿No sale? Toca el farolito del marco para pedir ayuda.",
     letGo: "Suelta cuando quieras. El farol flota donde lo dejes.",
     turnNearFarIdle: "Muévelo de lado a lado. Mira qué pieza se mueve más.",
-    turnRingsIdle: "Muévelo hasta que la sombra de un anillo quede dentro de la otra.",
+    turnRingsIdle: "Muévelo hasta que la sombra de un anillo quede dentro de otra.",
     fingerIdle: "Acerca o aleja el dedo hasta que encaje.",
     titles: { l1: "Atrapar la luz", l2: "Echar una mano" },
     examples: { move: "Mover la luz", "near-far": "Cerca y lejos", rings: "Alinear los anillos", finger: "Echar una mano" },

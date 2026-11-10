@@ -243,14 +243,14 @@ export const DE: Copy = {
   },
   phone: {
     pickUp: "Zieh die Laterne mit dem Finger.",
-    slide: "Halte die Laterne und geh mit dem Handy näher ran oder weiter weg.",
+    slide: "Halte die Laterne und geh mit dem Handy näher oder weiter weg.",
     finger: "Ein Teil fehlt. Berühre die Lücke und halte still.",
     drawer: "Tipp auf die Schublade, um diese Lektionen wiederzufinden.",
     puppets: "Berühre die Box, um einen Finger ins Licht zu halten.",
     turnFinger: "Du bist dran. Berühre die Lücke und halte still.",
     growShrink: "Beweg das Handy vor und zurück. Der Schatten wächst und schrumpft.",
     stuck: "Hängst du fest? Tipp für Hilfe auf die kleine Laterne am Rahmen.",
-    letGo: "Nimm den Finger weg, wann du willst. Die Laterne bleibt, wo sie ist.",
+    letGo: "Nimm den Finger weg, wann du willst. Die Laterne bleibt stehen.",
     boxOpen: "Die Box ist offen. Tipp auf dein Fundstück, um es zu nehmen.",
   },
   controller: {
