@@ -181,6 +181,8 @@ export interface LessonInputs {
   inBeam(): boolean;
   /** The box has opened and its reward is up, waiting to be lifted out. */
   rewardUp(): boolean;
+  /** The hint lantern glows: the session's stuck watch says the player is stuck. */
+  stuck(): boolean;
   /** The box-open celebration is over and its reward has been taken (or there is none). */
   settled(): boolean;
   /** The drawer has been pulled open. */
@@ -482,7 +484,9 @@ export class LessonsDirector {
         f.coachNear = true;
         const held = inp.held();
         if (formed) this.lineMs += dt;
-        this.show(formed ? "pickUp" : null, "step");
+        // The hint lantern glowing (the session's 40 s without progress): the line says what it is for.
+        if (formed && inp.stuck()) this.show("stuck", "idle");
+        else this.show(formed ? "pickUp" : null, "step");
         this.idleGhost(dt, !held && this.lineMs >= IDLE_GHOST_MS, "reach");
         if (held) this.advance();
         break;

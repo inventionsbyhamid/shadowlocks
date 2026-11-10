@@ -120,6 +120,7 @@ export class Lessons implements MenuLessons {
       warmth: (lock) => session.warmth(lock),
       inBeam: () => hands.n > 0,
       rewardUp: () => session.stage === "reward",
+      stuck: () => session.stuck,
       settled: () => session.stage === "offered",
       drawerPulled: () => this.drawerOpen,
       reducedMotion: () => settings.get().reducedMotion,

@@ -825,6 +825,19 @@ describe("LessonsDirector: help taken, the session's suggestion, the intro's glo
     r.run(19_000, () => expect(r.d.frame.key).toBe("turnNearFar"));
   });
 
+  it("explains the hint lantern's glow in the intro: Stuck? while it glows, the pick-up line again when it goes out", () => {
+    const r = rig();
+    r.d.start("l1");
+    r.run(FORM_MS + 1000);
+    expect(said(r)).toEqual(["pickUp", "step"]);
+    r.inp.isStuck = true;
+    r.run(16);
+    expect(said(r)).toEqual(["stuck", "idle"]);
+    r.inp.isStuck = false;
+    r.run(16);
+    expect(said(r)).toEqual(["pickUp", "step"]);
+  });
+
 });
 
 describe("LessonsDirector: lock I's last resort", () => {

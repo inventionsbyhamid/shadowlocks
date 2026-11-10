@@ -39,6 +39,7 @@ function bench(o: { presenting?: boolean; autoStart?: boolean } = {}) {
     revealed: true,
     isOpen: (i: number) => open.has(i),
     warmth: () => 0,
+    stuck: false,
     restartStuck: vi.fn(),
     snapshot: () => ({ key: session.box?.key ?? "", lantern: [0, 0, 1], open: [...open], crystal: [], elapsedMs: 1234, hints: 0, hintLevel: {} }) as BoxSnapshot,
   };
@@ -218,6 +219,16 @@ describe("Lessons", () => {
     emit({ type: "hint", lock: 1, level: 1 });
     b.run(32);
     expect(b.shown().line).toBe(COPY.lessons.turnNearFar);
+  });
+
+  it("explains the hint lantern's glow while lesson 1 waits for the lantern: Stuck? with the glow", () => {
+    const b = bench();
+    b.lessons.start("l1");
+    b.run(FORM_MS + 500);
+    expect(b.shown().line).toBe(COPY.lessons.pickUp);
+    b.session.stuck = true;
+    b.run(32);
+    expect(b.shown().line).toBe(COPY.lessons.stuck);
   });
 
   it("waits under a menu, its ghost and line put away", () => {
