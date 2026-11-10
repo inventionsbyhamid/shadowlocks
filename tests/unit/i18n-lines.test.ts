@@ -14,7 +14,10 @@ import { COPY } from "../../src/ui/copy";
 
 const OTHERS = LANGS.filter((l) => l !== "en");
 
-/** Every key of COPY.lessons the lessons' director and scripts take a line from, read from their source. */
+/**
+ * Every key of COPY.lessons the lessons' director and scripts take a line from, read from their source: a line is
+ * its copy key there (`show("goal", ...)`, `key: "watchMove"`, an example's `open:` and `turn:`), typed LessonLine.
+ */
 function lessonKeys(): Set<string> {
   const keys = new Set<string>();
   for (const f of ["src/app/lessons-director.ts", "src/app/lesson-scripts.ts"]) {
@@ -24,6 +27,7 @@ function lessonKeys(): Set<string> {
     // No line is written in place.
     expect(src, f).not.toMatch(/\bline\s*[:=]\s*["'`]/);
     for (const m of src.matchAll(/\b(?:COPY\.lessons|C)\.([A-Za-z]+)\b/g)) keys.add(m[1] as string);
+    for (const m of src.matchAll(/\b(?:show\(|key: |open: |turn: )"([A-Za-z]+)"/g)) keys.add(m[1] as string);
   }
   return keys;
 }

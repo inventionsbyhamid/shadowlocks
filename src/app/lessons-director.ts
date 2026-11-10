@@ -4,13 +4,17 @@
 // layout. Nothing here allocates per frame (an example's script is built once when it starts: lesson-scripts.ts).
 //
 // Lesson 1, "Catch the light": the box forms from light (2 s), "Pick up the lantern." (a ghost hand shows how after
-// 4 s without input), lock I (the Moon), Example 1 then the player's arrow, Example 2 then the player's Key, and the
-// box opening with its reward. Lesson 2, "Lend a hand": shadow puppets (5 s of a hand in the beam), Example 3 then
-// the player's Crown, then "Pull the drawer to find these lessons again." until the drawer is pulled once.
+// 4 s without input), lock I (the Moon) with its goal ("Move the lantern until the shadow fills the moon."), Example
+// 1 then the player's arrow, Example 2 then the player's Key, and the box opening with its reward. Lesson 2, "Lend a
+// hand": shadow puppets (5 s of a hand in the beam), Example 3 then the player's Crown, then "Pull the drawer to find
+// these lessons again." until the drawer is pulled once.
 //
-// An example is staged so nobody can miss that it is one ("Watch.", the cradle, the twin, three beats, one click,
-// the swing home, "Your turn."). `replay` runs one example alone, on a fresh copy of its lesson's box, and never
-// touches lesson or box progress.
+// An example is staged so nobody can miss that it is one (its own "Watch. ..." line, the cradle, the twin, three
+// beats, one click, the swing home, the player's turn). `replay` runs one example alone, on a fresh copy of its
+// lesson's box, and never touches lesson or box progress.
+//
+// Every coach line is a copy key (COPY.lessons[key] is its words): the frame says which one shows (`key`) and why
+// (`why`: a step's own line, an idle nudge, a win, or an example's), so a voice can say exactly what the chip shows.
 import { type LessonId, type LessonPlan, lessonPlan } from "../core/lessons-data";
 import type { TipId } from "../core/profile";
 import type { Box, Lock, V3 } from "../core/types";
@@ -27,18 +31,24 @@ import {
   handAt,
   type HandKey,
   lampAt,
+  type LessonLine,
   PUPPET_AT,
   PUPPET_FINGERS,
   PUPPET_PALM,
   puppetLoop,
   rampAt,
   reachLoop,
+  SAID,
   type Script,
   type TipScript,
 } from "./lesson-scripts";
 
-export { EXAMPLES, PARK_MS, SWING_MS } from "./lesson-scripts";
-export type { ExampleId, GhostHandFrame, HandAnchor, PoseName } from "./lesson-scripts";
+export { EXAMPLES, PARK_MS, SAID, SWING_MS } from "./lesson-scripts";
+export type { ExampleId, GhostHandFrame, HandAnchor, LessonLine, PoseName } from "./lesson-scripts";
+
+/** Why the coach line shows: a step's own line (as it starts, or as the step's state changes), a nudge after a while
+ * with no progress, a win (a lock or the box opened), or an example's line. */
+export type LineWhy = "step" | "idle" | "win" | "example";
 
 /** The box forms from light over this long when a lesson starts. */
 export const FORM_MS = 2000;
@@ -48,7 +58,7 @@ export const IDLE_GHOST_MS = 4000;
 export const PUPPET_MS = 5000;
 /** ...or this long in all, the ghost showing how. */
 export const PUPPET_MAX_MS = 12000;
-/** "Your turn." stays this long before the step's own line. */
+/** The Key's turn: "Your turn." stays this long before the rings' own line. */
 export const YOUR_TURN_MS = 3000;
 /** The rings' line changes only once the rings have stayed lined up (or apart) this long. */
 export const LINE_HOLD_MS = 500;
@@ -105,8 +115,12 @@ export interface LessonInputs {
   isOpen(lock: number): boolean;
   /** The lock's sight rings are lined up (the feel layer's RingAlign, with its hysteresis). */
   aligned(lock: number): boolean;
+  /** The lock's warmth as measured, 0..1 (before the Warmth setting and the focus): its rise is progress. */
+  warmth(lock: number): number;
   /** A hand is in the beam, casting its shadow on the panel. */
   inBeam(): boolean;
+  /** The box has opened and its reward is up, waiting to be lifted out. */
+  rewardUp(): boolean;
   /** The box-open celebration is over and its reward has been taken (or there is none). */
   settled(): boolean;
   /** The drawer has been pulled open. */
@@ -129,8 +143,11 @@ export interface DirectorDeps {
 }
 
 export interface LessonFrame {
-  /** The coach line, or none. */
+  /** The coach line (English; the chip shows it in the language up), or none. */
   line: string | null;
+  /** Its copy key (COPY.lessons[key] is `line`), and why it shows; both null with no line. */
+  key: LessonLine | null;
+  why: LineWhy | null;
   /** The box forming from light: 0 not yet, 1 formed. */
   form: number;
   hand: GhostHandFrame;
@@ -164,6 +181,8 @@ const v3 = (): V3 => [0, 0, 0];
 function newFrame(): LessonFrame {
   return {
     line: null,
+    key: null,
+    why: null,
     form: 1,
     hand: { opacity: 0, poseA: "relaxed", poseB: "relaxed", poseT: 0, anchor: "grasp", at: v3(), fingers: [0, 0, -1], palm: [0, -1, 0], side: "right" },
     lamp: { opacity: 0, at: v3() },
@@ -339,7 +358,7 @@ export class LessonsDirector {
     }
     const f = this.frame;
     if (!this.id || this.finished) {
-      f.line = null;
+      this.show(null, null);
       this.idleGhost(dt, false, null);
       return;
     }
@@ -350,7 +369,7 @@ export class LessonsDirector {
     switch (s.kind) {
       case "intro":
       case "move": {
-        f.line = s.kind === "move" ? COPY.lessons.watchMove : formed ? COPY.lessons.pickUp : null;
+        this.show(s.kind === "move" ? "goal" : formed ? "pickUp" : null, "step");
         const held = inp.held();
         this.idleMs = held || inp.active() ? 0 : this.idleMs + dt;
         this.idleGhost(dt, !held && this.idleMs >= IDLE_GHOST_MS, "reach");
@@ -358,17 +377,17 @@ export class LessonsDirector {
         break;
       }
       case "turn":
-        f.line = this.turnLine(s, dt);
+        this.show(this.turnLine(s, dt), "step");
         this.idleGhost(dt, false, null);
         if (inp.isOpen(s.lock)) this.advance();
         break;
       case "reward":
-        f.line = null;
+        this.show(null, null);
         this.idleGhost(dt, false, null);
         if (inp.settled()) this.advance();
         break;
       case "puppets": {
-        f.line = formed ? COPY.lessons.puppets : null;
+        this.show(formed ? "puppets" : null, "step");
         const beam = inp.inBeam();
         if (beam) this.beamMs += dt;
         this.idleMs = beam ? 0 : this.idleMs + dt;
@@ -377,7 +396,7 @@ export class LessonsDirector {
         break;
       }
       case "drawer":
-        f.line = inp.settled() ? COPY.lessons.drawer : null;
+        this.show(inp.settled() ? "drawer" : null, "step");
         this.idleGhost(dt, false, null);
         if (inp.drawerPulled()) this.advance();
         break;
@@ -397,20 +416,28 @@ export class LessonsDirector {
     this.deps.onReplay?.(ex, EXAMPLES[ex].lesson, false);
   }
 
-  /** The line of a player's turn: "Your turn." first, then what the example taught. */
-  private turnLine(s: LessonStep, dt: number): string {
-    const C = COPY.lessons;
-    if (s.example === "rings") {
-      const a = this.deps.inputs.aligned(s.lock);
-      if (a === this.ringsLined) this.ringsMs = 0;
-      else if ((this.ringsMs += dt) >= LINE_HOLD_MS) {
-        this.ringsLined = a;
-        this.ringsMs = 0;
-      }
+  /**
+   * The line of a player's turn: the task the example showed ("Your turn. Make both pieces meet in the arrow."); the
+   * Key's says "Your turn." first, then follows its rings (lined up or apart).
+   */
+  private turnLine(s: LessonStep, dt: number): LessonLine {
+    if (s.example !== "rings") return SAID[s.example ?? "near-far"].turn;
+    const a = this.deps.inputs.aligned(s.lock);
+    if (a === this.ringsLined) this.ringsMs = 0;
+    else if ((this.ringsMs += dt) >= LINE_HOLD_MS) {
+      this.ringsLined = a;
+      this.ringsMs = 0;
     }
-    if (this.stepMs < YOUR_TURN_MS) return C.yourTurn;
-    if (s.example === "rings") return this.ringsLined ? C.slide : C.lineUp;
-    return s.example === "finger" ? C.finger : C.nearSwing;
+    if (this.stepMs < YOUR_TURN_MS) return "yourTurn";
+    return this.ringsLined ? "slide" : "lineUp";
+  }
+
+  /** Put line `key` on the coach line (null: none), shown for reason `why`. Allocates nothing. */
+  private show(key: LessonLine | null, why: LineWhy | null): void {
+    const f = this.frame;
+    f.key = key;
+    f.why = key === null ? null : why;
+    f.line = key === null ? null : COPY.lessons[key];
   }
 
   private advance(): void {
@@ -434,19 +461,19 @@ export class LessonsDirector {
     this.ringsMs = 0;
     if (n >= steps.length) {
       this.finished = true;
-      this.frame.line = null;
+      this.show(null, null);
       this.deps.onDone?.(id);
       return;
     }
     this.deps.onStep?.(id, n);
-    const s = steps[n]!, C = COPY.lessons, formed = this.frame.form >= 1;
+    const s = steps[n]!, formed = this.frame.form >= 1;
     // The step's first line shows from this very frame (a demo's comes from its script).
-    if (s.kind === "intro") this.frame.line = formed ? C.pickUp : null;
-    else if (s.kind === "move") this.frame.line = C.watchMove;
-    else if (s.kind === "turn") this.frame.line = C.yourTurn;
-    else if (s.kind === "puppets") this.frame.line = formed ? C.puppets : null;
-    else if (s.kind === "drawer") this.frame.line = inp.settled() ? C.drawer : null;
-    else this.frame.line = null;
+    if (s.kind === "intro") this.show(formed ? "pickUp" : null, "step");
+    else if (s.kind === "move") this.show("goal", "step");
+    else if (s.kind === "turn") this.show(this.turnLine(s, 0), "step");
+    else if (s.kind === "puppets") this.show(formed ? "puppets" : null, "step");
+    else if (s.kind === "drawer") this.show(inp.settled() ? "drawer" : null, "step");
+    else this.show(null, null);
     if (s.kind === "demo" && s.example) {
       this.script = buildScript(s.example, this.plan!, this.left, false);
       this.scriptMs = 0;
@@ -466,9 +493,9 @@ export class LessonsDirector {
     // The example owns the ghost hand; an idle ghost that was showing is simply replaced.
     this.ghost = 0;
     this.ghostKind = null;
-    let line: string | null = null;
-    for (let i = 0; i < s.lines.length && s.lines[i]!.t <= t; i++) line = s.lines[i]!.line;
-    f.line = line;
+    let key: LessonLine | null = null;
+    for (let i = 0; i < s.lines.length && s.lines[i]!.t <= t; i++) key = s.lines[i]!.key;
+    this.show(key, "example");
     f.form = 1;
     handAt(s.hand, t, f.hand, null);
     f.hand.anchor = s.anchor;
@@ -522,7 +549,7 @@ export class LessonsDirector {
   /** Everything an example or a tip demo shows, back to rest (no line, no ghost, no light). Keeps the frame's objects. */
   private resetFrame(): void {
     const f = this.frame;
-    f.line = null;
+    this.show(null, null);
     f.form = 1;
     f.hand.opacity = 0;
     f.lamp.opacity = 0;

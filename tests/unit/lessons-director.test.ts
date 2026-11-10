@@ -1,6 +1,6 @@
 import { Matrix4, Vector3 } from "@iwsdk/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildTipScript, gripOf, SWEEP_CLEAR } from "../../src/app/lesson-scripts";
+import { buildTipScript, gripOf, SAID, SWEEP_CLEAR } from "../../src/app/lesson-scripts";
 import { tipLock } from "../../src/app/tips";
 import { generateBox } from "../../src/core/generator";
 import { buildLessonLock, LESSON_1, LESSON_2, lessonPlan } from "../../src/core/lessons-data";
@@ -36,15 +36,20 @@ class FakeInputs implements LessonInputs {
   alignedLocks = new Set<number>();
   beam = false;
   isSettled = false;
+  isRewardUp = false;
   pulled = false;
   reduced = false;
+  /** Each lock's warmth (0 unless set). */
+  warm = new Map<number, number>();
   at: V3 = [0.35, -0.3, 1.35];
   held = () => this.isHeld;
   active = () => this.isActive;
   isOpen = (lock: number) => this.open.has(lock);
   aligned = (lock: number) => this.alignedLocks.has(lock);
+  warmth = (lock: number) => this.warm.get(lock) ?? 0;
   inBeam = () => this.beam;
   settled = () => this.isSettled;
+  rewardUp = () => this.isRewardUp;
   drawerPulled = () => this.pulled;
   reducedMotion = () => this.reduced;
   lantern = (out: V3): V3 => {
@@ -215,8 +220,53 @@ describe("LessonsDirector: lesson 1", () => {
     r.inp.isHeld = true;
     r.run(16);
     expect(r.d.step).toBe(1);
-    expect(r.d.frame.line).toBe(C.watchMove);
+    expect(r.d.frame.line).toBe(C.goal);
     expect(r.deps.onStep).toHaveBeenLastCalledWith("l1", 1);
+  });
+
+  it("says lock I's goal the moment the lantern is picked up, and tells which copy key shows and why", () => {
+    r.d.start("l1");
+    // The first frame after a start counts no time.
+    r.run(FORM_MS + 16);
+    expect([r.d.frame.key, r.d.frame.why, r.d.frame.line]).toEqual(["pickUp", "step", C.pickUp]);
+    r.inp.isHeld = true;
+    r.run(16);
+    expect([r.d.frame.key, r.d.frame.why, r.d.frame.line]).toEqual(["goal", "step", "Move the lantern until the shadow fills the moon."]);
+    // The goal stays while the player works (warmth rising: no help needed).
+    for (let k = 1; k <= 8; k++) {
+      r.inp.warm.set(0, 0.1 * k);
+      r.run(2000);
+      expect(r.d.frame.key).toBe("goal");
+    }
+  });
+
+  it("names the key of every line it shows, through a whole lesson: COPY.lessons[key] is the line", () => {
+    const seen = new Set<string>();
+    const check = () => {
+      const f = r.d.frame;
+      expect(f.line).toBe(f.key === null ? null : C[f.key]);
+      expect(f.why === null).toBe(f.key === null);
+      if (f.key) seen.add(`${f.why} ${f.key}`);
+    };
+    r.d.start("l1");
+    r.run(FORM_MS + 16, check);
+    r.inp.isHeld = true;
+    r.run(1000, check);
+    r.inp.isHeld = false;
+    for (const lock of [0, 1, 2]) {
+      r.inp.open.add(lock);
+      r.run(16, check);
+      r.until(() => {
+        check();
+        return !r.d.showing && r.d.step !== 2 && r.d.step !== 4;
+      });
+      r.run(4000, check);
+    }
+    r.inp.isRewardUp = true;
+    r.run(1000, check);
+    expect([...seen]).toEqual(
+      expect.arrayContaining(["step pickUp", "step goal", "example watchNearFar", "example nearSwing", "step turnNearFar", "example watchRings", "step lineUp"]),
+    );
   });
 
   it("steps through every step in order, each on its own completion predicate", () => {
@@ -232,9 +282,9 @@ describe("LessonsDirector: lesson 1", () => {
     r.run(16);
     // Example 1: staged on the twin, three beats, one click, the scraps swing back, the lantern lifts out.
     expect(r.d.step).toBe(2);
-    expect(r.d.frame.line).toBe(C.watch);
+    expect(r.d.frame.line).toBe(C.watchNearFar);
     const ex1 = watch(r);
-    expect(ex1.lines).toEqual([C.watch, C.nearSwing, C.yourTurn]);
+    expect(ex1.lines).toEqual([C.watchNearFar, C.nearSwing, C.turnNearFar]);
     expect(ex1.clicks).toBe(1);
     expect(ex1.minLayout[1]).toBe(0);
     expect(ex1.minLayout[0]).toBe(1);
@@ -248,9 +298,10 @@ describe("LessonsDirector: lesson 1", () => {
     expect(r.d.frame.layout[1]).toBe(1);
     expect(r.d.frame.park).toBe(0);
     expect(r.d.frame.ghostLight).toBe(false);
-    expect(r.d.frame.line).toBe(C.yourTurn);
+    // The player's arrow: the task, not a fact, from the lantern's lift out of the cradle on.
+    expect(r.d.frame.line).toBe(C.turnNearFar);
     r.run(YOUR_TURN_MS);
-    expect(r.d.frame.line).toBe(C.nearSwing);
+    expect(r.d.frame.line).toBe(C.turnNearFar);
     r.run(10_000);
     expect(r.d.step).toBe(3);
     r.inp.open.add(1);
@@ -258,7 +309,7 @@ describe("LessonsDirector: lesson 1", () => {
     // Example 2: line up, ride the line, slide to the click.
     expect(r.d.step).toBe(4);
     const ex2 = watch(r);
-    expect(ex2.lines).toEqual([C.watch, C.lineUp, C.slide, C.yourTurn]);
+    expect(ex2.lines).toEqual([C.watchRings, C.lineUp, C.slide, C.yourTurn]);
     expect(ex2.clicks).toBe(1);
     expect(ex2.minLayout[2]).toBe(0);
     expect(r.d.step).toBe(5);
@@ -360,7 +411,7 @@ describe("LessonsDirector: lesson 1", () => {
     r.d.start("l1", 2);
     r.run(16);
     expect(r.d.step).toBe(4);
-    expect(r.d.frame.line).toBe(C.watch);
+    expect(r.d.frame.line).toBe(C.watchRings);
     expect(r.deps.onStep).toHaveBeenCalledTimes(1);
     expect(r.deps.onStep).toHaveBeenCalledWith("l1", 4);
   });
@@ -371,7 +422,7 @@ describe("LessonsDirector: lesson 1", () => {
     r.d.start("l1", 3);
     r.run(16);
     expect(r.d.step).toBe(3);
-    expect(r.d.frame.line).toBe(C.yourTurn);
+    expect(r.d.frame.line).toBe(C.turnNearFar);
     expect([...r.d.frame.layout]).toEqual([1, 1, 1]);
     expect(r.d.frame.park).toBe(0);
     // A damaged step starts the lesson over.
@@ -453,16 +504,16 @@ describe("LessonsDirector: lesson 2", () => {
     r.inp.beam = false;
     // Example 3: a pale-blue ghost finger fills the twin crown's prong, then the player's lantern settles on the spot.
     const ex3 = watch(r);
-    expect(ex3.lines).toEqual([C.watch, C.finger, C.yourTurn]);
+    expect(ex3.lines).toEqual([C.watchFinger, C.finger, C.turnFinger]);
     expect(ex3.clicks).toBe(1);
     expect(ex3.fill).toBe(1);
     expect(ex3.minLayout[0]).toBe(0);
     expect(r.d.step).toBe(2);
     expect(ex3.lift).toEqual(LESSON_2.locks[0]!.L);
     expect(r.d.frame.lift).toBeNull();
-    expect(r.d.frame.line).toBe(C.yourTurn);
+    expect(r.d.frame.line).toBe(C.turnFinger);
     r.run(YOUR_TURN_MS);
-    expect(r.d.frame.line).toBe(C.finger);
+    expect(r.d.frame.line).toBe(C.turnFinger);
     r.inp.open.add(0);
     r.run(16);
     // The drawer: its line waits for the box's celebration, and stays until the drawer is pulled once.
@@ -553,11 +604,11 @@ describe("LessonsDirector: replay", () => {
     expect(r.d.replay("rings")).toBe(false);
     r.run(16);
     expect(r.d.frame.box).toBe("l1");
-    expect(r.d.frame.line).toBe(C.watch);
+    expect(r.d.frame.line).toBe(C.watchNearFar);
     // Opening a lock meanwhile changes nothing until the replay is over.
     r.inp.open.add(2);
     const res = watch(r);
-    expect(res.lines).toEqual([C.watch, C.nearSwing, C.yourTurn]);
+    expect(res.lines).toEqual([C.watchNearFar, C.nearSwing, C.yourTurn]);
     expect(res.clicks).toBe(1);
     expect(r.deps.onReplay).toHaveBeenLastCalledWith("near-far", "l1", false);
     expect(r.d.replaying).toBeNull();
@@ -577,7 +628,7 @@ describe("LessonsDirector: replay", () => {
       expect(r.d.frame.box).toBe(EXAMPLES[ex].lesson);
       const res = watch(r);
       expect(res.clicks).toBe(1);
-      expect(res.lines[0]).toBe(C.watch);
+      expect(res.lines[0]).toBe(C[SAID[ex].open]);
       expect(res.lines[res.lines.length - 1]).toBe(C.yourTurn);
       if (ex === "move") expect(res.lines).toContain(C.watchMove);
       expect(r.d.frame.box).toBeNull();

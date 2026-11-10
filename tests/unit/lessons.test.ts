@@ -38,6 +38,8 @@ function bench(o: { presenting?: boolean; autoStart?: boolean } = {}) {
     practice: false,
     revealed: true,
     isOpen: (i: number) => open.has(i),
+    warmth: () => 0,
+    restartStuck: vi.fn(),
     snapshot: () => ({ key: session.box?.key ?? "", lantern: [0, 0, 1], open: [...open], crystal: [], elapsedMs: 1234, hints: 0, hintLevel: {} }) as BoxSnapshot,
   };
   const game = {
