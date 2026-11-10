@@ -48,10 +48,16 @@ export async function openWithFinger(app: XrApp, lock: number): Promise<void> {
   await app.step(3);
 }
 
-/** Open every lock of the box in play: the plain ones with the lantern, then the finger locks. */
+/**
+ * Open every lock of the box in play: the plain ones with the lantern, then the finger locks. A hand that filled a
+ * finger lock is then taken out of tracking: in passthrough the real hand hides what is behind it, and it would stand
+ * in front of the reward.
+ */
 export async function solveBox(app: XrApp, s: SlSessionState): Promise<void> {
   for (const l of s.locks.filter((x) => !x.finger)) await openWithLantern(app, l.i, l.spot);
-  for (const l of s.locks.filter((x) => x.finger)) await openWithFinger(app, l.i);
+  const fingers = s.locks.filter((x) => x.finger);
+  for (const l of fingers) await openWithFinger(app, l.i);
+  if (fingers.length) await new Pointer(app, "right").disconnect();
 }
 
 /**
