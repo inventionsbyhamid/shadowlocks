@@ -31,7 +31,7 @@ export const COPY = {
     sentDaily: "A friend sent you the Daily Box for {day}.",
     sentBox: "A friend sent you Box No. {n}.",
     says: "Your friend says {time}.",
-    saysHints: "Your friend says {time}, {hints}.",
+    saysHints: "Your friend says {time}, {help}.",
     noHints: "no hints",
     hints: { one: "{n} hint", other: "{n} hints" },
     todayTurn: "It is today's Daily Box. Your turn.",

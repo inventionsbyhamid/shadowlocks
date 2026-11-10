@@ -19,7 +19,7 @@ export const FR: Copy = {
     sentDaily: "Un ami t'a envoyé la Boîte du jour du {day}.",
     sentBox: `Un ami t'a envoyé la Boîte n°${NB}{n}.`,
     says: "Ton ami annonce {time}.",
-    saysHints: "Ton ami annonce {time}, {hints}.",
+    saysHints: "Ton ami annonce {time}, {help}.",
     noHints: "sans indice",
     hints: { one: "{n} indice", other: "{n} indices" },
     todayTurn: "C'est la Boîte du jour. À toi de jouer.",

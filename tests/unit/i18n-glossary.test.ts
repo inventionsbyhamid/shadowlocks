@@ -59,6 +59,7 @@ const EXCEPT: [string, Others | "*", string, string][] = [
   ["shadow", "*", "panels.home.title", "the name stays in English"],
   ["lock", "*", "panels.home.title", "the name stays in English"],
   ["box", "ja", "landing.description", "a puzzle box is パズルボックス, one word"],
+  ["dailyBox", "ja", "share.sentDaily", "'11月2日の箱が届きました': the date says which day"],
 ];
 
 function leaves(v: unknown, path = ""): [string, string][] {

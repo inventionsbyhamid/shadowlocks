@@ -120,8 +120,8 @@ export class SharePage {
     if (l) {
       set("shared-line", l.target.kind === "daily" ? fill(c.sentDaily, { day: formatDay(l.target.day) }) : fill(c.sentBox, { n: l.target.n }));
       const time = l.t === null ? "" : clockText(l.t);
-      const hints = l.h === null ? "" : l.h === 0 ? c.noHints : count(l.h, c.hints);
-      set("shared-says", l.t === null ? "" : l.h === null ? fill(c.says, { time }) : fill(c.saysHints, { time, hints }));
+      const help = l.h === null ? "" : l.h === 0 ? c.noHints : count(l.h, c.hints);
+      set("shared-says", l.t === null ? "" : l.h === null ? fill(c.says, { time }) : fill(c.saysHints, { time, help }));
       const note = this.landing;
       set("shared-note", note === "today" ? c.todayTurn : note === "practice" ? c.practiceTurn : note === "otherDay" ? c.otherDay : "");
     }

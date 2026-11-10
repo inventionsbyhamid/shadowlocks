@@ -21,7 +21,7 @@ export const JA: Copy = {
     sentDaily: "友だちから{day}の箱が届きました。",
     sentBox: "友だちから第{n}の箱が届きました。",
     says: "友だちの記録は{time}です。",
-    saysHints: "友だちの記録は{time}、{hints}です。",
+    saysHints: "友だちの記録は{time}、{help}です。",
     noHints: "ヒントなし",
     hints: { one: "ヒント{n}回", other: "ヒント{n}回" },
     todayTurn: "今日の箱です。あなたの番です。",

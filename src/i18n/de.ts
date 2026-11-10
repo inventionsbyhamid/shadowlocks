@@ -18,7 +18,7 @@ export const DE: Copy = {
     sentDaily: "Ein Freund hat dir die Tagesbox vom {day} geschickt.",
     sentBox: `Ein Freund hat dir Box Nr.${NB}{n} geschickt.`,
     says: "Dein Freund sagt: {time}.",
-    saysHints: "Dein Freund sagt: {time}, {hints}.",
+    saysHints: "Dein Freund sagt: {time}, {help}.",
     noHints: "ohne Hinweis",
     hints: { one: "{n} Hinweis", other: "{n} Hinweise" },
     todayTurn: "Das ist die Tagesbox von heute. Du bist dran.",

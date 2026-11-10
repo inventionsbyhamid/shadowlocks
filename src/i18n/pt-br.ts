@@ -19,7 +19,7 @@ export const PT_BR: Copy = {
     sentDaily: "Um amigo te mandou a Caixa do dia {day}.",
     sentBox: `Um amigo te mandou a Caixa nº${NB}{n}.`,
     says: "Seu amigo diz: {time}.",
-    saysHints: "Seu amigo diz: {time}, {hints}.",
+    saysHints: "Seu amigo diz: {time}, {help}.",
     noHints: "sem pistas",
     hints: { one: "{n} pista", other: "{n} pistas" },
     todayTurn: "É a Caixa do dia de hoje. Sua vez.",
