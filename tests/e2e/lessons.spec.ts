@@ -294,8 +294,9 @@ test("lesson 1 states the goal and helps an idle player", async ({ page, boot })
   await openAtSpot(app, page, 0);
   s = await lessons(page);
   expect([s.step, s.key, s.why]).toEqual([2, "lockOpen", "win"]);
-  const pause = await app.stepUntil((_ns, w) => w.__sl.lessons.state().key === "watchNearFar", { maxMs: 3_000, label: "Example 1" });
-  expect(pause).toBeGreaterThan(1_600);
+  const pause = await app.stepUntil((_ns, w) => w.__sl.lessons.state().key === "watchNearFar", { maxMs: 4_000, label: "Example 1" });
+  // Long enough to read "Lock open! Every shape on the wall is a lock." (2.6 s).
+  expect(pause).toBeGreaterThan(2_400);
   expect(app.logs()).not.toMatch(/PAGEERROR/);
 });
 

@@ -12,6 +12,7 @@ import { GhostHand } from "../../src/render/ghost-hand";
 import {
   BEAT_MS,
   type DirectorDeps,
+  FIRST_WIN_MS,
   EXAMPLES,
   exampleFor,
   FORM_MS,
@@ -40,6 +41,10 @@ class FakeInputs implements LessonInputs {
   beam = false;
   isSettled = false;
   isRewardUp = false;
+  /** The session's hint lantern glows (its stuck watch). */
+  isStuck = false;
+  /** The session's suggestion for the input in hand (held through brief drops), or null. */
+  suggest: "controllerFinger" | null = null;
   pulled = false;
   reduced = false;
   /** Each lock's warmth (0 unless set). */
@@ -55,6 +60,8 @@ class FakeInputs implements LessonInputs {
   inBeam = () => this.beam;
   settled = () => this.isSettled;
   rewardUp = () => this.isRewardUp;
+  stuck = () => this.isStuck;
+  suggestion = () => this.suggest;
   hand = (out: V3): boolean => {
     if (!this.handAt) return false;
     out[0] = this.handAt[0];
@@ -363,7 +370,7 @@ describe("LessonsDirector: lesson 1", () => {
     expect(r.d.frame.hand.opacity).toBe(0);
   });
 
-  it("names each win, then pauses 1.8 s before the next example (the gold and the chord land first)", () => {
+  it("names each win, then pauses before the next example: 2.6 s after the first (its line is long), 1.8 s after the second", () => {
     r.d.start("l1", 1);
     r.run(500);
     r.inp.isHeld = true;
@@ -371,8 +378,10 @@ describe("LessonsDirector: lesson 1", () => {
     r.run(16);
     const f = r.d.frame;
     expect([r.d.step, f.key, f.why, r.d.showing]).toEqual([2, "lockOpen", "win", false]);
-    // The pause: the lantern stays in the hand, no ghost, no cradle.
-    r.run(BEAT_MS - 100);
+    // The pause: the lantern stays in the hand, no ghost, no cradle; long enough to read "Every shape on the wall is a lock."
+    expect(FIRST_WIN_MS).toBe(2600);
+    expect(BEAT_MS).toBe(1800);
+    r.run(FIRST_WIN_MS - 100);
     expect([f.key, r.d.showing, f.park, f.hand.opacity]).toEqual(["lockOpen", false, 0, 0]);
     r.run(200);
     expect([r.d.showing, f.key, f.why]).toEqual([true, "watchNearFar", "example"]);
@@ -381,7 +390,9 @@ describe("LessonsDirector: lesson 1", () => {
     r.inp.open.add(1);
     r.run(16);
     expect([r.d.step, f.key, f.why]).toEqual([4, "twoOpen", "win"]);
-    r.run(BEAT_MS + 100);
+    r.run(BEAT_MS - 100);
+    expect([r.d.showing, f.key]).toEqual([false, "twoOpen"]);
+    r.run(200);
     expect([r.d.showing, f.key]).toEqual([true, "watchRings"]);
     // Lesson 2's crown opening: the reward's line while it is up, then the drawer's.
     r.d.start("l2", 2);
@@ -410,7 +421,7 @@ describe("LessonsDirector: lesson 1", () => {
     q.run(16);
     q.run(500);
     q.inp.open.add(1);
-    q.run(BEAT_MS);
+    q.run(FIRST_WIN_MS - 500);
     expect([q.d.step, q.d.frame.key, q.d.showing]).toEqual([4, "twoOpen", false]);
     q.run(BEAT_MS);
     expect([q.d.showing, q.d.frame.key]).toEqual([true, "watchRings"]);

@@ -73,10 +73,12 @@ export const PUPPET_MAX_MS = 12000;
 /** The Key's turn: "Your turn." stays this long before the rings' own line. */
 export const YOUR_TURN_MS = 3000;
 /**
- * A lesson lock opened: its win is named ("Lock open! ...") and the next example waits this long, so the gold, the
- * chord and the words land before the ghost takes the lantern.
+ * A lesson lock opened: its win is named ("Two locks open. One to go.") and the next example waits this long, so the
+ * gold, the chord and the words land before the ghost takes the lantern...
  */
 export const BEAT_MS = 1800;
+/** ...and this long after the first, whose line also teaches ("Lock open! Every shape on the wall is a lock."). */
+export const FIRST_WIN_MS = 2600;
 /**
  * Help on a lesson lock for a player making no progress (its warmth never rising 0.1, the stuck watch's rule): each
  * nudge from its time on, by the example the step follows. Every lock says "Stuck? ..." at the lesson's stuck time,
@@ -307,8 +309,9 @@ export class LessonsDirector {
   private ringsMs = 0;
   /** The step just ended on the player opening its lock (the next example then waits a beat, its win named). */
   private won = false;
-  /** The beat before a demo step's example: how long it has run, or -1 for none. */
+  /** The beat before a demo step's example: how long it has run (-1 for none), and how long it lasts. */
   private beatMs = -1;
+  private beatEndMs = BEAT_MS;
   /** A lesson lock's progress (its warmth rising), as the session's stuck watch counts it; started over each step. */
   private readonly progress = new StuckWatch(LESSON_STUCK_MS);
   /** How long the lantern has been held without a break, and the let-go line's showing (-1: not showing). */
@@ -522,7 +525,7 @@ export class LessonsDirector {
         if (this.beatMs >= 0) {
           // The beat after a win: then the example, unless its lock was opened meanwhile (that win is named next).
           this.idleGhost(dt, false, null);
-          if ((this.beatMs += dt) < BEAT_MS) break;
+          if ((this.beatMs += dt) < this.beatEndMs) break;
           this.beatMs = -1;
           if (inp.isOpen(s.lock)) this.advance(true);
           else this.startScript(s.example!);
@@ -672,8 +675,10 @@ export class LessonsDirector {
     if (s.kind === "demo" && s.example) {
       // Reached by opening a lock: the win named and a beat first. Resumed (a reload), the example starts at once.
       if (won) {
+        const win = this.winLine();
         this.beatMs = 0;
-        this.show(this.winLine(), "win");
+        this.beatEndMs = win === "lockOpen" ? FIRST_WIN_MS : BEAT_MS;
+        this.show(win, "win");
       } else this.startScript(s.example);
     }
   }
