@@ -4,7 +4,7 @@
 import { recordDailySolve } from "../core/daily";
 import { ENVELOPE } from "../core/envelope";
 import { GENERATOR_VERSION, seedKey } from "../core/generator";
-import type { BoxSnapshot, Profile } from "../core/profile";
+import type { BoxSnapshot, CollectionItem, Profile } from "../core/profile";
 import type { Coverage, LockSamples } from "../core/solve";
 import type { Box, BoxSpec, Lock, V3 } from "../core/types";
 
@@ -75,10 +75,15 @@ export function solveBox(p: Profile, spec: BoxSpec): void {
   }
 }
 
-/** The box's reward goes into the collection (once: a box already there is not added again). */
-export function collect(p: Profile, box: Box, atMs: number, timeMs: number, hints: number): void {
+/**
+ * The box's reward goes into the collection (once: a box already there is not added again), with each lock's hint
+ * level when given (the result card's tiles).
+ */
+export function collect(p: Profile, box: Box, atMs: number, timeMs: number, hints: number, levels?: readonly number[]): void {
   if (p.collection.some((c) => c.key === box.key)) return;
-  p.collection.push({ key: box.key, owner: box.owner, loot: box.loot, shapes: box.locks.map((l) => l.shape), atMs, timeMs, hints });
+  const item: CollectionItem = { key: box.key, owner: box.owner, loot: box.loot, shapes: box.locks.map((l) => l.shape), atMs, timeMs, hints };
+  if (levels) item.levels = [...levels];
+  p.collection.push(item);
 }
 
 /**

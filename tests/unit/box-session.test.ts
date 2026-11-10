@@ -845,6 +845,8 @@ describe("box session", () => {
     expect(r.levels.slice(1).every((l) => l === 0)).toBe(true);
     // Its time is the play time the collection records.
     expect(r.timeMs).toBe(profile.collection[0]!.timeMs);
+    // The collection keeps each lock's level too, so the result can be shared again on a later visit.
+    expect(profile.collection[0]!.levels).toEqual(r.levels);
     expect(r.timeMs).toBeGreaterThan(3000);
     // The same day again: reported, not recorded (the first solve stands). A practice box: never recorded.
     const again = await play(harness({ profile }), { kind: "daily", day });

@@ -64,6 +64,11 @@ export interface CollectionItem {
   /** Play time it took. */
   timeMs: number;
   hints: number;
+  /**
+   * The hint level each lock reached, in panel order (0 to 4): the result card's tiles, so the result can be shared
+   * again later. Absent in older saves.
+   */
+  levels?: number[];
 }
 
 export interface Profile {
@@ -210,7 +215,11 @@ function collectionItemFrom(v: unknown): CollectionItem | null {
   const { key, owner, loot, shapes, atMs, timeMs, hints } = v;
   if (typeof key !== "string" || key.length === 0 || typeof owner !== "string" || typeof loot !== "string") return null;
   if (!Array.isArray(shapes) || !isTime(atMs) || !isTime(timeMs) || !isNat(hints)) return null;
-  return { key, owner, loot, shapes: shapes.filter((s): s is ShapeName => has(SHAPE_NAMES, s)), atMs, timeMs, hints };
+  const item: CollectionItem = { key, owner, loot, shapes: shapes.filter((s): s is ShapeName => has(SHAPE_NAMES, s)), atMs, timeMs, hints };
+  // Each lock's hint level: one to three locks, 0 to 4 each; anything else is left out (the item stays).
+  const lv = v.levels;
+  if (Array.isArray(lv) && lv.length >= 1 && lv.length <= 3 && lv.every((n) => isNat(n) && n <= 4)) item.levels = [...lv];
+  return item;
 }
 
 /** Settings from any stored value: each field clamped to its range or set to its default. */

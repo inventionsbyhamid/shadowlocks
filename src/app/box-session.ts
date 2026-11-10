@@ -602,21 +602,14 @@ export class BoxSession {
     // Solved: the profile moves on and the reward is in the collection now, with the time and hints final (taking it
     // is the moment the player sees; a reload before that loses nothing). A practice box changes nothing.
     const recorded = !this.practiceNow && !p.collection.some((c) => c.key === box.key);
+    const levels = levelsOf(this.book.levels(), box.locks.length);
     if (!this.practiceNow) {
       solveBox(p, this.currentSpec!);
-      collect(p, box, d.wallNow(), this.elapsed, this.book.count);
+      collect(p, box, d.wallNow(), this.elapsed, this.book.count, levels);
       void d.profiles.save();
     }
     // The result card, from the profile as it is now (the streak moved on, the collection has the box).
-    this.view.result?.({
-      spec: this.currentSpec!,
-      key: box.key,
-      practice: this.practiceNow,
-      recorded,
-      timeMs: this.elapsed,
-      hints: this.book.count,
-      levels: levelsOf(this.book.levels(), box.locks.length),
-    });
+    this.view.result?.({ spec: this.currentSpec!, key: box.key, practice: this.practiceNow, recorded, timeMs: this.elapsed, hints: this.book.count, levels });
     d.boxes.prefetch({ kind: "box", n: p.nextBox });
   }
 
