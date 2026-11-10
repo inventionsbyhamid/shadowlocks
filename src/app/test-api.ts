@@ -244,6 +244,11 @@ export interface SlLantern {
   glow: number;
   /** The settle ripple's ring opacity (0: none); drawn in the glow's sprite. */
   ripple: number;
+  /**
+   * Where the tracked hand nearest the lantern pinches, as the lantern grab read it this frame (box units; the point
+   * the lessons' reaching ghost keeps clear of), or null with no hand in tracking.
+   */
+  nearPinch: V3 | null;
 }
 
 /** A lock's ring line as the lantern feel sees it this frame (box units): mark on the panel, direction out to the spot. */
@@ -342,8 +347,6 @@ export interface SlHand {
   minZ: number;
   /** Its index finger's intermediate, distal and tip joints (box units). */
   index: [V3, V3, V3];
-  /** Its pinch point as the lantern reads it: halfway between thumb and index tips (box units). */
-  pinch: V3;
 }
 
 /** The hands in the box this frame. */
