@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Matrix4, Vector3 } from "@iwsdk/core";
+import { Euler, Matrix4, Quaternion, Vector3 } from "@iwsdk/core";
 import type { V3, Vec3 } from "../../src/core/types";
 import {
   BOX_BELOW_HEAD_M,
@@ -8,6 +8,7 @@ import {
   DEFAULT_BOX_CM,
   NECK_M,
   Placement,
+  placeFromHead,
   PLAY_PITCH,
   placeBox,
   TILT_DEG,
@@ -220,6 +221,44 @@ describe("Placement", () => {
     pl.start({ position: [e.x, e.y, e.z], yaw });
     const want = placeBox({ pos: e.clone(), yaw }, DEFAULT_BOX_CM);
     for (let i = 0; i < 16; i++) close(pl.matrix().elements[i]!, want.elements[i]!);
+  });
+
+  it("every headset placement (first, Recenter, Quest's recenter, the arrow's summon) lands where the first did, the head 20 degrees up, level or 40 down", () => {
+    // placeFromHead is what the shell places with, every time: here a seated player's eyes round the neck (NECK_M),
+    // turned 0.8 rad, the head's turn as the headset reports it.
+    const yaw = 0.8, upright = new Vector3(0.2, 1.22, -0.4);
+    const fwd = new Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    const pivot = upright.clone().addScaledVector(fwd, -NECK_M.forward).add(new Vector3(0, -NECK_M.up, 0));
+    const headAt = (deg: number) => {
+      const p = deg * DEG, back = NECK_M.up * Math.sin(p) - NECK_M.forward * Math.cos(p);
+      return {
+        pos: pivot.clone().add(new Vector3(Math.sin(yaw) * back, NECK_M.up * Math.cos(p) + NECK_M.forward * Math.sin(p), Math.cos(yaw) * back)),
+        turn: new Quaternion().setFromEuler(new Euler(p, yaw, 0, "YXZ")),
+      };
+    };
+    const view = { tanH: 0.3, tanV: 0.3 };
+    const pl = new Placement();
+    // The first placement, the player looking at the lap; the lantern on a lock's spot and a crystallised piece.
+    const first = headAt(-27);
+    placeFromHead(pl, first.pos, first.turn, false, view);
+    const want = pl.matrix().clone();
+    const pts: V3[] = [[0.2, -0.3, 1.35], [0.1, 0.05, 0.45]];
+    const at = pts.map((p) => world(want, p));
+    for (const [name, deg] of [["Recenter, the head 20 degrees up", 20], ["Quest's recenter, level", 0], ["the arrow's summon, 40 degrees down", -40]] as const) {
+      const h = headAt(deg);
+      placeFromHead(pl, h.pos, h.turn, false, view);
+      expect(pl.source, name).toBe("head");
+      // The same box to 1e-9 m and rad: the eyes are put back where they are while looking at it.
+      for (let i = 0; i < 16; i++) expect(Math.abs(pl.matrix().elements[i]! - want.elements[i]!), `${name}, element ${i}`).toBeLessThan(1e-9);
+      // Box units unchanged, so the lantern and the solve state are where they were, in the box and in the room.
+      pts.forEach((p, k) => expect(world(pl.matrix(), p).distanceTo(at[k]!), name).toBeLessThan(1e-9));
+    }
+    // A phone is placed in its camera's view, as before: the pitch leans the box, the eyes are not moved.
+    const phone = new Placement(), ref = new Placement(), cam = headAt(-35);
+    placeFromHead(phone, cam.pos, cam.turn, true, view);
+    ref.startInView({ position: [cam.pos.x, cam.pos.y, cam.pos.z], yaw }, -35 * DEG, view);
+    expect(phone.source).toBe("view");
+    for (let i = 0; i < 16; i++) expect(Math.abs(phone.matrix().elements[i]! - ref.matrix().elements[i]!)).toBeLessThan(1e-9);
   });
 
   it("returns the same pose and matrix objects every call", () => {

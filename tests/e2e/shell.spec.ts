@@ -21,6 +21,18 @@ function turnedLeft(p: HeadPose, deg: number): HeadPose {
 const summon = (page: Page) => page.evaluate(() => window.__sl!.summon());
 
 /**
+ * Where a headset places the box from (render/placement.ts playEye, written out: the spec does not load the game's
+ * three.js modules): the eyes at `head` (heading `yaw`, pitched `pitch` radians) moved round the neck (7.5 cm up, 8.05 cm
+ * forward of its pivot) to the pitch a seated player looks at the box with (down to 0.55 m ahead, 0.28 m below).
+ */
+function playEye(head: Vec3, yaw: number, pitch: number): Vec3 {
+  const u = 0.075, f = 0.0805, q = -Math.atan2(0.28, 0.55);
+  const dy = u * Math.cos(q) + f * Math.sin(q) - (u * Math.cos(pitch) + f * Math.sin(pitch));
+  const back = u * Math.sin(q) - f * Math.cos(q) - (u * Math.sin(pitch) - f * Math.cos(pitch));
+  return [head[0] + back * Math.sin(yaw), head[1] + dy, head[2] + back * Math.cos(yaw)];
+}
+
+/**
  * Far enough round that no part of the box is left in view: IWER's emulated view is wide (90 degrees up and down, about
  * 120 across in the 16:9 page), so a quarter turn still shows the edge of the box in the lap.
  */
@@ -118,9 +130,13 @@ test("Recenter places the box again in front of where the head looks now", async
   await app.stepUntil((ns) => Math.abs(ns.state().boxPose.yaw - Math.PI / 2) < 0.01, { maxMs: 2_000, label: "box turned with the head" });
   const s = await app.state();
   const head = s.head!;
-  expect(s.boxPose.position[0]).toBeCloseTo(head[0] - 0.55, 3);
-  expect(s.boxPose.position[2]).toBeCloseTo(head[2], 3);
-  expect(head[1] - s.boxPose.position[1]).toBeCloseTo(0.28, 3);
+  // Placed from where the eyes are while looking at the box: the head looks about 13 degrees down here, so the eyes
+  // swing round the neck to the play pitch first (0.55 m ahead of and 0.28 m above the panel, as at the first placement).
+  const eye = playEye(head, Math.PI / 2, Math.atan2(0.9 - 1.15, 1.1));
+  expect(dist(eye, head)).toBeGreaterThan(0.02);
+  expect(s.boxPose.position[0]).toBeCloseTo(eye[0] - 0.55, 3);
+  expect(s.boxPose.position[2]).toBeCloseTo(eye[2], 3);
+  expect(eye[1] - s.boxPose.position[1]).toBeCloseTo(0.28, 3);
   for (let i = 0; i < 3; i++) expect(s.box.world![i]).toBeCloseTo(s.boxPose.position[i]!, 4);
   // The settings panel moved with it once the finger left (it stands on the box's drawer).
   await app.stepUntil((ns) => !ns.ui.layoutHeld(), { maxMs: 2_000, label: "panel follows the box" });
