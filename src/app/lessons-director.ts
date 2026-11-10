@@ -213,6 +213,8 @@ export interface LessonFrame {
   /** The lock marked as the one to open (lock I through its step), -1 for none, and its outline's warmth now. */
   mark: number;
   markWarmth: number;
+  /** The coach line sits by the player's lantern (while lesson 1 asks for it to be picked up), else over the box. */
+  coachNear: boolean;
   /** The box forming from light: 0 not yet, 1 formed. */
   form: number;
   hand: GhostHandFrame;
@@ -250,6 +252,7 @@ function newFrame(): LessonFrame {
     why: null,
     mark: -1,
     markWarmth: 0,
+    coachNear: false,
     form: 1,
     hand: { opacity: 0, poseA: "relaxed", poseB: "relaxed", poseT: 0, anchor: "grasp", at: v3(), fingers: [0, 0, -1], palm: [0, -1, 0], side: "right" },
     lamp: { opacity: 0, at: v3() },
@@ -456,10 +459,13 @@ export class LessonsDirector {
     this.stepMs += dt;
     f.form = clamp01(this.formMs / FORM_MS);
     f.mark = -1;
+    f.coachNear = false;
     const s = LESSON_STEPS[this.id][this.n]!, inp = this.deps.inputs, formed = f.form >= 1;
     switch (s.kind) {
       case "intro": {
-        // The reach for the lantern 4 s after the line, even with a hand near (kept clear of it), until it is held.
+        // The coach line by the lantern, where the eyes are. The reach for the lantern 4 s after the line, even with a
+        // hand near (kept clear of it), until it is held.
+        f.coachNear = true;
         const held = inp.held();
         if (formed) this.lineMs += dt;
         this.show(formed ? "pickUp" : null, "step");
@@ -653,6 +659,8 @@ export class LessonsDirector {
     this.deps.onStep?.(id, n);
     this.deps.onRestart?.(id, n);
     const s = steps[n]!, formed = this.frame.form >= 1;
+    // The coach line by the lantern from this very frame while the intro asks for it.
+    this.frame.coachNear = s.kind === "intro";
     // The step's first line shows from this very frame (a demo's comes from its script).
     if (s.kind === "intro") this.show(formed ? "pickUp" : null, "step");
     else if (s.kind === "move") this.show("goal", "step");
@@ -683,6 +691,7 @@ export class LessonsDirector {
     this.ghost = 0;
     this.ghostKind = null;
     f.mark = -1;
+    f.coachNear = false;
     let key: LessonLine | null = null;
     for (let i = 0; i < s.lines.length && s.lines[i]!.t <= t; i++) key = s.lines[i]!.key;
     this.show(key, "example");
@@ -744,6 +753,7 @@ export class LessonsDirector {
       return;
     }
     f.mark = -1;
+    f.coachNear = false;
     handAt(s.hand, t, f.hand, null);
     f.hand.anchor = s.anchor;
     copy3(s.fingers, f.hand.fingers);
@@ -760,6 +770,7 @@ export class LessonsDirector {
     this.show(null, null);
     f.mark = -1;
     f.markWarmth = 0;
+    f.coachNear = false;
     f.form = 1;
     f.hand.opacity = 0;
     f.lamp.opacity = 0;

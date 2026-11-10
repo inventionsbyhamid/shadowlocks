@@ -52,7 +52,7 @@ export interface LessonsDeps {
   settings: SettingsStore;
   lantern: Lantern;
   hands: HandsInBox;
-  sound: { game: { lessonStep(): void; settle(): void; crystallise(lock: number): void } };
+  sound: { game: { lessonStep(): void; settle(): void; crystallise(lock: number): void; coachLine(): void } };
   play: { game: Game; session: BoxSession; view: { readonly coachLine: CoachLine | null } };
   /** The player is in XR and can see it: lessons wait otherwise (the box forms as they enter; a hidden headset holds). */
   presenting(): boolean;

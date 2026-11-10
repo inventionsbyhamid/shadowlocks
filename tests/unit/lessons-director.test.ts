@@ -715,6 +715,27 @@ describe("LessonsDirector: help for an idle player", () => {
   });
 });
 
+describe("LessonsDirector: the coach line by the lantern", () => {
+  it("puts the coach line by the lantern while it asks for it (from the box forming), and back over the box once it is held", () => {
+    const r = rig(), f = r.d.frame;
+    r.d.start("l1");
+    expect(f.coachNear).toBe(true);
+    r.run(FORM_MS + 5000, () => expect(f.coachNear).toBe(true));
+    r.inp.isHeld = true;
+    r.run(16);
+    expect([r.d.step, f.coachNear]).toEqual([1, false]);
+    r.run(3000, () => expect(f.coachNear).toBe(false));
+    // A replay, a tip's demo, lesson 2: over the box.
+    r.d.start("l1", 1);
+    r.d.stop();
+    r.d.replay("move");
+    r.run(2000, () => expect(f.coachNear).toBe(false));
+    const q = rig();
+    q.d.start("l2");
+    q.run(3000, () => expect(q.d.frame.coachNear).toBe(false));
+  });
+});
+
 describe("LessonsDirector: lock I marked", () => {
   it("marks lock I through its step: its outline breathes softly (about 0.25, slowly), never during its example", () => {
     const r = rig(), f = r.d.frame;

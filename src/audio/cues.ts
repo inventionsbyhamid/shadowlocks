@@ -18,6 +18,7 @@ import { CueScheduler } from "./scheduler";
  *   the music dipping 4 dB under the tune (its notes' cues carry `duckDb`).
  * - `ring` {lock, on}: the ring chime when the rings line up (on), nothing when they part.
  * - `crystallise` {lock}, `hint` {lock, gain?}, `lesson-step`: their sounds.
+ * - `coach-line`: a new line on the coach chip, a soft tick (the hover's: a fingertip brushing a key), head-locked.
  * - `theatre` {up}: the theatre lights coming up (theatre_up) or going down (theatre_dim), head-locked.
  * - `drawer`: the menu drawer pulled open (its slide).
  * - `tick` {cm}, or `feel` {e: {type: "tick", cm}}: a dial tick, climbing G A B D.
@@ -51,10 +52,23 @@ export const LESSON_STEP_GAIN = 0.5;
 /** The hint lantern's glow after the player is stuck plays the hint sound 6 dB down. */
 export const HINT_GLOW_GAIN = 10 ** (-6 / 20);
 /** The game events the mapper knows (see CueEvent): in the game they sound through GameSounds. */
-export const GAME_CUE_TYPES: ReadonlySet<string> = new Set(["lock-open", "box-open", "ring", "crystallise", "hint", "lesson-step", "tick", "feel", "drawer"]);
+export const GAME_CUE_TYPES: ReadonlySet<string> = new Set([
+  "lock-open",
+  "box-open",
+  "ring",
+  "crystallise",
+  "hint",
+  "lesson-step",
+  "coach-line",
+  "tick",
+  "feel",
+  "drawer",
+]);
 /** The theatre lights' events (GameSounds.theatre): made once, never changed. */
 const THEATRE_UP: CueEvent = Object.freeze({ type: "theatre", up: true });
 const THEATRE_DIM: CueEvent = Object.freeze({ type: "theatre", up: false });
+/** A new coach line (GameSounds.coachLine): made once. */
+const COACH_LINE: CueEvent = Object.freeze({ type: "coach-line" });
 /** Game events that name a lock. */
 const LOCK_EVENTS: ReadonlySet<string> = new Set(["lock-open", "ring", "crystallise", "hint"]);
 
@@ -182,6 +196,9 @@ export class CueMapper {
       }
       case "lesson-step":
         this.sfx(out, "lesson_step", { gain: LESSON_STEP_GAIN });
+        return;
+      case "coach-line":
+        this.sfx(out, "ui_hover");
         return;
       case "theatre":
         this.sfx(out, e.up === true ? "theatre_up" : "theatre_dim");
@@ -439,6 +456,11 @@ export class GameSounds {
   /** A lesson moves on a step: the lesson beat. */
   lessonStep(): void {
     this.handle({ type: "lesson-step" });
+  }
+
+  /** A new line on the coach chip: a soft tick, so the eyes go to it. */
+  coachLine(): void {
+    this.handle(COACH_LINE);
   }
 
   /** The theatre lights: the room's light coming up (the box opened) or going down (a box in play). Head-locked. */

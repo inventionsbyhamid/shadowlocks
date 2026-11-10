@@ -114,6 +114,33 @@ describe("CoachLine", () => {
   });
 });
 
+describe("CoachLine: a new line's tick", () => {
+  it("tells of each new line as it is painted, never of a repaint, a fade out or no line", () => {
+    const told: string[] = [];
+    const p = painter(), c = new CoachLine(p, (t) => told.push(t));
+    c.show(COPY.lessons.watch);
+    c.update(0);
+    c.update(COACH.fadeInMs);
+    expect(told).toEqual([COPY.lessons.watch]);
+    // The same line asked for again, a repaint, a font arriving: nothing new.
+    c.show(COPY.lessons.watch);
+    c.update(16);
+    c.repaint();
+    c.relettered();
+    c.update(16);
+    expect(told).toEqual([COPY.lessons.watch]);
+    // A new line: once, as it takes over (after the old one has faded out); none for the line going away.
+    c.show(COPY.lessons.yourTurn);
+    c.update(COACH.fadeOutMs / 2);
+    expect(told).toHaveLength(1);
+    c.update(COACH.fadeOutMs / 2);
+    expect(told).toEqual([COPY.lessons.watch, COPY.lessons.yourTurn]);
+    c.show(null);
+    for (let i = 0; i < 40; i++) c.update(16);
+    expect(told).toHaveLength(2);
+  });
+});
+
 describe("LineHold", () => {
   it("shows a line at once and keeps it through short drops, so a line asked for on and off never flickers", () => {
     const h = new LineHold();

@@ -565,10 +565,12 @@ describe("the lantern and the rings", () => {
     game.hint(0);
     game.crystallise(1, [0, 1, -1.7]);
     game.lessonStep();
+    game.coachLine();
     expect(engine.played.map((p) => [p.id, p.gain])).toEqual([
       ["hint_reveal", undefined],
       ["crystallise", undefined],
       ["lesson_step", 0.5],
+      ["ui_hover", undefined],
     ]);
     expect(engine.played[1]!.position).toEqual([0, 1, -1.7]);
   });
@@ -673,6 +675,8 @@ describe("game events as cues (pure, so the video mix replays them)", () => {
     expect(sfx(m.map([{ type: "hint", lock: 0, level: 1 }]))).toEqual([["hint_reveal", 0]]);
     expect(sfx(m.map([{ type: "crystallise", lock: 0 }]))).toEqual([["crystallise", 0]]);
     expect(m.map([{ type: "lesson-step" }])).toEqual([{ kind: "sfx", id: "lesson_step", gain: 0.5 }]);
+    // A new coach line: the soft wooden tick of a fingertip on a key, head-locked.
+    expect(m.map([{ type: "coach-line" }])).toEqual([{ kind: "sfx", id: "ui_hover" }]);
     expect(m.map([{ type: "feel", e: { type: "tick", lock: 0, cm: 2 } }])).toEqual([{ kind: "sfx", id: "dial_tick", pitch: 4 }]);
   });
 
