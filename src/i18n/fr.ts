@@ -13,6 +13,10 @@ export const FR: Copy = {
     notSaved: "Ta progression ne sera pas sauvegardée sur cet appareil.",
     updated: "Jeu mis à jour vers la dernière version.",
   },
+  share: {
+    best: `Ton record${NB}: {time}`,
+    newBest: "Nouveau record",
+  },
   settings: {
     on: "Oui",
     off: "Non",

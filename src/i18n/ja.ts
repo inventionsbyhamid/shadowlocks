@@ -15,6 +15,10 @@ export const JA: Copy = {
     notSaved: "この端末には進行状況が保存されません。",
     updated: "最新バージョンに更新しました。",
   },
+  share: {
+    best: `記録${NB}{time}`,
+    newBest: "記録更新",
+  },
   settings: {
     on: "オン",
     off: "オフ",

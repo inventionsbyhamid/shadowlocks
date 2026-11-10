@@ -18,6 +18,16 @@ export const COPY = {
     notSaved: "Progress will not be saved on this device.",
     updated: "Updated to the latest version.",
   },
+  /**
+   * Sharing: the result card on an opened box's reward (its time, a tile per lock and the streak), the player's own
+   * bests. A {time} is minutes and seconds ("4:12").
+   */
+  share: {
+    /** The player's best time: on a Daily Box, of every other Daily Box; on a box played again, that box's own. */
+    best: "Your best {time}",
+    /** A Daily Box opened faster than every other Daily Box before it. */
+    newBest: "New best",
+  },
   /** Settings rows: a toggle's label and the short note under it; slider labels; values. */
   settings: {
     on: "On",

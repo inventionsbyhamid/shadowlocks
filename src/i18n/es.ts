@@ -14,6 +14,10 @@ export const ES: Copy = {
     notSaved: "El progreso no se guardará en este dispositivo.",
     updated: "Actualizado a la última versión.",
   },
+  share: {
+    best: "Tu mejor tiempo: {time}",
+    newBest: "Nuevo récord",
+  },
   settings: {
     on: "Sí",
     off: "No",

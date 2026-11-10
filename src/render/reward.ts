@@ -5,6 +5,10 @@
 // brightening on the box's flash budget) and settles to a soft glow while it floats; with reduced motion it
 // brightens in place. Lives in the box root in box units: three draw calls while shown. The plaque and card are made
 // once per box; per frame nothing is allocated.
+//
+// Under it, once it is up, the box's result card (src/ui/result-card.ts: the box's name, a tile per lock, the time,
+// the streak, the best, the site's name): one more draw call. It stays where the reward floated after the reward is
+// taken, until the next box, so the player can take a system screenshot or show it in a cast at leisure.
 import {
   DataTexture,
   ExtrudeGeometry,
@@ -22,6 +26,7 @@ import {
 import type { Box, V2, V3 } from "../core/types";
 import { copy, type Lang, lang, storyLoot, storyOwner } from "../i18n";
 import { fill } from "../ui/copy";
+import type { ResultCard } from "../ui/result-card";
 import { clamp01, outBack, outCubic, smoothstep } from "./fx/ease";
 import type { FlashBudget } from "./fx/flash-budget";
 import { fitLabel, LabelCanvas, labelFont, labelMaterial, roundRect, wrapLabel } from "./label";
@@ -61,6 +66,26 @@ export const REWARD = {
    * plaques wide, so the plaque covers only its middle and the gold shows round it.
    */
   glow: { size: 1.05, z: -0.03, peak: 0.85, rest: 0.4, growFrom: 0.55, refused: 0.5 },
+  /**
+   * The result card (box units): its size, its gap under the plaque, and its canvas (the card drawn from the top, only
+   * as tall as its lines). About 10.6 by 8 cm in the default box.
+   */
+  result: { w: 0.44, h: 0.33, gap: 0.025, px: [768, 576] as const },
+} as const;
+
+/** The result card's lettering and tiles (canvas px on the 768 px card). */
+export const RESULT_LOOK = {
+  pad: 26,
+  title: 50,
+  tile: 76,
+  tileGap: 14,
+  time: 100,
+  line: 44,
+  lineH: 1.32,
+  site: 34,
+  room: 768 - 60,
+  /** A tile's colour: no hint, a hint, the spot shown (the share text's yellow, orange and red squares). */
+  colors: { clear: "#f2c94c", hinted: "#f2994a", shown: "#e5534b" },
 } as const;
 
 /**
@@ -181,6 +206,12 @@ export class Reward {
   readonly glow: Mesh;
   /** The glow's strength: 1, or half when the flash budget refused its bloom; NaN until it rises. */
   private glowStrength = Number.NaN;
+  /** The result card under the plaque (in the box root, so it stays when the reward is taken). */
+  readonly result: Mesh;
+  private readonly resultLabel = new LabelCanvas(REWARD.result.px[0], REWARD.result.px[1]);
+  private shownCard: ResultCard | null = null;
+  /** The reward has been up since it rose for this box: the card shows (until the next box). */
+  private risen = false;
 
   /** `budget`: the box's one flash budget (the box scene steps it): the rise's bloom is a brightening. */
   constructor(
@@ -216,11 +247,17 @@ export class Reward {
     this.group.add(this.glow, this.trinket, this.card);
     this.group.visible = false;
     root.add(this.group);
+    this.result = new Mesh(new PlaneGeometry(REWARD.result.w, REWARD.result.h), labelMaterial(this.resultLabel.texture, { depthWrite: false }));
+    this.result.name = "Reward Result";
+    this.result.visible = false;
+    root.add(this.result);
   }
 
   /** Make this box's reward (hidden until the box opens). */
   setBox(box: Box | null): void {
     this.hide();
+    this.setResult(null);
+    this.risen = false;
     this.box = box;
     if (!box) return;
     this.trinket.geometry.dispose();
@@ -238,6 +275,65 @@ export class Reward {
   /** The language changed (or its font arrived): the story card again. */
   relabel(): void {
     if (this.box) this.paintStory();
+  }
+
+  /** The result card shown under the plaque once it is up (null: none). Painted now, never per frame. */
+  setResult(card: ResultCard | null): void {
+    this.shownCard = card;
+    if (card) this.paintResult(card);
+    this.result.visible = card !== null && this.risen;
+  }
+
+  /** The result card given, or null. */
+  get resultCard(): ResultCard | null {
+    return this.shownCard;
+  }
+
+  private paintResult(card: ResultCard): void {
+    const R = RESULT_LOOK;
+    this.resultLabel.paint((g, w) => {
+      const lineH = R.line * R.lineH;
+      const h = R.pad + R.title * 1.2 + 14 + R.tile * 1.3 + 8 + card.lines.length * lineH + 10 + R.site * 1.3 + R.pad;
+      roundRect(g, 4, 4, w - 8, h - 8, 26);
+      g.fillStyle = "rgba(20, 16, 22, 0.9)";
+      g.fill();
+      g.lineWidth = 4;
+      g.strokeStyle = COLORS.etch;
+      g.stroke();
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      let y = R.pad + (R.title * 1.2) / 2;
+      fitLabel(g, card.title, "bold", R.title, R.title * 0.7, R.room);
+      g.fillStyle = "#f6e7c4";
+      g.fillText(card.title, w / 2, y, R.room);
+      // The tiles and the time on one row, centred together.
+      y += (R.title * 1.2) / 2 + 14 + (R.tile * 1.3) / 2;
+      const n = card.tiles.length, tilesW = n * R.tile + (n - 1) * R.tileGap;
+      g.font = labelFont("bold", R.time);
+      const timeW = g.measureText(card.time).width, gap = 34;
+      let x = (w - (tilesW + gap + timeW)) / 2;
+      for (const t of card.tiles) {
+        roundRect(g, x, y - R.tile / 2, R.tile, R.tile, 12);
+        g.fillStyle = R.colors[t];
+        g.fill();
+        x += R.tile + R.tileGap;
+      }
+      g.textAlign = "left";
+      g.fillStyle = "#fff3cf";
+      g.fillText(card.time, x - R.tileGap + gap, y);
+      g.textAlign = "center";
+      y += (R.tile * 1.3) / 2 + 8 + lineH / 2;
+      g.fillStyle = "#f6e7c4";
+      for (const line of card.lines) {
+        fitLabel(g, line, "600", R.line, R.line * 0.75, R.room);
+        g.fillText(line, w / 2, y, R.room);
+        y += lineH;
+      }
+      y += 10 + (R.site * 1.3) / 2 - lineH / 2;
+      g.font = labelFont("italic", R.site, "en");
+      g.fillStyle = COLORS.metal;
+      g.fillText(card.site, w / 2, y, R.room);
+    });
   }
 
   private paintStory(): void {
@@ -265,6 +361,12 @@ export class Reward {
     // Up and a little inward, clear of the front post (REWARD.maxX).
     const x = Math.sign(drawer[0]) * Math.min(Math.abs(drawer[0]), REWARD.maxX);
     this.rest.set(x, drawer[1] + REWARD.rise, drawer[2] - 0.04);
+    // The card's top a gap under the plaque where it will float (the mesh is the canvas's full height: its painted
+    // part starts at the top).
+    const C = REWARD.result;
+    this.result.position.set(x, this.rest.y - REWARD.plaque.h / 2 - C.gap - C.h / 2, this.rest.z);
+    this.risen = false;
+    this.result.visible = false;
     this.group.position.copy(this.from);
     this.group.scale.setScalar(0.4);
     this.group.visible = false;
@@ -331,6 +433,8 @@ export class Reward {
         if (k >= 1) {
           this.group.scale.setScalar(1);
           this.phase = "up";
+          this.risen = true;
+          this.result.visible = this.shownCard !== null;
         }
         return false;
       }
