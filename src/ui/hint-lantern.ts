@@ -160,6 +160,11 @@ export class HintLantern {
       this.openS += dt;
       if (this.openS >= HINT_LANTERN.choicesS) this.close();
     }
+    // The keys' shared parent, this group, brought up to date once for all of them, from the box root's world matrix
+    // as it stands: the root's only mover is the box placement (BoxScene.setPlacement), which updates its world
+    // matrix as it moves it, and its parent is the scene, never moved (src/app/head-world.ts says why). The same
+    // numbers each key's own update through the root would make.
+    if (tips.count > 0) this.group.updateWorldMatrix(false, false);
     let ask: number = HINT_ASK.none;
     if (this.feel(this.lantern, tips, press)) {
       if (this.open) this.close();
@@ -179,7 +184,7 @@ export class HintLantern {
   /** A key's frame: true on the frame an accepted press is let go. */
   private feel(k: PokeKey, tips: Tips, press: (id: string) => boolean): boolean {
     if (!k.live) return false;
-    const ev = k.feel(tips);
+    const ev = k.feel(tips, true);
     if (ev === KEY_EVENT.press) {
       if (press(k.id)) this.armed = k;
     } else if (ev === KEY_EVENT.click && this.armed === k) {

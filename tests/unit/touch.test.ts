@@ -868,6 +868,61 @@ describe("the box in a phone's view", () => {
   });
 });
 
+describe("the touch system's frame", () => {
+  /** A head that counts its reads, at EYE. */
+  const countingHead = () => ({
+    reads: 0,
+    getWorldPosition(out: Vector3) {
+      this.reads++;
+      return out.copy(EYE);
+    },
+  });
+
+  it("reads nothing on a headset or the page once there is nothing to do, and still takes a phone's touch that comes after", () => {
+    const { t, phone, view, toWorld } = bench(null, [0.1, 0.05, 1.3], "world-space");
+    const head = countingHead(), at = new Vector3();
+    const frame = (f: XRFrame | null) => t.frame(f, f ? REF : null, RIG, head, at);
+    // The headset's first frames: a hand appears, the session is a headset's for good.
+    phone.trackedPointer();
+    frame(phone.frame);
+    expect(t.phone).toBe(false);
+    const reads = head.reads;
+    for (let i = 0; i < 5; i++) frame(phone.frame);
+    frame(null);
+    expect(head.reads).toBe(reads);
+    expect(view.calls).toBe(0);
+    // A phone's session later on (the same app, AR on a phone): it is told, and a touch on the lantern takes it.
+    const p2 = new FakePhone();
+    frame(p2.frame);
+    expect(t.phone).toBe(true);
+    p2.touch(toWorld([0.1, 0.05, 1.3]));
+    frame(p2.frame);
+    frame(p2.frame);
+    expect(t.roles()).toEqual(["lantern"]);
+    expect(head.reads).toBeGreaterThan(reads);
+  });
+
+  it("lets a phone's touch and see-through go as its session ends, and only then rests", () => {
+    const { t, phone, view, toWorld } = bench(null, [0.1, -0.35, 1.3]);
+    const head = countingHead(), at = new Vector3();
+    const frame = (f: XRFrame | null) => t.frame(f, f ? REF : null, RIG, head, at);
+    phone.touch(toWorld([0.1, -0.35, 1.3]));
+    frame(phone.frame);
+    expect(t.roles()).toEqual(["lantern"]);
+    expect(view.see).toBe(1);
+    // The session ends with the finger down: the frame after lets everything go.
+    frame(null);
+    expect(t.phone).toBe(false);
+    expect(t.roles()).toEqual([]);
+    expect(view.see).toBe(0);
+    expect(phone.listening("selectstart")).toBe(0);
+    const reads = head.reads;
+    frame(null);
+    frame(null);
+    expect(head.reads).toBe(reads);
+  });
+});
+
 describe("the drawer tapped open", () => {
   const frame = { handle: (o: Vector3) => o.set(0, 0.9, -0.5), toward: (o: Vector3) => o.set(0, 0, 1) };
 

@@ -175,6 +175,14 @@ export class LessonView {
   private readonly nearPos = this.topPos.clone();
   private readonly nearQ = this.topQ.clone();
   private nearK = 0;
+  /** The `nearK` the chip was last placed at (NaN: never). */
+  private placedK = Number.NaN;
+  /**
+   * The last update left everything put away: no lesson, replay or tip on screen, no line, the chip faded out over the
+   * box, no ghost, cradle, glow, mark or forming light. While that holds and the next frame asks for the same, an
+   * update would write only what is already there, so it is skipped.
+   */
+  private atRest = false;
   private readonly vAt = new Vector3();
   private readonly vF = new Vector3();
   private readonly vP = new Vector3();
@@ -226,6 +234,7 @@ export class LessonView {
    */
   update(f: LessonFrame, on: LessonOnScreen, line: string | null, dtMs: number, tMs: number): void {
     const { scene, lantern } = this.d;
+    if (this.atRest && on.lesson === null && on.tip !== true && line === null && f.clicks === this.clicks && scene.size === this.sizeM) return;
     const box = scene.box;
     const ours = box !== null && on.lesson !== null && box.spec.kind === "lesson" && box.spec.id === on.lesson;
     if (ours && box !== this.layoutBox) {
@@ -331,6 +340,20 @@ export class LessonView {
     const glow = ours ? (1 - f.form) * (1 - f.form) * LESSON_LOOK.formGlowAlpha : 0;
     this.formGlow.visible = glow > 0.002;
     this.formGlow.material.opacity = glow;
+    this.atRest =
+      on.lesson === null &&
+      on.tip !== true &&
+      line === null &&
+      this.layoutBox === null &&
+      !this.parked &&
+      !this.formed &&
+      this.glowLock < 0 &&
+      this.solvedLock < 0 &&
+      this.marked < 0 &&
+      this.coach.text === null &&
+      this.coach.opacity === 0 &&
+      this.nearK === 0 &&
+      !this.formGlow.visible;
   }
 
   /** How far the chip is over toward the lantern: 0 over the box, 1 by the lantern. */
@@ -353,7 +376,11 @@ export class LessonView {
       const step = Math.max(0, dtMs) / LESSON_LOOK.coachGlideMs;
       this.nearK = target > k0 ? Math.min(target, k0 + step) : Math.max(target, k0 - step);
     }
-    const k = this.nearK, e = k * k * (3 - 2 * k), o = this.coachView.object;
+    // Moved only when it can have: the near pose was worked out again, or how far over it is changed.
+    const k = this.nearK;
+    if (!(near && this.sizeM > 0) && k === this.placedK) return;
+    this.placedK = k;
+    const e = k * k * (3 - 2 * k), o = this.coachView.object;
     o.position.lerpVectors(this.topPos, this.nearPos, e);
     o.quaternion.slerpQuaternions(this.topQ, this.nearQ, e);
   }

@@ -1,7 +1,8 @@
 // Tracked hand joints, read once per frame for everything that needs them (the pinch, the lantern grab, hand
 // shadows): all 25 WebXR joints of each hand in one fillPoses call per hand, kept as world positions and as the
-// raw poses (for a joint's turn). A hand counts as tracked only when the runtime gave every joint a finite pose this
-// frame: a headset can keep listing a hand it no longer sees. Preallocated; nothing is allocated per frame.
+// raw poses (for a joint's turn, and the fingertip keys' index tip: src/render/fingertips.ts). A hand counts as
+// tracked only when the runtime gave every joint a finite pose this frame: a headset can keep listing a hand it no
+// longer sees. Preallocated; nothing is allocated per frame.
 import { Matrix4, type Vector3 } from "@iwsdk/core";
 
 export type HandSide = "left" | "right";
@@ -53,6 +54,9 @@ interface Slot {
   readonly world: Float32Array;
   tracked: boolean;
   seen: boolean;
+  /** The frame and reference space whose fillPoses filled `poses` (it said every pose was there); null otherwise. */
+  filledIn: XRFrame | null;
+  filledRef: XRReferenceSpace | null;
 }
 
 const newSlot = (): Slot => ({
@@ -62,6 +66,8 @@ const newSlot = (): Slot => ({
   world: new Float32Array(JOINT_COUNT * 3),
   tracked: false,
   seen: false,
+  filledIn: null,
+  filledRef: null,
 });
 
 const sideIndex = (h: HandSide): 0 | 1 => (h === "left" ? 0 : 1);
@@ -83,6 +89,8 @@ export class HandJoints {
     const a = this.slots[0], b = this.slots[1];
     a.seen = false;
     b.seen = false;
+    a.filledIn = null;
+    b.filledIn = null;
     const list = frame.session.inputSources;
     for (let i = 0; i < list.length; i++) {
       const src = list[i]!;
@@ -101,6 +109,22 @@ export class HandJoints {
   clear(): void {
     this.slots[0].tracked = false;
     this.slots[1].tracked = false;
+    this.slots[0].filledIn = null;
+    this.slots[1].filledIn = null;
+  }
+
+  /**
+   * The index fingertip's position in `ref` (raw, before the origin) into `out`, as update read it: true only when
+   * update read `src`'s joints, `tip` among them, with fillPoses in this very `frame` against `ref`, and fillPoses said
+   * every pose was there. It is then the value a fillPoses of the tip alone would give in that frame (a frame's poses
+   * do not change within it). False (and `out` untouched): not read here, the caller reads the tip itself.
+   */
+  indexTipIn(src: XRInputSource, tip: XRSpace, frame: XRFrame, ref: XRReferenceSpace, out: Vector3): boolean {
+    const s = src.handedness === "left" ? this.slots[0] : src.handedness === "right" ? this.slots[1] : null;
+    if (!s || s.filledIn !== frame || s.filledRef !== ref || s.source !== src || s.spaces[INDEX_TIP] !== tip) return false;
+    const p = s.poses, o = INDEX_TIP * 16 + 12;
+    out.set(p[o]!, p[o + 1]!, p[o + 2]!);
+    return true;
   }
 
   /** The hand has every joint's pose this frame. */
@@ -171,8 +195,13 @@ export class HandJoints {
     if (s.spaces.length === JOINT_COUNT) {
       try {
         const f = frame as XRFrame & { fillPoses?: FillPoses; getJointPose?: GetJointPose };
-        if (f.fillPoses) ok = f.fillPoses(s.spaces, ref, s.poses);
-        else if (f.getJointPose) ok = this.readEach(s, f.getJointPose.bind(f), ref);
+        if (f.fillPoses) {
+          ok = f.fillPoses(s.spaces, ref, s.poses);
+          if (ok) {
+            s.filledIn = frame;
+            s.filledRef = ref;
+          }
+        } else if (f.getJointPose) ok = this.readEach(s, f.getJointPose.bind(f), ref);
       } catch (err) {
         // Untracked this frame. Said once, never per frame (a runtime that throws here throws every frame).
         if (!this.warned) {
