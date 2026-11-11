@@ -9,6 +9,11 @@ const PHONE: ReadonlyMap<string, string> = new Map([
   [COPY.lessons.finger, COPY.phone.finger],
   [COPY.lessons.drawer, COPY.phone.drawer],
   [COPY.lessons.puppets, COPY.phone.puppets],
+  [COPY.lessons.turnFinger, COPY.phone.turnFinger],
+  [COPY.lessons.growShrink, COPY.phone.growShrink],
+  [COPY.lessons.stuck, COPY.phone.stuck],
+  [COPY.lessons.letGo, COPY.phone.letGo],
+  [COPY.lessons.boxOpen, COPY.phone.boxOpen],
   // A finger lock waiting: the controller player's suggestion, as a phone fills it.
   [COPY.game.controllerFinger, COPY.phone.finger],
 ]);

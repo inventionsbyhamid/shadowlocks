@@ -2,15 +2,18 @@
 // the world) and ghost lantern (in the box), the ghost's bones casting through the box's one shadow cast, the shadows
 // cast from the ghost lantern while it solves an example, the scraps swinging between the twin's layout and the
 // player's, the player's lantern flying into its cradle on the frame and out again, the near scrap's glow, the twin
-// lit when the ghost clicks it, the ghost finger's piece forming, the coach line, and the box forming out of light.
+// lit when the ghost clicks it, the ghost finger's piece forming, lock I marked through its step (its outline
+// breathing, its scraps lit), the coach line, and the box forming out of light.
 //
 // Reduced motion: the lantern goes to and from its cradle in one cut (no flight), the swing takes the director's
 // no-overshoot curve, and every fade is opacity only. One click (one flash) per example. Allocation-free per frame.
 import {
   Color,
-  type Matrix4,
+  Euler,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
+  Quaternion,
   Sprite,
   SpriteMaterial,
   TorusGeometry,
@@ -18,7 +21,7 @@ import {
   type World,
 } from "@iwsdk/core";
 import { type LessonId, type LessonPlan, lessonPlan } from "../core/lessons-data";
-import type { Box, V2, V3 } from "../core/types";
+import type { Box, Lock, V2, V3 } from "../core/types";
 import { onLangChange } from "../i18n";
 import type { HandJoints, HandSide } from "../input/hand-joints";
 import type { BoxScene } from "../render/box-scene";
@@ -27,9 +30,10 @@ import { GHOST_SHADOW_BONES, type GhostHand, type GhostLantern, GhostRig } from 
 import { HandShadow } from "../render/hand-shadow";
 import { radialTexture } from "../render/lantern-view";
 import { LIGHT_BLEND } from "../render/light-blend";
-import { boxToWorld } from "../render/placement";
+import { BOX_BELOW_HEAD_M, BOX_FORWARD_M, boxToWorld, TILT_DEG } from "../render/placement";
 import { COLORS } from "../render/theme";
 import { CoachLine, CoachLineView } from "../ui/coach-line";
+import { HINT_LOOK } from "./hints";
 import { type LayoutSink, LessonLayout } from "./lesson-layout";
 import type { LessonFrame } from "./lessons-director";
 
@@ -42,12 +46,74 @@ export const LESSON_LOOK = {
    */
   coachAt: [0, 1.02, 0.05] as const,
   coachTilt: -0.2,
+  /**
+   * While lesson 1 asks for the lantern the chip sits by it instead, where the eyes are (about 15 degrees from it
+   * rather than 52): its inner bottom corner this far from the lantern's light (box units, x toward the dominant
+   * side), the chip running outward from there and facing the eye. That is above the lantern's loop and outside every
+   * sight line to the panel (tests/unit/lesson-view.test.ts). It glides back over the box in this long.
+   */
+  coachNear: [0.04, 0.3, 0] as const,
+  coachGlideMs: 600,
   /** The box forming out of light: a warm glow over the box (box units), fading as the box forms. */
   formGlowSize: 1.5,
   formGlowAlpha: 0.85,
   /** The ghost casts once it is this solid (a ghost fading in or out casts nothing). */
   castFrom: 0.3,
 } as const;
+
+const DEG = Math.PI / 180;
+
+/**
+ * Where a seated player's eyes are in box units for a box `sizeM` across, as placement.ts puts the box: the panel's
+ * centre BOX_FORWARD_M ahead and BOX_BELOW_HEAD_M below the eyes, leaning back TILT_DEG. Into `out`.
+ */
+export function nominalEye(sizeM: number, out: Vector3): Vector3 {
+  const t = TILT_DEG * DEG, c = Math.cos(t), s = Math.sin(t);
+  return out.set(0, (BOX_BELOW_HEAD_M * c - BOX_FORWARD_M * s) / sizeM, (BOX_BELOW_HEAD_M * s + BOX_FORWARD_M * c) / sizeM);
+}
+
+const tmpLook = new Matrix4(), tmpEye = new Vector3(), tmpCorner = new Vector3(), tmpAxis = new Vector3();
+const UP = new Vector3(0, 1, 0);
+
+/**
+ * The coach chip by the lantern at `L` (box units; `side` 1 for a right-handed player, -1 mirrored) in a box `sizeM`
+ * across, the chip painted `wMm` x `hMm`: its plane's centre into `pos` and its turn into `q` (box units, as the chip
+ * hangs under the box root). LESSON_LOOK.coachNear puts its inner bottom corner; it faces the seated eye.
+ * Allocation-free.
+ */
+export function coachNearPose(L: Readonly<V3>, side: number, sizeM: number, wMm: number, hMm: number, pos: Vector3, q: Quaternion): void {
+  const o = LESSON_LOOK.coachNear, w = wMm / 1000 / sizeM, h = hMm / 1000 / sizeM;
+  tmpCorner.set(L[0] + o[0] * side, L[1] + o[1], L[2] + o[2]);
+  nominalEye(sizeM, tmpEye);
+  pos.copy(tmpCorner);
+  // Its front (+z) toward the eye from its middle, upright: the middle hangs off the corner along the chip's own axes,
+  // so a few rounds settle it (each one turns it less).
+  for (let i = 0; i < 3; i++) {
+    tmpLook.lookAt(tmpEye, pos, UP);
+    pos.copy(tmpCorner);
+    pos.addScaledVector(tmpAxis.setFromMatrixColumn(tmpLook, 0), (side * w) / 2);
+    pos.addScaledVector(tmpAxis.setFromMatrixColumn(tmpLook, 1), h / 2);
+  }
+  q.setFromRotationMatrix(tmpLook);
+}
+
+/** What lock I's mark changes: the panel's warmth per lock and the scraps' glow (the box scene has both). */
+export interface MarkScene {
+  readonly panelArt: { setWarmth(lock: number, w: number): void; warmthTarget(lock: number): number };
+  scrapMesh(lock: number, piece: number): { setGlow(v: number): void };
+}
+
+/**
+ * Lock `lock` marked as the one to open: its outline at `warmth` or its own warmth (the session's, set earlier this
+ * frame), whichever is more; as the mark starts (`starting`), its scraps glow as a first hint's do. The glow is left
+ * as it is when the mark ends: the lock opening (its own celebration) or a new box takes it over.
+ */
+export function markLock(scene: MarkScene, lock: Lock, warmth: number, starting: boolean): void {
+  const own = scene.panelArt.warmthTarget(lock.i);
+  scene.panelArt.setWarmth(lock.i, own > warmth ? own : warmth);
+  if (!starting) return;
+  for (let p = 0; p < lock.target.length; p++) if (p !== lock.missing) scene.scrapMesh(lock.i, p).setGlow(HINT_LOOK.scrapGlow);
+}
 
 export interface LessonViewDeps {
   world: World;
@@ -57,7 +123,7 @@ export interface LessonViewDeps {
     place(p: Readonly<V3>): void;
     freeze(on: boolean, tMs: number): void;
   };
-  sound: { settle(): void; crystallise(lock: number): void };
+  sound: { settle(): void; crystallise(lock: number): void; coachLine(): void };
   reducedMotion(): boolean;
 }
 
@@ -100,7 +166,15 @@ export class LessonView {
   private glowLock = -1;
   private glowPiece = -1;
   private solvedLock = -1;
+  /** The lock marked last frame (-1: none). */
+  private marked = -1;
   private sizeM = 0;
+  /** The chip over the box, and by the lantern (kept from the last frame it was asked for there), and how far over. */
+  private readonly topPos = new Vector3(LESSON_LOOK.coachAt[0], LESSON_LOOK.coachAt[1], LESSON_LOOK.coachAt[2]);
+  private readonly topQ = new Quaternion().setFromEuler(new Euler(LESSON_LOOK.coachTilt, 0, 0));
+  private readonly nearPos = this.topPos.clone();
+  private readonly nearQ = this.topQ.clone();
+  private nearK = 0;
   private readonly vAt = new Vector3();
   private readonly vF = new Vector3();
   private readonly vP = new Vector3();
@@ -111,10 +185,11 @@ export class LessonView {
     this.lamp.opacity = 0;
     world.scene.add(this.rig.mesh);
     this.coachView = new CoachLineView();
-    this.coachView.object.position.set(LESSON_LOOK.coachAt[0], LESSON_LOOK.coachAt[1], LESSON_LOOK.coachAt[2]);
-    this.coachView.object.rotation.x = LESSON_LOOK.coachTilt;
+    this.coachView.object.position.copy(this.topPos);
+    this.coachView.object.quaternion.copy(this.topQ);
     scene.root.add(this.coachView.object);
-    this.coach = new CoachLine(this.coachView);
+    // A new line comes with a soft tick, so the eyes go to it.
+    this.coach = new CoachLine(this.coachView, () => d.sound.coachLine());
     // A font the chip letters with arrived, or the language changed: the next update paints the line up again, or
     // (a new language) paints the next frame's line in it, once.
     onLangChange(() => this.coach.relettered());
@@ -220,6 +295,11 @@ export class LessonView {
       scene.panelArt.setWarmth(this.solvedLock, 0);
       this.solvedLock = -1;
     }
+    // Lock I marked through its step: its outline breathing, its scraps lit (after the solved twin's warmth above,
+    // so the mark comes back on the frame an example lets go of the lock).
+    const mark = ours && box && f.mark >= 0 ? box.locks[f.mark] : undefined;
+    if (mark) markLock(scene, mark, f.markWarmth, this.marked !== f.mark);
+    this.marked = mark ? f.mark : -1;
     if (ours && f.fill >= 1 && !this.formed && this.plan && f.solvedLock >= 0) {
       const twin = this.plan.twins[f.solvedLock];
       if (twin) {
@@ -247,9 +327,35 @@ export class LessonView {
     this.coach.show(line);
     this.coach.update(dtMs);
     this.coachView.opacity = this.coach.opacity;
+    this.placeCoach(ours && f.coachNear, side, reduced, dtMs);
     const glow = ours ? (1 - f.form) * (1 - f.form) * LESSON_LOOK.formGlowAlpha : 0;
     this.formGlow.visible = glow > 0.002;
     this.formGlow.material.opacity = glow;
+  }
+
+  /** How far the chip is over toward the lantern: 0 over the box, 1 by the lantern. */
+  get coachNear(): number {
+    return this.nearK;
+  }
+
+  /**
+   * The chip by the lantern while `near`, else over the box. Unseen it moves at once; seen, it glides there over
+   * coachGlideMs (with reduced motion it waits until it is unseen: a line changing fades it out first).
+   */
+  private placeCoach(near: boolean, side: number, reduced: boolean, dtMs: number): void {
+    if (near && this.sizeM > 0) {
+      const c = this.coachView.chipMm;
+      coachNearPose(this.d.lantern.ctrl.pos, side, this.sizeM, c.w, c.h, this.nearPos, this.nearQ);
+    }
+    const target = near ? 1 : 0, k0 = this.nearK;
+    if (this.coach.opacity <= 0) this.nearK = target;
+    else if (!reduced) {
+      const step = Math.max(0, dtMs) / LESSON_LOOK.coachGlideMs;
+      this.nearK = target > k0 ? Math.min(target, k0 + step) : Math.max(target, k0 - step);
+    }
+    const k = this.nearK, e = k * k * (3 - 2 * k), o = this.coachView.object;
+    o.position.lerpVectors(this.topPos, this.nearPos, e);
+    o.quaternion.slerpQuaternions(this.topQ, this.nearQ, e);
   }
 
   /** Ghost things put away (no lesson). */

@@ -107,8 +107,10 @@ async function main(): Promise<void> {
   attachInput(world);
   // The lantern (priority -3, right after the hands): held, carried, let go, settled on a spot.
   const lantern = attachLantern(world, shell.box);
-  // A lost box is never moved (nor its arrow shown) while the lantern is held.
+  // A lost box is never moved (nor its arrow shown) while the lantern is held; no hand takes the lantern while the box
+  // waits, hidden, for its first placement.
   shell.lanternHeld = () => lantern.grab.holder !== null;
+  shell.onPlacing = (on) => lantern.setUnplaced(on, performance.now());
   // A phone's touches in AR (priority -3.3, before the hands; off on a headset): the lantern dragged, keys tapped, a
   // finger cast in the light.
   const touch = attachTouch(world, { scene: shell.box, lantern });
@@ -157,8 +159,9 @@ async function main(): Promise<void> {
     hands,
     sound,
     play,
-    // In XR and seen: a hidden headset (or page) holds the lesson's clock, as the lifecycle holds the box's.
-    presenting: () => shell.sessionMode !== null && shell.lifecycle.active,
+    // In XR, seen and placed: a hidden headset (or page), or a box still waiting for its first placement, holds the
+    // lesson's clock, as the lifecycle holds the box's.
+    presenting: () => shell.sessionMode !== null && shell.lifecycle.active && !shell.placing,
     autoStart: () => !box && !lesson && !shared && !skipLessons,
     // A new player's shared link: Lesson 1 first, then the friend's box in place of lesson 2 (the landing then says
     // what that box is).
@@ -189,12 +192,12 @@ async function main(): Promise<void> {
     menuGame.rehand().catch((err) => console.error("the box could not be mirrored", err));
   });
   // The menu drawer in the box's plinth (priority -2.7, after the lantern: the hand holding it never pulls). Not
-  // while the box is opening or its reward is up, nor while a lesson's example plays; a menu over play holds the box
-  // (its clock stops, it saves).
+  // while the box is opening or its reward is up, nor while a lesson's example plays, nor before the box is placed; a
+  // menu over play holds the box (its clock stops, it saves).
   const drawer = attachDrawer(world, {
     root: shell.box.root,
     busy: (side) => lantern.grab.holding(side),
-    allowed: () => play.session.stage !== "opening" && play.session.stage !== "reward" && lessons.drawerAllowed,
+    allowed: () => play.session.stage !== "opening" && play.session.stage !== "reward" && lessons.drawerAllowed && !shell.placing,
     reducedMotion: () => settings.get().reducedMotion,
     pulled: (at, hand) => sound.game.drawerPull(at, hand),
     menuOpen: (open) => {

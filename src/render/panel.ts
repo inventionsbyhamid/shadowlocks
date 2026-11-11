@@ -686,6 +686,11 @@ export class Panel {
     if (lock >= 0 && lock < LOCKS) this.warmTarget[lock] = w > 0 ? (w < 1 ? w : 1) : 0;
   }
 
+  /** The warmth lock `lock` was last set to (0 for none): what a lesson's mark breathes over. */
+  warmthTarget(lock: number): number {
+    return lock >= 0 && lock < LOCKS ? this.warmTarget[lock]! : 0;
+  }
+
   /** Lock `lock` opened (its shape fills with gold), or closed again (a fresh box, a reset). */
   setOpen(lock: number, open = true): void {
     if (lock >= 0 && lock < LOCKS) this.openTarget[lock] = open ? 1 : 0;

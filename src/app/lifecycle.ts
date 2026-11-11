@@ -40,6 +40,8 @@ export class Lifecycle {
   private xr: XrVisibility = "non-immersive";
   /** A menu is up over the box: the box waits (sound does not). */
   private heldByMenu = false;
+  /** The session waits, the box hidden, for its first placement (a steady head): the box waits too. */
+  private placingNow = false;
   private current: LifecycleSession | null = null;
   private pausedByUs = false;
   private audioSuspended = false;
@@ -61,9 +63,14 @@ export class Lifecycle {
     return this.heldByMenu;
   }
 
-  /** The session's clock runs: the player can see it and no menu is up over it. */
+  /** The box waits, hidden, for the session's first placement. */
+  get placing(): boolean {
+    return this.placingNow;
+  }
+
+  /** The session's clock runs: the player can see it, no menu is up over it, and it has been placed. */
   private get running(): boolean {
-    return this.active && !this.heldByMenu;
+    return this.active && !this.heldByMenu && !this.placingNow;
   }
 
   get session(): LifecycleSession | null {
@@ -81,6 +88,17 @@ export class Lifecycle {
     this.heldByMenu = held;
     this.runChanged(was, now);
     if (held) this.flush(now, true);
+  }
+
+  /**
+   * The session waits (true), the box hidden, for its first placement, or it is placed (false). While it waits the box
+   * is paused: a clock that ran then would count time the player could not see the box. Sound is left alone.
+   */
+  setPlacing(placing: boolean, now: number): void {
+    if (placing === this.placingNow) return;
+    const was = this.running;
+    this.placingNow = placing;
+    this.runChanged(was, now);
   }
 
   setAudio(audio: LifecycleAudio | undefined): void {

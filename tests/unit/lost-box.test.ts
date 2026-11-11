@@ -101,6 +101,45 @@ describe("a box lost from view", () => {
     }
   });
 
+  it("places a phone's box again on the frame it decides, from that frame's own inputs: a touch the next frame never has it moved under it", () => {
+    // Each frame's inputs, as the shell fills them after the touch and lantern systems ran; `placed` records the
+    // inputs of every frame the box was placed on.
+    const s = input();
+    const placed: { t: number; touchDown: boolean; held: boolean }[] = [];
+    let now = 0;
+    const place = () => {
+      placed.push({ t: now, touchDown: s.touchDown, held: s.held });
+      return true;
+    };
+    const lost = new LostBox();
+    // Out of view, nothing down: placed on the very frame the 2 s are up, and only then.
+    for (now = 0; now < LOST_MS + 5 * FRAME_MS; now += FRAME_MS) lost.frame(now, false, s, place);
+    expect(placed).toHaveLength(1);
+    expect(placed[0]!.t).toBeGreaterThanOrEqual(LOST_MS);
+    expect(placed[0]!.t).toBeLessThan(LOST_MS + FRAME_MS);
+    // A touch that starts on the frame the 2 s are up: not placed while it is down (each frame looks again), then
+    // placed on the frame it lifts, never with a touch down or the lantern held.
+    placed.length = 0;
+    const again = new LostBox();
+    for (now = 0; now < LOST_MS; now += FRAME_MS) again.frame(now, false, s, place);
+    s.touchDown = true;
+    for (let i = 0; i < 30; i++, now += FRAME_MS) again.frame(now, false, s, place);
+    s.touchDown = false;
+    s.held = true;
+    for (let i = 0; i < 30; i++, now += FRAME_MS) again.frame(now, false, s, place);
+    expect(placed).toEqual([]);
+    s.held = false;
+    const lift = now;
+    again.frame(now, false, s, place);
+    expect(placed).toEqual([{ t: lift, touchDown: false, held: false }]);
+    // A placement that does not take (the head not tracked) tells so; the timer has started over either way.
+    const fails = new LostBox();
+    let tries = 0;
+    for (now = 0; now <= LOST_MS; now += 10) if (fails.frame(now, false, s, () => (tries++, false))) throw new Error("placed");
+    expect(tries).toBe(1);
+    expect(fails.lostMs).toBe(0);
+  });
+
   it("never on a headset: an arrow instead, after 2 s fully out of view, with the lantern not held and no pinch down", () => {
     const head = input({ phone: false });
     const lost = new LostBox();

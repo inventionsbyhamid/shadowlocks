@@ -499,6 +499,10 @@ export function installTestHooks(
       glow: lan.grab.brightness,
       ripple: shell.box.lantern.ringOpacity,
       see: shell.box.lantern.seeThrough,
+      ...(() => {
+        const near: V3 = [0, 0, 0];
+        return { nearPinch: lan.grab.nearestPinch(near) ? near : null };
+      })(),
     };
   };
 
@@ -580,7 +584,11 @@ export function installTestHooks(
         tipping: d.tipping,
         practice: les.practice,
         line: f.line,
-        coach: { text: les.view.coach.text, opacity: les.view.coach.opacity },
+        key: f.key,
+        why: f.why,
+        again: f.again,
+        shows: f.shows,
+        coach: { text: les.view.coach.text, opacity: les.view.coach.opacity, near: les.view.coachNear },
         ghost: les.view.ghost.opacity,
         form: f.form,
         hand: { opacity: f.hand.opacity, pose: f.hand.poseB, side: f.hand.side, anchor: f.hand.anchor, at: c3(f.hand.at) },

@@ -67,6 +67,11 @@ export const GAZE_DWELL_MS = 400;
 
 /** The player is stuck after this long with no lock opening... */
 export const STUCK_MS = 90000;
+/**
+ * ...or this long in a lesson's box, whose steps teach one lock at a time: the hint lantern glows sooner, as the
+ * lesson's own "Stuck?" line comes (the lesson starts the watch over with each step).
+ */
+export const LESSON_STUCK_MS = 40000;
 /** ...and the best warmth never rising this much. */
 export const STUCK_PROGRESS = 0.1;
 

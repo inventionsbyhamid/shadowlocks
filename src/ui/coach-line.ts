@@ -143,7 +143,11 @@ export class CoachLine {
   private alpha = 0;
   private reletter = false;
 
-  constructor(private readonly painter: CoachPainter) {}
+  /** `onLine`: told of each new line as it takes over and is painted (the lessons play a soft tick), never a repaint. */
+  constructor(
+    private readonly painter: CoachPainter,
+    private readonly onLine?: (text: string) => void,
+  ) {}
 
   /** The line to show (null: none). Cheap to call every frame with the same line. */
   show(text: string | null): void {
@@ -173,6 +177,7 @@ export class CoachLine {
       this.shown = this.target;
       this.alpha = 0;
       this.repaint();
+      if (this.shown !== null) this.onLine?.(this.shown);
       return;
     }
     this.alpha = this.shown === null ? 0 : Math.min(1, this.alpha + dt / COACH.fadeInMs);
@@ -211,6 +216,11 @@ function roundRect(g: Ctx, x: number, y: number, w: number, h: number, r: number
 /** The coach line's chip: a canvas texture on a plane, sized in metres. */
 export class CoachLineView implements CoachPainter {
   readonly object: Mesh;
+  /**
+   * The chip as last painted (mm, within the plane, centred on it); before the first paint, a guess at one line: 13 mm
+   * letters and 8 mm of padding above and below.
+   */
+  readonly chipMm = { w: 200, h: 29 };
   private readonly g: Ctx | null;
   private readonly texture: CanvasTexture;
   private readonly material: MeshBasicMaterial;
@@ -258,6 +268,8 @@ export class CoachLineView implements CoachPainter {
     for (const l of lines) wide = Math.max(wide, g.measureText(l).width);
     const cw = Math.min(this.w - 4, wide + 2 * C.padXMm * k), ch = Math.min(this.h - 4, lines.length * font + (lines.length - 1) * gap + 2 * C.padYMm * k);
     const x = (this.w - cw) / 2, y = (this.h - ch) / 2;
+    this.chipMm.w = cw / k;
+    this.chipMm.h = ch / k;
     roundRect(g, x, y, cw, ch, Math.min(ch / 2, 10 * k));
     g.fillStyle = C.chip;
     g.fill();

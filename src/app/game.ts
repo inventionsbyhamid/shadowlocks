@@ -204,7 +204,8 @@ export class GameView implements SessionView {
     const dt = dtMs / 1000, reduced = this.d.settings.get().reducedMotion;
     this.lockFx.update(dt, reduced);
     this.boxFx.update(dt, reduced);
-    const tips = stage === "idle" || stage === "loading" ? NO_TIPS : this.tips.read();
+    // No fingertip presses a key of a box not shown (it waits, hidden, for the session's first placement).
+    const tips = stage === "idle" || stage === "loading" || !this.d.scene.root.visible ? NO_TIPS : this.tips.read();
     let acts = 0;
     if (this.plate.update(tips, this.press)) acts |= ACT_NEXT;
     const ask = this.hintLantern.update(dt, stage === "playing" ? tips : NO_TIPS, reduced, this.press);

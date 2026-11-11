@@ -14,7 +14,10 @@ import { COPY } from "../../src/ui/copy";
 
 const OTHERS = LANGS.filter((l) => l !== "en");
 
-/** Every key of COPY.lessons the lessons' director and scripts take a line from, read from their source. */
+/**
+ * Every key of COPY.lessons the lessons' director and scripts take a line from, read from their source: a line is
+ * its copy key there (`show("goal", ...)`, `key: "watchMove"`, an example's `open:` and `turn:`), typed LessonLine.
+ */
 function lessonKeys(): Set<string> {
   const keys = new Set<string>();
   for (const f of ["src/app/lessons-director.ts", "src/app/lesson-scripts.ts"]) {
@@ -24,6 +27,7 @@ function lessonKeys(): Set<string> {
     // No line is written in place.
     expect(src, f).not.toMatch(/\bline\s*[:=]\s*["'`]/);
     for (const m of src.matchAll(/\b(?:COPY\.lessons|C)\.([A-Za-z]+)\b/g)) keys.add(m[1] as string);
+    for (const m of src.matchAll(/\b(?:show\(|key: |open: |turn: )"([A-Za-z]+)"/g)) keys.add(m[1] as string);
   }
   return keys;
 }
@@ -31,8 +35,8 @@ function lessonKeys(): Set<string> {
 describe("coach lines in every language", () => {
   it("every line the coach chip shows comes out as the same line of every table", () => {
     const en = coachLines(COPY);
-    // The lessons' lines and tips, the session's suggestion, and a phone's five.
-    expect(en).toHaveLength(19);
+    // The lessons' 26 lines and 3 tips, the session's suggestion, a phone's ten and a controller's two.
+    expect(en).toHaveLength(42);
     for (const l of OTHERS) {
       const there = coachLines(tableFor(l));
       en.forEach((s, i) => expect(localLine(s, l), `${l}: ${s}`).toBe(there[i]));
@@ -54,6 +58,13 @@ describe("coach lines in every language", () => {
       const where = id === "drawer" ? (c: typeof COPY) => c.lessons.drawer : (c: typeof COPY) => (c.lessons.tips as Record<string, string>)[id];
       expect(en, id).toBe(where(COPY));
       for (const l of OTHERS) expect(localLine(en, l), `${l} ${id}`).toBe(where(tableFor(l) as typeof COPY));
+    }
+  });
+
+  it("a phone's and a controller's wording of a line are shown in every language", () => {
+    for (const [k, en] of [...Object.entries(COPY.phone).map(([k, s]) => [`phone.${k}`, s]), ...Object.entries(COPY.controller).map(([k, s]) => [`controller.${k}`, s])]) {
+      const [part, key] = k!.split(".") as ["phone" | "controller", string];
+      for (const l of OTHERS) expect(localLine(en!, l), `${l} ${k}`).toBe((tableFor(l)[part] as Record<string, string>)[key]);
     }
   });
 

@@ -93,6 +93,7 @@ describe("the landing page", () => {
     // The static page says the same as the English table until the script paints it.
     const html = fs.readFileSync("index.html", "utf8");
     expect(html).toContain(`<p id="facts" class="facts">${COPY.landing.facts}</p>`);
+    expect(html).toContain(`<p id="tagline" class="tagline">${COPY.landing.tagline}</p>`);
     // Its description for link cards and search (English, read with no script run; site-meta.test.ts keeps its four
     // copies one text) is about Meta Quest: hands or Touch controllers.
     expect(html.match(/for Meta Quest, played with hands or Touch controllers\. /g)).toHaveLength(4);
