@@ -61,7 +61,14 @@ export default defineShot<Data>({
 - `hand(side)` is the e2e `Hands` plus `park`, `glide`, `pinch`, `shape`, `open`, `point`, `relax`,
   `gripPose` and `glideTip`, all smooth.
 - `profile`: the player's stored history when the shot starts (boxes opened, a streak, the
-  collection); the video build reads it at boot through the usual migration.
+  collection); the video build reads it at boot through the usual migration, which starts afresh
+  from anything without `version: 1` (`lib/stage.ts` `playedProfile` makes one).
+- The voice guide speaks in renders: the video build gives it a stand-in that counts as started and
+  times each line on the frame clock, and the shot's sound lays the game's own clip
+  (`public/audio/voice/en/<key>.ogg`) in where it was said (`video.voice` events in `<shot>.json`).
+- A page shot (`lib/page-shot.ts`, listed in `PAGE_SHOTS`) films the game's 2D page in a browser
+  window instead of the headset's view: each state of the page held for its time. It renders and
+  cuts like any shot.
 - While recording, each frame drains the app's event log for the sound, so a wait on bus events
   reads `w.__nsVideoEvents(type)` (the events since recording started), or `app.events()`, which
   does. `app.hold(ms)` holds still at the video rate.
@@ -124,7 +131,8 @@ shot's effects stem at its start, one continuous music bed across the cuts, an o
 (`narration`, from a file in `video-assets/`, not committed) that the rest ducks under, two-pass
 loudness to -14 LUFS (linear; a peak limiter at 4x the rate first when the gain would pass the
 ceiling; the PCM is aimed 0.5 dB under -1 dBTP for what AAC adds, more on a second or third encode
-when the AAC still comes out over), and one delivery encode with the shots' own settings. An
+when the AAC still comes out over), and one delivery encode with the shots' own settings. A
+`label` lays a corner label ("Emulator footage") over the shots it names. An
 `endCard` (title, tagline, facts, an optional link) holds the last frame, blurs and dims it in, and
 lays a card drawn by the browser in Archivo and the game's ebony and gold over it (`lib/endcard.ts`,
 the font in `assets/fonts/`, OFL) for `holdSec`; the music runs on under it and fades out. Its words
