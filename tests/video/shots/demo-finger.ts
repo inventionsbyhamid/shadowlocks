@@ -39,8 +39,9 @@ export default defineShot<Data>({
     await app.step(10);
     return { lock: f.lock, tip, inBeam, panel: await toWorld(page, [0, 0, 0.1]) };
   },
-  // Low and from the left, close: the fingertip and its shadow on the panel in one frame.
-  firstView: ({ panel }): View => ({ from: offset(EYE, -0.07, -0.06, -0.14), at: panel }),
+  // Low and close, a little right of the middle: the hand comes in from the left (IWER's pointing hand), so from here
+  // its body stays off the lock it fills, and the fingertip and its shadow are in one frame.
+  firstView: ({ panel }): View => ({ from: offset(EYE, 0.05, -0.06, -0.14), at: panel }),
   async play({ app, hand, until, time }, { lock, tip, inBeam }) {
     const right = hand("right");
     await until(0.4);

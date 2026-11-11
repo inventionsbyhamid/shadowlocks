@@ -86,6 +86,12 @@ async function capturePage(shot: PageShot, browser: Browser, baseURL: string, o:
     },
     boot: (page, b = {}) => bootPage(page, { mode: "visual", ...b, viewport: shot.viewport }),
     async hold(page, sec) {
+      // The emulator's own "Enter XR" button (IWER's, not the game's) goes, as the headset shots hide its DevUI.
+      await page.evaluate(() => {
+        for (const b of Array.from(document.querySelectorAll("button"))) {
+          if (b.textContent?.trim() === "Enter XR" && !b.closest("#landing")) (b as HTMLElement).style.display = "none";
+        }
+      });
       const png = path.join(dir, `hold-${String(holds.length).padStart(3, "0")}.png`);
       await page.screenshot({ path: png, animations: "disabled", caret: "hide" });
       holds.push({ png, frames: Math.round(sec * o.fps) });

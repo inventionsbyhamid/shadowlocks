@@ -84,7 +84,7 @@ export default defineShot<Data>({
     }
     const card = (await page.evaluate(() => (window as any).__sl.session.card())) as { world: Vec3 } | null;
     // In on the plaque and the card under it.
-    if (card) camera.move({ from: offset(EYE, 0, -0.02, -0.1), at: lerp3(card.world, box, 0.3) }, 2400);
+    if (card) camera.move({ from: offset(EYE, 0, -0.02, -0.1), at: lerp3(card.world, box, 0.15) }, 2400);
     await wait(6500);
   },
 });
