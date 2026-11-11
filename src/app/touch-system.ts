@@ -216,6 +216,26 @@ export class Touches implements TouchFinger {
     return this.slots.filter((s) => s.id !== null).map((s) => s.role);
   }
 
+  /**
+   * One frame as the system runs it: nothing at all (not even the head read) while `update` would change nothing: no
+   * session, or a session that is a headset's, with no phone's session still let go of, no tap heard, no touch held or
+   * lifting and the lantern solid. Else the head's world position into `headAt`, then `update`.
+   */
+  frame(frame: XRFrame | null, ref: XRReferenceSpace | null, rig: Rig, head: { getWorldPosition(out: Vector3): Vector3 }, headAt: Vector3): void {
+    if (this.quiet(frame?.session ?? null)) return;
+    head.getWorldPosition(headAt);
+    this.update(frame, ref, rig, headAt);
+  }
+
+  /** `update` for `session` would change nothing (see frame). */
+  private quiet(session: XRSession | null): boolean {
+    if (session !== null && session !== this.vetoFor) return false;
+    if (this.live || this.latchedNow || this.heard !== null || this.see !== 0) return false;
+    for (const s of this.slots) if (s.id !== null) return false;
+    for (const t of this.taps) if (t.src !== null) return false;
+    return true;
+  }
+
   /** One frame (the system's update). */
   update(frame: XRFrame | null, ref: XRReferenceSpace | null, rig: Rig, headAt: Vector3): void {
     const now = performance.now();
@@ -600,8 +620,7 @@ export class TouchSystem extends createSystem({}) {
     const t = current;
     if (!t) return;
     const frame = (this.xrFrame ?? null) as XRFrame | null;
-    this.player.head.getWorldPosition(this.headAt);
-    t.update(frame, frame ? this.renderer.xr.getReferenceSpace() : null, this.player, this.headAt);
+    t.frame(frame, frame ? this.renderer.xr.getReferenceSpace() : null, this.player, this.player.head, this.headAt);
   }
 }
 
