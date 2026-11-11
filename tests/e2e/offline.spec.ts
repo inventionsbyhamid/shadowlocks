@@ -141,7 +141,7 @@ test("a second launch plays with the network off", async ({ page, context, boot 
   expect(site.precached).not.toContain("404.html"); // the host's page; the worker never serves it
   expect(site.precached.some((f) => f.startsWith(".well-known/"))).toBe(false); // the Quest apps check these online
   expect(site.precached).toContain("audio/music/music_bed.ogg");
-  expect(site.precached).toContain("audio/sfx/lock_hum.flac");
+  expect(site.precached).toContain("audio/sfx/lock_hum.ogg");
   // The voice guide: its manifest and a line, so the lessons speak offline too.
   expect(site.precached).toContain("audio/voice/manifest.json");
   expect(site.precached).toContain("audio/voice/en/lessons.goal.ogg");

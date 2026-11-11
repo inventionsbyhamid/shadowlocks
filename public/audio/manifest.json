@@ -260,7 +260,7 @@
     },
     "fingertip_hum": {
       "files": [
-        "sfx/fingertip_hum.flac"
+        "sfx/fingertip_hum.ogg"
       ],
       "durations": [
         3.1
@@ -285,7 +285,7 @@
     },
     "lock_hum": {
       "files": [
-        "sfx/lock_hum.flac"
+        "sfx/lock_hum.ogg"
       ],
       "durations": [
         5.4
@@ -971,7 +971,7 @@
   },
   "generatedUtc": "2026-11-05T19:14:59.792Z",
   "bytes": {
-    "sfx": 651275,
+    "sfx": 431379,
     "music": 2164505
   }
 }
