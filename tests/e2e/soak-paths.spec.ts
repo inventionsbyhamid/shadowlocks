@@ -12,8 +12,8 @@
 // buckets and the emulator's frame code, none of ours accumulating.) Nothing here is timed: these run in a shared slot.
 // - 30 lesson replays from the Lessons menu's rows, round the four examples, box 5 put back after each (after 8: each
 //   example twice);
-// - 30 uses of the hint lantern, Hint and Show me in turn (15 hints, 15 examples replayed on box 5; after 10, every
-//   hint level has shown);
+// - 30 uses of the hint lantern, Hint and Show me in turn (15 hints, 15 examples replayed on box 5; after 20: every
+//   hint level has shown by 10, and V8 has compiled the path's code by 20, see the test);
 // - 30 menu open and close cycles: the drawer pulled, Home, Continue back to the box (after 10);
 // - 20 headset off and on cycles: the XR session and the page hidden, then seen again (after 10);
 // - 10 summons: the box left out of view, the arrow pinched, the box placed in front again (after 4, sampled every 5).
@@ -49,10 +49,18 @@ test("30 lesson replays leave nothing behind", { tag: "@full" }, async ({ page, 
   expect(pageErrors(app)).toEqual([]);
 });
 
+// Warm-up 20, not 10. Heap snapshots over 60 cycles (10 warm, then 50; a hint takes 8 s, a Show me 55 s) split the
+// heap after GC by block of 10: in all -617, +180, +139, +87, +37 KB; V8's compiled code -583, +149, +115, +68, +20
+// (code dropped since boot, then the Show me replays' optimised code, dying away); everything else -62, +79, +14, -50,
+// +14, noise round zero (what each block makes and keeps is the box put back, the same 93 KB every block). After a
+// 10-cycle warm-up the first block falls, so the settle rule could only use its 128 KB floor while the code was still
+// compiling; from cycle 20 on the blocks settle as the rule asks. The one steady growth is the IWER emulator's dev UI
+// (a React update queue never flushed in these runs, about 1.2 KB a cycle), which a production build does not have
+// (scripts/check-dist.mjs).
 test("30 hint and Show me uses leave nothing behind", { tag: "@full" }, async ({ page, boot }, testInfo) => {
-  test.setTimeout(40 * 60_000);
+  test.setTimeout(50 * 60_000);
   const app = await box5(page, boot);
-  await soakPath(app, testInfo, "hint and Show me", { warm: 10, cycles: 30, every: 10 }, (i) =>
+  await soakPath(app, testInfo, "hint and Show me", { warm: 20, cycles: 30, every: 10 }, (i) =>
     hintUse(app, i % 2 === 0 ? "hint" : "show-me", BOX5),
   );
   expect(pageErrors(app)).toEqual([]);
