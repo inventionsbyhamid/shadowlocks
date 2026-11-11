@@ -26,7 +26,7 @@ import type { Lifecycle } from "./lifecycle";
 import type { PanelButton } from "./panels";
 import { currentScreen, type Screen } from "./screens";
 import type { SettingsStore } from "./settings";
-import { VoiceGuide } from "./voice-guide";
+import { VoiceGuide, voiceHearsLifecycle } from "./voice-guide";
 
 /** The box in the scene, as sound needs it: its locks, its root (box units to world) and the lantern. */
 export interface SoundBox {
@@ -131,7 +131,8 @@ export class Sound {
     on("screen", (e) => {
       if (e.from === "play" && e.to !== "play") this.game.reset();
     });
-    deps.lifecycle.setAudio(this.engine);
+    // The voice hears the app hidden and seen as it happens: a headset taken off may run no frame while hidden.
+    deps.lifecycle.setAudio(voiceHearsLifecycle(this.engine, this.voice));
     const apply = (s: { musicVol: number; sfxVol: number; captions: boolean }) => {
       this.engine.setVolumes({ music: s.musicVol, sfx: s.sfxVol });
       if (!s.captions) this.captions.clear();

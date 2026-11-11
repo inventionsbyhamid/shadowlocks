@@ -15,6 +15,7 @@
 // Per frame: `update` compares the chip's line and show count with the last ones and one time against the next wake-up
 // (a number; Infinity when nothing waits), and allocates nothing. Everything else runs on a change of line, a timer,
 // a clip ending or a setting.
+import type { LifecycleAudio } from "./lifecycle";
 import type { LineWhy } from "./lessons-director";
 import { keyOfLine } from "./voice-lines";
 
@@ -276,8 +277,12 @@ export class VoiceGuide {
     this.deps.out.hush(fadeMs, hold);
   }
 
-  /** Hidden: the line stops. Seen again: it is said again from its start, if still shown. */
-  private seen(visible: boolean): void {
+  /**
+   * Hidden: the line stops. Seen again: it is said again from its start, if still shown. The lifecycle says so as it
+   * happens (voiceHearsLifecycle): a headset taken off may run no frame while hidden. `update`'s flag is a fallback.
+   */
+  seen(visible: boolean): void {
+    if (visible === this.visible) return;
     this.visible = visible;
     if (!visible) {
       if (this.playing === null) return;
@@ -291,4 +296,21 @@ export class VoiceGuide {
     const now = this.deps.now();
     this.queue(key, now + BACK_AFTER_MS, now);
   }
+}
+
+/**
+ * The lifecycle's audio hook (`audio`: the engine), with the voice guide told first when the app is hidden and last
+ * when it is seen again, as it happens.
+ */
+export function voiceHearsLifecycle(audio: LifecycleAudio, voice: Pick<VoiceGuide, "seen">): LifecycleAudio {
+  return {
+    suspend() {
+      voice.seen(false);
+      audio.suspend();
+    },
+    resume() {
+      audio.resume();
+      voice.seen(true);
+    },
+  };
 }

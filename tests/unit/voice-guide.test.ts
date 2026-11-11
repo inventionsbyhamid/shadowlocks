@@ -15,7 +15,9 @@ import {
   type VoiceClips,
   VoiceGuide,
   type VoiceWhy,
+  voiceHearsLifecycle,
 } from "../../src/app/voice-guide";
+import { Lifecycle } from "../../src/app/lifecycle";
 import { COPY } from "../../src/ui/copy";
 
 const C = COPY.lessons;
@@ -280,6 +282,28 @@ describe("VoiceGuide", () => {
     r.chip.visible = true;
     r.run(2000);
     expect(r.plays.length).toBe(2);
+  });
+
+  it("hears the app hidden and seen from the lifecycle itself, with no frame run while hidden (headset off mid-line)", () => {
+    const r = rig();
+    const audio = { suspend: vi.fn(), resume: vi.fn() };
+    const life = new Lifecycle({ persist: () => {} });
+    life.setAudio(voiceHearsLifecycle(audio, r.g));
+    life.setXrVisibility("visible", 0);
+    r.show(C.goal);
+    r.run(500);
+    expect(r.plays.length).toBe(1);
+    // The headset comes off: the XR session goes hidden and no frame runs, but the line stops at once.
+    life.setXrVisibility("hidden", r.now());
+    expect(r.hushes.at(-1)!.fade).toBe(0);
+    expect(audio.suspend).toHaveBeenCalledTimes(1);
+    // Back on: said again from its start a second later (frames run again; the chip's visible flag follows).
+    life.setXrVisibility("visible", r.now());
+    expect(audio.resume).toHaveBeenCalledTimes(1);
+    r.run(BACK_AFTER_MS - 100);
+    expect(r.plays.length).toBe(1);
+    r.run(200);
+    expect(r.plays.map((p) => p.key)).toEqual(["lessons.goal", "lessons.goal"]);
   });
 
   it("holds a line shown before audio starts and says it at the first pinch, if still shown and under 10 s old", () => {
