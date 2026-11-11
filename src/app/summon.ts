@@ -2,9 +2,9 @@
 // (lost-box.ts says when the arrow is up), the arrow at the edge of the view points to it (render/summon-arrow.ts); a
 // pinch or poke on it (a controller's trigger too) takes it, and the view fades out, the box is placed in front of the
 // head as Recenter places it, and the view fades back in. No slide, nothing moving by itself. ShellSystem runs it on
-// every frame of a headset's session once the box is placed, the head tracked or not, so a fade always ends; it calls a
-// summon off (the view fades back in, the box stays) if the lantern is taken meanwhile. Quest's own recenter and the
-// Settings key place the box at once, as before. Allocation free per frame.
+// every frame of a headset's session once the box is placed, the head tracked or not, so a fade always ends; if the
+// lantern was taken while the view faded out, it calls the summon off at full dark (the view fades back in, the box
+// stays). Quest's own recenter and the Settings key place the box at once, as before. Allocation free per frame.
 import type { Quaternion, Vector3 } from "@iwsdk/core";
 import type { HandPinch } from "../input/grab-system";
 import { smoothstep } from "../render/fx/ease";
@@ -37,7 +37,7 @@ export class Summon {
   private t0 = 0;
   /** The last frame's time (ms; NaN before the first). */
   private lastMs = Number.NaN;
-  /** How dark the view is as it starts fading back in (1 after a placement, less after a summon called off). */
+  /** How dark the view is as it starts fading back in: 1 after a placement, and after the shell's cancel (at full dark). */
   private from = 1;
 
   constructor(private readonly input: SummonInput) {}
@@ -94,8 +94,9 @@ export class Summon {
   }
 
   /**
-   * Call a summon off while the view fades out (the lantern was taken meanwhile: the box must not move under it): the
-   * view fades back in from where it was, and no placement is asked. Nothing to do in any other phase.
+   * Call a summon off before the box is placed (the lantern was taken meanwhile: the box must not move under it): the
+   * view fades back in, and no placement is asked. The shell calls it on the "place" frame, at full dark; called
+   * earlier in the fade-out it would fade back in from however dark the view is. Nothing to do in any other phase.
    */
   cancel(): void {
     if (this.phase !== "out") return;

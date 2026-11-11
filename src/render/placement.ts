@@ -285,10 +285,10 @@ export class Placement {
   }
 
   /**
-   * Place the box from the head (session start, Recenter); the size stays. With the head's `pitch` (radians; a headset's
-   * first placement), from where the eyes will be while the player looks at the box (playEye), not where they are now:
-   * the box then lands in the same place whether the head looked level, at the lap or steeply down as it was placed.
-   * Without, from the eyes as they are (Recenter and Quest's own recenter, as before).
+   * Place the box from the head (session start, Recenter); the size stays. With the head's `pitch` (radians; every
+   * headset placement passes it, through placeFromHead), from where the eyes will be while the player looks at the box
+   * (playEye), not where they are now: the box then lands in the same place whether the head looked up, level or down
+   * as it was placed. Without, from the eyes as they are.
    */
   start(head: HeadPose, pitch?: number): void {
     this.eye.pos.set(head.position[0], head.position[1], head.position[2]);
@@ -419,6 +419,25 @@ export class PlaceGate {
   get ready(): boolean {
     return this.steady || this.lastMs - this.firstMs >= STEADY.capMs;
   }
+}
+
+const headScratch = { position: [0, 0, 0] as [number, number, number], yaw: 0 };
+
+/**
+ * Place `p` from a head (a phone's camera) at `pos` turned `turn`, as every placement does (the first, Recenter,
+ * Quest's own recenter, the arrow's summon): a phone in its camera's view `view`, leaning with its pitch
+ * (startInView); a headset in the lap from the eyes that look at the box (start with the head's pitch), so the box
+ * lands in the same place whether the head looked up, level or down then. Allocation free.
+ */
+export function placeFromHead(p: Placement, pos: Readonly<Vector3>, turn: Readonly<Quaternion>, phone: boolean, view: ViewTangents): void {
+  const h = headScratch;
+  h.position[0] = pos.x;
+  h.position[1] = pos.y;
+  h.position[2] = pos.z;
+  h.yaw = yawFromQuaternion(turn.x, turn.y, turn.z, turn.w);
+  const pitch = pitchFromQuaternion(turn.x, turn.y, turn.z, turn.w);
+  if (phone) p.startInView(h, pitch, view);
+  else p.start(h, pitch);
 }
 
 /** The app's box placement. */
