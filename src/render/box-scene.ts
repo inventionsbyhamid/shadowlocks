@@ -67,6 +67,11 @@ const PANEL_Z = 0.002;
 const PANEL_ORDER = 1;
 /** The velvet floor draws before the other opaque parts of the box (order 0), after the hand mask (-10). */
 export const FLOOR_ORDER = -1;
+/**
+ * LANTERN_RADIUS and PENUMBRA_MAX as raw doubles, read once a sync: an imported constant is read as a boxed number,
+ * and a conditional between one and a computed float boxed the result, one heap number per hand outline a frame.
+ */
+const PEN = Float64Array.of(LANTERN_RADIUS, PENUMBRA_MAX);
 /** Glass lid height (threads hang just under it). */
 const LID_Y = 0.49;
 /** Plinth under the box: height, depth (to just past the front), centre. */
@@ -401,6 +406,8 @@ export class BoxScene {
     // A lost GPU context that comes back: the reflections rendered again for everything under the box (the drawer and
     // the reward, added later, included).
     restoreEnvironmentsOnContextRestore(world.renderer.domElement, this.root, envs, studios);
+    // The shadows keep what did not change since the last cast; after a lost context they are all cast afresh.
+    world.renderer.domElement.addEventListener("webglcontextrestored", () => this.shadows.invalidate());
   }
 
   /** The box shown (its scraps, threads, rings, etching and shadows; the lantern goes to its start), or none. */
@@ -478,13 +485,13 @@ export class BoxScene {
     const extras = this.extras, soft = this.extraSoft;
     let n = this.crystals.castShadows(L, extras, soft);
     const room = MAX_EXTRAS - n, hands = this.handCount < room ? this.handCount : room;
-    const Lz = L[2], depth = this.handDepth;
+    const Lz = L[2], depth = this.handDepth, radius = PEN[0]!, penMax = PEN[1]!;
     for (let i = 0; i < hands; i++) {
       extras[n] = this.handOutlines[i]!;
       // penumbra(depth, Lz) written out: no float crosses a call, so none is boxed (36 of them a frame for two hands).
       const z = depth[i]!, d = Lz - z;
-      const pen = d > 0 ? (LANTERN_RADIUS * z) / d : PENUMBRA_MAX;
-      soft[n] = pen < PENUMBRA_MAX ? pen : PENUMBRA_MAX;
+      const pen = d > 0 ? (radius * z) / d : penMax;
+      soft[n] = pen < penMax ? pen : penMax;
       n++;
     }
     const ghost = Math.min(this.ghostCount, MAX_EXTRAS - n);
@@ -492,8 +499,8 @@ export class BoxScene {
       extras[n] = this.ghostOutlines[i]!;
       // As the hands': penumbra(depth, Lz) written out, so no float is boxed per outline.
       const z = this.ghostDepth[i]!, d = Lz - z;
-      const pen = d > 0 ? (LANTERN_RADIUS * z) / d : PENUMBRA_MAX;
-      soft[n] = pen < PENUMBRA_MAX ? pen : PENUMBRA_MAX;
+      const pen = d > 0 ? (radius * z) / d : penMax;
+      soft[n] = pen < penMax ? pen : penMax;
       n++;
     }
     const changed = hands > 0 || ghost > 0 || this.crystals.version !== this.castCrystals;

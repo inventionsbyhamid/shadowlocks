@@ -3,6 +3,11 @@
 // crystallised piece, the hands' bones, a lesson's ghost hand). It decides when a cast is needed (the lantern moved,
 // a piece appeared or went, the extras changed), keeps each element's slot, and follows a lesson's scraps when they
 // are moved in place. Casters are made once per box; a frame allocates nothing.
+//
+// A cast redoes only what changed since the last one: the box's casters are projected again only when the lantern
+// (bit for bit), their poses (moved()) or the layout changed, and the mesh rebuilds only the slots whose polygon or
+// softness differs from what it drew there last (extra shadows are compared value by value). What it skips it would
+// have rewritten with the very same numbers, so the mesh holds exactly what a full cast writes.
 import { circlePts, projInto } from "../core/geom";
 import { RING_SIDES } from "../core/solve";
 import type { Box, Element as BoxElement, Piece, V2, V3 } from "../core/types";
@@ -19,6 +24,12 @@ export const MAX_EXTRAS = 60;
 export const MAX_CASTER_CORNERS = 2 * RING_SIDES;
 /** Shadows are cast with the lantern at least this far from the panel (every scrap is nearer). */
 const LZ_MIN = 0.85;
+/**
+ * SOFT_MIN, PENUMBRA_MAX and LANTERN_RADIUS as raw doubles, read once a cast. Imported constants are read as boxed
+ * numbers, and a conditional between one and a computed float boxed the result: one heap number per shadow a frame.
+ * The very same values.
+ */
+const K = Float64Array.of(SOFT_MIN, PENUMBRA_MAX, LANTERN_RADIUS);
 
 /** One element's shadow: its 3D corners, where their projection goes, and its slot's shape. */
 interface Caster {
@@ -36,6 +47,7 @@ interface Caster {
 
 const EMPTY: V2[] = [];
 const NO_SHAPE: ShadowShape = { count: 0, tris: null, ring: false };
+const SLOTS = MAX_CASTERS + MAX_EXTRAS;
 
 /**
  * circlePts (core/geom.ts) written into out[from..from + RING_SIDES): the same corners, made without allocating.
@@ -84,6 +96,16 @@ export class BoxShadows {
   private extras = 0;
   private readonly at: V3 = [0, 0, 0];
   private readonly last: V3 = [NaN, NaN, NaN];
+  /** Where the box's casters were last projected from (the clamped lantern), NaN when they must be again. */
+  private readonly castAt = new Float64Array([NaN, NaN, NaN]);
+  /** Per mesh slot: 1 when the slot's polygon and softness are what the mesh drew there last (ShadowMesh.update). */
+  private readonly same = new Uint8Array(SLOTS);
+  /** What each slot after the box's last drew: its corners (x, y), corner count (-1: nothing known) and softness. */
+  private readonly drawnXY = new Float64Array(SLOTS * MAX_CASTER_CORNERS * 2);
+  private readonly drawnCount = new Int32Array(SLOTS).fill(-1);
+  private readonly drawnSoft = new Float64Array(SLOTS);
+  /** Whether the last cast projected the box's casters again: for tests. */
+  private projectedBox = false;
 
   constructor(
     private readonly shown: (p: Piece) => boolean = (p) => !p.missing,
@@ -121,6 +143,7 @@ export class BoxShadows {
     this.dirty = true;
     this.last[0] = NaN;
     this.extras = 0;
+    this.forget();
     this.mesh.mesh.visible = casters.length > 0;
     if (!casters.length) {
       this.n = 0;
@@ -141,6 +164,27 @@ export class BoxShadows {
       circleInto(el.c, el.nrm, el.rIn, c.pts, RING_SIDES);
     }
     this.last[0] = NaN;
+    this.castAt[0] = NaN;
+  }
+
+  /**
+   * Cast everything again on the next refresh, every slot rebuilt from scratch (a restored GPU context: what the mesh
+   * holds is uploaded again anyway, this only makes sure of it). Allocation-free.
+   */
+  invalidate(): void {
+    this.last[0] = NaN;
+    this.forget();
+  }
+
+  /** Whether the last cast projected the box's casters again (the lantern, a pose or the layout changed). For tests. */
+  get projected(): boolean {
+    return this.projectedBox;
+  }
+
+  /** Nothing about the last cast is known any more: the next one projects and rebuilds every slot. */
+  private forget(): void {
+    this.castAt[0] = NaN;
+    this.drawnCount.fill(-1);
   }
 
   /** The mesh slot an element's shadow is in now, or -1 (not cast, or not in this box). */
@@ -163,6 +207,7 @@ export class BoxShadows {
   refresh(L: V3, extra?: readonly V2[][], nExtra = 0, extraSoft?: Float32Array, extraChanged = false): boolean {
     const moved = L[0] !== this.last[0] || L[1] !== this.last[1] || L[2] !== this.last[2];
     if (!moved && !this.visibilityChanged() && nExtra === this.extras && !extraChanged) return false;
+    // Visibility was brought up to date just above (or the lantern moved and cast's own check does it).
     this.cast(L, extra, nExtra, extraSoft);
     return true;
   }
@@ -180,31 +225,69 @@ export class BoxShadows {
     const cs = this.casters;
     this.visibilityChanged();
     if (this.dirty) this.layout();
-    const at = this.at;
+    const at = this.at, castAt = this.castAt, same = this.same;
     at[0] = L[0];
     at[1] = L[1];
     at[2] = L[2] > LZ_MIN ? L[2] : LZ_MIN;
-    const soft = this.soft, Lz = at[2];
-    let k = 0;
-    for (let i = 0; i < cs.length; i++) {
-      const c = cs[i]!;
-      if (!c.on) continue;
-      const pts = c.pts, poly = c.poly;
-      for (let j = 0; j < pts.length; j++) projInto(pts[j]!, at, poly[j]!);
-      // penumbra(c.z, Lz), written out: a float returned from a call the engine did not inline is boxed.
-      const z = c.z, d = Lz - z;
-      let pen = d > 0 ? (LANTERN_RADIUS * z) / d : PENUMBRA_MAX;
-      if (pen > PENUMBRA_MAX) pen = PENUMBRA_MAX;
-      soft[k++] = pen > SOFT_MIN ? pen : SOFT_MIN;
+    const soft = this.soft, Lz = at[2], k = this.n, softMin = K[0]!, penMax = K[1]!, radius = K[2]!;
+    // The box's casters project to the same corners as last time when the clamped lantern is the same, bit for bit
+    // (0 and -0 told apart: they can project to 0 and -0), and nothing else changed (moved(), the layout and a new
+    // box clear castAt).
+    const ax = at[0], ay = at[1], bx = castAt[0]!, by = castAt[1]!, bz = castAt[2]!;
+    const still =
+      ax === bx && ay === by && Lz === bz && (ax !== 0 || 1 / ax === 1 / bx) && (ay !== 0 || 1 / ay === 1 / by) && (Lz !== 0 || 1 / Lz === 1 / bz);
+    this.projectedBox = !still;
+    if (still) {
+      for (let i = 0; i < k; i++) same[i] = 1;
+    } else {
+      let s = 0;
+      for (let i = 0; i < cs.length; i++) {
+        const c = cs[i]!;
+        if (!c.on) continue;
+        const pts = c.pts, poly = c.poly;
+        for (let j = 0; j < pts.length; j++) projInto(pts[j]!, at, poly[j]!);
+        // penumbra(c.z, Lz), written out: a float returned from a call the engine did not inline is boxed.
+        const z = c.z, d = Lz - z;
+        let pen = d > 0 ? (radius * z) / d : penMax;
+        if (pen > penMax) pen = penMax;
+        soft[s] = pen > softMin ? pen : softMin;
+        same[s++] = 0;
+      }
+      castAt[0] = ax;
+      castAt[1] = ay;
+      castAt[2] = Lz;
     }
-    const polys = this.polys;
+    const polys = this.polys, xy = this.drawnXY, counts = this.drawnCount, softs = this.drawnSoft;
     for (let e = 0; e < nExtra; e++) {
-      polys[k + e] = extra![e]!;
-      const s = extraSoft ? extraSoft[e]! : SOFT_MIN;
-      soft[k + e] = s > SOFT_MIN ? s : SOFT_MIN;
+      const slot = k + e, poly = extra![e]!, c = poly.length;
+      polys[slot] = poly;
+      const s = extraSoft ? extraSoft[e]! : softMin;
+      soft[slot] = s > softMin ? s : softMin;
+      // Compared with what this slot last drew, value by value (0 and -0 told apart), as stored in the soft array.
+      const sf = soft[slot]!, was = softs[slot]!;
+      let eq = counts[slot] === c && sf === was && (sf !== 0 || 1 / sf === 1 / was);
+      const o = slot * MAX_CASTER_CORNERS * 2;
+      for (let j = 0; eq && j < c; j++) {
+        const p = poly[j]!, x = p[0], y = p[1], px = xy[o + 2 * j]!, py = xy[o + 2 * j + 1]!;
+        eq = x === px && y === py && (x !== 0 || 1 / x === 1 / px) && (y !== 0 || 1 / y === 1 / py);
+      }
+      same[slot] = eq ? 1 : 0;
+      if (eq) continue;
+      if (c > MAX_CASTER_CORNERS) {
+        // The mesh refuses it (and says why); nothing to remember.
+        counts[slot] = -1;
+        continue;
+      }
+      counts[slot] = c;
+      softs[slot] = sf;
+      for (let j = 0; j < c; j++) {
+        const p = poly[j]!;
+        xy[o + 2 * j] = p[0];
+        xy[o + 2 * j + 1] = p[1];
+      }
     }
     this.extras = nExtra;
-    if (k + nExtra) this.mesh.update(polys, k + nExtra, soft);
+    if (k + nExtra) this.mesh.update(polys, k + nExtra, soft, same);
   }
 
   /** Updates each piece's `on` (a change marks the layout dirty); true when any changed. */
@@ -238,5 +321,7 @@ export class BoxShadows {
     this.n = n;
     this.mesh.setShapes(this.shapes, n);
     this.dirty = false;
+    // Every slot may hold another polygon now.
+    this.forget();
   }
 }
