@@ -5,7 +5,7 @@ import path from "node:path";
 import { test } from "../e2e/helpers/test";
 import { EDITS } from "./edits";
 import { renderEdit } from "./lib/deliver";
-import { renderEndCard } from "./lib/endcard";
+import { renderCornerLabel, renderEndCard } from "./lib/endcard";
 import { videoOptions, workDir } from "./lib/options";
 import { shotFile } from "./lib/records";
 import { renderShot, stoppedNote } from "./lib/shoot";
@@ -64,7 +64,12 @@ if (o.edit) {
       card = path.join(workDir(o), `edit-${name}-card.png`);
       await renderEndCard(page, edit.endCard, { width: o.width, height: o.height }, process.cwd(), card);
     }
-    renderEdit(name, edit, o, log, card);
+    let label: string | undefined;
+    if (edit.label) {
+      label = path.join(workDir(o), `edit-${name}-label.png`);
+      await renderCornerLabel(page, edit.label.text, { width: o.width, height: o.height }, process.cwd(), label);
+    }
+    renderEdit(name, edit, o, log, card, label);
   });
 }
 

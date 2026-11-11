@@ -71,3 +71,32 @@ export async function renderEndCard(page: Page, card: EndCard, size: { width: nu
   fs.mkdirSync(path.dirname(out), { recursive: true });
   await page.screenshot({ path: out, omitBackground: true, fullPage: false });
 }
+
+/**
+ * A small corner label over the footage ("Emulator footage"), so a viewer knows what they see: a transparent layer
+ * at the edit's size, the words in a dark pill in the top left corner, sized from the frame height.
+ */
+export function cornerLabelHtml(text: string, width: number, height: number, fontDataUrl: string): string {
+  const h = (k: number) => `${(k * height).toFixed(2)}px`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face { font-family: Archivo; src: url(${fontDataUrl}) format("truetype"); font-weight: 100 900; font-stretch: 62% 125%; }
+html, body { margin: 0; width: ${width}px; height: ${height}px; background: transparent; overflow: hidden; }
+.label { position: absolute; left: ${h(0.035)}; top: ${h(0.035)}; font-family: Archivo; font-stretch: 112%; font-weight: 600;
+  font-size: ${h(0.024)}; letter-spacing: ${h(0.0008)}; color: ${TEXT}; background: rgba(28,25,29,0.62);
+  padding: ${h(0.01)} ${h(0.02)}; border-radius: ${h(0.03)}; }
+</style></head><body><div class="label">${esc(text)}</div></body></html>`;
+}
+
+/** Draw the corner label's layer to `out`, a PNG at width x height, transparent but for the label. */
+export async function renderCornerLabel(page: Page, text: string, size: { width: number; height: number }, root: string, out: string): Promise<void> {
+  const font = fs.readFileSync(path.join(root, FONT_FILE)).toString("base64");
+  await page.setViewportSize(size);
+  await page.setContent(cornerLabelHtml(text, size.width, size.height, `data:font/ttf;base64,${font}`));
+  const ok = await page.evaluate(async () => {
+    await document.fonts.ready;
+    return document.fonts.check(`600 20px Archivo`);
+  });
+  if (!ok) throw new Error("corner label: the Archivo font did not load");
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  await page.screenshot({ path: out, omitBackground: true, fullPage: false });
+}

@@ -7,7 +7,7 @@ import { type Duck, type Layer, type MixPlan, type MusicChange, musicSetup, musi
 import { audioFacts, channelsOf, ffmpeg, measureEbur128, mediaFacts, normalizeLoudness, type NormalizeResult } from "./ffrun";
 import type { EndCard } from "./endcard";
 import { type Ebur128, type LoudnessTarget, loudnessProblems } from "./loudness";
-import { contactSheetArgs, deliveryArgs, editVideoFilter, endCardFilter, fadeFramesFor, mixCommand, type Narration, type PcmLoop, shiftDucks, stillArgs } from "./mixdown";
+import { contactSheetArgs, deliveryArgs, editVideoFilter, endCardFilter, fadeFramesFor, labelFilter, mixCommand, type Narration, type PcmLoop, shiftDucks, stillArgs } from "./mixdown";
 import { type VideoOptions, workDir } from "./options";
 import { readRecord, type ShotRecord, shotFile, writeRecord } from "./records";
 import { shotVersions, type Versions } from "./version";
@@ -161,6 +161,8 @@ export interface Edit {
   narration?: { file: string; startSec?: number; gainDb?: number; duckDb?: number };
   /** A title card after the last shot, over a blurred hold of its last frame (lib/endcard.ts). */
   endCard?: EndCard;
+  /** A corner label (lib/endcard.ts cornerLabelHtml) over the named shots, never over the end card. */
+  label?: { text: string; shots: string[] };
 }
 
 /** The music tail under an end card fades out over the card's last this many seconds. */
@@ -210,6 +212,7 @@ export interface EditRecord {
   narration: Edit["narration"] | null;
   /** The end card, where it starts (s) and how many frames it adds. */
   endCard: (EndCard & { startSec: number; frames: number }) | null;
+  label: Edit["label"] | null;
 }
 
 /**
@@ -218,7 +221,7 @@ export interface EditRecord {
  * under all of it, an optional voice-over the rest ducks under, loudness to the target, and one
  * delivery encode with the shots' own settings.
  */
-export function renderEdit(name: string, edit: Edit, o: VideoOptions, log: (s: string) => void, cardPng?: string): string {
+export function renderEdit(name: string, edit: Edit, o: VideoOptions, log: (s: string) => void, cardPng?: string, labelPng?: string): string {
   const records = edit.shots.map((s) => {
     const r = readRecord(o, s);
     if (!r || !r.mp4) throw new Error(`edit ${name}: shot ${s} is not rendered at ${o.width}x${o.height}`);
@@ -254,6 +257,19 @@ export function renderEdit(name: string, edit: Edit, o: VideoOptions, log: (s: s
     duration: (cut.frames + cardFrames) / fps,
   };
   const cardInputs = card && cardPng ? [["-loop", "1", "-framerate", String(fps), "-t", String(cardFrames / fps + 0.5), "-i", cardPng]] : [];
+  // The corner label over its shots (crossfades between two labelled shots keep it up), after the card is laid.
+  const label = edit.label;
+  if (label && !labelPng) throw new Error(`edit ${name}: its corner label was not drawn`);
+  if (label) {
+    const unknown = label.shots.filter((s) => !edit.shots.includes(s));
+    if (unknown.length) throw new Error(`edit ${name}: the label names shots not in the edit: ${unknown.join(", ")}`);
+    const spans: Array<[number, number]> = [];
+    edit.shots.forEach((s, i) => {
+      if (label.shots.includes(s)) spans.push([v.starts[i] as number, (v.starts[i] as number) + (records[i] as ShotRecord).frames / fps]);
+    });
+    v.filter = labelFilter(v.filter, { input: records.length + 1 + cardInputs.length, spans });
+    cardInputs.push(["-loop", "1", "-framerate", String(fps), "-t", String(v.duration + 0.5), "-i", labelPng as string]);
+  }
   const fade = fadeFrames / fps;
   const m = readManifest(log);
 
@@ -354,6 +370,7 @@ export function renderEdit(name: string, edit: Edit, o: VideoOptions, log: (s: s
     delivered,
     narration: edit.narration ?? null,
     endCard: card ? { ...card, startSec: cut.duration, frames: cardFrames } : null,
+    label: label ?? null,
   };
   fs.writeFileSync(path.join(o.outDir, `${name}.json`), JSON.stringify(rec, null, 2));
   log(

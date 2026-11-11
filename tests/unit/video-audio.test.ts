@@ -17,7 +17,7 @@ import {
 } from "../video/lib/audio";
 import { EDIT_LOUDNESS, editLoudness, SILENT_MANIFEST } from "../video/lib/deliver";
 import { endCardHtml } from "../video/lib/endcard";
-import { contactSheetArgs, deliveryArgs, duckFilter, editVideoFilter, endCardFilter, fadeFramesFor, mezzanineArgs, mixCommand } from "../video/lib/mixdown";
+import { contactSheetArgs, deliveryArgs, duckFilter, editVideoFilter, endCardFilter, fadeFramesFor, labelFilter, mezzanineArgs, mixCommand } from "../video/lib/mixdown";
 import { fixtureManifest } from "./helpers/audio-fixture";
 
 // The shapes the sound pack's manifest has (the sound tools write them), with test values: the video
@@ -309,6 +309,18 @@ describe("ffmpeg commands", () => {
     expect(stereo.script).toMatch(/pan=stereo\|c0=[\d.]+\*c0(\+[\d.]+\*c1)?\|c1=([\d.]+\*c0\+)?[\d.]+\*c1/);
   });
 
+  it("plays the music bed from a pack with a calm loop only, as the engine does", () => {
+    const plan = planMix([frame(1, [{ type: "screen", from: "home", to: "play" }])], manifest, { duration: 4, seed: "b", initialMusic: "menu" });
+    const cmd = mixCommand(
+      { plan, music: planMusic(plan.music, musicSetup(manifest)), musicBus: 0.5, limiter: true, out: "out.wav" },
+      { audioDir: "/a", calmLoop: { file: "/w/bed.wav", samples: 960000, startSample: 0 }, channels: () => 2 },
+      "mix.filter",
+    );
+    expect(cmd.args).toContain("/w/bed.wav");
+    expect(cmd.script).toContain("[music]");
+    expect(cmd.script).not.toContain("raw_intense");
+  });
+
   it("ducks the bed under a voice-over by about the asked depth", () => {
     const plan = planMix([], manifest, { duration: 4, seed: "n", initialMusic: "calm" });
     const cmd = mixCommand(
@@ -351,6 +363,15 @@ describe("ffmpeg commands", () => {
     expect(() => editVideoFilter([{ file: "a", frames: 20 }, { file: "b", frames: 300 }], 30, 60)).toThrow(/shortest clip/);
     expect(() => editVideoFilter([{ file: "a", frames: 20 }], 2.5, 60)).toThrow(/whole frames/);
     expect(contactSheetArgs({ input: "x.mp4", frames: 360, out: "c.png" }).join(" ")).toContain("not(mod(n,30))");
+  });
+});
+
+describe("corner label", () => {
+  it("lays the label over its shots' spans only, and leaves an edit with none as it is", () => {
+    const g = labelFilter("[0:v][1:v]xfade=transition=fade:duration=0.5:offset=5[v]", { input: 4, spans: [[0, 5.5], [9, 12.25]] });
+    expect(g.startsWith("[0:v][1:v]xfade=transition=fade:duration=0.5:offset=5[vnl];[4:v]format=yuva444p[vlab];")).toBe(true);
+    expect(g.endsWith("[vnl][vlab]overlay=x=0:y=0:eof_action=repeat:format=auto:enable='between(t,0,5.5)+between(t,9,12.25)'[v]")).toBe(true);
+    expect(labelFilter("[0:v]null[v]", { input: 2, spans: [] })).toBe("[0:v]null[v]");
   });
 });
 
