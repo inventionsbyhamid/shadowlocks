@@ -37,6 +37,8 @@ describe("settings", () => {
     expect(settingAction("toggle-warmth", s)).toEqual({ warmth: false });
     expect(settingAction("toggle-hand", s)).toEqual({ handed: "left" });
     expect(settingAction("toggle-hand", { ...s, handed: "left" })).toEqual({ handed: "right" });
+    expect(settingAction("toggle-voice", s)).toEqual({ voice: false });
+    expect(settingAction("toggle-voice", { ...s, voice: false })).toEqual({ voice: true });
     // The Language key steps to the next language, and round.
     expect(settingAction("settings-language", s)).toEqual({ language: "en" });
     expect(settingAction("settings-language", { ...s, language: "de" })).toEqual({ language: "pt-BR" });
@@ -71,6 +73,7 @@ describe("settings", () => {
       "toggle-motion",
       "toggle-dimming",
       "toggle-hand",
+      "toggle-voice",
       "settings-done",
     ]);
   });
@@ -97,6 +100,7 @@ describe("settings", () => {
       { id: "toggle-motion", label: "Less motion", sub: "No bounce", on: true, state: "On" },
       { id: "toggle-dimming", label: "Dim room", sub: "In play", on: true, state: "On" },
       { id: "toggle-hand", label: "Left hand", sub: "Mirrored", on: false, state: "Off" },
+      { id: "toggle-voice", label: "Voice guide", sub: "Spoken help", on: true, state: "On" },
     ]);
     const left: Settings = { ...defaultSettings(), handed: "left", warmth: false };
     expect(settingsView(left).toggles.find((t) => t.id === "toggle-hand")).toMatchObject({ on: true, state: "On" });

@@ -30,6 +30,8 @@ export const FR: Copy = {
     warmthSub: "Lueur et son",
     hand: "Main gauche",
     handSub: "En miroir",
+    voice: "Guide vocal",
+    voiceSub: "En anglais",
     language: "Langue",
     languageAuto: "Automatique",
   },

@@ -31,6 +31,8 @@ export const ES: Copy = {
     warmthSub: "Brillo, zumbido",
     hand: "Mano izquierda",
     handSub: "En espejo",
+    voice: "Guía de voz",
+    voiceSub: "Solo en inglés",
     language: "Idioma",
     languageAuto: "Automático",
   },

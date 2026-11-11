@@ -37,6 +37,9 @@ export const COPY = {
     warmthSub: "Glow, hums",
     hand: "Left hand",
     handSub: "Mirrored",
+    // The voice guide's switch: the coach chip's lines spoken. Other languages' help line says it is English only.
+    voice: "Voice guide",
+    voiceSub: "Spoken help",
     language: "Language",
     /** The Language row set to follow the headset. */
     languageAuto: "Automatic",
