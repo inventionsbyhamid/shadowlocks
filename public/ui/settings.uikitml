@@ -249,7 +249,19 @@
         </div>
       </div>
     </div>
-    <div id="settings-done-slot" class="slot slot-toggle">
+    <div id="toggle-voice-slot" class="slot slot-toggle">
+      <div id="toggle-voice-glow" class="glow"></div>
+      <div id="toggle-voice" class="key key-graphite">
+        <div id="toggle-voice-cap" class="cap cap-graphite toggle-cap">
+          <div class="hair"></div>
+          <div id="toggle-voice-label" class="label-sm">Voice guide</div>
+          <div class="toggle-row"><div id="toggle-voice-led" class="toggle-led"></div><div id="toggle-voice-state" class="toggle-state">Off</div><div id="toggle-voice-sub" class="sub ink-dim toggle-sub">Spoken help</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <div id="settings-done-slot" class="slot slot-sm">
       <div id="settings-done-glow" class="glow"></div>
       <div id="settings-done" class="key key-putty">
         <div id="settings-done-cap" class="cap cap-putty cap-center">

@@ -158,7 +158,8 @@ test("shots: the menus in each language", async ({ page, boot }) => {
       if (s === "collection") await open(app, "home");
       await open(app, s);
       const p = await page.evaluate((x) => window.__ns!.ui.panelBox(x as any), s);
-      await app.captureHeadset(`i18n-${l}-menu-${s}`, { x: p!.center[0], y: p!.center[1], z: p!.center[2] }, 12);
+      // Settings is about 60 degrees tall from the seated eye: a wider view (10.5 px per degree) shows it whole.
+      await app.captureHeadset(`i18n-${l}-menu-${s}`, { x: p!.center[0], y: p!.center[1], z: p!.center[2] }, s === "settings" ? 10.5 : 12);
     }
   }
 });

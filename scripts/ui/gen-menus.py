@@ -214,7 +214,10 @@ settings = HEADER + head("""
   <div class="row">
     {toggle("toggle-dimming", "Dim room", "In play")}
     {toggle("toggle-hand", "Left hand", "Mirrored")}
-    {key("settings-done", "putty", '<div id="settings-done-label" class="label-sm">Done</div>', "slot slot-toggle", "cap-center")}
+    {toggle("toggle-voice", "Voice guide", "Spoken help")}
+  </div>
+  <div class="row">
+    {key("settings-done", "putty", '<div id="settings-done-label" class="label-sm">Done</div>', "slot slot-sm", "cap-center")}
   </div>
 </div>
 """

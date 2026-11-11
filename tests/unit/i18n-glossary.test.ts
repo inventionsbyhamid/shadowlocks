@@ -53,12 +53,12 @@ const EXCEPT: [string, Others | "*", string, string][] = [
   ["dailyBox", "ja", "menus.collection.daily", "'11月2日の箱': the date says which day"],
   ["hand", "ja", "settings.hand", "左利き (left-handed) is how Japanese names the setting"],
   ["box", "ja", "panels.home.tagline", "a puzzle box is パズルボックス, one word"],
-  ["box", "ja", "landing.tagline", "a puzzle box is パズルボックス, one word"],
   ["shadow", "*", "film.title", "the name stays in English"],
   ["lock", "*", "film.title", "the name stays in English"],
   ["shadow", "*", "panels.home.title", "the name stays in English"],
   ["lock", "*", "panels.home.title", "the name stays in English"],
   ["box", "ja", "landing.description", "a puzzle box is パズルボックス, one word"],
+  ["dailyBox", "ja", "share.sentDaily", "'11月2日の箱が届きました': the date says which day"],
 ];
 
 function leaves(v: unknown, path = ""): [string, string][] {

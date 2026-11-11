@@ -3,15 +3,23 @@
 // timed from an example's start. A script is built once when its example starts; evaluating it at a time writes
 // into the director's frame and allocates nothing. Also the idle ghost's loops (reach for the lantern, puppets).
 //
-// Every example is staged the same way: "Watch.", the player's lantern parks in its cradle, the scraps swing into
-// the twin's layout (smoothly, no overshoot), the ghost appears and solves the twin in three beats ending in one
-// click, lets go and leaves, the scraps swing home past their places and settle (no overshoot with reduced motion)
-// while the ghost lantern still lights them, then the lantern lifts out of the cradle and "Your turn."
+// Every example is staged the same way: its own "Watch. ..." line, the player's lantern parks in its cradle, the
+// scraps swing into the twin's layout (smoothly, no overshoot), the ghost appears and solves the twin in three beats
+// ending in one click, lets go and leaves, the scraps swing home past their places and settle (no overshoot with
+// reduced motion) while the ghost lantern still lights them, then the lantern lifts out of the cradle and the
+// player's turn: in a lesson, the line that names the task ("Your turn. Make both pieces meet in the arrow."); in a
+// replay, "Your turn." A line is its copy key (COPY.lessons[key] is the words). With the voice guide on, an example
+// waits before its first beat until its opening line has been said (`sayMs`: each line's clip length, 0 for none).
 import type { LessonId, LessonPlan } from "../core/lessons-data";
 import type { TipId } from "../core/profile";
 import type { Box, Lock, V3 } from "../core/types";
-import { COPY } from "../ui/copy";
+import { VOICE_TAIL_MS } from "../audio/voice";
+import type { COPY } from "../ui/copy";
 import { tipLock } from "./tips";
+
+type Lines = typeof COPY.lessons;
+/** A coach line of the lessons by its copy key: COPY.lessons[key] is what the chip shows (and a voice would say). */
+export type LessonLine = { [K in keyof Lines]: Lines[K] extends string ? K : never }[keyof Lines];
 
 export type ExampleId = "move" | "near-far" | "rings" | "finger";
 /**
@@ -92,7 +100,8 @@ export interface Script {
   palm: V3;
   hand: HandKey[];
   lamp: LampKey[];
-  lines: { t: number; line: string }[];
+  /** The coach line from each time on, by copy key. */
+  lines: { t: number; key: LessonLine }[];
   park: Ramp[];
   layout: Ramp[];
   glow: Ramp[];
@@ -212,12 +221,33 @@ const handFrom = (p: V3, side: number): V3 => add(p, 0.22 * side, -0.04, 0.28);
 interface Beat {
   to: V3;
   ms: number;
-  line?: string;
+  key?: LessonLine;
 }
 
+/** How long each line is said for (ms; 0 for a line with no voice): the clip's length, as the chip shows the line. */
+export type SayMs = (key: LessonLine) => number;
+
 /**
- * An example where the ghost carries a ghost lantern: "Watch.", park, the twin's layout (if any) and the lamp at A,
- * the hand picks it up, the beats, the click at the last beat's end, the release, the swing home, the lift.
+ * The wait added before an example's first beat line, at `firstT`, so its opening line (`open`) is said to its end
+ * with VOICE_TAIL_MS to spare: none with no voice, or when the beat comes late enough already.
+ */
+function leadFor(sayMs: SayMs | undefined, open: LessonLine, firstT: number): number {
+  const ms = sayMs?.(open) ?? 0;
+  return ms > 0 ? Math.max(0, ms + VOICE_TAIL_MS - firstT) : 0;
+}
+
+/** What an example says first and last: its own opening, and the player's turn after it. */
+interface Said {
+  open: LessonLine;
+  turn: LessonLine;
+}
+
+/** The player's turn after `said`'s example: in a replay, simply "Your turn." (the box it returns to is another). */
+const turnOf = (base: ScriptBase, said: Said): LessonLine => (base.replay ? "yourTurn" : said.turn);
+
+/**
+ * An example where the ghost carries a ghost lantern: its opening line, park, the twin's layout (if any) and the lamp
+ * at A, the hand picks it up, the beats, the click at the last beat's end, the release, the swing home, the lift.
  */
 function lanternScript(
   base: ScriptBase,
@@ -226,9 +256,17 @@ function lanternScript(
   beats: Beat[],
   twin: boolean,
   glow: { piece: number; beat: number } | null,
+  said: Said,
+  sayMs?: SayMs,
 ): Script {
-  const C = COPY.lessons;
   const park0 = PARK_MS, show = park0 + 400, grab = show + 400;
+  // The first beat that changes the line: the opening is said by then (the ghost holds the lantern still meanwhile).
+  let firstT = grab + 800;
+  for (const b of beats) {
+    if (b.key) break;
+    firstT += b.ms;
+  }
+  const lead = leadFor(sayMs, said.open, firstT);
   // The hand's keys are its pinch on the lantern's loop; the lamp's, its light.
   const from = handFrom(gripOf(A), side);
   const hand: HandKey[] = [
@@ -241,12 +279,16 @@ function lanternScript(
     { t: show, at: A, op: 1 },
     { t: grab + 800, at: A, op: 1 },
   ];
-  const lines = [{ t: 0, line: C.watch as string }];
-  let t = grab + 800;
+  if (lead > 0) {
+    hand.push({ t: grab + 800 + lead, at: gripOf(A), pose: "hold", op: 1 });
+    lamp.push({ t: grab + 800 + lead, at: A, op: 1 });
+  }
+  const lines: Script["lines"] = [{ t: 0, key: said.open }];
+  let t = grab + 800 + lead;
   const starts: number[] = [];
   for (const b of beats) {
     starts.push(t);
-    if (b.line) lines.push({ t, line: b.line });
+    if (b.key) lines.push({ t, key: b.key });
     t += b.ms;
     hand.push({ t, at: gripOf(b.to), pose: "hold", op: 1 });
     lamp.push({ t, at: b.to, op: 1 });
@@ -260,7 +302,7 @@ function lanternScript(
     { t: click + 1700, at: handFrom(held, side), pose: "ready", op: 0 },
   );
   lamp.push({ t: lift0, at: T, op: 1 }, { t: lift0 + 400, at: T, op: 0 });
-  lines.push({ t: lift0, line: C.yourTurn });
+  lines.push({ t: lift0, key: turnOf(base, said) });
   const end = lift0 + PARK_MS + (base.replay ? REPLAY_TAIL_MS : 0);
   const glowRamps: Ramp[] = glow
     ? [
@@ -329,8 +371,7 @@ function fingerInto(T: V3, tip: V3, flat: V3): V3 {
 }
 
 /** Example 3: the ghost lantern settled on the twin's spot, a pointing ghost finger filling the missing prong. */
-function fingerScript(base: ScriptBase, side: number, tw: Lock, own: Lock): Script {
-  const C = COPY.lessons;
+function fingerScript(base: ScriptBase, side: number, tw: Lock, own: Lock, sayMs?: SayMs): Script {
   const T = tw.L, poly = tw.target[tw.missing]!;
   // The prong's middle and long axis on the panel, its ends 80% of the way out, lifted onto rays from the spot at the
   // finger's depth (inside the box mouth).
@@ -350,7 +391,9 @@ function fingerScript(base: ScriptBase, side: number, tw: Lock, own: Lock): Scri
   const fingers = fingerInto(T, tip, unit([tip[0] - back[0], tip[1] - back[1], tip[2] - back[2]]));
   // In and out straight through the mouth (only depth changes, so no part of the hand nears a glass side).
   const near = add(tip, 0, 0.02, 0.18), from = add(tip, 0, 0.05, 0.42);
-  const park0 = PARK_MS, in0 = park0 + SWING_MS, beat1 = in0 + 800, beat2 = beat1 + 2400, hold = beat2 + 3000;
+  // The first beat's line waits for the opening to be said (the hand, in view, holds still meanwhile).
+  const lead = leadFor(sayMs, SAID.finger.open, PARK_MS + SWING_MS + 800);
+  const park0 = PARK_MS, in0 = park0 + SWING_MS, beat1 = in0 + 800 + lead, beat2 = beat1 + 2400, hold = beat2 + 3000;
   const click = hold + FILL_MS + CRYSTAL_MS, leave = hold + 2000, swing0 = leave + 600, lift0 = swing0 + SWING_MS;
   return {
     ...base,
@@ -360,6 +403,7 @@ function fingerScript(base: ScriptBase, side: number, tw: Lock, own: Lock): Scri
     palm: PALM_DOWN,
     hand: [
       { t: in0, at: from, pose: "relaxed", op: 0 },
+      ...(lead > 0 ? [{ t: in0 + 800, at: from, pose: "point" as const, op: 1 }] : []),
       { t: beat1, at: from, pose: "point", op: 1 },
       { t: beat2, at: near, pose: "point", op: 1 },
       { t: hold, at: tip, pose: "point", op: 1 },
@@ -374,9 +418,9 @@ function fingerScript(base: ScriptBase, side: number, tw: Lock, own: Lock): Scri
       { t: lift0 + 400, at: T, op: 0 },
     ],
     lines: [
-      { t: 0, line: C.watch },
-      { t: beat1, line: C.finger },
-      { t: lift0, line: C.yourTurn },
+      { t: 0, key: "watchFinger" },
+      { t: beat1, key: "finger" },
+      { t: lift0, key: turnOf(base, SAID.finger) },
     ],
     park: [
       { t0: 0, t1: PARK_MS, from: 0, to: 1, ease: "jerk" },
@@ -403,14 +447,24 @@ function fingerScript(base: ScriptBase, side: number, tw: Lock, own: Lock): Scri
   };
 }
 
+/**
+ * What each example says first and, in a lesson, as the player's turn begins. "Move the light" plays in a lesson only
+ * as lock I's last resort (the lesson's help on the lock itself): its turn is lock I's goal again.
+ */
+export const SAID: Readonly<Record<ExampleId, Said>> = {
+  move: { open: "watch", turn: "goal" },
+  "near-far": { open: "watchNearFar", turn: "turnNearFar" },
+  rings: { open: "watchRings", turn: "yourTurn" },
+  finger: { open: "watchFinger", turn: "turnFinger" },
+};
+
 /** The script of example `ex` on `plan` (its lesson's box and twins, mirrored for a left-handed player). */
-export function buildScript(ex: ExampleId, plan: LessonPlan, left: boolean, replay: boolean): Script {
-  const C = COPY.lessons;
+export function buildScript(ex: ExampleId, plan: LessonPlan, left: boolean, replay: boolean, sayMs?: SayMs): Script {
   const { lesson, lock } = EXAMPLES[ex];
   const side = left ? -1 : 1;
   const own = plan.box.locks[lock]!, twin = plan.twins[lock];
   const base = { ex, lesson, lock, replay };
-  if (ex === "finger" && twin) return fingerScript(base, side, twin.lock, own);
+  if (ex === "finger" && twin) return fingerScript(base, side, twin.lock, own, sayMs);
   const T = twin ? twin.lock.L : own.L;
   // Toward the box's middle from the spot (the twin sits on the weak side).
   const c = T[0] === 0 ? side : -Math.sign(T[0]);
@@ -421,12 +475,14 @@ export function buildScript(ex: ExampleId, plan: LessonPlan, left: boolean, repl
       side,
       A,
       [
-        { to: add(T, 0.1 * side, 0.02, -0.16), ms: 3000, line: C.watchMove },
+        { to: add(T, 0.1 * side, 0.02, -0.16), ms: 3000, key: "watchMove" },
         { to: add(T, -0.1 * side, 0.04, 0.1), ms: 3000 },
         { to: T, ms: 2600 },
       ],
       false,
       null,
+      SAID.move,
+      sayMs,
     );
   }
   if (ex === "rings" && twin && twin.lock.mark) {
@@ -436,12 +492,14 @@ export function buildScript(ex: ExampleId, plan: LessonPlan, left: boolean, repl
       side,
       add(T, 0.14 * c, 0.1, 0.15),
       [
-        { to: P(1.25), ms: 3000, line: C.lineUp },
-        { to: P(0.9), ms: 3500, line: C.slide },
+        { to: P(1.25), ms: 3000, key: "lineUp" },
+        { to: P(0.9), ms: 3500, key: "slide" },
         { to: T, ms: 3000 },
       ],
       true,
       null,
+      SAID.rings,
+      sayMs,
     );
   }
   // Near and far: move, then sway so the near scrap's shadow swings while the far one's holds, then the click.
@@ -455,12 +513,14 @@ export function buildScript(ex: ExampleId, plan: LessonPlan, left: boolean, repl
     add(T, 0.12 * c, -0.08, -0.22),
     [
       { to: B, ms: 3000 },
-      { to: add(T, -0.08 * c, -0.02, -0.08), ms: 2000, line: C.nearSwing },
+      { to: add(T, -0.08 * c, -0.02, -0.08), ms: 2000, key: "nearSwing" },
       { to: B, ms: 2000 },
       { to: T, ms: 2600 },
     ],
     twin !== null,
     nearPiece >= 0 ? { piece: nearPiece, beat: 1 } : null,
+    SAID["near-far"],
+    sayMs,
   );
 }
 

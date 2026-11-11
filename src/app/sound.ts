@@ -11,6 +11,9 @@ import { CueMapper, type CueEvent, GAME_CUE_TYPES, GameSounds, placeOf, type Sou
 import { AudioEngine } from "../audio/engine";
 import type { ListenerPose } from "../audio/manifest";
 import { loadSoundPack, type SoundPack } from "../audio/pack";
+import { VoicePlayer } from "../audio/voice";
+import { VoicePack } from "../audio/voice-pack";
+import { lang } from "../i18n";
 import { mulberry32, seedFrom } from "../core/rng";
 import type { Box, V3, Vec3 } from "../core/types";
 import { CaptionQueue, captionFor } from "../ui/captions";
@@ -23,6 +26,7 @@ import type { Lifecycle } from "./lifecycle";
 import type { PanelButton } from "./panels";
 import { currentScreen, type Screen } from "./screens";
 import type { SettingsStore } from "./settings";
+import { VoiceGuide, voiceHearsLifecycle } from "./voice-guide";
 
 /** The box in the scene, as sound needs it: its locks, its root (box units to world) and the lantern. */
 export interface SoundBox {
@@ -56,6 +60,10 @@ export class Sound {
   /** The box's sounds and haptics: the box session calls these. */
   readonly game: GameSounds;
   readonly haptics: Haptics;
+  /** The voice guide: it says the coach chip's lines (the lessons hand it the chip's line every frame). */
+  readonly voice: VoiceGuide;
+  /** The voice's clips, once their manifest is read (null: none yet, or none at all: text only). */
+  voicePack: VoicePack | null = null;
   /** Captions up now (the game's caption strip draws them). */
   readonly captions = new CaptionQueue();
   /** Play time for timed sounds and pulses: frames the player saw. */
@@ -89,6 +97,16 @@ export class Sound {
       warmth: () => deps.settings.get().warmth,
       places,
       mapper: this.mapper,
+      // Made before the guide: it is there by the time any box sound plays.
+      quiet: (ms) => this.voice.quiet(ms),
+    });
+    this.voice = new VoiceGuide({
+      out: new VoicePlayer(this.engine, this.game.hums),
+      now: this.clock.now,
+      enabled: () => deps.settings.get().voice,
+      lang: () => lang(),
+      audible: () => deps.settings.get().sfxVol > 0,
+      warn: (m) => console.warn(m),
     });
     this.pack = loadSoundPack(this.engine, { baseUrl: `${import.meta.env.BASE_URL}audio/`, warn: (m) => console.warn(m) }).then(
       (p) => {
@@ -113,11 +131,13 @@ export class Sound {
     on("screen", (e) => {
       if (e.from === "play" && e.to !== "play") this.game.reset();
     });
-    deps.lifecycle.setAudio(this.engine);
+    // The voice hears the app hidden and seen as it happens: a headset taken off may run no frame while hidden.
+    deps.lifecycle.setAudio(voiceHearsLifecycle(this.engine, this.voice));
     const apply = (s: { musicVol: number; sfxVol: number; captions: boolean }) => {
       this.engine.setVolumes({ music: s.musicVol, sfx: s.sfxVol });
       if (!s.captions) this.captions.clear();
       this.game.settingsChanged();
+      this.voice.settingsChanged();
     };
     apply(deps.settings.get());
     deps.settings.subscribe(apply);
@@ -132,6 +152,25 @@ export class Sound {
   /** Start audio (on a gesture). Every gesture tries again until audio runs. */
   unlock(): void {
     startAudio(this.engine);
+  }
+
+  /**
+   * The voice guide's clips (about 0.6 MB, English): their manifest and files once the first screen is up, after the
+   * effects and before the music. None (a failed fetch, an old cache): text only.
+   */
+  loadVoiceLater(): void {
+    void this.pack
+      .then(async () => {
+        const p = await VoicePack.open("en", {
+          decode: (d) => this.engine.context.decodeAudioData(d),
+          baseUrl: `${import.meta.env.BASE_URL}audio/voice/`,
+          warn: (m) => console.warn(m),
+        });
+        this.voicePack = p;
+        this.voice.setClips(p);
+        await p?.fetchAll();
+      })
+      .catch((err) => console.warn("the voice guide could not load", err));
   }
 
   /** Music is the bigger download: load it once the first screen is up. */

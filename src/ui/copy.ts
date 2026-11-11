@@ -18,6 +18,44 @@ export const COPY = {
     notSaved: "Progress will not be saved on this device.",
     updated: "Updated to the latest version.",
   },
+  /**
+   * Sharing: the result card on an opened box's reward (its time, a tile per lock and the streak), the player's own
+   * bests. A {time} is minutes and seconds ("4:12").
+   */
+  share: {
+    /** The player's best time: on a Daily Box, of every other Daily Box; on a box played again, that box's own. */
+    best: "Your best {time}",
+    /** A Daily Box opened faster than every other Daily Box before it. */
+    newBest: "New best",
+    /** The landing for a shared link: what was shared, what the friend says they did, and what Open the box does. */
+    sentDaily: "A friend sent you the Daily Box for {day}.",
+    sentBox: "A friend sent you Box No. {n}.",
+    says: "Your friend says {time}.",
+    saysHints: "Your friend says {time}, {help}.",
+    noHints: "no hints",
+    hints: { one: "{n} hint", other: "{n} hints" },
+    todayTurn: "It is today's Daily Box. Your turn.",
+    practiceTurn: "Your turn. It plays as practice.",
+    otherDay: "That box was for another day. It plays as practice.",
+    /** Meta's Web Launch from a computer or phone (Meta asks for Meta Quest on the button). */
+    openQuest: "Open on my Meta Quest",
+    copyLink: "Copy link",
+    copied: "Copied.",
+    copyFailed: "Could not copy. Copy the address from the address bar.",
+    /** The 2D page after a session, under the result's text. */
+    shareToday: "Share today's result",
+    manual: "Take a screenshot, or copy the text.",
+    /** A new player's landing: Lesson 1 plays first (about 2.5 minutes), then the shared box. */
+    lessonFirst: "Lesson 1 comes first, then your friend's box.",
+    /** The result card on a shared box: both results ("your friend says": a link's time can be edited). */
+    you: "You {time}, {help}",
+    friend: "Your friend says {time}, {help}",
+    friendTime: "Your friend says {time}",
+    /** The 2D page's share button after any other box, and after a friend's box; the line the text asks. */
+    challenge: "Challenge a friend",
+    sendBack: "Send yours back",
+    beat: "Can you beat my time?",
+  },
   /** Settings rows: a toggle's label and the short note under it; slider labels; values. */
   settings: {
     on: "On",
@@ -37,6 +75,9 @@ export const COPY = {
     warmthSub: "Glow, hums",
     hand: "Left hand",
     handSub: "Mirrored",
+    // The voice guide's switch: the coach chip's lines spoken. Other languages' help line says it is English only.
+    voice: "Voice guide",
+    voiceSub: "Spoken help",
     language: "Language",
     /** The Language row set to follow the headset. */
     languageAuto: "Automatic",
@@ -223,7 +264,8 @@ export const COPY = {
   /** The landing page (the hosted link only; the installed app goes straight in). */
   landing: {
     open: "Open the box",
-    tagline: "A puzzle box of light and shadow.",
+    /** What you do, in one line: the goal before the headset goes on. */
+    tagline: "Move a lantern. Fill each lock with shadow.",
     /**
      * True on every device the page opens on: a headset (hands or Touch controllers) and a phone (touch, AR), so it
      * names no input.
@@ -233,18 +275,45 @@ export const COPY = {
     /** The page's meta description (index.html has it in English; the page sets it in the language shown). */
     description: "A puzzle box of light and shadow for Meta Quest. Seated, hands or controllers, plays offline.",
   },
-  /** The lessons: the coach line, the lessons' and examples' names, and the tips. */
+  /**
+   * The lessons: the coach line, the lessons' and examples' names, and the tips. Each coach line is one key (a voice
+   * says exactly these words), at most 12 words, and no two keys share a line.
+   */
   lessons: {
     pickUp: "Pick up the lantern.",
+    /** Lock I, the Moon: the goal, said as the lantern is picked up. */
+    goal: "Move the lantern until the shadow fills the moon.",
+    /** The "Move the light" example's beat (and its replay). */
     watchMove: "Watch the shadows move.",
     nearSwing: "Near pieces swing more.",
     watch: "Watch.",
+    /** Each example opens with its own line. */
+    watchNearFar: "Watch. I will borrow your lantern for a moment.",
+    watchRings: "Watch. This key has two sight rings.",
+    watchFinger: "Watch. This crown is one piece short.",
     yourTurn: "Your turn.",
+    /** A player's turn after an example: the task, not a fact. */
+    turnNearFar: "Your turn. Make both pieces meet in the arrow.",
+    turnFinger: "Your turn. Point one finger into the gap and hold still.",
     lineUp: "Line up the two rings.",
     slide: "Now slide nearer or farther until it fills.",
     finger: "One piece is missing. Your finger can cast it.",
     drawer: "Pull the drawer to find these lessons again.",
-    puppets: "Put a hand in the light.",
+    puppets: "Now put your free hand inside the box.",
+    /** A lesson lock opened (said in the pause before the next example), and the box opened. */
+    lockOpen: "Lock open! Every shape on the wall is a lock.",
+    twoOpen: "Two locks open. One to go.",
+    boxOpen: "The box is open. Lift out your reward.",
+    /** Help for a player who makes no progress: lock I after 12 and 25 s, any lesson lock after 40 s. */
+    moveIdle: "Find the gold moon outline. Slide the shadow onto it.",
+    growShrink: "Bring it nearer or farther. The shadow grows and shrinks.",
+    stuck: "Stuck? Poke the little lantern on the frame for help.",
+    /** Once, after the lantern has been held a while. */
+    letGo: "Let go any time. The lantern floats where you leave it.",
+    /** The arrow's, the Key's and the crown's help after a while with no progress. */
+    turnNearFarIdle: "Move side to side. Watch which piece swings more.",
+    turnRingsIdle: "Move until one ring shadow sits inside the other.",
+    fingerIdle: "Move your finger nearer or farther until it fits.",
     titles: { l1: "Catch the light", l2: "Lend a hand" },
     examples: { move: "Move the light", "near-far": "Near and far", rings: "Sight the rings", finger: "Lend a hand" },
     tips: {
@@ -263,6 +332,19 @@ export const COPY = {
     finger: "One piece is missing. Touch the gap and hold still.",
     drawer: "Tap the drawer to find these lessons again.",
     puppets: "Touch the box to put a finger in the light.",
+    turnFinger: "Your turn. Touch the gap and hold still.",
+    growShrink: "Move the phone nearer or farther. The shadow grows and shrinks.",
+    stuck: "Stuck? Tap the little lantern on the frame for help.",
+    letGo: "Lift your finger any time. The lantern stays where you leave it.",
+    boxOpen: "The box is open. Tap your reward to take it.",
+  },
+  /**
+   * The coach lines about a free hand or a finger, as a controller player is told them (src/app/controller-lines.ts).
+   * A controller pokes keys and lifts the lantern and the reward as a hand does, so only these differ.
+   */
+  controller: {
+    puppets: "Set a controller down and put that hand inside the box.",
+    turnFinger: "Your turn. Aim a controller into the gap and hold still.",
   },
 } as const;
 

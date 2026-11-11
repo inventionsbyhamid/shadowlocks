@@ -3,6 +3,7 @@ import type { BoxSnapshot } from "../core/profile";
 import type { BoxSpec, V2, V3, Vec3 } from "../core/types";
 import type { BoxTextFit } from "../ui/box-text";
 import type { PanelTextProblem } from "../ui/panel-fits";
+import type { ResultCard } from "../ui/result-card";
 import type { FeedbackEvent } from "./bus";
 import type { Census, CensusOptions, ProbeResult } from "./gpu-census";
 import type { HeadsetClass } from "./headset";
@@ -251,6 +252,11 @@ export interface SlLantern {
   ripple: number;
   /** How see-through it is drawn (a phone's: 0 solid, 1 dithered with a small flame). */
   see: number;
+  /**
+   * Where the tracked hand nearest the lantern pinches, as the lantern grab read it this frame (box units; the point
+   * the lessons' reaching ghost keeps clear of), or null with no hand in tracking.
+   */
+  nearPinch: V3 | null;
 }
 
 /** A lock's ring line as the lantern feel sees it this frame (box units): mark on the panel, direction out to the spot. */
@@ -339,6 +345,8 @@ export interface SlSession {
   reward(): { world: Vec3; up: boolean; held: boolean } | null;
   /** The hint lantern's "Hint" (the lock in focus); the level shown, or null. */
   hint(): number | null;
+  /** The result card under the reward: what it shows (null: none for this box), whether it is in view, and where (world). */
+  card(): { shown: boolean; card: ResultCard | null; world: Vec3 };
 }
 
 /** One tracked hand in the box this frame. */
@@ -404,7 +412,18 @@ export interface SlLessonsState {
   practice: boolean;
   /** The coach line the director asks for, and what the chip shows now (text, opacity). */
   line: string | null;
-  coach: { text: string | null; opacity: number };
+  /**
+   * The director's line as its copy key: a COPY.lessons key (COPY.lessons[key] is `line`), or "game.controllerFinger"
+   * for the session's suggestion; and why it shows: "step" (a step's own line), "idle" (a nudge after a while with no
+   * progress), "win" (a lock or the box opened), "example", "suggest" (the session's); null with no line.
+   */
+  key: string | null;
+  why: string | null;
+  /** The line showing has shown before in its step (or replay); how many times a line has taken the chip. */
+  again: boolean;
+  shows: number;
+  /** `near`: how far the chip is over by the lantern (0 over the box, 1 by the lantern). */
+  coach: { text: string | null; opacity: number; near: number };
   /** The ghost hand as drawn now (its opacity; the frame's `hand` is what the director asks for). */
   ghost: number;
   form: number;
@@ -431,6 +450,25 @@ export interface SlLessons {
   state(): SlLessonsState;
   /** Show one example alone; false while one is showing. */
   replay(example: "move" | "near-far" | "rings" | "finger"): boolean;
+}
+
+/** The voice guide now (copies). */
+export interface SlVoiceState {
+  /** The voice pack's manifest is read (its clips are known); false: not yet, or none (text only). */
+  loaded: boolean;
+  /** Every line said so far, in order, by copy key; and the one playing now. */
+  said: string[];
+  speaking: string | null;
+  /** The clips decoded now, and what they hold in memory (bytes). */
+  decoded: string[];
+  decodedBytes: number;
+}
+
+/** The voice guide, for tests. */
+export interface SlVoice {
+  state(): SlVoiceState;
+  /** How long line `key` (a copy key) is said for now: 0 with the voice off, another language, or no clip. */
+  ms(key: string): number;
 }
 
 /** `window.__sl`: Shadow Locks' own test hooks, present only in builds made with VITE_TEST_HOOKS=1. */
@@ -488,6 +526,8 @@ export interface SlApi {
   sound: GameSounds;
   /** The caption texts up now. */
   captions(): string[];
+  /** The voice guide: what it said, what it has decoded. */
+  voice: SlVoice;
   /** The game's languages (set one with __ns.ui.setSettings({ language })). */
   i18n: SlI18n;
   /** A phone's touches (AR on a phone: the screen is the only input). */

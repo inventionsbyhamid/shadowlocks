@@ -55,6 +55,8 @@ export const PANEL_LABELS: Readonly<Partial<Record<Screen, readonly Label[]>>> =
     ["toggle-dimming-sub", (c) => c.settings.dimmingSub],
     ["toggle-hand-label", (c) => c.settings.hand],
     ["toggle-hand-sub", (c) => c.settings.handSub],
+    ["toggle-voice-label", (c) => c.settings.voice],
+    ["toggle-voice-sub", (c) => c.settings.voiceSub],
     ["settings-done-label", (c) => c.panels.settings.done],
   ],
   reset: [

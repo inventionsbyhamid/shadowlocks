@@ -500,6 +500,10 @@ export function installTestHooks(
       glow: lan.grab.brightness,
       ripple: shell.box.lantern.ringOpacity,
       see: shell.box.lantern.seeThrough,
+      ...(() => {
+        const near: V3 = [0, 0, 0];
+        return { nearPinch: lan.grab.nearestPinch(near) ? near : null };
+      })(),
     };
   };
 
@@ -556,6 +560,14 @@ export function installTestHooks(
       return { world: v3(boxToWorld(box.root.matrixWorld, p, tmp)), up: r.up, held: r.held };
     },
     hint: () => ses.useHint(),
+    card: () => {
+      const r = view.reward, card = r.resultCard;
+      let shown = r.result.visible;
+      r.result.traverseAncestors((o) => {
+        if (!o.visible) shown = false;
+      });
+      return { shown, card: card ? { ...card, tiles: [...card.tiles], lines: [...card.lines] } : null, world: v3(r.result.getWorldPosition(tmp)) };
+    },
   };
   const les = app.lessons;
   const lessons: SlLessons = {
@@ -573,7 +585,11 @@ export function installTestHooks(
         tipping: d.tipping,
         practice: les.practice,
         line: f.line,
-        coach: { text: les.view.coach.text, opacity: les.view.coach.opacity },
+        key: f.key,
+        why: f.why,
+        again: f.again,
+        shows: f.shows,
+        coach: { text: les.view.coach.text, opacity: les.view.coach.opacity, near: les.view.coachNear },
         ghost: les.view.ghost.opacity,
         form: f.form,
         hand: { opacity: f.hand.opacity, pose: f.hand.poseB, side: f.hand.side, anchor: f.hand.anchor, at: c3(f.hand.at) },
@@ -724,6 +740,16 @@ export function installTestHooks(
     },
     sound: app.sound.game,
     captions: () => app.sound.captionsShown(),
+    voice: {
+      state: () => ({
+        loaded: app.sound.voicePack !== null,
+        said: [...app.sound.voice.said],
+        speaking: app.sound.voice.speaking,
+        decoded: app.sound.voicePack?.decoded() ?? [],
+        decodedBytes: app.sound.voicePack?.decodedBytes() ?? 0,
+      }),
+      ms: (key) => app.sound.voice.ms(key),
+    },
     touch: {
       phone: () => app.touch.phone,
       set: (list) => app.touch.inject(list === null ? null : list.map((t) => ({ id: t.id, at: [t.at[0], t.at[1], t.at[2]] }))),

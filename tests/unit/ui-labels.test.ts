@@ -17,7 +17,7 @@ const PAINTED: Record<(typeof SCREENS)[number], readonly string[]> = {
   home: ["home-notice-text", "home-continue-no", "home-continue-sub", "home-daily-sub", "home-lessons-sub", "home-collection-sub", "home-trial-label", "home-trial-sub"],
   lessons: [...["move", "near-far", "rings", "finger"].map((e) => `lesson-${e}-label`), ...each(4, (i) => `tip-${i}-label`)],
   collection: ["coll-count", "coll-page", ...["title", "owner", "loot"].flatMap((part) => each(3, (i) => `coll-card-${i}-${part}`))],
-  settings: ["music-value", "effects-value", "box-value", "settings-language-value", "settings-language-sub", ...["warmth", "captions", "motion", "dimming", "hand"].map((t) => `toggle-${t}-state`)],
+  settings: ["music-value", "effects-value", "box-value", "settings-language-value", "settings-language-sub", ...["warmth", "captions", "motion", "dimming", "hand", "voice"].map((t) => `toggle-${t}-state`)],
   reset: [],
   trial: ["trial-days", "trial-status"],
 };

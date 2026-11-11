@@ -91,8 +91,18 @@ describe("profile", () => {
         dimming: true,
         handed: "right",
         language: "auto",
+        voice: true,
       },
     });
+  });
+
+  it("a save from before the Voice guide setting keeps everything and has the voice on; a stored off stays off", () => {
+    const p = played();
+    const { voice: _none, ...old } = p.settings;
+    const raw = JSON.parse(JSON.stringify({ ...p, settings: old }));
+    expect(migrate(raw, NOW, BUILD)).toEqual({ ...p, lastSeenMs: NOW, settings: { ...p.settings, voice: true } });
+    expect(migrate({ version: 1, settings: { voice: false } }, NOW, BUILD).settings.voice).toBe(false);
+    expect(migrate({ version: 1, settings: { voice: "no" } }, NOW, BUILD).settings.voice).toBe(true);
   });
 
   it("a save from before the Language setting keeps everything and follows the headset", () => {
@@ -199,6 +209,14 @@ describe("profile", () => {
   it("restores a saved box with only its own fields", () => {
     const m = migrate({ version: 1, current: { ...snap(), extra: "x", crystal: [{ lock: 1, z: 0.45, junk: 1 }] } }, NOW, BUILD);
     expect(m.current).toEqual(snap());
+  });
+
+  it("keeps a reward's hint level per lock (the result card's tiles), and drops a bad list", () => {
+    const withLevels = { ...item(), levels: [0, 4, 2] };
+    expect(migrate({ ...played(), collection: [withLevels] }, NOW, BUILD).collection).toEqual([withLevels]);
+    for (const bad of [[0, 5], [], [0, 0, 0, 0], [1.5], ["1"], [-1], "0,1", null]) {
+      expect(migrate({ ...played(), collection: [{ ...item(), levels: bad }] }, NOW, BUILD).collection, JSON.stringify(bad)).toEqual([item()]);
+    }
   });
 
   it("keeps the generator version a box was saved under, and drops a broken one", () => {

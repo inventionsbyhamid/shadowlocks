@@ -77,6 +77,8 @@ export class Shell {
   readonly summon: Summon;
   /** Whether the lantern is held (set once the lantern exists): a lost box is never moved, nor its arrow shown, then. */
   lanternHeld: () => boolean = () => false;
+  /** Told when the session starts and stops waiting, the box hidden, for its first placement (the lantern hears it). */
+  onPlacing: ((placing: boolean) => void) | null = null;
   /** The headset the last session was tuned for (headset.ts), and the frame rate it asked for (null: none). */
   headset: Headset | null = null;
   frameRateAsked: number | null = null;
@@ -216,6 +218,15 @@ export class Shell {
   hideUntilPlaced(hidden: boolean): void {
     this.box.root.visible = !hidden;
     this.panels.setHidden(hidden);
+    // Nothing in the box runs or can be taken meanwhile: its clock (the lifecycle), the lessons (they read `placing`),
+    // the lantern (onPlacing), the drawer and the box's keys (they read `placing` or the box's visibility).
+    this.lifecycle.setPlacing(hidden, performance.now());
+    this.onPlacing?.(hidden);
+  }
+
+  /** The session waits, the box hidden, for its first placement. */
+  get placing(): boolean {
+    return this.lifecycle.placing;
   }
 
   /** Lay out the box and the panels after the placement (or the box size) changed. */

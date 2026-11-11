@@ -391,9 +391,10 @@ test("on a phone a box out of view comes back in front, the lantern and open loc
   const before = { pose: (await app.state()).boxPose, lantern: (await lantern(page)).pos, open: (await page.evaluate(() => window.__sl!.session.state()))!.open };
   // The phone turned well round to the left (AWAY_DEG) and held there.
   const away = turnedLeft(PHONE, AWAY_DEG);
+  // Timed from the last frame before the turn: the box is out of view from the next one.
+  const turnedAt = await app.now();
   await page.evaluate(setHeadset, away);
   await app.step(2);
-  const turnedAt = await app.now();
   expect((await page.evaluate(() => window.__sl!.summon())).lostMs).toBeGreaterThan(0);
   await app.stepUntil((ns, _w, y) => Math.abs(ns.state().boxPose.yaw - y) > 0.5, { arg: before.pose.yaw, maxMs: 3_000, label: "the box placed again" });
   const waited = (await app.now()) - turnedAt;

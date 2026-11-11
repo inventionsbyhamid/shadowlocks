@@ -1,6 +1,9 @@
 import { Matrix4, Vector3 } from "@iwsdk/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildTipScript, gripOf, SWEEP_CLEAR } from "../../src/app/lesson-scripts";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { buildScript, buildTipScript, gripOf, SAID, SWEEP_CLEAR } from "../../src/app/lesson-scripts";
+import { LOCK_QUIET_MS, VOICE_TAIL_MS } from "../../src/audio/voice";
 import { tipLock } from "../../src/app/tips";
 import { generateBox } from "../../src/core/generator";
 import { buildLessonLock, LESSON_1, LESSON_2, lessonPlan } from "../../src/core/lessons-data";
@@ -10,13 +13,19 @@ import type { Box, BoxSpec, V3 } from "../../src/core/types";
 import { JOINT_COUNT } from "../../src/input/hand-joints";
 import { GhostHand } from "../../src/render/ghost-hand";
 import {
+  BEAT_MS,
   type DirectorDeps,
+  SUGGEST_AFTER_MS,
+  FIRST_WIN_MS,
   EXAMPLES,
   exampleFor,
   FORM_MS,
+  IDLE_SHOW_MS,
+  GHOST_CLEAR,
   IDLE_GHOST_MS,
   LESSON_STEPS,
   type LessonInputs,
+  MARK_WARMTH,
   LessonsDirector,
   openBefore,
   PUPPET_MAX_MS,
@@ -36,15 +45,35 @@ class FakeInputs implements LessonInputs {
   alignedLocks = new Set<number>();
   beam = false;
   isSettled = false;
+  isRewardUp = false;
+  /** The session's hint lantern glows (its stuck watch). */
+  isStuck = false;
+  /** The session's suggestion for the input in hand (held through brief drops), or null. */
+  suggest: "controllerFinger" | null = null;
   pulled = false;
   reduced = false;
+  /** Each lock's warmth (0 unless set). */
+  warm = new Map<number, number>();
   at: V3 = [0.35, -0.3, 1.35];
+  /** The real hand nearest the lantern: where it pinches (null: no hand in tracking). */
+  handAt: V3 | null = null;
   held = () => this.isHeld;
   active = () => this.isActive;
   isOpen = (lock: number) => this.open.has(lock);
   aligned = (lock: number) => this.alignedLocks.has(lock);
+  warmth = (lock: number) => this.warm.get(lock) ?? 0;
   inBeam = () => this.beam;
   settled = () => this.isSettled;
+  rewardUp = () => this.isRewardUp;
+  stuck = () => this.isStuck;
+  suggestion = () => this.suggest;
+  hand = (out: V3): boolean => {
+    if (!this.handAt) return false;
+    out[0] = this.handAt[0];
+    out[1] = this.handAt[1];
+    out[2] = this.handAt[2];
+    return true;
+  };
   drawerPulled = () => this.pulled;
   reducedMotion = () => this.reduced;
   lantern = (out: V3): V3 => {
@@ -73,8 +102,11 @@ function rig(left = false): Rig {
     inputs: inp,
     leftHanded: () => left,
     onStep: vi.fn(),
+    onRestart: vi.fn(),
     onDone: vi.fn(),
     onReplay: vi.fn(),
+    // The voice guide off (or no clips): the pacing as it always was. A test sets its own.
+    voiceMs: () => 0,
   };
   const r: Rig = {
     d: new LessonsDirector(deps),
@@ -215,8 +247,54 @@ describe("LessonsDirector: lesson 1", () => {
     r.inp.isHeld = true;
     r.run(16);
     expect(r.d.step).toBe(1);
-    expect(r.d.frame.line).toBe(C.watchMove);
+    expect(r.d.frame.line).toBe(C.goal);
     expect(r.deps.onStep).toHaveBeenLastCalledWith("l1", 1);
+  });
+
+  it("says lock I's goal the moment the lantern is picked up, and tells which copy key shows and why", () => {
+    r.d.start("l1");
+    // The first frame after a start counts no time.
+    r.run(FORM_MS + 16);
+    expect([r.d.frame.key, r.d.frame.why, r.d.frame.line]).toEqual(["pickUp", "step", C.pickUp]);
+    r.inp.isHeld = true;
+    r.run(16);
+    expect([r.d.frame.key, r.d.frame.why, r.d.frame.line]).toEqual(["goal", "step", "Move the lantern until the shadow fills the moon."]);
+    // The goal stays while the player works (warmth rising: no help needed), letting go now and then.
+    r.inp.isHeld = false;
+    for (let k = 1; k <= 8; k++) {
+      r.inp.warm.set(0, 0.1 * k);
+      r.run(2000);
+      expect(r.d.frame.key).toBe("goal");
+    }
+  });
+
+  it("names the key of every line it shows, through a whole lesson: COPY.lessons[key] is the line", () => {
+    const seen = new Set<string>();
+    const check = () => {
+      const f = r.d.frame;
+      expect(f.line).toBe(f.key === null ? null : f.key === "game.controllerFinger" ? COPY.game.controllerFinger : C[f.key]);
+      expect(f.why === null).toBe(f.key === null);
+      if (f.key) seen.add(`${f.why} ${f.key}`);
+    };
+    r.d.start("l1");
+    r.run(FORM_MS + 16, check);
+    r.inp.isHeld = true;
+    r.run(1000, check);
+    r.inp.isHeld = false;
+    for (const lock of [0, 1, 2]) {
+      r.inp.open.add(lock);
+      r.run(16, check);
+      r.until(() => {
+        check();
+        return !r.d.showing && r.d.step !== 2 && r.d.step !== 4;
+      });
+      r.run(4000, check);
+    }
+    r.inp.isRewardUp = true;
+    r.run(1000, check);
+    expect([...seen]).toEqual(
+      expect.arrayContaining(["step pickUp", "step goal", "example watchNearFar", "example nearSwing", "step turnNearFar", "example watchRings", "step lineUp"]),
+    );
   });
 
   it("steps through every step in order, each on its own completion predicate", () => {
@@ -230,11 +308,12 @@ describe("LessonsDirector: lesson 1", () => {
     expect(r.d.step).toBe(1);
     r.inp.open.add(0);
     r.run(16);
-    // Example 1: staged on the twin, three beats, one click, the scraps swing back, the lantern lifts out.
+    // The win named, a pause, then Example 1: staged on the twin, three beats, one click, the scraps swing back, the
+    // lantern lifts out.
     expect(r.d.step).toBe(2);
-    expect(r.d.frame.line).toBe(C.watch);
+    expect(r.d.frame.line).toBe(C.lockOpen);
     const ex1 = watch(r);
-    expect(ex1.lines).toEqual([C.watch, C.nearSwing, C.yourTurn]);
+    expect(ex1.lines).toEqual([C.lockOpen, C.watchNearFar, C.nearSwing, C.turnNearFar]);
     expect(ex1.clicks).toBe(1);
     expect(ex1.minLayout[1]).toBe(0);
     expect(ex1.minLayout[0]).toBe(1);
@@ -248,9 +327,10 @@ describe("LessonsDirector: lesson 1", () => {
     expect(r.d.frame.layout[1]).toBe(1);
     expect(r.d.frame.park).toBe(0);
     expect(r.d.frame.ghostLight).toBe(false);
-    expect(r.d.frame.line).toBe(C.yourTurn);
+    // The player's arrow: the task, not a fact, from the lantern's lift out of the cradle on.
+    expect(r.d.frame.line).toBe(C.turnNearFar);
     r.run(YOUR_TURN_MS);
-    expect(r.d.frame.line).toBe(C.nearSwing);
+    expect(r.d.frame.line).toBe(C.turnNearFar);
     r.run(10_000);
     expect(r.d.step).toBe(3);
     r.inp.open.add(1);
@@ -258,7 +338,7 @@ describe("LessonsDirector: lesson 1", () => {
     // Example 2: line up, ride the line, slide to the click.
     expect(r.d.step).toBe(4);
     const ex2 = watch(r);
-    expect(ex2.lines).toEqual([C.watch, C.lineUp, C.slide, C.yourTurn]);
+    expect(ex2.lines).toEqual([C.twoOpen, C.watchRings, C.lineUp, C.slide, C.yourTurn]);
     expect(ex2.clicks).toBe(1);
     expect(ex2.minLayout[2]).toBe(0);
     expect(r.d.step).toBe(5);
@@ -277,9 +357,14 @@ describe("LessonsDirector: lesson 1", () => {
     expect(r.d.frame.line).toBe(C.slide);
     r.inp.open.add(2);
     r.run(16);
-    // The box opens: no line until the reward is out of the box.
+    // The box opens: no line while it does, then the reward's once it is up.
     expect(r.d.step).toBe(6);
     expect(r.d.frame.line).toBeNull();
+    r.run(3000);
+    expect(r.d.frame.line).toBeNull();
+    r.inp.isRewardUp = true;
+    r.run(16);
+    expect([r.d.frame.key, r.d.frame.why]).toEqual(["boxOpen", "win"]);
     r.run(5000);
     expect(r.d.done).toBe(false);
     r.inp.isSettled = true;
@@ -290,6 +375,63 @@ describe("LessonsDirector: lesson 1", () => {
     expect((r.deps.onStep as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[1])).toEqual([0, 1, 2, 3, 4, 5, 6]);
     expect(r.d.frame.line).toBeNull();
     expect(r.d.frame.hand.opacity).toBe(0);
+  });
+
+  it("names each win, then pauses before the next example: 2.6 s after the first (its line is long), 1.8 s after the second", () => {
+    r.d.start("l1", 1);
+    r.run(500);
+    r.inp.isHeld = true;
+    r.inp.open.add(0);
+    r.run(16);
+    const f = r.d.frame;
+    expect([r.d.step, f.key, f.why, r.d.showing]).toEqual([2, "lockOpen", "win", false]);
+    // The pause: the lantern stays in the hand, no ghost, no cradle; long enough to read "Every shape on the wall is a lock."
+    expect(FIRST_WIN_MS).toBe(2600);
+    expect(BEAT_MS).toBe(1800);
+    r.run(FIRST_WIN_MS - 100);
+    expect([f.key, r.d.showing, f.park, f.hand.opacity]).toEqual(["lockOpen", false, 0, 0]);
+    r.run(200);
+    expect([r.d.showing, f.key, f.why]).toEqual([true, "watchNearFar", "example"]);
+    watch(r);
+    // The second lock: one to go.
+    r.inp.open.add(1);
+    r.run(16);
+    expect([r.d.step, f.key, f.why]).toEqual([4, "twoOpen", "win"]);
+    r.run(BEAT_MS - 100);
+    expect([r.d.showing, f.key]).toEqual([false, "twoOpen"]);
+    r.run(200);
+    expect([r.d.showing, f.key]).toEqual([true, "watchRings"]);
+    // Lesson 2's crown opening: the reward's line while it is up, then the drawer's.
+    r.d.start("l2", 2);
+    r.run(500);
+    r.inp.open.add(0);
+    r.run(16);
+    expect([r.d.step, f.key]).toEqual([3, null]);
+    r.inp.isRewardUp = true;
+    r.run(16);
+    expect([f.key, f.why]).toEqual(["boxOpen", "win"]);
+    r.inp.isRewardUp = false;
+    r.inp.isSettled = true;
+    r.run(16);
+    expect([f.key, f.why]).toEqual(["drawer", "step"]);
+  });
+
+  it("goes straight into the example on a resumed step (no win named for a lock opened before), and names a lock opened in the pause", () => {
+    r.inp.open.add(0);
+    r.d.start("l1", 2);
+    expect([r.d.showing, r.d.frame.key]).toEqual([true, "watchNearFar"]);
+    // The player opens the arrow during the pause after the Moon: its example is skipped, and that win named instead.
+    const q = rig();
+    q.d.start("l1", 1);
+    q.run(500);
+    q.inp.open.add(0);
+    q.run(16);
+    q.run(500);
+    q.inp.open.add(1);
+    q.run(FIRST_WIN_MS - 500);
+    expect([q.d.step, q.d.frame.key, q.d.showing]).toEqual([4, "twoOpen", false]);
+    q.run(BEAT_MS);
+    expect([q.d.showing, q.d.frame.key]).toEqual([true, "watchRings"]);
   });
 
   it("runs Example 1 in about twelve seconds of ghost work, its near scrap glowing", () => {
@@ -315,15 +457,17 @@ describe("LessonsDirector: lesson 1", () => {
     expect(near && near.kind === "piece" && near.piece).toBe(0);
   });
 
-  it("shows the ghost hand only after 4 s without input, and lets it go when the player moves", () => {
+  it("shows the reaching ghost 4 s after the line whatever the hands do, until the lantern is held", () => {
     r.d.start("l1");
-    r.run(IDLE_GHOST_MS - 16);
+    // A hand near the lantern all along (reaching, not pinching): the ghost comes anyway.
+    r.inp.isActive = true;
+    r.run(FORM_MS + 16);
+    expect(r.d.frame.key).toBe("pickUp");
+    r.run(IDLE_GHOST_MS - 100);
     expect(r.d.frame.hand.opacity).toBe(0);
-    r.run(500);
+    r.run(600);
     expect(r.d.frame.hand.opacity).toBeGreaterThan(0);
-    r.run(2000);
-    // It reaches for the lantern: its pinch within a few centimetres of the lantern's handle loop at some point of its
-    // loop.
+    // With no hand there, it reaches the lantern's own loop: its pinch within a few millimetres of it.
     let nearest = Infinity;
     r.run(4000, () => {
       const a = r.d.frame.hand.at, b = gripOf(r.inp.at);
@@ -332,24 +476,68 @@ describe("LessonsDirector: lesson 1", () => {
     expect(nearest).toBeLessThan(0.02);
     expect(r.d.frame.hand.anchor).toBe("grasp");
     expect(r.d.frame.hand.side).toBe("right");
+    // Picked up: gone within a fade.
+    r.inp.isHeld = true;
+    r.run(400);
+    expect([r.d.step, r.d.frame.hand.opacity]).toEqual([1, 0]);
+  });
+
+  it("keeps the intro ghost clear of a real hand at the lantern: it shows the pinch beside the hand, not inside it", () => {
+    const grip = gripOf(r.inp.at);
+    const hands: V3[] = [
+      grip,
+      [grip[0] + 0.1, grip[1], grip[2]],
+      [grip[0], grip[1] - 0.05, grip[2] + 0.15],
+      [grip[0] - 0.12, grip[1] + 0.05, grip[2] - 0.05],
+    ];
+    for (const at of hands) {
+      const q = rig();
+      q.inp.isActive = true;
+      q.inp.handAt = at;
+      q.d.start("l1");
+      q.run(FORM_MS + IDLE_GHOST_MS + 1500);
+      let atHold = Infinity, any = Infinity, seen = 0;
+      q.run(8000, () => {
+        const h = q.d.frame.hand;
+        if (h.opacity < 0.5) return;
+        seen++;
+        const d = Math.hypot(h.at[0] - at[0], h.at[1] - at[1], h.at[2] - at[2]);
+        any = Math.min(any, d);
+        if (h.poseA === "hold" && h.poseB === "hold") atHold = Math.min(atHold, d);
+      });
+      expect(seen, `${at}`).toBeGreaterThan(100);
+      // Where it pinches, a hand's width from the real hand's pinch; never closer than about 8 cm on its way.
+      expect(atHold, `${at}`).toBeGreaterThanOrEqual(GHOST_CLEAR - 1e-3);
+      expect(any, `${at}`).toBeGreaterThan(0.3);
+    }
+    // The hand away from the lantern: the ghost goes back to the lantern's own loop.
+    const q = rig();
+    q.inp.handAt = [grip[0] + 0.8, grip[1], grip[2] + 0.3];
+    q.d.start("l1");
+    let nearest = Infinity;
+    q.run(FORM_MS + IDLE_GHOST_MS + 9000, () => {
+      const a = q.d.frame.hand.at;
+      if (q.d.frame.hand.opacity > 0.5) nearest = Math.min(nearest, Math.hypot(a[0] - grip[0], a[1] - grip[1], a[2] - grip[2]));
+    });
+    expect(nearest).toBeLessThan(0.02);
+  });
+
+  it("on lock I, shows how to pick the lantern up again only after 4 s without input, and lets it go when the player moves", () => {
+    r.d.start("l1", 1);
+    r.run(IDLE_GHOST_MS - 16);
+    expect(r.d.frame.hand.opacity).toBe(0);
+    r.run(500);
+    expect(r.d.frame.hand.opacity).toBeGreaterThan(0);
     // Input sends it away within a fade, and restarts the 4 s.
     r.inp.isActive = true;
     r.run(400);
     expect(r.d.frame.hand.opacity).toBe(0);
     r.inp.isActive = false;
-    r.run(IDLE_GHOST_MS - 100);
-    expect(r.d.frame.hand.opacity).toBe(0);
-    r.run(600);
-    expect(r.d.frame.hand.opacity).toBeGreaterThan(0);
-  });
-
-  it("restarts the idle clock with any input before the 4 s are up", () => {
-    r.d.start("l1");
     r.run(3000);
     r.inp.isActive = true;
     r.run(16);
     r.inp.isActive = false;
-    r.run(3900);
+    r.run(IDLE_GHOST_MS - 100);
     expect(r.d.frame.hand.opacity).toBe(0);
     r.run(600);
     expect(r.d.frame.hand.opacity).toBeGreaterThan(0);
@@ -360,7 +548,7 @@ describe("LessonsDirector: lesson 1", () => {
     r.d.start("l1", 2);
     r.run(16);
     expect(r.d.step).toBe(4);
-    expect(r.d.frame.line).toBe(C.watch);
+    expect(r.d.frame.line).toBe(C.watchRings);
     expect(r.deps.onStep).toHaveBeenCalledTimes(1);
     expect(r.deps.onStep).toHaveBeenCalledWith("l1", 4);
   });
@@ -371,7 +559,7 @@ describe("LessonsDirector: lesson 1", () => {
     r.d.start("l1", 3);
     r.run(16);
     expect(r.d.step).toBe(3);
-    expect(r.d.frame.line).toBe(C.yourTurn);
+    expect(r.d.frame.line).toBe(C.turnNearFar);
     expect([...r.d.frame.layout]).toEqual([1, 1, 1]);
     expect(r.d.frame.park).toBe(0);
     // A damaged step starts the lesson over.
@@ -427,6 +615,415 @@ describe("LessonsDirector: lesson 1", () => {
   });
 });
 
+describe("LessonsDirector: help for an idle player", () => {
+  /** The key and why shown now. */
+  const said = (r: Rig) => [r.d.frame.key, r.d.frame.why];
+
+  it("on lock I: the moon outline at 12 s, nearer or farther at 25 s without progress, and none while warmth rises", () => {
+    const r = rig();
+    r.d.start("l1", 1);
+    r.run(11_900);
+    expect(said(r)).toEqual(["goal", "step"]);
+    r.run(200);
+    expect(said(r)).toEqual(["moveIdle", "idle"]);
+    r.run(12_800);
+    expect(said(r)).toEqual(["moveIdle", "idle"]);
+    r.run(200);
+    expect(said(r)).toEqual(["growShrink", "idle"]);
+    // Progress (warmth up 0.1): back to the goal, and the nudges only after another idle stretch.
+    r.inp.warm.set(0, 0.12);
+    r.run(16);
+    expect(said(r)).toEqual(["goal", "step"]);
+    r.run(11_800);
+    expect(r.d.frame.key).toBe("goal");
+    r.run(300);
+    expect(r.d.frame.key).toBe("moveIdle");
+    // A player getting warmer all along never sees one (warmth falling back and coming again is no progress).
+    const q = rig();
+    q.d.start("l1", 1);
+    for (let k = 1; k <= 9; k++) {
+      q.inp.warm.set(0, 0.1 * k);
+      q.run(10_000, () => expect(q.d.frame.key).toBe("goal"));
+    }
+  });
+
+  it("every lesson lock says Stuck? at 40 s; the arrow nudges at 20 s, the Key at 20 s while its rings are apart, the crown at 15 s", () => {
+    const arrow = rig();
+    arrow.d.start("l1", 3);
+    arrow.run(19_900);
+    expect(said(arrow)).toEqual(["turnNearFar", "step"]);
+    arrow.run(200);
+    expect(said(arrow)).toEqual(["turnNearFarIdle", "idle"]);
+    arrow.run(20_000);
+    expect(said(arrow)).toEqual(["stuck", "idle"]);
+    const key = rig();
+    key.d.start("l1", 5);
+    key.run(20_100);
+    expect(said(key)).toEqual(["turnRingsIdle", "idle"]);
+    // Rings lined up: the slide line says what to do next, no nudge over it.
+    key.inp.alignedLocks.add(2);
+    key.run(600);
+    expect(said(key)).toEqual(["slide", "step"]);
+    key.run(19_400);
+    expect(said(key)).toEqual(["stuck", "idle"]);
+    const crown = rig();
+    crown.d.start("l2", 2);
+    crown.run(14_900);
+    expect(said(crown)).toEqual(["turnFinger", "step"]);
+    crown.run(200);
+    expect(said(crown)).toEqual(["fingerIdle", "idle"]);
+    crown.run(25_000);
+    expect(said(crown)).toEqual(["stuck", "idle"]);
+  });
+
+  it("starts its idle clocks over with the step (a resumed step waits the full time again), and says so", () => {
+    const r = rig();
+    r.d.start("l1", 3);
+    expect(r.deps.onRestart).toHaveBeenLastCalledWith("l1", 3);
+    r.run(30_000);
+    expect(r.d.frame.key).toBe("turnNearFarIdle");
+    // A reload: the same step, from its start.
+    r.d.start("l1", 3);
+    r.run(19_900);
+    expect(r.d.frame.key).toBe("turnNearFar");
+    // Each step's start says so too (the session starts its stuck watch over with it).
+    r.inp.open.add(1);
+    r.run(16);
+    expect(r.deps.onRestart).toHaveBeenLastCalledWith("l1", 4);
+  });
+
+  it("says once, after the lantern is held 15 s without a break, that it can be let go, and never again", () => {
+    const r = rig();
+    r.d.start("l1", 1);
+    r.inp.isHeld = true;
+    // Getting warmer the whole time: no nudge in the way.
+    let w = 0;
+    const warmer = () => {
+      w = Math.min(1, w + 0.0007);
+      r.inp.warm.set(0, w);
+    };
+    r.run(14_900, warmer);
+    expect(said(r)).toEqual(["goal", "step"]);
+    r.run(200, warmer);
+    expect(said(r)).toEqual(["letGo", "idle"]);
+    r.run(5_700, warmer);
+    expect(r.d.frame.key).toBe("letGo");
+    r.run(300, warmer);
+    expect(said(r)).toEqual(["goal", "step"]);
+    // Held on, let go and held again, a new step: never again.
+    r.run(20_000, warmer);
+    r.inp.isHeld = false;
+    r.run(100);
+    r.inp.isHeld = true;
+    r.run(20_000, () => expect(r.d.frame.key).not.toBe("letGo"));
+    r.inp.open.add(0);
+    r.run(16);
+    r.until(() => r.d.step === 3);
+    r.inp.isHeld = true;
+    r.run(19_000, () => expect(r.d.frame.key).not.toBe("letGo"));
+    // Held with breaks, it never comes at all.
+    const q = rig();
+    q.d.start("l1", 1);
+    for (let i = 0; i < 6; i++) {
+      q.inp.isHeld = true;
+      q.run(10_000, () => expect(q.d.frame.key).not.toBe("letGo"));
+      q.inp.isHeld = false;
+      q.run(100);
+    }
+  });
+});
+
+describe("LessonsDirector: the coach line by the lantern", () => {
+  it("puts the coach line by the lantern while it asks for it (from the box forming), and back over the box once it is held", () => {
+    const r = rig(), f = r.d.frame;
+    r.d.start("l1");
+    expect(f.coachNear).toBe(true);
+    r.run(FORM_MS + 5000, () => expect(f.coachNear).toBe(true));
+    r.inp.isHeld = true;
+    r.run(16);
+    expect([r.d.step, f.coachNear]).toEqual([1, false]);
+    r.run(3000, () => expect(f.coachNear).toBe(false));
+    // A replay, a tip's demo, lesson 2: over the box.
+    r.d.start("l1", 1);
+    r.d.stop();
+    r.d.replay("move");
+    r.run(2000, () => expect(f.coachNear).toBe(false));
+    const q = rig();
+    q.d.start("l2");
+    q.run(3000, () => expect(q.d.frame.coachNear).toBe(false));
+  });
+});
+
+describe("LessonsDirector: lock I marked", () => {
+  it("marks lock I through its step: its outline breathes softly (about 0.25, slowly), never during its example", () => {
+    const r = rig(), f = r.d.frame;
+    r.d.start("l1");
+    r.run(FORM_MS + 500, () => expect(f.mark).toBe(-1));
+    r.inp.isHeld = true;
+    r.run(16);
+    r.inp.isHeld = false;
+    const w: number[] = [];
+    r.run(6400, () => {
+      expect(f.mark).toBe(0);
+      w.push(f.markWarmth);
+    });
+    // Softly: at most MARK_WARMTH, never out; slowly: one breath every few seconds (no flashing).
+    expect(Math.max(...w)).toBeCloseTo(MARK_WARMTH, 2);
+    expect(Math.min(...w)).toBeGreaterThan(0.1);
+    expect(Math.max(...w) - Math.min(...w)).toBeGreaterThan(0.08);
+    let turns = 0;
+    for (let i = 2; i < w.length; i++) if ((w[i]! - w[i - 1]!) * (w[i - 1]! - w[i - 2]!) < 0) turns++;
+    expect(turns).toBeLessThanOrEqual(5);
+    // The last-resort example owns the look: no mark while it plays, the mark back after.
+    r.run(40_000, () => {
+      if (r.d.showing) expect(f.mark).toBe(-1);
+    });
+    r.until(() => !r.d.showing);
+    r.run(16);
+    expect(f.mark).toBe(0);
+    // Open: the next steps mark nothing.
+    r.inp.open.add(0);
+    r.run(16);
+    r.run(30_000, () => expect(f.mark).toBe(-1));
+    expect(r.d.step).toBe(3);
+  });
+});
+
+describe("LessonsDirector: help taken, the session's suggestion, the intro's glow, lines coming back", () => {
+  const said = (r: Rig) => [r.d.frame.key, r.d.frame.why];
+
+  it("ends the Stuck? line when the player takes a hint: the nudges wait another stretch", () => {
+    const r = rig();
+    r.d.start("l1", 3);
+    r.run(40_100);
+    expect(said(r)).toEqual(["stuck", "idle"]);
+    r.d.helpTaken();
+    r.run(16);
+    expect(said(r)).toEqual(["turnNearFar", "step"]);
+    r.run(19_800);
+    expect(r.d.frame.key).toBe("turnNearFar");
+    r.run(300);
+    expect(r.d.frame.key).toBe("turnNearFarIdle");
+    // On lock I, help taken just before its last-resort example is due: no example now, the clocks start over.
+    const q = rig();
+    q.d.start("l1", 1);
+    q.run(39_000);
+    q.d.helpTaken();
+    q.run(20_000, () => expect(q.d.showing).toBe(false));
+    expect(q.d.frame.key).toBe("moveIdle");
+    // Outside a lesson lock (the intro, no lesson) it changes nothing.
+    const i = rig();
+    i.d.start("l1");
+    i.run(FORM_MS + 16);
+    i.d.helpTaken();
+    expect(i.d.frame.key).toBe("pickUp");
+    rig().d.helpTaken();
+  });
+
+  it("does not bring Stuck? straight back after Show me: the replay's end starts the clocks over", () => {
+    const r = rig();
+    r.d.start("l1", 3);
+    r.run(40_100);
+    expect(r.d.frame.key).toBe("stuck");
+    expect(r.d.replay("near-far")).toBe(true);
+    r.until(() => r.d.replaying === null);
+    r.run(16);
+    expect(said(r)).toEqual(["turnNearFar", "step"]);
+    r.run(19_000, () => expect(r.d.frame.key).toBe("turnNearFar"));
+  });
+
+  it("explains the hint lantern's glow in the intro: Stuck? while it glows, the pick-up line again when it goes out", () => {
+    const r = rig();
+    r.d.start("l1");
+    r.run(FORM_MS + 1000);
+    expect(said(r)).toEqual(["pickUp", "step"]);
+    r.inp.isStuck = true;
+    r.run(16);
+    expect(said(r)).toEqual(["stuck", "idle"]);
+    r.inp.isStuck = false;
+    r.run(16);
+    expect(said(r)).toEqual(["pickUp", "step"]);
+  });
+
+  it("gives the chip to the session's suggestion only on a turn, once the turn's own line has had its time", () => {
+    // Lesson 2's crown with controllers: the session suggests setting one down from the turn's start.
+    const r = rig();
+    r.inp.suggest = "controllerFinger";
+    r.d.start("l2", 2);
+    expect(SUGGEST_AFTER_MS).toBe(3000);
+    r.run(SUGGEST_AFTER_MS - 100, () => expect(r.d.frame.key).toBe("turnFinger"));
+    r.run(200);
+    expect(said(r)).toEqual(["game.controllerFinger", "suggest"]);
+    expect(r.d.frame.line).toBe(COPY.game.controllerFinger);
+    // Gone (the player set a controller down): the turn's own line, at once.
+    r.inp.suggest = null;
+    r.run(16);
+    expect(r.d.frame.key).toBe("turnFinger");
+    // Back later in the turn: it takes the chip at once (the turn's line has had its time).
+    r.inp.suggest = "controllerFinger";
+    r.run(16);
+    expect(r.d.frame.key).toBe("game.controllerFinger");
+    // Anywhere else in a lesson the lesson's own line keeps the chip: lesson 2's puppets (the crown is short from the
+    // start, its lantern on the spot, but the player is not asked to fill it yet), lesson 1's intro, an example, the
+    // drawer once the crown is open.
+    const q = rig();
+    q.inp.suggest = "controllerFinger";
+    q.d.start("l2");
+    q.run(FORM_MS + 4000, () => expect(q.d.frame.key === null || q.d.frame.key === "puppets").toBe(true));
+    expect(q.d.frame.key).toBe("puppets");
+    q.d.start("l1");
+    q.run(FORM_MS + 4000);
+    expect(q.d.frame.key).toBe("pickUp");
+    q.d.start("l2", 1);
+    q.run(500);
+    expect([q.d.frame.key, q.d.frame.why]).toEqual(["watchFinger", "example"]);
+    q.d.start("l2", 3);
+    q.inp.isSettled = true;
+    q.run(4000);
+    expect(q.d.frame.key).toBe("drawer");
+  });
+
+  it("tells a line's first showing in a step from the same line coming back", () => {
+    const r = rig(), f = r.d.frame;
+    r.d.start("l1", 1);
+    r.run(16);
+    const first = f.shows;
+    expect([f.key, f.again]).toEqual(["goal", false]);
+    r.run(12_100);
+    expect([f.key, f.again, f.shows]).toEqual(["moveIdle", false, first + 1]);
+    // Getting warmer: the goal comes back, as a line already said; then the nudge again, already said too.
+    r.inp.warm.set(0, 0.15);
+    r.run(16);
+    expect([f.key, f.again, f.shows]).toEqual(["goal", true, first + 2]);
+    r.run(12_100);
+    expect([f.key, f.again, f.shows]).toEqual(["moveIdle", true, first + 3]);
+    // The same line every frame is one showing.
+    r.run(2000);
+    expect(f.shows).toBe(first + 3);
+    // A new step: its lines are new.
+    r.inp.open.add(0);
+    r.run(16);
+    expect([f.key, f.again]).toEqual(["lockOpen", false]);
+    // An example's last line running on into its turn (the same key) is one showing, said once.
+    const e = rig();
+    e.d.start("l1", 2);
+    let atLift = -1;
+    e.until(() => {
+      if (e.d.frame.key === "turnNearFar" && atLift < 0) atLift = e.d.frame.shows;
+      return e.d.step === 3;
+    });
+    e.run(16);
+    expect([e.d.frame.key, e.d.frame.shows, e.d.frame.again]).toEqual(["turnNearFar", atLift, false]);
+    e.run(20_100);
+    expect([e.d.frame.key, e.d.frame.again]).toEqual(["turnNearFarIdle", false]);
+    e.inp.warm.set(1, 0.2);
+    e.run(16);
+    expect([e.d.frame.key, e.d.frame.again]).toEqual(["turnNearFar", true]);
+    // A replay's lines are new each time it is asked for.
+    const q = rig();
+    for (let k = 0; k < 2; k++) {
+      q.d.replay("move");
+      q.run(16);
+      expect([q.d.frame.key, q.d.frame.again]).toEqual(["watch", false]);
+      q.until(() => q.d.replaying === null);
+    }
+  });
+
+  it("shows a lesson resumed from Home at the same step, or a replay asked for again, as a new showing", () => {
+    // Lock I says its goal, the nudge, then the goal again (already said).
+    const r = rig(), f = r.d.frame;
+    r.d.start("l1", 1);
+    r.run(16);
+    r.run(12_100);
+    r.inp.warm.set(0, 0.15);
+    r.run(16);
+    expect([f.key, f.again]).toEqual(["goal", true]);
+    // Home: the lesson stops with no update in between; Continue starts it at the same step.
+    let before = f.shows;
+    r.d.stop();
+    r.d.start("l1", 1);
+    r.run(16);
+    expect([f.key, f.again, f.shows]).toEqual(["goal", false, before + 1]);
+    // Started over at the same step without a stop.
+    before = f.shows;
+    r.d.start("l1", 1);
+    r.run(16);
+    expect([f.key, f.again, f.shows]).toEqual(["goal", false, before + 1]);
+    // A replay stopped and asked for again: its first line is a new showing.
+    const q = rig();
+    q.d.replay("move");
+    q.run(16);
+    expect(q.d.frame.key).toBe("watch");
+    before = q.d.frame.shows;
+    q.d.stop();
+    expect(q.d.replay("move")).toBe(true);
+    q.run(16);
+    expect([q.d.frame.key, q.d.frame.again, q.d.frame.shows]).toEqual(["watch", false, before + 1]);
+  });
+
+});
+
+describe("LessonsDirector: lock I's last resort", () => {
+  it("plays the Move the light example on lock I after 40 s without progress, once a visit; then Stuck? instead", () => {
+    const r = rig();
+    r.d.start("l1", 1);
+    r.run(39_900);
+    expect([r.d.showing, r.d.frame.key]).toEqual([false, "growShrink"]);
+    (r.deps.onStep as ReturnType<typeof vi.fn>).mockClear();
+    (r.deps.onRestart as ReturnType<typeof vi.fn>).mockClear();
+    r.run(200);
+    expect([r.d.showing, r.d.replaying, r.d.frame.key, r.d.frame.why]).toEqual([true, null, "watch", "example"]);
+    // The example on lock I itself (no twin): the ghost lantern ends on its spot, lit as solved, the player's lantern
+    // in its cradle meanwhile and back where it was after.
+    const f = r.d.frame, lines: string[] = [], L = lessonPlan("l1", false).box.locks[0]!.L;
+    let park = 0, solved = 0, nearest = Infinity;
+    r.until(() => {
+      if (f.key && lines[lines.length - 1] !== f.key) lines.push(f.key);
+      park = Math.max(park, f.park);
+      if (f.solvedLock === 0) solved = Math.max(solved, f.solved);
+      if (f.lamp.opacity > 0) nearest = Math.min(nearest, Math.hypot(f.lamp.at[0] - L[0], f.lamp.at[1] - L[1], f.lamp.at[2] - L[2]));
+      return !r.d.showing;
+    });
+    expect(lines).toEqual(["watch", "watchMove", "goal"]);
+    expect([park, solved, f.lift]).toEqual([1, 1, null]);
+    expect(nearest).toBeLessThan(1e-9);
+    // Back on lock I, the same step: nothing saved, its clocks (and the session's stuck watch) started over.
+    expect([r.d.step, r.d.frame.key, r.d.frame.why, f.park]).toEqual([1, "goal", "step", 0]);
+    expect(r.deps.onStep).not.toHaveBeenCalled();
+    expect(r.deps.onRestart).toHaveBeenCalledWith("l1", 1);
+    r.run(11_900);
+    expect(r.d.frame.key).toBe("goal");
+    // Another 40 s without progress: Stuck?, and no second example this visit.
+    r.run(28_300, () => expect(r.d.showing).toBe(false));
+    expect(r.d.frame.key).toBe("stuck");
+    r.run(30_000, () => expect(r.d.showing).toBe(false));
+    // A new visit to the step (a reload) may play it again.
+    r.d.start("l1", 1);
+    let again = false;
+    r.run(40_200, () => (again ||= r.d.showing));
+    expect(again).toBe(true);
+  });
+
+  it("never plays it while the player gets warmer, nor on any other lesson lock", () => {
+    const r = rig();
+    r.d.start("l1", 1);
+    for (let k = 1; k <= 7; k++) {
+      r.inp.warm.set(0, 0.1 * k);
+      r.run(10_000, () => expect(r.d.showing).toBe(false));
+    }
+    for (const [id, step] of [
+      ["l1", 3],
+      ["l1", 5],
+      ["l2", 2],
+    ] as const) {
+      const q = rig();
+      q.d.start(id, step);
+      q.run(70_000, () => expect(q.d.showing).toBe(false));
+      expect(q.d.frame.key).toBe("stuck");
+    }
+  });
+});
+
 describe("LessonsDirector: lesson 2", () => {
   let r: Rig;
   beforeEach(() => {
@@ -453,16 +1050,16 @@ describe("LessonsDirector: lesson 2", () => {
     r.inp.beam = false;
     // Example 3: a pale-blue ghost finger fills the twin crown's prong, then the player's lantern settles on the spot.
     const ex3 = watch(r);
-    expect(ex3.lines).toEqual([C.watch, C.finger, C.yourTurn]);
+    expect(ex3.lines).toEqual([C.watchFinger, C.finger, C.turnFinger]);
     expect(ex3.clicks).toBe(1);
     expect(ex3.fill).toBe(1);
     expect(ex3.minLayout[0]).toBe(0);
     expect(r.d.step).toBe(2);
     expect(ex3.lift).toEqual(LESSON_2.locks[0]!.L);
     expect(r.d.frame.lift).toBeNull();
-    expect(r.d.frame.line).toBe(C.yourTurn);
+    expect(r.d.frame.line).toBe(C.turnFinger);
     r.run(YOUR_TURN_MS);
-    expect(r.d.frame.line).toBe(C.finger);
+    expect(r.d.frame.line).toBe(C.turnFinger);
     r.inp.open.add(0);
     r.run(16);
     // The drawer: its line waits for the box's celebration, and stays until the drawer is pulled once.
@@ -553,11 +1150,11 @@ describe("LessonsDirector: replay", () => {
     expect(r.d.replay("rings")).toBe(false);
     r.run(16);
     expect(r.d.frame.box).toBe("l1");
-    expect(r.d.frame.line).toBe(C.watch);
+    expect(r.d.frame.line).toBe(C.watchNearFar);
     // Opening a lock meanwhile changes nothing until the replay is over.
     r.inp.open.add(2);
     const res = watch(r);
-    expect(res.lines).toEqual([C.watch, C.nearSwing, C.yourTurn]);
+    expect(res.lines).toEqual([C.watchNearFar, C.nearSwing, C.yourTurn]);
     expect(res.clicks).toBe(1);
     expect(r.deps.onReplay).toHaveBeenLastCalledWith("near-far", "l1", false);
     expect(r.d.replaying).toBeNull();
@@ -577,7 +1174,7 @@ describe("LessonsDirector: replay", () => {
       expect(r.d.frame.box).toBe(EXAMPLES[ex].lesson);
       const res = watch(r);
       expect(res.clicks).toBe(1);
-      expect(res.lines[0]).toBe(C.watch);
+      expect(res.lines[0]).toBe(C[SAID[ex].open]);
       expect(res.lines[res.lines.length - 1]).toBe(C.yourTurn);
       if (ex === "move") expect(res.lines).toContain(C.watchMove);
       expect(r.d.frame.box).toBeNull();
@@ -863,4 +1460,132 @@ describe("lesson copy", () => {
     expect(C.puppets).toMatch(/^[A-Z][^.]*\.$/);
     expectCleanCopy(C);
   });
+});
+
+/** Each line's real length (ms), by copy key, from the shipped voice pack's manifest. */
+const CLIP_MS: Record<string, number> = Object.fromEntries(
+  Object.entries(
+    (JSON.parse(readFileSync(path.resolve(__dirname, "../../public/audio/voice/manifest.json"), "utf8")) as { langs: { en: Record<string, { ms: number }> } }).langs.en,
+  ).map(([k, v]) => [k, v.ms]),
+);
+/** A lessons line's clip length as the chip shows it on a phone, with controllers, or by hand. */
+const PHONE: Record<string, string> = { pickUp: "phone.pickUp", slide: "phone.slide", finger: "phone.finger", fingerIdle: "phone.finger", turnFinger: "phone.turnFinger" };
+const CTRL: Record<string, string> = { turnFinger: "controller.turnFinger" };
+const clipMs = (device: "hands" | "phone" | "controllers") => (k: string) =>
+  CLIP_MS[(device === "phone" ? PHONE[k] : device === "controllers" ? CTRL[k] : undefined) ?? (k.includes(".") ? k : `lessons.${k}`)] ?? 0;
+
+describe("LessonsDirector: paced by the voice", () => {
+  it("leaves every example line time to be said before the next, for each device, in a lesson and in a replay", () => {
+    for (const device of ["hands", "phone", "controllers"] as const) {
+      for (const ex of ["move", "near-far", "rings", "finger"] as const) {
+        for (const replay of [false, true]) {
+          const plan = lessonPlan(EXAMPLES[ex].lesson, false);
+          const s = buildScript(ex, plan, false, replay, clipMs(device));
+          for (let i = 0; i + 1 < s.lines.length; i++) {
+            const a = s.lines[i]!, b = s.lines[i + 1]!;
+            expect(b.t - a.t, `${device} ${ex}${replay ? " replay" : ""}: ${a.key} then ${b.key}`).toBeGreaterThanOrEqual(clipMs(device)(a.key) + VOICE_TAIL_MS);
+          }
+        }
+      }
+    }
+  });
+
+  it("keeps an example's timing as it was with the voice off, and only lengthens the wait before its first beat with it on", () => {
+    const plan = lessonPlan("l1", false);
+    const off = buildScript("rings", plan, false, false);
+    const none = buildScript("rings", plan, false, false, () => 0);
+    expect(none).toEqual(off);
+    // "Watch. This key has two sight rings." runs 3.35 s; the first beat came at 2.2 s.
+    expect(off.lines[1]).toEqual({ t: 2200, key: "lineUp" });
+    const on = buildScript("rings", plan, false, false, clipMs("hands"));
+    const lead = CLIP_MS["lessons.watchRings"]! + VOICE_TAIL_MS - 2200;
+    expect(on.lines[1]!.t).toBe(2200 + lead);
+    expect(on.end).toBe(off.end + lead);
+    expect(on.clickT).toBe(off.clickT + lead);
+  });
+
+  it("names a win, then waits for its line to be said after the lock's layers before the next example", () => {
+    const r = rig();
+    r.deps.voiceMs = clipMs("hands");
+    r.d.start("l1", 1);
+    r.run(100);
+    r.inp.open.add(0);
+    r.run(16);
+    expect(r.d.frame.key).toBe("lockOpen");
+    const wait = Math.max(FIRST_WIN_MS, LOCK_QUIET_MS + CLIP_MS["lessons.lockOpen"]! + VOICE_TAIL_MS);
+    r.run(wait - 100);
+    expect([r.d.frame.key, r.d.showing]).toEqual(["lockOpen", false]);
+    r.run(200);
+    expect([r.d.frame.key, r.d.showing]).toEqual(["watchNearFar", true]);
+    // With the voice off, the pause as before.
+    const q = rig();
+    q.d.start("l1", 1);
+    q.run(100);
+    q.inp.open.add(0);
+    q.run(16);
+    q.run(FIRST_WIN_MS + 100);
+    expect(q.d.showing).toBe(true);
+  });
+
+  it("holds the crown's turn line until it has been said before the session's suggestion takes the chip", () => {
+    const r = rig();
+    r.deps.voiceMs = clipMs("controllers");
+    r.inp.suggest = "controllerFinger";
+    r.d.start("l2", 2);
+    const hold = CLIP_MS["controller.turnFinger"]! + VOICE_TAIL_MS;
+    expect(hold).toBeGreaterThan(SUGGEST_AFTER_MS);
+    r.run(hold - 100, () => expect(r.d.frame.key).toBe("turnFinger"));
+    r.run(200);
+    expect(r.d.frame.key).toBe("game.controllerFinger");
+  });
+
+  it("counts each step (and each replay) so the voice can start its idle counts over", () => {
+    const r = rig();
+    r.d.start("l1", 1);
+    r.run(16);
+    const a = r.d.frame.scope;
+    r.inp.open.add(0);
+    r.run(16);
+    expect(r.d.frame.scope).toBeGreaterThan(a);
+    const b = r.d.frame.scope;
+    r.run(10_000);
+    expect(r.d.frame.scope).toBe(b + 0);
+  });
+});
+
+describe("LessonsDirector: idle help on the crown's turn with controllers or a phone", () => {
+  /** Every change of the chip's key over `ms`, with its time. */
+  function changes(r: Rig, ms: number): { t: number; key: string | null; why: string | null }[] {
+    const out: { t: number; key: string | null; why: string | null }[] = [];
+    r.run(ms, () => {
+      const f = r.d.frame;
+      if (out.at(-1)?.key !== f.key) out.push({ t: r.t, key: f.key, why: f.why });
+    });
+    return out;
+  }
+
+  for (const voice of [false, true]) {
+    it(`says the nudge at 15 s and "Stuck?" at 40 s between the session's suggestions, never two lines within 1.2 s${voice ? " (voice on)" : ""}`, () => {
+      const r = rig();
+      if (voice) r.deps.voiceMs = clipMs("phone");
+      // A controller (or phone) player at the crown: the session suggests the finger the whole turn.
+      r.inp.suggest = "controllerFinger";
+      r.d.start("l2", 2);
+      const t0 = r.t;
+      const seen = changes(r, 60_000);
+      const keys = seen.map((c) => c.key);
+      expect(keys).toEqual(["turnFinger", "game.controllerFinger", "fingerIdle", "game.controllerFinger", "stuck", "game.controllerFinger"]);
+      const at = (k: string) => seen.find((c) => c.key === k)!.t - t0;
+      expect(at("fingerIdle")).toBeGreaterThanOrEqual(15_000);
+      expect(at("fingerIdle")).toBeLessThan(15_200);
+      expect(at("stuck")).toBeGreaterThanOrEqual(40_000);
+      expect(at("stuck")).toBeLessThan(40_200);
+      expect(seen.find((c) => c.key === "stuck")!.why).toBe("idle");
+      for (let i = 1; i < seen.length; i++) expect(seen[i]!.t - seen[i - 1]!.t).toBeGreaterThanOrEqual(1200);
+      // Each nudge keeps the chip long enough to be read (and said).
+      const after = (k: string) => seen[seen.findIndex((c) => c.key === k) + 1]!.t - seen.find((c) => c.key === k)!.t;
+      expect(after("fingerIdle")).toBeGreaterThanOrEqual(IDLE_SHOW_MS);
+      expect(after("stuck")).toBeGreaterThanOrEqual(IDLE_SHOW_MS);
+    });
+  }
 });

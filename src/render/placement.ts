@@ -205,6 +205,30 @@ export function inViewOffsets(pitch: number, sizeM: number, distanceM: number, t
   };
 }
 
+/**
+ * A seated head's neck: the eyes this far above and in front of the neck's pivot (m; the usual head model's numbers).
+ * When the head pitches, the eyes swing round the pivot: looking 60 degrees down they sit about 11 cm lower and 2.5 cm
+ * further forward than looking level.
+ */
+export const NECK_M = { up: 0.075, forward: 0.0805 } as const;
+/**
+ * The pitch a seated player looks at the box with (radians): down at the panel's centre, BOX_FORWARD_M ahead and
+ * BOX_BELOW_HEAD_M below (about 27 degrees). The lap's numbers were set with the head at this pitch.
+ */
+export const PLAY_PITCH = -Math.atan2(BOX_BELOW_HEAD_M, BOX_FORWARD_M);
+
+/**
+ * The eyes at `pos` (the head turned `yaw`, pitched `pitch` radians) moved to where they would be with the head pitched
+ * PLAY_PITCH instead, round the neck's pivot (NECK_M), in place. In the heading's frame (y up, z back toward the
+ * player) the eyes sit at (0, up cos p + forward sin p, up sin p - forward cos p) from the pivot.
+ */
+export function playEye(pos: Vector3, yaw: number, pitch: number): Vector3 {
+  const u = NECK_M.up, f = NECK_M.forward, p = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch)), q = PLAY_PITCH;
+  const dy = u * Math.cos(q) + f * Math.sin(q) - (u * Math.cos(p) + f * Math.sin(p));
+  const back = u * Math.sin(q) - f * Math.cos(q) - (u * Math.sin(p) - f * Math.cos(p));
+  return pos.set(pos.x + back * Math.sin(yaw), pos.y + dy, pos.z + back * Math.cos(yaw));
+}
+
 /** The back panel's centre (world), the box's heading and its lean, for what lays itself out around the box. */
 export interface BoxPose {
   position: Vec3;
@@ -260,9 +284,15 @@ export class Placement {
     return this.sizeCm / 100;
   }
 
-  /** Place the box from the head (session start, Recenter). The size stays. */
-  start(head: HeadPose): void {
+  /**
+   * Place the box from the head (session start, Recenter); the size stays. With the head's `pitch` (radians; every
+   * headset placement passes it, through placeFromHead), from where the eyes will be while the player looks at the box
+   * (playEye), not where they are now: the box then lands in the same place whether the head looked up, level or down
+   * as it was placed. Without, from the eyes as they are.
+   */
+  start(head: HeadPose, pitch?: number): void {
     this.eye.pos.set(head.position[0], head.position[1], head.position[2]);
+    if (pitch !== undefined) playEye(this.eye.pos, head.yaw, pitch);
     this.eye.yaw = head.yaw;
     this.forwardM = BOX_FORWARD_M;
     this.belowM = BOX_BELOW_HEAD_M;
@@ -314,13 +344,24 @@ export class Placement {
  * between `pitchDeg.down` below the horizon and `pitchDeg.up` above it; a first placement goes ahead after `capMs`
  * anyway. The turn rate is smoothed over about `smoothMs`, so one jittery frame does not restart the wait.
  */
-export const STEADY = { turnDegPerS: 30, stillMs: 400, capMs: 2500, pitchDeg: { down: 60, up: 20 }, smoothMs: 100 } as const;
+export const STEADY = {
+  turnDegPerS: 30,
+  stillMs: 400,
+  capMs: 2500,
+  pitchDeg: { down: 60, up: 20 },
+  smoothMs: 100,
+  /** No frame fed for longer than this (ms: untracked frames, a long stall) starts the wait for stillness again. */
+  gapMs: 150,
+  /** No frame fed for longer than this (ms: the session hidden, the headset off) starts the cap again too. */
+  pauseMs: 1000,
+} as const;
 
 /**
  * Whether the head (or a phone's camera) is held still in a looking pose, fed its forward each frame. A box placed from
  * the first tracked frame stays wherever the head or phone happened to point as the session started (a phone still
  * turning as AR starts, a head turned away): the first placement waits for `ready`, a phone's re-place for `steady`.
- * Allocation free.
+ * A gap in the frames fed is never stillness: over STEADY.gapMs the wait for stillness starts again, over
+ * STEADY.pauseMs (the session hidden) the cap too. Allocation free.
  */
 export class PlaceGate {
   private firstMs = Number.NaN;
@@ -348,16 +389,19 @@ export class PlaceGate {
     const fx = f.x, fy = f.y, fz = f.z;
     const pitch = Math.asin(Math.max(-1, Math.min(1, fy))) / DEG;
     this.looking = pitch >= -STEADY.pitchDeg.down && pitch <= STEADY.pitchDeg.up;
-    if (this.firstMs !== this.firstMs) {
+    const dt = nowMs - this.lastMs;
+    if (this.firstMs !== this.firstMs || dt > STEADY.pauseMs) {
+      // The first frame, or the first after a pause (the session hidden): the wait starts here, cap and all.
       this.firstMs = this.stillSince = nowMs;
       this.rate = 0;
-    } else {
-      const dt = nowMs - this.lastMs;
-      if (dt > 0) {
-        const cx = this.fy * fz - this.fz * fy, cy = this.fz * fx - this.fx * fz, cz = this.fx * fy - this.fy * fx;
-        const turn = Math.atan2(Math.sqrt(cx * cx + cy * cy + cz * cz), this.fx * fx + this.fy * fy + this.fz * fz) / DEG;
-        this.rate += ((turn * 1000) / dt - this.rate) * (1 - Math.exp(-dt / STEADY.smoothMs));
-      }
+    } else if (dt > STEADY.gapMs) {
+      // A gap is not stillness: whatever the head did meanwhile went unseen.
+      this.stillSince = nowMs;
+      this.rate = 0;
+    } else if (dt > 0) {
+      const cx = this.fy * fz - this.fz * fy, cy = this.fz * fx - this.fx * fz, cz = this.fx * fy - this.fy * fx;
+      const turn = Math.atan2(Math.sqrt(cx * cx + cy * cy + cz * cz), this.fx * fx + this.fy * fy + this.fz * fz) / DEG;
+      this.rate += ((turn * 1000) / dt - this.rate) * (1 - Math.exp(-dt / STEADY.smoothMs));
     }
     if (!this.looking || this.rate > STEADY.turnDegPerS) this.stillSince = nowMs;
     this.fx = fx;
@@ -375,6 +419,25 @@ export class PlaceGate {
   get ready(): boolean {
     return this.steady || this.lastMs - this.firstMs >= STEADY.capMs;
   }
+}
+
+const headScratch = { position: [0, 0, 0] as [number, number, number], yaw: 0 };
+
+/**
+ * Place `p` from a head (a phone's camera) at `pos` turned `turn`, as every placement does (the first, Recenter,
+ * Quest's own recenter, the arrow's summon): a phone in its camera's view `view`, leaning with its pitch
+ * (startInView); a headset in the lap from the eyes that look at the box (start with the head's pitch), so the box
+ * lands in the same place whether the head looked up, level or down then. Allocation free.
+ */
+export function placeFromHead(p: Placement, pos: Readonly<Vector3>, turn: Readonly<Quaternion>, phone: boolean, view: ViewTangents): void {
+  const h = headScratch;
+  h.position[0] = pos.x;
+  h.position[1] = pos.y;
+  h.position[2] = pos.z;
+  h.yaw = yawFromQuaternion(turn.x, turn.y, turn.z, turn.w);
+  const pitch = pitchFromQuaternion(turn.x, turn.y, turn.z, turn.w);
+  if (phone) p.startInView(h, pitch, view);
+  else p.start(h, pitch);
 }
 
 /** The app's box placement. */

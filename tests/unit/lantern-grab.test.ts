@@ -428,6 +428,22 @@ describe("LanternGrab: the view", () => {
     expect(b.grab.busy(1)).toBe(true);
   });
 
+  it("tells where the hand nearest the lantern pinches (box units), and nothing with no hand in tracking", () => {
+    const b = new Bench();
+    const out: V3 = [9, 9, 9];
+    b.frame();
+    expect(b.grab.nearestPinch(out)).toBe(false);
+    b.hand("right", add(START, [u(20), 0, 0]), false);
+    b.hand("left", add(START, [u(-8), 0, 0]), false);
+    b.frame();
+    expect(b.grab.nearestPinch(out)).toBe(true);
+    add(START, [u(-8), 0, 0]).forEach((v, k) => expect(out[k]).toBeCloseTo(v, 9));
+    b.lose("left");
+    b.frame();
+    expect(b.grab.nearestPinch(out)).toBe(true);
+    add(START, [u(20), 0, 0]).forEach((v, k) => expect(out[k]).toBeCloseTo(v, 9));
+  });
+
   it("shows the ring beam only while riding a line, from its mark toward the lantern; ripples on a settle", () => {
     // A ring line through a spot; the lantern starts on it, 6 cm out from the spot.
     const spotL: V3 = [0.1, -0.25, 1.3];

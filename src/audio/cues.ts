@@ -5,6 +5,7 @@ import { Hums, humsOn, type LoopEngine } from "./hums";
 import { isSfxId, type MusicState, type SfxId, type StingId } from "./manifest";
 import { BOX_OPEN_MS, dialTickPitch, LOCK_OPEN_MS, type Scheduled, scheduleBoxOpen, scheduleLockOpen } from "./music-box";
 import { CueScheduler } from "./scheduler";
+import { FINGER_QUIET_MS, LOCK_QUIET_MS } from "./voice";
 
 /**
  * Bus events (hands, the shell) and the box's game events as cue input. Events are read only
@@ -18,6 +19,7 @@ import { CueScheduler } from "./scheduler";
  *   the music dipping 4 dB under the tune (its notes' cues carry `duckDb`).
  * - `ring` {lock, on}: the ring chime when the rings line up (on), nothing when they part.
  * - `crystallise` {lock}, `hint` {lock, gain?}, `lesson-step`: their sounds.
+ * - `coach-line`: a new line on the coach chip, a soft tick (the hover's: a fingertip brushing a key), head-locked.
  * - `theatre` {up}: the theatre lights coming up (theatre_up) or going down (theatre_dim), head-locked.
  * - `drawer`: the menu drawer pulled open (its slide).
  * - `tick` {cm}, or `feel` {e: {type: "tick", cm}}: a dial tick, climbing G A B D.
@@ -51,10 +53,23 @@ export const LESSON_STEP_GAIN = 0.5;
 /** The hint lantern's glow after the player is stuck plays the hint sound 6 dB down. */
 export const HINT_GLOW_GAIN = 10 ** (-6 / 20);
 /** The game events the mapper knows (see CueEvent): in the game they sound through GameSounds. */
-export const GAME_CUE_TYPES: ReadonlySet<string> = new Set(["lock-open", "box-open", "ring", "crystallise", "hint", "lesson-step", "tick", "feel", "drawer"]);
+export const GAME_CUE_TYPES: ReadonlySet<string> = new Set([
+  "lock-open",
+  "box-open",
+  "ring",
+  "crystallise",
+  "hint",
+  "lesson-step",
+  "coach-line",
+  "tick",
+  "feel",
+  "drawer",
+]);
 /** The theatre lights' events (GameSounds.theatre): made once, never changed. */
 const THEATRE_UP: CueEvent = Object.freeze({ type: "theatre", up: true });
 const THEATRE_DIM: CueEvent = Object.freeze({ type: "theatre", up: false });
+/** A new coach line (GameSounds.coachLine): made once. */
+const COACH_LINE: CueEvent = Object.freeze({ type: "coach-line" });
 /** Game events that name a lock. */
 const LOCK_EVENTS: ReadonlySet<string> = new Set(["lock-open", "ring", "crystallise", "hint"]);
 
@@ -183,6 +198,9 @@ export class CueMapper {
       case "lesson-step":
         this.sfx(out, "lesson_step", { gain: LESSON_STEP_GAIN });
         return;
+      case "coach-line":
+        this.sfx(out, "ui_hover");
+        return;
       case "theatre":
         this.sfx(out, e.up === true ? "theatre_up" : "theatre_dim");
         return;
@@ -298,7 +316,12 @@ export interface GameSoundsDeps {
   mapper?: CueMapper;
   onHandle?: HandleSink;
   key?: string;
+  /** A moment no voice line may start in, `ms` from now (a lock's layers, the box's tune, a finger lock's piece). */
+  quiet?: (ms: number) => void;
 }
+
+/** The box's tune rings on this long after its last note starts: the voice waits for it. */
+const TUNE_RING_MS = 800;
 
 /**
  * The game's sounds and haptics, one method per thing that happens in a box. The box session calls
@@ -316,6 +339,8 @@ export class GameSounds {
   private holding: Hand | null = null;
   /** The next release is a new box taking the lantern from the hand: silent (muteRelease). */
   private quietRelease = false;
+  /** A finger is holding still in a finger lock's gap (its moment is a quiet one). */
+  private fingerHold = false;
 
   constructor(private readonly d: GameSoundsDeps) {
     const places = d.places;
@@ -401,6 +426,12 @@ export class GameSounds {
    */
   finger(progress: number | null, hold = 0, at?: Vec3): void {
     this.hums.finger(progress, hold, at);
+    const holding = progress !== null && hold > 0;
+    if (holding !== this.fingerHold) {
+      this.fingerHold = holding;
+      // The hold's 0.6 s and the forming after it: no line starts over it (the piece's own quiet follows).
+      if (holding) this.d.quiet?.(600 + FINGER_QUIET_MS);
+    }
   }
 
   /**
@@ -409,18 +440,24 @@ export class GameSounds {
    */
   crystallise(lock: number, at?: Vec3): void {
     this.hums.crystallised(lock);
+    this.d.quiet?.(FINGER_QUIET_MS);
     this.handle(at ? { type: "crystallise", lock, at } : { type: "crystallise", lock });
   }
 
   /** Lock `lock` opened: tick, clunk (+120 ms) and its note (+200 ms) at the lock; its hum fades; a thud. */
   lockOpened(lock: number, at?: Vec3, hand?: Hand): void {
     this.hums.opened(lock);
+    this.d.quiet?.(LOCK_QUIET_MS);
     this.handle(at ? { type: "lock-open", lock, at } : { type: "lock-open", lock });
     this.pulse(hand, "lockOpen", LOCK_OPEN_MS.clunk);
   }
 
   /** Every lock is open: the chord resolves, the walls open, the drawer slides, the box's tune; a roll on both hands. */
   boxOpened(seed: string, at?: Vec3): void {
+    if (this.d.quiet) {
+      const s = scheduleBoxOpen(seed, 0);
+      this.d.quiet((s.at(-1)?.atMs ?? 0) + TUNE_RING_MS);
+    }
     this.handle(at ? { type: "box-open", key: seed, at } : { type: "box-open", key: seed });
     this.d.haptics?.play("both", "boxOpen", BOX_OPEN_MS.chord);
   }
@@ -439,6 +476,11 @@ export class GameSounds {
   /** A lesson moves on a step: the lesson beat. */
   lessonStep(): void {
     this.handle({ type: "lesson-step" });
+  }
+
+  /** A new line on the coach chip: a soft tick, so the eyes go to it. */
+  coachLine(): void {
+    this.handle(COACH_LINE);
   }
 
   /** The theatre lights: the room's light coming up (the box opened) or going down (a box in play). Head-locked. */

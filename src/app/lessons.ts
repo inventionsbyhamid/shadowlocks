@@ -19,6 +19,9 @@
 // Tips: the first time a box brings in a mechanic (decoys, a lock without rings, a hidden outline), its line shows
 // on the coach line until the player has done what it says, with a ghost demo of about 6 s as it first shows (the
 // finger pointing at decoys, or a ghost lantern swept near the lock's spot; lesson-scripts.ts).
+//
+// The voice guide (voice-guide.ts) hears the chip's line every frame as the chip shows it (the phone's or the
+// controllers' wording), and the director's pacing asks it how long a line is said for (0 with it off).
 import { createSystem, type World } from "@iwsdk/core";
 import type { LessonId } from "../core/lessons-data";
 import type { BoxSnapshot, Profile, TipId } from "../core/profile";
@@ -27,6 +30,7 @@ import { localLine } from "../i18n";
 import type { BoxScene } from "../render/box-scene";
 import type { BoxSession } from "./box-session";
 import { on as onBus } from "./bus";
+import { controllerLine } from "./controller-lines";
 import type { Game } from "./game";
 import type { HandsInBox } from "./hand-system";
 import type { Lantern } from "./lantern-system";
@@ -41,8 +45,14 @@ import type { SettingsStore } from "./settings";
 import { registerAppSystem } from "./systems";
 import { TIP_FROM, TIP_LINES, tipDone, tipFor } from "./tips";
 import { LineHold } from "../ui/coach-line";
+import { CLICK_QUIET_MS, MENU_BACK_MS } from "../audio/voice";
+import type { VoiceGuide } from "./voice-guide";
+import { chipPath, type Device, deviceKey, replayLines, stepLines } from "./voice-lines";
 import { COPY } from "../ui/copy";
 import type { CoachLine } from "./events";
+
+/** No lesson lines to keep decoded. */
+const NO_LINES: readonly string[] = [];
 
 /** The lantern within this brightness of a hand counts as the player reaching for it (lantern-grab.ts: 30 cm). */
 const NEAR_GLOW = 0.05;
@@ -54,16 +64,27 @@ export interface LessonsDeps {
   settings: SettingsStore;
   lantern: Lantern;
   hands: HandsInBox;
-  sound: { game: { lessonStep(): void; settle(): void; crystallise(lock: number): void } };
+  sound: { game: { lessonStep(): void; settle(): void; crystallise(lock: number): void; coachLine(): void } };
   play: { game: Game; session: BoxSession; view: { readonly coachLine: CoachLine | null } };
   /** The player is in XR and can see it: lessons wait otherwise (the box forms as they enter; a hidden headset holds). */
   presenting(): boolean;
   /** A first launch may go into lesson 1 now (false: a field flag picked what plays, or a test keeps Home). */
   autoStart?: () => boolean;
+  /**
+   * Lesson 1 is done (for real): true when something else plays now in place of lesson 2 (a shared link's box, which
+   * a new player gets after Lesson 1).
+   */
+  afterFirst?: () => boolean;
   /** What draws the lessons (tests pass their own; the real one needs a world and the box scene). */
   view?: LessonView;
   /** The session is a phone's: the coach chip says the lines about hands the phone's way (phone-lines.ts). */
   phone?: () => boolean;
+  /** The voice guide: it says the chip's line (none: text only). */
+  voice?: Pick<VoiceGuide, "update" | "ms" | "prepare" | "quiet">;
+  /** The app is seen (not hidden: headset on, page shown); default `presenting`. */
+  visible?: () => boolean;
+  /** The player is in XR: on the 2D page (the landing, a shared link's page) the voice says nothing. Default true. */
+  inXr?: () => boolean;
 }
 
 export class Lessons implements MenuLessons {
@@ -97,13 +118,34 @@ export class Lessons implements MenuLessons {
   private readonly isOpen = (lock: number) => this.d.play.session.isOpen(lock);
   /** The session's suggestion, held through brief drops (a finger lock's coverage crossing its threshold). */
   private readonly hold = new LineHold();
+  /** The suggestion last asked for, and the one held now (what the director is told), or null. */
+  private askedKey: CoachLine = "controllerFinger";
+  private suggested: CoachLine | null = null;
+  /** For the voice outside a lesson (tips, the session's suggestion): the line last shown, its showings, the box. */
+  private outLine: string | null = null;
+  private outShows = 0;
+  private outAgain = false;
+  private outScope = 0;
+  private outBox: unknown = null;
+  private readonly outSeen: string[] = [];
+  /**
+   * The lesson part the voice's clips were last prepared for (the director's scope; -1: none, nothing held), and the
+   * ghost's clicks.
+   */
+  private prepScope = -1;
+  private clicks = 0;
 
   constructor(private readonly d: LessonsDeps) {
     const { lantern, hands, settings } = d;
     const session = d.play.session;
     onBus("screen", (e) => {
+      const was = this.menuUp;
       this.menuUp = isMenuScreen(e.to);
+      // Back from a menu (the drawer): the line comes back to the chip, and is said again a moment later.
+      if (was && !this.menuUp) this.d.voice?.quiet(MENU_BACK_MS);
     });
+    // A hint taken from the hint lantern: the lesson's "Stuck?" line has done its work.
+    onBus("hint", () => this.director.helpTaken());
     // Lesson 2's last step: "Pull the drawer to find these lessons again."
     onBus("drawer", () => {
       const dir = this.director;
@@ -114,7 +156,11 @@ export class Lessons implements MenuLessons {
       active: () => lantern.grab.holder !== null || lantern.grab.brightness > NEAR_GLOW || hands.n > 0,
       isOpen: (lock) => session.isOpen(lock),
       aligned: (lock) => lantern.feel.aligned(lock),
+      warmth: (lock) => session.warmth(lock),
       inBeam: () => hands.n > 0,
+      rewardUp: () => session.stage === "reward",
+      stuck: () => session.stuck,
+      suggestion: () => this.suggested,
       settled: () => session.stage === "offered",
       drawerPulled: () => this.drawerOpen,
       reducedMotion: () => settings.get().reducedMotion,
@@ -125,13 +171,17 @@ export class Lessons implements MenuLessons {
         out[2] = p[2];
         return out;
       },
+      hand: (out) => lantern.grab.nearestPinch(out),
     };
     this.director = new LessonsDirector({
       inputs,
       leftHanded: () => settings.get().handed === "left",
       onStep: (id, n) => this.stepped(id, n),
+      // A step's idle clocks start: the hint lantern's glow counts its 40 s from there too.
+      onRestart: () => session.restartStuck(),
       onDone: (id) => this.finished(id),
       onReplay: (ex, lesson, start) => this.replayed(ex, lesson, start),
+      voiceMs: (k) => this.d.voice?.ms(deviceKey(chipPath(k), this.device())) ?? 0,
     });
     this.view = d.view ?? new LessonView({ world: d.world, scene: d.scene, lantern, sound: d.sound.game, reducedMotion: () => settings.get().reducedMotion });
     d.profiles.onAdopt((before) => this.forgetKept(before));
@@ -244,30 +294,74 @@ export class Lessons implements MenuLessons {
     if (this.tipReplay) this.stepTipReplay(session);
     // A tip replay holds any lesson where it is (its box is put back after).
     const on = this.tipReplay ? null : dir.replaying ? EXAMPLES[dir.replaying].lesson : dir.done ? null : dir.lesson;
+    // The session's suggestion, held through brief drops (it exists while a controller or phone player is at a short
+    // finger lock): in a lesson the director gives it the chip on lesson 2's turn only; out of the lessons, it shows.
+    const asked = this.d.play.view.coachLine;
+    if (asked) this.askedKey = asked;
+    const held = this.hold.update(asked ? COPY.game[asked] : null, dt);
+    this.suggested = held === null ? null : this.askedKey;
     // Under a menu the lesson waits, but for the pull that ends lesson 2. A tip's demo runs on the director's clock too.
     if ((on || dir.tipping) && this.d.presenting() && (!this.menuUp || this.drawerOpen)) dir.update(tMs);
-    // One coach line: a lesson's, else the session's suggestion (held through brief drops), else a tip; none under a
-    // menu (the lesson's ghost is put away there too).
-    const asked = this.d.play.view.coachLine;
-    const held = this.hold.update(asked ? COPY.game[asked] : null, dt);
+    // One coach line: a lesson's (the director's, which may be the session's suggestion), else the session's
+    // suggestion, else a tip; none under a menu (the lesson's ghost is put away there too).
     const shown = this.menuUp ? null : on;
     this.onScreen.lesson = shown;
-    // Outside an example, the session's suggestion wins over a lesson's own line: it only exists while a controller
-    // player faces a short finger lock (lesson 2's turn), who needs it; hand players lose nothing.
-    const line = this.menuUp
-      ? null
-      : shown
-        ? dir.showing
-          ? dir.frame.line
-          : (held ?? dir.frame.line)
-        : this.tipReplay
-          ? TIP_LINES[this.tipReplay.tip]
-          : (held ?? this.tipLine(session));
+    const line = this.menuUp ? null : shown ? dir.frame.line : this.tipReplay ? TIP_LINES[this.tipReplay.tip] : (held ?? this.tipLine(session));
     if (!shown) this.tipDemo(session);
     this.onScreen.tip = dir.tipping && !this.menuUp;
-    // Lines come in English (the director, the tips, the session); the chip shows them in the language shown, and on a
-    // phone the phone's way.
-    this.view.update(dir.frame, this.onScreen, localLine(this.d.phone?.() ? phoneLine(line) : line), dt, tMs);
+    // Lines come in English (the director, the tips, the session); the chip shows them in the language shown, on a
+    // phone the phone's way, and with controllers in hand the controllers' way.
+    const said = this.d.phone?.() ? phoneLine(line) : this.d.hands.controllers ? controllerLine(line) : line;
+    this.view.update(dir.frame, this.onScreen, localLine(said), dt, tMs);
+    if (this.d.voice) this.speak(said, shown !== null, on !== null, session);
+  }
+
+  /** The input in hand, as the chip words its lines. */
+  private device(): Device {
+    return this.d.phone?.() ? "phone" : this.d.hands.controllers ? "controllers" : "hands";
+  }
+
+  /**
+   * The chip's line to the voice guide: the director's with its own showings and steps; a tip or the session's
+   * suggestion outside a lesson said once a box. On a new lesson part (or replay), its clips are decoded (and the last
+   * part's dropped); once no lesson runs (`running`: under a menu it still does), none are kept. The ghost's click is a
+   * quiet moment. Allocates nothing per frame.
+   */
+  private speak(said: string | null, lesson: boolean, running: boolean, session: BoxSession): void {
+    const voice = this.d.voice!, f = this.director.frame, dir = this.director;
+    if (!running && this.prepScope !== -1) {
+      this.prepScope = -1;
+      voice.prepare(NO_LINES);
+    }
+    if (f.clicks !== this.clicks) {
+      this.clicks = f.clicks;
+      voice.quiet(CLICK_QUIET_MS);
+    }
+    const visible = this.d.visible?.() ?? this.d.presenting();
+    if (this.d.inXr && !this.d.inXr()) said = null;
+    if (lesson) {
+      // A replay may run outside a lesson (from Home once the lessons are done).
+      if (f.scope !== this.prepScope && (dir.replaying || dir.lesson)) {
+        this.prepScope = f.scope;
+        const device = this.device();
+        if (dir.replaying) voice.prepare(replayLines(dir.replaying, device));
+        else if (dir.lesson) voice.prepare(stepLines(dir.lesson, dir.step, device));
+      }
+      voice.update(said, f.why, f.again, f.shows, f.scope, visible);
+      return;
+    }
+    if (session.box !== this.outBox) {
+      this.outBox = session.box;
+      this.outSeen.length = 0;
+      this.outScope++;
+    }
+    if (said !== this.outLine) {
+      this.outLine = said;
+      this.outShows++;
+      this.outAgain = said !== null && this.outSeen.includes(said);
+      if (said !== null && !this.outAgain) this.outSeen.push(said);
+    }
+    voice.update(said, said === null ? null : "tip", this.outAgain, this.outShows, -1 - this.outScope, visible);
   }
 
   /**
@@ -374,9 +468,11 @@ export class Lessons implements MenuLessons {
       p.lessons = { ...p.lessons, [id]: true, step: null };
       void this.d.profiles.save();
     }
-    // Lesson 1 leads into lesson 2; lesson 2 ends on the menu it just taught.
-    if (id === "l1") this.start("l2", { practice: this.practice });
-    else go("home");
+    // Lesson 1 leads into lesson 2 (unless a shared link's box comes in its place); lesson 2 ends on the menu it just
+    // taught.
+    if (id === "l1") {
+      if (this.practice || !this.d.afterFirst?.()) this.start("l2", { practice: this.practice });
+    } else go("home");
   }
 
   private replayed(_ex: ExampleId, lesson: LessonId, start: boolean): void {

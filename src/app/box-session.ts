@@ -1,7 +1,8 @@
 // The box in play, one frame at a time: each lock measured from where the lantern is (only locks within WARMTH_RANGE
 // of it, and only when the lantern or a finger moved), its warmth on the panel and in its hum, its rings lining up,
 // a finger lock's hold and its piece forming (session-fingers.ts), locks opening (the rule met for OPEN_DWELL_MS with
-// the lantern at rest), the head's gaze choosing the lock in focus, the stuck watch lighting the hint lantern, then
+// the lantern at rest), the head's gaze choosing the lock in focus, the stuck watch lighting the hint lantern (after
+// 90 s without progress, 40 s in a lesson's box, whose steps start it over: restartStuck), then
 // the box opening, its reward taken, and the next box offered on the plate. It owns the rules around a box
 // (session-rules.ts): the Warmth setting, hints, saves (every 2 s of play, and whenever the lifecycle asks), the
 // collection, the next box and the daily streak. Play time counts only while the player can see the box.
@@ -14,9 +15,10 @@ import { HINT_GLOW_GAIN } from "../audio/cues";
 import { genOf, specForSave, specOfKey } from "../core/generator";
 import { mirrorBox } from "../core/mirror";
 import type { BoxSnapshot } from "../core/profile";
+import { levelsOf } from "../core/result";
 import { type Coverage, measure, meets, prepareLock, ShadowCaster, SKIP_MISSING, warmth, WARMTH_RANGE } from "../core/solve";
 import type { Box, BoxSpec, Lock, V3, Vec3 } from "../core/types";
-import { LANTERN_MIN_Z, LANTERN_RESTORE, MAX_STEP_MS, OPEN_DWELL_MS } from "../feel/constants";
+import { LANTERN_MIN_Z, LANTERN_RESTORE, LESSON_STUCK_MS, MAX_STEP_MS, OPEN_DWELL_MS, STUCK_MS } from "../feel/constants";
 import { GazeFocus } from "../feel/gaze-focus";
 import type { FeelEvent } from "../feel/lantern-controller";
 import { StuckWatch } from "../feel/stuck-watch";
@@ -45,6 +47,11 @@ const EPS_MS = 1e-6;
 export class BoxSession {
   /** "Show me" on the hint lantern: replays the example the lock needs (wired by the lessons). */
   showMe: ((lock: Lock) => void) | null = null;
+  /**
+   * The plate's Next, asked first: true when it took the press (a friend's shared box goes on to lesson 2 or Home,
+   * never to another box). Wired by the app's shared link.
+   */
+  nextHook: (() => boolean) | null = null;
   private current: Box | null = null;
   private currentSpec: BoxSpec | null = null;
   private stageNow: Stage = "idle";
@@ -216,6 +223,7 @@ export class BoxSession {
    */
   next(): Promise<void> {
     if (this.stageNow !== "offered") return Promise.resolve();
+    if (this.nextHook?.()) return Promise.resolve();
     // Every Next is an endless box: asked of the entitlement first (a trial over keeps only the Daily Box and lessons).
     if (!(this.deps.canPlayBox?.() ?? true)) {
       this.deps.boxRefused?.();
@@ -300,10 +308,18 @@ export class BoxSession {
     d.sound.hint(lock, this.view.hintLanternAt(this.at) ? this.at : undefined);
     this.view.hint(lock, level);
     // Help taken: the watch starts over and the hint lantern goes quiet.
-    this.watch = new StuckWatch();
-    if (this.stuckOn) this.setStuck(false);
+    this.restartStuck();
     this.saveSoon();
     return level;
+  }
+
+  /**
+   * The stuck watch starts over and the hint lantern goes quiet (help was taken; or a lesson's step began, which
+   * counts its own 40 s from there).
+   */
+  restartStuck(): void {
+    this.watch.reset();
+    if (this.stuckOn) this.setStuck(false);
   }
 
   /** The hint lantern's "Hint": the next hint for the lock in focus (else the warmest closed one). Null when all are open. */
@@ -336,7 +352,8 @@ export class BoxSession {
     this.caster = new ShadowCaster(box.elements, SKIP_MISSING);
     this.fingers.setBox(box, this.locks.map((s) => s.samples));
     this.book = new HintBook(box.locks.length);
-    this.watch = new StuckWatch();
+    // A lesson's box glows sooner (its steps teach one lock at a time); every other box after STUCK_MS.
+    this.watch = new StuckWatch(spec.kind === "lesson" ? LESSON_STUCK_MS : STUCK_MS);
     this.gazeFocus = new GazeFocus();
     this.focused = null;
     this.stuckOn = false;
@@ -600,11 +617,15 @@ export class BoxSession {
     this.view.boxOpened();
     // Solved: the profile moves on and the reward is in the collection now, with the time and hints final (taking it
     // is the moment the player sees; a reload before that loses nothing). A practice box changes nothing.
+    const recorded = !this.practiceNow && !p.collection.some((c) => c.key === box.key);
+    const levels = levelsOf(this.book.levels(), box.locks.length);
     if (!this.practiceNow) {
       solveBox(p, this.currentSpec!);
-      collect(p, box, d.wallNow(), this.elapsed, this.book.count);
+      collect(p, box, d.wallNow(), this.elapsed, this.book.count, levels);
       void d.profiles.save();
     }
+    // The result card, from the profile as it is now (the streak moved on, the collection has the box).
+    this.view.result?.({ spec: this.currentSpec!, key: box.key, practice: this.practiceNow, recorded, timeMs: this.elapsed, hints: this.book.count, levels });
     d.boxes.prefetch({ kind: "box", n: p.nextBox });
   }
 
