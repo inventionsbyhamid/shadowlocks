@@ -22,7 +22,8 @@
 // (box-shadows.ts); this file only turns shadow polygons into the one soft-edged mesh.
 //
 // Buffers are made once (the largest box and both hands); a new box rewrites the index once, and a
-// frame writes only positions. No allocation per frame.
+// frame writes only positions, and only for the slots whose polygon changed (the caller says which did not). No
+// allocation per frame.
 import { BufferGeometry, DoubleSide, Mesh, MeshBasicMaterial } from "@iwsdk/core";
 import type { V2 } from "../core/types";
 import { LiveBufferAttribute } from "./live-attribute";
@@ -142,6 +143,10 @@ export class ShadowMesh {
   private readonly iStart: Int32Array;
   private readonly counts: Int32Array;
   private readonly rings: Uint8Array;
+  /** 1 for a slot whose positions were written since it was last laid out. */
+  private readonly fresh: Uint8Array;
+  /** Slots whose positions the last update wrote. */
+  private wrote = 0;
   /** Slots laid out, from 0. */
   private laid = 0;
   /** The vertices and indices the slots drawn now use. */
@@ -160,6 +165,7 @@ export class ShadowMesh {
     this.iStart = new Int32Array(maxPolys);
     this.counts = new Int32Array(maxPolys);
     this.rings = new Uint8Array(maxPolys);
+    this.fresh = new Uint8Array(maxPolys);
     this.posAttr = new LiveBufferAttribute(this.positions, 3);
     this.alphaAttr = new LiveBufferAttribute(this.alphas, 1);
     this.indexAttr = new LiveBufferAttribute(this.indices, 1);
@@ -181,6 +187,11 @@ export class ShadowMesh {
 
   get indexCount(): number {
     return this.nIndex;
+  }
+
+  /** How many slots the last update wrote (the rest it kept): for tests. */
+  get written(): number {
+    return this.wrote;
   }
 
   /** Where slot i lives in the buffers. Allocates: for tests. */
@@ -208,9 +219,11 @@ export class ShadowMesh {
    * Write the shadows: polygon i's corners `polys[i]` (box units on the panel), its skirt `soft[i]`
    * wide. Slots keep their layout while their corner counts match; from the first that does not (or
    * past the last laid out: extra shadows after the box's), the rest are laid out again as fans, so the
-   * slots before it, rings and concave shapes among them, are never touched. Allocation-free.
+   * slots before it, rings and concave shapes among them, are never touched. `same[i]` 1: polygon i and
+   * its softness are exactly what this slot was last written with, so it is kept as it is (unless it was
+   * laid out since: then it is written). Allocation-free.
    */
-  update(polys: readonly V2[][], n: number, soft: Float32Array): void {
+  update(polys: readonly V2[][], n: number, soft: Float32Array, same?: Uint8Array): void {
     if (n > this.maxPolys) throw new Error(`ShadowMesh: ${n} polygons, room for ${this.maxPolys}`);
     let k = 0;
     while (k < n && k < this.laid && polys[k]!.length === this.counts[k]) k++;
@@ -222,14 +235,21 @@ export class ShadowMesh {
     this.setDrawn(n);
     // The skirt widths go as the array and an index, never as a float argument: a float crossing a call the engine
     // did not inline is boxed, once per shadow per frame.
+    const fresh = this.fresh;
+    let wrote = 0;
     for (let i = 0; i < n; i++) {
+      if (same !== undefined && same[i] === 1 && fresh[i] === 1) continue;
       const poly = polys[i]!, c = poly.length, v = this.vStart[i]!;
       if (this.rings[i]) {
         const h = c >> 1;
         this.ringEdge(poly, 0, h, soft, i, v, v + 3 * h, h);
         this.ringEdge(poly, h, h, soft, i, v + h, v + 2 * h, 0);
       } else this.roundEdge(poly, c, soft, i, v);
+      fresh[i] = 1;
+      wrote++;
     }
+    this.wrote = wrote;
+    // Uploaded as before, written or kept: the GPU gets the same bytes at the same moments.
     this.posAttr.commit(this.nVerts);
   }
 
@@ -256,6 +276,7 @@ export class ShadowMesh {
     const v = i ? this.vStart[prev]! + vertsFor(this.counts[prev]!, this.rings[prev] === 1) : 0;
     let ix = i ? this.iStart[prev]! + indicesFor(this.counts[prev]!, this.rings[prev] === 1) : 0;
     const A = this.alphas, I = this.indices;
+    this.fresh[i] = 0;
     this.vStart[i] = v;
     this.iStart[i] = ix;
     this.counts[i] = c;
