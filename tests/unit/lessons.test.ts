@@ -13,6 +13,7 @@ import { newProfile } from "../../src/core/profile";
 import type { BoxSnapshot, Profile } from "../../src/core/profile";
 import type { Box, BoxSpec } from "../../src/core/types";
 import type { BoxScene } from "../../src/render/box-scene";
+import { replayLines } from "../../src/app/voice-lines";
 import { COPY } from "../../src/ui/copy";
 
 /** A box with decoys, as tipFor sees one (box 2 brings in the decoys tip). */
@@ -147,6 +148,14 @@ describe("Lessons: the voice guide", () => {
     b.lessons.start("l2", { step: 2 });
     b.run(32);
     expect(b.voice.ms).toHaveBeenCalledWith("phone.turnFinger");
+  });
+
+  it("decodes a replay's lines ahead from Home once the lessons are done", () => {
+    const b = voiced();
+    b.profile.lessons = { l1: true, l2: true, step: null };
+    expect(b.lessons.replay("rings")).toBe(true);
+    b.run(100);
+    expect(b.voice.prepare).toHaveBeenCalledWith(replayLines("rings", "hands"));
   });
 
   it("gives a phone player idle at the crown's turn the phone's finger line, never the hands' nearer-or-farther one", () => {

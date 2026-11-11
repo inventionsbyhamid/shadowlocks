@@ -326,10 +326,12 @@ export class Lessons implements MenuLessons {
     const visible = this.d.visible?.() ?? this.d.presenting();
     if (this.d.inXr && !this.d.inXr()) said = null;
     if (lesson) {
-      if (f.scope !== this.prepScope && dir.lesson) {
+      // A replay may run outside a lesson (from Home once the lessons are done).
+      if (f.scope !== this.prepScope && (dir.replaying || dir.lesson)) {
         this.prepScope = f.scope;
         const device = this.device();
-        voice.prepare(dir.replaying ? replayLines(dir.replaying, device) : stepLines(dir.lesson, dir.step, device));
+        if (dir.replaying) voice.prepare(replayLines(dir.replaying, device));
+        else if (dir.lesson) voice.prepare(stepLines(dir.lesson, dir.step, device));
       }
       voice.update(said, f.why, f.again, f.shows, f.scope, visible);
       return;
