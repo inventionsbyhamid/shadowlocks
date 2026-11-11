@@ -244,6 +244,27 @@ export class AudioEngine {
     return this.duck;
   }
 
+  /** Where a sound that sits inside the effects bus joins it (the voice guide's own gain stage: voice.ts). */
+  effectsInput(): AudioNode {
+    return this.sfxBus;
+  }
+
+  /** Dip the music `dbDown` for `sec` from now (50 ms down, 300 ms back), merged with any dip already under way. */
+  duckMusicFor(dbDown: number, sec: number): void {
+    this.duckMusic(dbDown, sec);
+  }
+
+  /** End the music's dip now (a voice line cut short): back up over the usual 300 ms. */
+  releaseDuck(): void {
+    const now = this.ctx.currentTime;
+    if (now >= this.duckUntil) return;
+    this.duckUntil = now;
+    const g = this.duck.gain;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(g.value, now);
+    g.linearRampToValueAtTime(1, now + DUCK_RELEASE);
+  }
+
   private get ready(): boolean {
     return this.unlocked && !this.suspended && this.ctx.state === "running";
   }
