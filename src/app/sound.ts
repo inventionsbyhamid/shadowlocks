@@ -74,6 +74,12 @@ export class Sound {
   private placed = false;
   private readonly tmp = new Vector3();
   private readonly tmpBox: V3 = [0, 0, 0];
+  /**
+   * Inside the frame's timed sounds and hums (`update`), nothing moves the box: its world matrix is brought up to date
+   * once for all of them (`rootFresh`), not once per lock.
+   */
+  private inFrame = false;
+  private rootFresh = false;
   private pack: Promise<{ pack: SoundPack; loadMusic: () => Promise<void> } | null>;
   private effects = false;
 
@@ -190,13 +196,19 @@ export class Sound {
    */
   update(dt: number): void {
     this.clock.step(dt, this.deps.lifecycle.active);
+    this.inFrame = true;
+    this.rootFresh = false;
     this.game.update();
+    this.inFrame = false;
     if (this.captions.any) this.captions.step(dt);
     const head = this.deps.world.player?.head;
-    if (head && this.engine.running) this.follow(head);
+    if (head) this.follow(head);
   }
 
-  /** The listener at the head: one world matrix update, read straight from its columns. */
+  /**
+   * The listener at the head, while audio runs: one world matrix update, read straight from its columns. Whether audio
+   * runs (the context's state, a call into the browser) is asked only when the head has moved.
+   */
   private follow(head: Object3D): void {
     head.updateWorldMatrix(true, false);
     const e = head.matrixWorld.elements;
@@ -212,6 +224,7 @@ export class Sound {
       Math.abs(x - p.position[0]) + Math.abs(y - p.position[1]) + Math.abs(z - p.position[2]) > LISTENER_MOVE_M ||
       fx * p.forward[0] + fy * p.forward[1] + fz * p.forward[2] < LISTENER_TURN_COS;
     if (!moved && this.placed) return;
+    if (!this.engine.running) return;
     this.placed = true;
     p.position[0] = x;
     p.position[1] = y;
@@ -272,7 +285,10 @@ export class Sound {
     const toWorld = (p: V3, out: Vec3): boolean => {
       const root = this.deps.box?.root;
       if (!root) return false;
-      root.updateWorldMatrix(true, false);
+      if (!this.rootFresh) {
+        root.updateWorldMatrix(true, false);
+        this.rootFresh = this.inFrame;
+      }
       this.tmp.set(p[0], p[1], p[2]).applyMatrix4(root.matrixWorld);
       out[0] = this.tmp.x;
       out[1] = this.tmp.y;
