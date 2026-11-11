@@ -401,6 +401,8 @@ export class BoxScene {
     // A lost GPU context that comes back: the reflections rendered again for everything under the box (the drawer and
     // the reward, added later, included).
     restoreEnvironmentsOnContextRestore(world.renderer.domElement, this.root, envs, studios);
+    // The shadows keep what did not change since the last cast; after a lost context they are all cast afresh.
+    world.renderer.domElement.addEventListener("webglcontextrestored", () => this.shadows.invalidate());
   }
 
   /** The box shown (its scraps, threads, rings, etching and shadows; the lantern goes to its start), or none. */
