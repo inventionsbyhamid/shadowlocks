@@ -103,8 +103,8 @@ export const LOOP_FADE_MS = 150;
 const NO_OPTIONS: PlayOptions = Object.freeze({});
 
 export const VOICE_POOL_SIZE = 16;
-const DUCK_ATTACK = 0.05;
-const DUCK_RELEASE = 0.3;
+export const DUCK_ATTACK = 0.05;
+export const DUCK_RELEASE = 0.3;
 const STING_DUCK_DB = 6;
 const STEAL_FADE = 0.005;
 const AMBIENCE_FADE = 1;
@@ -156,6 +156,8 @@ export class AudioEngine {
   private master: GainNode;
   private musicBus: GainNode;
   private duck: GainNode;
+  /** The voice guide's own dip, in series after the engine's: the voice ramps it, nothing else touches it. */
+  private voiceDuck: GainNode;
   private sfxBus: GainNode;
   private uiBus: GainNode;
   private ambienceBus: GainNode;
@@ -200,10 +202,12 @@ export class AudioEngine {
 
     this.musicBus = c.createGain();
     this.duck = c.createGain();
+    this.voiceDuck = c.createGain();
     this.sfxBus = c.createGain();
     this.uiBus = c.createGain();
     this.ambienceBus = c.createGain();
-    this.duck.connect(this.musicBus);
+    this.duck.connect(this.voiceDuck);
+    this.voiceDuck.connect(this.musicBus);
     this.musicBus.connect(this.master);
     this.sfxBus.connect(this.master);
     // UI and ambience sit inside effects, so the effects slider scales them too.
@@ -242,6 +246,21 @@ export class AudioEngine {
 
   duckGain(): GainNode {
     return this.duck;
+  }
+
+  /** Where a sound that sits inside the effects bus joins it (the voice guide's own gain stage: voice.ts). */
+  effectsInput(): AudioNode {
+    return this.sfxBus;
+  }
+
+  /** Dip the music `dbDown` for `sec` from now (50 ms down, 300 ms back), merged with any dip already under way. */
+  duckMusicFor(dbDown: number, sec: number): void {
+    this.duckMusic(dbDown, sec);
+  }
+
+  /** The music's dip under the voice guide (voice.ts), apart from the dips the engine's own sounds make. */
+  voiceDuckGain(): GainNode {
+    return this.voiceDuck;
   }
 
   private get ready(): boolean {

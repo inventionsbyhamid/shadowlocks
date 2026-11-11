@@ -91,8 +91,18 @@ describe("profile", () => {
         dimming: true,
         handed: "right",
         language: "auto",
+        voice: true,
       },
     });
+  });
+
+  it("a save from before the Voice guide setting keeps everything and has the voice on; a stored off stays off", () => {
+    const p = played();
+    const { voice: _none, ...old } = p.settings;
+    const raw = JSON.parse(JSON.stringify({ ...p, settings: old }));
+    expect(migrate(raw, NOW, BUILD)).toEqual({ ...p, lastSeenMs: NOW, settings: { ...p.settings, voice: true } });
+    expect(migrate({ version: 1, settings: { voice: false } }, NOW, BUILD).settings.voice).toBe(false);
+    expect(migrate({ version: 1, settings: { voice: "no" } }, NOW, BUILD).settings.voice).toBe(true);
   });
 
   it("a save from before the Language setting keeps everything and follows the headset", () => {

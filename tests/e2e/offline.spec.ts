@@ -142,6 +142,9 @@ test("a second launch plays with the network off", async ({ page, context, boot 
   expect(site.precached.some((f) => f.startsWith(".well-known/"))).toBe(false); // the Quest apps check these online
   expect(site.precached).toContain("audio/music/music_bed.ogg");
   expect(site.precached).toContain("audio/sfx/lock_hum.flac");
+  // The voice guide: its manifest and a line, so the lessons speak offline too.
+  expect(site.precached).toContain("audio/voice/manifest.json");
+  expect(site.precached).toContain("audio/voice/en/lessons.goal.ogg");
   expect(site.precached).toContain("fonts/josefin-bd.webp");
   expect(site.precached).toContain("fonts/limelight.woff2");
   expect(site.precached).toContain("input-profiles/meta-quest-touch-plus/left.glb");

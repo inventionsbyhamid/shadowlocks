@@ -171,6 +171,10 @@ async function main(): Promise<void> {
       return took;
     },
     phone: () => touch.phone,
+    // The voice says the chip's lines; it stops while the headset is off or the page hidden.
+    voice: sound.voice,
+    visible: () => shell.lifecycle.active,
+    inXr: () => shell.sessionMode !== null,
   });
   // What the menus play through: the box session and the lessons. A progress reset lets a lesson or replay in the
   // lap go as well as the box.
@@ -246,6 +250,8 @@ async function main(): Promise<void> {
     landShared();
   } else if (box) play.game.playBox(box);
   else if (lesson) lessons.start(lesson, { practice: true });
+  // The voice guide's clips first (small, and lesson 1 may need them in 2 s), then the music.
+  sound.loadVoiceLater();
   sound.loadMusicLater();
   video?.installVideoMode(world);
 

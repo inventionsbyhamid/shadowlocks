@@ -58,6 +58,8 @@ export const JA: Copy = {
     warmthSub: "光と音",
     hand: "左利き",
     handSub: "左右反転",
+    voice: "音でヒント",
+    voiceSub: "えいごのみ",
     language: "言語",
     languageAuto: "自動",
   },

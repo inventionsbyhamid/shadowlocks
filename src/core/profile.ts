@@ -19,6 +19,8 @@ export interface Settings {
   handed: "right" | "left";
   /** The game's language: "auto" follows the headset (saves from before this setting load as "auto"). */
   language: LanguageSetting;
+  /** The voice guide: the coach chip's lines spoken (English only; saves from before this setting load as on). */
+  voice: boolean;
 }
 
 /** A box in progress as saved: enough to put the lantern, open locks and finger pieces back. */
@@ -131,6 +133,7 @@ export function defaultSettings(): Settings {
     dimming: true,
     handed: "right",
     language: "auto",
+    voice: true,
   };
 }
 
@@ -235,6 +238,7 @@ export function settingsFrom(raw: unknown): Settings {
     captions: bool(s.captions, d.captions),
     dimming: bool(s.dimming, d.dimming),
     handed: s.handed === "left" ? "left" : "right",
+    voice: bool(s.voice, d.voice),
     language: languageSettingFrom(s.language),
   };
 }

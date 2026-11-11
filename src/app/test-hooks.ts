@@ -739,6 +739,16 @@ export function installTestHooks(
     },
     sound: app.sound.game,
     captions: () => app.sound.captionsShown(),
+    voice: {
+      state: () => ({
+        loaded: app.sound.voicePack !== null,
+        said: [...app.sound.voice.said],
+        speaking: app.sound.voice.speaking,
+        decoded: app.sound.voicePack?.decoded() ?? [],
+        decodedBytes: app.sound.voicePack?.decodedBytes() ?? 0,
+      }),
+      ms: (key) => app.sound.voice.ms(key),
+    },
     touch: {
       phone: () => app.touch.phone,
       set: (list) => app.touch.inject(list === null ? null : list.map((t) => ({ id: t.id, at: [t.at[0], t.at[1], t.at[2]] }))),

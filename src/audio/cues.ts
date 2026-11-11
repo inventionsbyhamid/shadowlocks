@@ -5,6 +5,7 @@ import { Hums, humsOn, type LoopEngine } from "./hums";
 import { isSfxId, type MusicState, type SfxId, type StingId } from "./manifest";
 import { BOX_OPEN_MS, dialTickPitch, LOCK_OPEN_MS, type Scheduled, scheduleBoxOpen, scheduleLockOpen } from "./music-box";
 import { CueScheduler } from "./scheduler";
+import { FINGER_QUIET_MS, LOCK_QUIET_MS } from "./voice";
 
 /**
  * Bus events (hands, the shell) and the box's game events as cue input. Events are read only
@@ -315,7 +316,12 @@ export interface GameSoundsDeps {
   mapper?: CueMapper;
   onHandle?: HandleSink;
   key?: string;
+  /** A moment no voice line may start in, `ms` from now (a lock's layers, the box's tune, a finger lock's piece). */
+  quiet?: (ms: number) => void;
 }
+
+/** The box's tune rings on this long after its last note starts: the voice waits for it. */
+const TUNE_RING_MS = 800;
 
 /**
  * The game's sounds and haptics, one method per thing that happens in a box. The box session calls
@@ -333,6 +339,8 @@ export class GameSounds {
   private holding: Hand | null = null;
   /** The next release is a new box taking the lantern from the hand: silent (muteRelease). */
   private quietRelease = false;
+  /** A finger is holding still in a finger lock's gap (its moment is a quiet one). */
+  private fingerHold = false;
 
   constructor(private readonly d: GameSoundsDeps) {
     const places = d.places;
@@ -418,6 +426,12 @@ export class GameSounds {
    */
   finger(progress: number | null, hold = 0, at?: Vec3): void {
     this.hums.finger(progress, hold, at);
+    const holding = progress !== null && hold > 0;
+    if (holding !== this.fingerHold) {
+      this.fingerHold = holding;
+      // The hold's 0.6 s and the forming after it: no line starts over it (the piece's own quiet follows).
+      if (holding) this.d.quiet?.(600 + FINGER_QUIET_MS);
+    }
   }
 
   /**
@@ -426,18 +440,24 @@ export class GameSounds {
    */
   crystallise(lock: number, at?: Vec3): void {
     this.hums.crystallised(lock);
+    this.d.quiet?.(FINGER_QUIET_MS);
     this.handle(at ? { type: "crystallise", lock, at } : { type: "crystallise", lock });
   }
 
   /** Lock `lock` opened: tick, clunk (+120 ms) and its note (+200 ms) at the lock; its hum fades; a thud. */
   lockOpened(lock: number, at?: Vec3, hand?: Hand): void {
     this.hums.opened(lock);
+    this.d.quiet?.(LOCK_QUIET_MS);
     this.handle(at ? { type: "lock-open", lock, at } : { type: "lock-open", lock });
     this.pulse(hand, "lockOpen", LOCK_OPEN_MS.clunk);
   }
 
   /** Every lock is open: the chord resolves, the walls open, the drawer slides, the box's tune; a roll on both hands. */
   boxOpened(seed: string, at?: Vec3): void {
+    if (this.d.quiet) {
+      const s = scheduleBoxOpen(seed, 0);
+      this.d.quiet((s.at(-1)?.atMs ?? 0) + TUNE_RING_MS);
+    }
     this.handle(at ? { type: "box-open", key: seed, at } : { type: "box-open", key: seed });
     this.d.haptics?.play("both", "boxOpen", BOX_OPEN_MS.chord);
   }

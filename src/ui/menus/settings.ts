@@ -1,6 +1,6 @@
 // Settings: every field of the profile's Settings. The Language key (Automatic, then each language in
 // its own name, and round), three stepped sliders (music, effects, box size: minus and plus keys around
-// an LED meter), five latching toggles (warmth, captions, less motion, dim room, left hand), Recenter,
+// an LED meter), six latching toggles (warmth, captions, less motion, dim room, left hand, voice guide), Recenter,
 // Reset progress (it asks first, on its own panel) and Done. Every change applies live and is saved
 // through the settings store, inside the profile's ranges. Words come from the language shown.
 import { BOX_SIZE_CM, type Settings } from "../../core/profile";
@@ -10,7 +10,7 @@ import { type LanguageRowView, languageRow, stepLanguage } from "./language";
 import type { MenuSpec, PanelUi } from "./types";
 
 export type SliderKey = "musicVol" | "sfxVol" | "boxSizeCm";
-export type ToggleKey = "warmth" | "captions" | "reducedMotion" | "dimming" | "handed";
+export type ToggleKey = "warmth" | "captions" | "reducedMotion" | "dimming" | "handed" | "voice";
 
 type Words = (c: Copy) => string;
 
@@ -38,6 +38,7 @@ export const TOGGLES: readonly { id: string; key: ToggleKey; label: Words; sub: 
   { id: "toggle-motion", key: "reducedMotion", label: (c) => c.settings.motion, sub: (c) => c.settings.motionSub },
   { id: "toggle-dimming", key: "dimming", label: (c) => c.settings.dimming, sub: (c) => c.settings.dimmingSub },
   { id: "toggle-hand", key: "handed", label: (c) => c.settings.hand, sub: (c) => c.settings.handSub },
+  { id: "toggle-voice", key: "voice", label: (c) => c.settings.voice, sub: (c) => c.settings.voiceSub },
 ];
 
 /** The Language key: each poke steps to the next setting. */

@@ -450,6 +450,25 @@ export interface SlLessons {
   replay(example: "move" | "near-far" | "rings" | "finger"): boolean;
 }
 
+/** The voice guide now (copies). */
+export interface SlVoiceState {
+  /** The voice pack's manifest is read (its clips are known); false: not yet, or none (text only). */
+  loaded: boolean;
+  /** Every line said so far, in order, by copy key; and the one playing now. */
+  said: string[];
+  speaking: string | null;
+  /** The clips decoded now, and what they hold in memory (bytes). */
+  decoded: string[];
+  decodedBytes: number;
+}
+
+/** The voice guide, for tests. */
+export interface SlVoice {
+  state(): SlVoiceState;
+  /** How long line `key` (a copy key) is said for now: 0 with the voice off, another language, or no clip. */
+  ms(key: string): number;
+}
+
 /** `window.__sl`: Shadow Locks' own test hooks, present only in builds made with VITE_TEST_HOOKS=1. */
 export interface SlApi {
   /** The box session (play, state, saves, the box's keys and reward). */
@@ -505,6 +524,8 @@ export interface SlApi {
   sound: GameSounds;
   /** The caption texts up now. */
   captions(): string[];
+  /** The voice guide: what it said, what it has decoded. */
+  voice: SlVoice;
   /** The game's languages (set one with __ns.ui.setSettings({ language })). */
   i18n: SlI18n;
   /** A phone's touches (AR on a phone: the screen is the only input). */

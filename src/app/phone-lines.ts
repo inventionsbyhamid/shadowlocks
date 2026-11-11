@@ -3,20 +3,32 @@
 // shows them (localLine finds COPY.phone in every table). The lessons pick their lines as ever; only the chip swaps.
 import { COPY } from "../ui/copy";
 
-const PHONE: ReadonlyMap<string, string> = new Map([
-  [COPY.lessons.pickUp, COPY.phone.pickUp],
-  [COPY.lessons.slide, COPY.phone.slide],
-  [COPY.lessons.finger, COPY.phone.finger],
-  [COPY.lessons.drawer, COPY.phone.drawer],
-  [COPY.lessons.puppets, COPY.phone.puppets],
-  [COPY.lessons.turnFinger, COPY.phone.turnFinger],
-  [COPY.lessons.growShrink, COPY.phone.growShrink],
-  [COPY.lessons.stuck, COPY.phone.stuck],
-  [COPY.lessons.letGo, COPY.phone.letGo],
-  [COPY.lessons.boxOpen, COPY.phone.boxOpen],
+/** By copy path: the line the chip shows on a phone in place of each lessons line (the voice guide's clip keys too). */
+export const PHONE_KEYS: Readonly<Record<string, string>> = {
+  "lessons.pickUp": "phone.pickUp",
+  "lessons.slide": "phone.slide",
+  "lessons.finger": "phone.finger",
+  // The crown's idle nudge: a phone sets the finger's depth itself, so "nearer or farther" means nothing there.
+  "lessons.fingerIdle": "phone.finger",
+  "lessons.drawer": "phone.drawer",
+  "lessons.puppets": "phone.puppets",
+  "lessons.turnFinger": "phone.turnFinger",
+  "lessons.growShrink": "phone.growShrink",
+  "lessons.stuck": "phone.stuck",
+  "lessons.letGo": "phone.letGo",
+  "lessons.boxOpen": "phone.boxOpen",
   // A finger lock waiting: the controller player's suggestion, as a phone fills it.
-  [COPY.game.controllerFinger, COPY.phone.finger],
-]);
+  "game.controllerFinger": "phone.finger",
+};
+
+/** The English words at copy path `path` ("lessons.goal", "phone.finger"), or undefined. */
+export function copyAt(path: string): string | undefined {
+  let v: unknown = COPY;
+  for (const part of path.split(".")) v = v && typeof v === "object" ? (v as Record<string, unknown>)[part] : undefined;
+  return typeof v === "string" ? v : undefined;
+}
+
+const PHONE: ReadonlyMap<string, string> = new Map(Object.entries(PHONE_KEYS).map(([from, to]) => [copyAt(from)!, copyAt(to)!]));
 
 /** `en` as a phone says it (in English; the chip translates): the phone's line where there is one, else `en`. */
 export function phoneLine(en: string | null): string | null {

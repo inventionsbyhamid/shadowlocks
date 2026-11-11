@@ -97,11 +97,11 @@ test("settings persist after reload", async ({ page, boot }) => {
   let app = await boot();
   await app.poke("home-settings");
   await app.stepUntil((n) => n.state().screen === "settings", { maxMs: 5_000, label: "settings" });
-  for (const id of ["music-down", "effects-down", "box-up", "toggle-warmth", "toggle-captions", "toggle-motion", "toggle-dimming", "toggle-hand"]) {
+  for (const id of ["music-down", "effects-down", "box-up", "toggle-warmth", "toggle-captions", "toggle-motion", "toggle-dimming", "toggle-hand", "toggle-voice"]) {
     await app.poke(id);
   }
   // The language stays as it was (its own reload test is in i18n-menus.spec.ts).
-  const want = { musicVol: 0.6, sfxVol: 0.8, boxSizeCm: 26, warmth: false, captions: false, reducedMotion: true, dimming: false, handed: "left", language: "auto" };
+  const want = { musicVol: 0.6, sfxVol: 0.8, boxSizeCm: 26, warmth: false, captions: false, reducedMotion: true, dimming: false, handed: "left", language: "auto", voice: false };
   await app.stepUntil((n, _w, a) => Object.entries(a).every(([k, v]) => n.ui.settings()[k] === v), { arg: want, maxMs: 3_000, label: "every setting changed" });
   expect(await page.evaluate(() => window.__ns!.ui.key("toggle-hand"))).toMatchObject({ lit: true });
   await app.step(90); // the save lands
@@ -112,6 +112,10 @@ test("settings persist after reload", async ({ page, boot }) => {
   await app.stepUntil((n) => n.state().screen === "settings", { maxMs: 5_000, label: "settings again" });
   expect(await page.evaluate(() => window.__ns!.ui.text("music-value"))).toBe("60%");
   expect(await page.evaluate(() => window.__ns!.ui.text("toggle-hand-state"))).toBe("On");
+  // The sixth toggle, the Voice guide: on by default, off now, and its words.
+  expect(await page.evaluate(() => window.__ns!.ui.text("toggle-voice-state"))).toBe("Off");
+  expect(await page.evaluate(() => window.__ns!.ui.text("toggle-voice-label"))).toBe(COPY.settings.voice);
+  expect(await page.evaluate(() => window.__ns!.ui.text("toggle-voice-sub"))).toBe(COPY.settings.voiceSub);
   expect(await page.evaluate(() => window.__ns!.ui.key("toggle-warmth"))).toMatchObject({ lit: false });
   // Reset progress asks first; keeping it changes nothing, resetting keeps the settings.
   await page.evaluate(() => window.__ns!.ui.profile({ nextBox: 5 }));
@@ -459,13 +463,14 @@ test("no live button within 10 cm of the box mouth during play", async ({ page, 
 
 /**
  * A whole panel in the headset's view: half Quest 3's pixel density (12 px per degree, a 60 degree tall
- * view at 720p), so the panel fits; the text is then drawn about half as sharp as on the device.
+ * view at 720p), so the panel fits; the text is then drawn about half as sharp as on the device. Settings, about
+ * 60 degrees tall from the seated eye since its sixth switch, is shot at 10.5 (a 69 degree view) to fit whole.
  */
 async function look(app: XrApp, screen: string, name = screen): Promise<void> {
   await app.page.evaluate((s) => window.__ns!.ui.go(s as any), screen);
   await app.stepUntil((n, _w, s) => n.state().screen === s && !n.ui.busy(), { arg: screen, maxMs: 3_000, label: `${screen} at rest` });
   const p = await app.page.evaluate((s) => window.__ns!.ui.panelBox(s as any), screen);
-  await app.captureHeadset(`menu-${name}`, { x: p!.center[0], y: p!.center[1], z: p!.center[2] }, 12);
+  await app.captureHeadset(`menu-${name}`, { x: p!.center[0], y: p!.center[1], z: p!.center[2] }, screen === "settings" ? 10.5 : 12);
 }
 
 test("menus in the headset (screenshots for review)", async ({ page, boot }) => {

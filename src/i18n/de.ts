@@ -55,6 +55,8 @@ export const DE: Copy = {
     warmthSub: "Glut, Summen",
     hand: "Linke Hand",
     handSub: "Gespiegelt",
+    voice: "Vorlesen",
+    voiceSub: "Nur Englisch",
     language: "Sprache",
     languageAuto: "Automatisch",
   },

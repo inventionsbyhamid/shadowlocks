@@ -150,9 +150,9 @@ describe("the pack in public/audio", () => {
     }
   });
 
-  it("has every file the manifest names, and nothing else (no audition page or raw takes)", () => {
+  it("has every file the manifest names, and nothing else (no audition page or raw takes; the voice has its own pack)", () => {
     for (const file of files) expect(existsSync(`public/audio/${file}`), file).toBe(true);
-    expect(readdirSync("public/audio").sort()).toEqual(["manifest.json", "music", "sfx"]);
+    expect(readdirSync("public/audio").sort()).toEqual(["manifest.json", "music", "sfx", "voice"]);
     const onDisk = ["sfx", "music"].flatMap((d) => readdirSync(`public/audio/${d}`).map((n) => `${d}/${n}`)).sort();
     expect(onDisk).toEqual([...new Set(files)].sort());
   });

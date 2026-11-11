@@ -30,6 +30,11 @@ export const FINGER_HUM_SPAN = 0.7;
  */
 export const FINGER_GLIDE_SEMITONES = 2;
 
+/** Under a voice line the hums dip this much (voice.ts VOICE_HUM_DUCK_DB), down over DUCK_DOWN_MS, back over DUCK_UP_MS. */
+const DUCK = 10 ** (-6 / 20);
+const DUCK_DOWN_MS = 50;
+const DUCK_UP_MS = 300;
+
 const LOCKS = 3;
 const PITCH_STEP = 0.05;
 /** A hum follows its place once that moved this far (m, summed over axes). */
@@ -70,6 +75,8 @@ export class Hums {
   private on = false;
   private hushed = false;
   private focused: number | null = null;
+  /** The voice guide is speaking: every hum's level times DUCK (1 when not). */
+  private duckK = 1;
 
   private fingerLoop: LoopHandle | null = null;
   /** The piece formed: the fingertip hum stays off until the finger leaves the beam. */
@@ -102,6 +109,19 @@ export class Hums {
   hush(on: boolean): void {
     this.hushed = on;
     this.applyAll();
+  }
+
+  /** A voice line starts (`on`) or ends: every hum dips 6 dB under it (the levels kept are the undipped ones). */
+  duck(on: boolean): void {
+    const k = on ? DUCK : 1;
+    if (k === this.duckK) return;
+    this.duckK = k;
+    const ramp = on ? DUCK_DOWN_MS : DUCK_UP_MS;
+    for (let i = 0; i < LOCKS; i++) {
+      const loop = this.loops[i];
+      if (loop && this.sent[i]! > 0) loop.setGain(this.sent[i]! * k, ramp);
+    }
+    this.fingerLoop?.setGain(this.fingerGain * k, ramp);
   }
 
   /** Lock `lock`'s warmth, 0..1 (already smoothed by the session). Per frame. */
@@ -161,14 +181,14 @@ export class Hums {
       o.pitch = pitch;
       const made = this.engine.loop("fingertip_hum", o);
       if (!made) return;
-      made.setGain(g, HUM_RAMP_MS);
+      made.setGain(g * this.duckK, HUM_RAMP_MS);
       this.fingerLoop = made;
       this.fingerGain = g;
       this.fingerPitch = pitch;
       return;
     }
     if (Math.abs(g - this.fingerGain) > HUM_STEP || (g === 1 && this.fingerGain !== 1)) {
-      f.setGain(g, HUM_RAMP_MS);
+      f.setGain(g * this.duckK, HUM_RAMP_MS);
       this.fingerGain = g;
     }
     if (Math.abs(pitch - this.fingerPitch) > PITCH_STEP) {
@@ -236,7 +256,7 @@ export class Hums {
       if (!loop) return;
       this.loops[lock] = loop;
     }
-    loop.setGain(want, HUM_RAMP_MS);
+    loop.setGain(want * this.duckK, HUM_RAMP_MS);
     this.sent[lock] = want;
   }
 

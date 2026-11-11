@@ -13,6 +13,8 @@ import { newProfile } from "../../src/core/profile";
 import type { BoxSnapshot, Profile } from "../../src/core/profile";
 import type { Box, BoxSpec } from "../../src/core/types";
 import type { BoxScene } from "../../src/render/box-scene";
+import { replayLines, stepLines } from "../../src/app/voice-lines";
+import { MENU_BACK_MS } from "../../src/audio/voice";
 import { COPY } from "../../src/ui/copy";
 
 /** A box with decoys, as tipFor sees one (box 2 brings in the decoys tip). */
@@ -106,6 +108,106 @@ function bench(o: { presenting?: boolean; autoStart?: boolean; afterFirst?: () =
   };
   return { lessons, profile, session, plays, open, env, run, shown, tipShown, play, lantern, hands, adopt };
 }
+
+describe("Lessons: the voice guide", () => {
+  function voiced(o: { inXr?: boolean; phone?: boolean } = {}) {
+    const b = bench();
+    const calls: { line: string | null; why: string | null }[] = [];
+    const voice = {
+      update: vi.fn((line: string | null, why: string | null) => calls.push({ line, why })),
+      ms: vi.fn(() => 0),
+      prepare: vi.fn(),
+      quiet: vi.fn(),
+    };
+    const env = { xr: o.inXr ?? true };
+    // The bench's deps object is the Lessons' own: give it a voice, whether the player is in XR, and a phone.
+    const d = (b.lessons as unknown as { d: Record<string, unknown> }).d;
+    d.voice = voice;
+    d.inXr = () => env.xr;
+    if (o.phone) d.phone = () => true;
+    return { ...b, voice, calls, env };
+  }
+
+  it("hands the voice the chip's line as shown (a phone's wording) and prepares each step's clips", () => {
+    const b = voiced({ phone: true });
+    b.lessons.start("l1");
+    b.run(FORM_MS + 200);
+    expect(b.calls.at(-1)).toEqual({ line: COPY.phone.pickUp, why: "step" });
+    expect(b.voice.prepare).toHaveBeenLastCalledWith(expect.arrayContaining(["phone.pickUp", "lessons.goal"]));
+  });
+
+  it("keeps the voice silent on the 2D page (not in XR), however the lesson stands", () => {
+    const b = voiced({ inXr: false });
+    b.lessons.start("l1");
+    b.run(FORM_MS + 200);
+    expect(b.calls.length).toBeGreaterThan(0);
+    expect(b.calls.every((c) => c.line === null)).toBe(true);
+  });
+
+  it("asks the voice for each line's length as the device shows it, for the director's pacing", () => {
+    const b = voiced({ phone: true });
+    b.lessons.start("l2", { step: 2 });
+    b.run(32);
+    expect(b.voice.ms).toHaveBeenCalledWith("phone.turnFinger");
+  });
+
+  it("decodes a replay's lines ahead from Home once the lessons are done, and drops them when it ends", () => {
+    const b = voiced();
+    b.profile.lessons = { l1: true, l2: true, step: null };
+    expect(b.lessons.replay("rings")).toBe(true);
+    b.run(100);
+    expect(b.voice.prepare).toHaveBeenCalledWith(replayLines("rings", "hands"));
+    b.run(40_000);
+    expect(b.lessons.director.replaying).toBeNull();
+    expect(b.voice.prepare).toHaveBeenLastCalledWith([]);
+  });
+
+  it("drops a lesson part's clips when the lesson stops, and not under a menu", () => {
+    const b = voiced();
+    b.lessons.start("l1");
+    b.run(FORM_MS + 200);
+    expect(b.voice.prepare).toHaveBeenLastCalledWith(stepLines("l1", 0, "hands"));
+    const n = b.voice.prepare.mock.calls.length;
+    // A menu over the lesson keeps them: the lesson waits.
+    go("home");
+    b.run(1000);
+    go("play");
+    b.run(32);
+    expect(b.voice.prepare.mock.calls.length).toBe(n);
+    // Another box started: the lesson stops where it is.
+    b.play.game.play({ kind: "box", n: 2 });
+    b.run(100);
+    expect(b.voice.prepare).toHaveBeenLastCalledWith([]);
+    b.run(1000);
+    expect(b.voice.prepare.mock.calls.length).toBe(n + 1);
+  });
+
+  it("waits 0.8 s after a menu closes over a lesson before its line is said again", () => {
+    const b = voiced();
+    b.lessons.start("l1");
+    b.run(FORM_MS + 200);
+    go("home");
+    b.run(500);
+    expect(b.voice.quiet).not.toHaveBeenCalledWith(MENU_BACK_MS);
+    go("play");
+    expect(b.voice.quiet).toHaveBeenLastCalledWith(MENU_BACK_MS);
+    expect(MENU_BACK_MS).toBe(800);
+  });
+
+  it("gives a phone player idle at the crown's turn the phone's finger line, never the hands' nearer-or-farther one", () => {
+    const b = voiced({ phone: true });
+    // A phone player at the crown: the session suggests the finger the whole turn.
+    b.play.view.coachLine = "controllerFinger";
+    b.lessons.start("l2", { step: 2 });
+    b.run(16_000);
+    const idle = b.calls.filter((c) => c.why === "idle");
+    expect(idle.length).toBeGreaterThan(0);
+    expect(idle.every((c) => c.line === COPY.phone.finger)).toBe(true);
+    expect(b.calls.some((c) => c.line === COPY.lessons.fingerIdle)).toBe(false);
+    expect(b.voice.ms).toHaveBeenCalledWith("phone.finger");
+    expect(b.voice.ms).not.toHaveBeenCalledWith("lessons.fingerIdle");
+  });
+});
 
 describe("Lessons", () => {
   it("goes into lesson 1 on a first launch, at the step it was left at; never once it is done or not allowed", () => {
