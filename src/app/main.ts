@@ -126,9 +126,22 @@ async function main(): Promise<void> {
   // The rays' cursor in the game's look (rays press keys too).
   styleRayCursors(world);
   // Sound hears every bus event after everyone else; the box tells it where the locks are.
-  const sound = new Sound({ world, settings, lifecycle: shell.lifecycle, menuButtons: (screen) => shell.panels.buttons(screen), box: shell.box });
+  // A video render hears the voice guide through a stand-in that logs each line for the render's sound.
+  const voiceOut = video?.videoVoiceOut();
+  const sound = new Sound({
+    world,
+    settings,
+    lifecycle: shell.lifecycle,
+    menuButtons: (screen) => shell.panels.buttons(screen),
+    box: shell.box,
+    ...(voiceOut ? { voiceOut } : {}),
+  });
   useSound(sound);
   registerAppSystem(world, SoundSystem, { name: "sound" });
+  if (video && voiceOut) {
+    voiceOut.speaker = () => sound.voice.speaking;
+    registerAppSystem(world, video.VideoVoiceSystem, { name: "video-voice" });
+  }
   // The theatre lights' own sounds: the room going down for a box in play, coming up when the box opens (none when
   // room dimming is off, or for a menu's half light: menus have their own sounds).
   shell.onRoomLight = (_from, to) => {

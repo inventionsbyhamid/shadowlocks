@@ -357,6 +357,8 @@ export async function videoFrame(a: FrameArgs): Promise<FrameResult> {
     ns.clearEvents();
     if (w.__nsVideoRecording) for (const e of events) w.__nsVideoSeen.push(e);
   }
+  // The voice guide's lines this frame (src/video/voice-out.ts): heard in the shot's sound as the game's own clips.
+  for (const line of w.__nsVideoVoice?.drain() ?? []) events.push({ type: "video.voice", ...line });
   const st = ns.state();
   // The game's own small hook (null while no box is in play; missing in a build without it).
   const game = (w.__sl?.frameState?.() ?? null) as SlFrameState | null;

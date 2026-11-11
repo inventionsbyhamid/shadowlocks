@@ -149,6 +149,31 @@ describe("mix plan", () => {
     expect(plan.ducks[0]!.depth).toBeCloseTo(db(-6), 6);
   });
 
+  it("lays the voice guide's own clips in where the game said them, the music dipped under each, a cut line faded", () => {
+    const plan = planMix(
+      [
+        frame(1, [{ type: "video.voice", kind: "say", key: "lessons.pickUp", ms: 1500 }]),
+        frame(3, [{ type: "video.voice", kind: "say", key: "lessons.goal", ms: 2000 }]),
+        frame(3.5, [{ type: "video.voice", kind: "hush", fadeMs: 120 }]),
+      ],
+      manifest,
+      { duration: 8, seed: "v", initialMusic: "calm" },
+    );
+    const lines = plan.layers.filter((l) => l.id.startsWith("voice "));
+    expect(lines.map((l) => [l.file, l.t, l.azimuth])).toEqual([
+      ["voice/en/lessons.pickUp.ogg", 1, null],
+      ["voice/en/lessons.goal.ogg", 3, null],
+    ]);
+    expect(lines[0]!.duration).toBeCloseTo(1.5, 6);
+    expect(lines[0]!.gain).toBeCloseTo(manifest.buses.sfx, 6);
+    expect(lines[1]!.duration).toBeCloseTo(0.62, 6);
+    expect(lines[1]!.fadeOut).toBeCloseTo(0.12, 6);
+    expect(plan.ducks[0]!.t).toBe(1);
+    expect(plan.ducks[0]!.depth).toBeCloseTo(db(-8), 6);
+    // A game sound in the same frame as a line still plays.
+    expect(planMix([frame(1, [{ type: "video.voice", kind: "say", key: "lessons.goal", ms: 900 }, { type: "grab", hand: "right" }])], manifest, { duration: 4, seed: "v", initialMusic: "calm" }).layers.length).toBeGreaterThan(1);
+  });
+
   it("dips the music 4 dB under the box's tune, from its first note until its last has rung, as the game does", () => {
     const tune = tuneFor("box-7");
     const m = tweaked((x) => {

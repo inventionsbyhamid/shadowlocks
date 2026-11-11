@@ -5,6 +5,7 @@
 import type { Cue, CueEvent } from "../../../src/audio/cues";
 import { CueMapper } from "../../../src/audio/cues";
 import type { AudioManifest, MusicState, SfxEntry } from "../../../src/audio/manifest";
+import { VOICE_GAIN_DB, VOICE_MUSIC_DUCK_DB } from "../../../src/audio/voice";
 import type { Vec3 } from "../../../src/core/types";
 import type { Quat, V3 } from "./camera";
 
@@ -68,6 +69,13 @@ const db = (x: number) => 10 ** (x / 20);
 const DUCK_ATTACK = 0.05;
 export const DUCK_RELEASE = 0.3;
 const STING_DUCK_DB = 6;
+/**
+ * The voice guide's lines in a video build (src/video/voice-out.ts), logged with the frame's events: a line started
+ * (its copy key and clip length) or the line playing cut, fading out over `fadeMs`.
+ */
+export const VOICE_EVENT = "video.voice";
+/** Where the English voice clips live under the audio folder (public/audio/voice/<lang>/<copy key>.ogg). */
+const VOICE_DIR = "voice/en";
 /** The effect the engine plays for the `streak` sting (AudioEngine.sting). */
 const STREAK_SFX = "daily_streak";
 /** PannerNode settings of the engine's voices. */
@@ -300,11 +308,38 @@ export function planMix(frames: FrameEvents[], m: AudioManifest, o: PlanOptions)
     }
   };
 
+  // The voice guide: each line is its own clip, unplaced, on its stage in the effects bus, the music dipped under it;
+  // a line cut short fades out as the game's player does.
+  let line: Layer | null = null;
+  const voice = (t: number, e: { kind?: unknown; key?: unknown; ms?: unknown; fadeMs?: unknown }) => {
+    if (e.kind === "hush") {
+      if (!line) return;
+      const fade = Number(e.fadeMs) / 1000 || 0;
+      const end = Math.min(line.t + line.duration, t + fade);
+      line.duration = Math.max(0, end - line.t);
+      if (fade > 0) line.fadeOut = Math.min(fade, line.duration);
+      plan.log.push({ t, cue: `voice cut ${line.id}` });
+      line = null;
+      return;
+    }
+    if (typeof e.key !== "string") {
+      plan.log.push({ t, cue: "voice", note: "a line with no key" });
+      return;
+    }
+    const length = Number(e.ms) / 1000 || 0;
+    line = { t, file: `${VOICE_DIR}/${e.key}.ogg`, id: `voice ${e.key}`, gain: db(VOICE_GAIN_DB) * m.buses.sfx, azimuth: null, rate: 1, reverse: false, duration: length };
+    plan.layers.push(line);
+    plan.log.push({ t, cue: `voice ${e.key}` });
+    duck(t, VOICE_MUSIC_DUCK_DB, length);
+  };
+
   for (const f of frames) {
     current = f;
     if (f.events.length === 0) continue;
+    const game = f.events.filter((e) => e.type !== VOICE_EVENT);
+    for (const e of f.events) if (e.type === VOICE_EVENT) voice(f.t, e as never);
     // Layered sounds (a lock opening, the box's tune) land their delay after the event.
-    for (const cue of mapper.map(f.events)) apply(f.t + (cue.kind === "sfx" && cue.delayMs ? cue.delayMs / 1000 : 0), cue);
+    if (game.length) for (const cue of mapper.map(game)) apply(f.t + (cue.kind === "sfx" && cue.delayMs ? cue.delayMs / 1000 : 0), cue);
   }
   return plan;
 }

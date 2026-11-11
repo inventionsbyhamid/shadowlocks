@@ -26,7 +26,7 @@ import type { Lifecycle } from "./lifecycle";
 import type { PanelButton } from "./panels";
 import { currentScreen, type Screen } from "./screens";
 import type { SettingsStore } from "./settings";
-import { VoiceGuide, voiceHearsLifecycle } from "./voice-guide";
+import { VoiceGuide, type VoiceOut, voiceHearsLifecycle } from "./voice-guide";
 
 /** The box in the scene, as sound needs it: its locks, its root (box units to world) and the lantern. */
 export interface SoundBox {
@@ -46,6 +46,8 @@ export interface SoundDeps {
   box?: SoundBox;
   /** Shows a sound's caption (Settings, Captions) on the game's caption strip, once there is one. */
   caption?: (id: string, text: string) => void;
+  /** Where the voice guide's lines go instead of the engine (demo video renders only: src/video/voice-out.ts). */
+  voiceOut?: VoiceOut;
 }
 
 /** The listener moves when the head moved this far (m, summed over axes)... */
@@ -101,7 +103,7 @@ export class Sound {
       quiet: (ms) => this.voice.quiet(ms),
     });
     this.voice = new VoiceGuide({
-      out: new VoicePlayer(this.engine, this.game.hums),
+      out: deps.voiceOut ?? new VoicePlayer(this.engine, this.game.hums),
       now: this.clock.now,
       enabled: () => deps.settings.get().voice,
       lang: () => lang(),
