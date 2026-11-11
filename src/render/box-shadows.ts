@@ -24,6 +24,12 @@ export const MAX_EXTRAS = 60;
 export const MAX_CASTER_CORNERS = 2 * RING_SIDES;
 /** Shadows are cast with the lantern at least this far from the panel (every scrap is nearer). */
 const LZ_MIN = 0.85;
+/**
+ * SOFT_MIN, PENUMBRA_MAX and LANTERN_RADIUS as raw doubles, read once a cast. Imported constants are read as boxed
+ * numbers, and a conditional between one and a computed float boxed the result: one heap number per shadow a frame.
+ * The very same values.
+ */
+const K = Float64Array.of(SOFT_MIN, PENUMBRA_MAX, LANTERN_RADIUS);
 
 /** One element's shadow: its 3D corners, where their projection goes, and its slot's shape. */
 interface Caster {
@@ -223,7 +229,7 @@ export class BoxShadows {
     at[0] = L[0];
     at[1] = L[1];
     at[2] = L[2] > LZ_MIN ? L[2] : LZ_MIN;
-    const soft = this.soft, Lz = at[2], k = this.n;
+    const soft = this.soft, Lz = at[2], k = this.n, softMin = K[0]!, penMax = K[1]!, radius = K[2]!;
     // The box's casters project to the same corners as last time when the clamped lantern is the same, bit for bit
     // (0 and -0 told apart: they can project to 0 and -0), and nothing else changed (moved(), the layout and a new
     // box clear castAt).
@@ -242,9 +248,9 @@ export class BoxShadows {
         for (let j = 0; j < pts.length; j++) projInto(pts[j]!, at, poly[j]!);
         // penumbra(c.z, Lz), written out: a float returned from a call the engine did not inline is boxed.
         const z = c.z, d = Lz - z;
-        let pen = d > 0 ? (LANTERN_RADIUS * z) / d : PENUMBRA_MAX;
-        if (pen > PENUMBRA_MAX) pen = PENUMBRA_MAX;
-        soft[s] = pen > SOFT_MIN ? pen : SOFT_MIN;
+        let pen = d > 0 ? (radius * z) / d : penMax;
+        if (pen > penMax) pen = penMax;
+        soft[s] = pen > softMin ? pen : softMin;
         same[s++] = 0;
       }
       castAt[0] = ax;
@@ -255,8 +261,8 @@ export class BoxShadows {
     for (let e = 0; e < nExtra; e++) {
       const slot = k + e, poly = extra![e]!, c = poly.length;
       polys[slot] = poly;
-      const s = extraSoft ? extraSoft[e]! : SOFT_MIN;
-      soft[slot] = s > SOFT_MIN ? s : SOFT_MIN;
+      const s = extraSoft ? extraSoft[e]! : softMin;
+      soft[slot] = s > softMin ? s : softMin;
       // Compared with what this slot last drew, value by value (0 and -0 told apart), as stored in the soft array.
       const sf = soft[slot]!, was = softs[slot]!;
       let eq = counts[slot] === c && sf === was && (sf !== 0 || 1 / sf === 1 / was);
