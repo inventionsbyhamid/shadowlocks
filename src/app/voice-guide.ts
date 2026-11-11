@@ -1,6 +1,6 @@
 // The voice guide: the game speaks the line the coach chip shows. The chip is the caption, so the voice never says
-// anything the chip does not show, and a line with no clip (or a language with no voice, or the Voice guide off) is
-// text only. The rules (plan: the onboarding and voice proposal, section 3.3):
+// anything the chip does not show, and a line with no clip (or a language with no voice, the Voice guide off or the
+// effects volume at 0) is text only. The rules (plan: the onboarding and voice proposal, section 3.3):
 // - A line is said the first time it shows (in its step, or its replay); a line coming back is not said again, unless
 //   it is an idle nudge coming back, which is said at most IDLE_REPEATS times a step.
 // - One line at a time: when the chip moves on, the line playing fades out over STALE_FADE_MS and the next one starts
@@ -131,7 +131,7 @@ export class VoiceGuide {
    * waits for it.
    */
   ms(key: string): number {
-    return this.voiced() && this.clips && (this.deps.audible?.() ?? true) ? this.clips.ms(key) : 0;
+    return this.voiced() && this.clips ? this.clips.ms(key) : 0;
   }
 
   /** The lines a part of a lesson needs, by copy key: decoded now, the rest dropped. */
@@ -148,7 +148,10 @@ export class VoiceGuide {
     if (this.pending && this.wakeAt < until) this.wakeAt = until;
   }
 
-  /** The settings changed: the Voice guide switched off fades the line out at once (the chip keeps it). */
+  /**
+   * The settings changed: the Voice guide switched off, or the effects volume down to 0, fades the line out at once
+   * (the chip keeps it).
+   */
   settingsChanged(): void {
     if (this.voiced()) return;
     this.wakeAt = Infinity;
@@ -168,8 +171,9 @@ export class VoiceGuide {
     if (this.wakeAt !== Infinity && this.deps.now() >= this.wakeAt) this.wake();
   }
 
+  /** Lines are said: the Voice guide on, a language with a voice, and the effects volume above 0 (no silent lines). */
   private voiced(): boolean {
-    return this.deps.enabled() && this.deps.lang() === "en";
+    return this.deps.enabled() && this.deps.lang() === "en" && (this.deps.audible?.() ?? true);
   }
 
   /** A new line on the chip (or none): the old one stops, the new one is said if the rules allow. */

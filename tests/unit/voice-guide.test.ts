@@ -28,14 +28,26 @@ function rig(o: { missing?: string[]; undecoded?: string[]; lang?: string } = {}
   const plays: { key: string; at: number }[] = [];
   const hushes: { fade: number; at: number; hold: boolean }[] = [];
   let ended: (() => void) | null = null;
+  // The music and hum dips as the voice player keeps them (voice.ts): down while a line plays, kept down by a hold,
+  // up when a line ends or is hushed without a hold, or on a release with none playing.
+  const dip = { line: false, down: false };
   const out = {
     running: true,
     say: vi.fn((b: AudioBuffer, done: () => void) => {
       plays.push({ key: (b as unknown as { key: string }).key, at: t });
       ended = done;
+      dip.line = true;
+      dip.down = true;
     }),
-    hush: vi.fn((fade: number, hold = false) => hushes.push({ fade, at: t, hold })),
-    release: vi.fn(),
+    hush: vi.fn((fade: number, hold = false) => {
+      hushes.push({ fade, at: t, hold });
+      if (!dip.line) return;
+      dip.line = false;
+      if (!hold) dip.down = false;
+    }),
+    release: vi.fn(() => {
+      if (!dip.line) dip.down = false;
+    }),
   };
   const undecoded = new Set(o.undecoded ?? []);
   const clips: VoiceClips = {
@@ -67,9 +79,22 @@ function rig(o: { missing?: string[]; undecoded?: string[]; lang?: string } = {}
   const finish = () => {
     const e = ended;
     ended = null;
+    if (e && dip.line) {
+      dip.line = false;
+      dip.down = false;
+    }
     e?.();
   };
-  return { g, out, clips, plays, hushes, env, chip, show, run, finish, warn, undecoded, now: () => t };
+  /** The music and the hums are dipped under the voice now. */
+  const dipped = () => dip.down;
+  /** A line plays, then the chip moves on to `next` (an example line): the first is cut, `next` is held for. */
+  const cutTo = (next: string) => {
+    show(C.watchRings, "example");
+    run(32);
+    show(next, "example");
+    run(16);
+  };
+  return { g, out, clips, plays, hushes, env, chip, show, run, finish, warn, undecoded, dipped, cutTo, now: () => t };
 }
 
 describe("VoiceGuide", () => {
@@ -139,6 +164,39 @@ describe("VoiceGuide", () => {
     r.show(null, null);
     r.run(16);
     expect(r.out.release.mock.calls.length).toBe(released + 1);
+  });
+
+  it("lets the dips up when the Voice guide is switched off while a line is held for", () => {
+    const r = rig();
+    r.cutTo(C.lineUp);
+    expect(r.dipped()).toBe(true);
+    r.env.on = false;
+    r.g.settingsChanged();
+    expect(r.dipped()).toBe(false);
+    r.run(1000);
+    expect(r.plays.length).toBe(1);
+  });
+
+  it("lets the dips up when audio does not come back within 10 s for the line held for", () => {
+    const r = rig();
+    r.cutTo(C.lineUp);
+    // Audio stops running (the context interrupted) before the follower starts.
+    r.out.running = false;
+    r.run(UNLOCK_HOLD_MS - 500);
+    expect(r.dipped()).toBe(true);
+    r.run(1000);
+    expect(r.dipped()).toBe(false);
+    expect(r.plays.length).toBe(1);
+  });
+
+  it("lets the dips up when the line held for has no decoded clip within 1.5 s", () => {
+    const r = rig({ undecoded: ["lessons.lineUp"] });
+    r.cutTo(C.lineUp);
+    r.run(READY_WAIT_MS - 200);
+    expect(r.dipped()).toBe(true);
+    r.run(400);
+    expect(r.dipped()).toBe(false);
+    expect(r.plays.length).toBe(1);
   });
 
   it("says an idle line on its first showing and when it comes back, at most twice a step; never over a line or right after one", () => {
@@ -218,6 +276,25 @@ describe("VoiceGuide", () => {
     expect(r.g.ms("lessons.goal")).toBe(3000);
     r.env.audible = false;
     expect(r.g.ms("lessons.goal")).toBe(0);
+  });
+
+  it("says nothing while the effects volume is at 0 (no silent line, no dip), and the next line once it is back up", () => {
+    const r = rig();
+    r.env.audible = false;
+    r.show(C.goal);
+    r.run(500);
+    expect(r.plays).toEqual([]);
+    expect(r.dipped()).toBe(false);
+    r.env.audible = true;
+    r.g.settingsChanged();
+    r.show(C.pickUp);
+    r.run(32);
+    expect(r.plays.map((p) => p.key)).toEqual(["lessons.pickUp"]);
+    // Turned down to 0 mid-line: the line fades out and the dips come up.
+    r.env.audible = false;
+    r.g.settingsChanged();
+    expect(r.hushes.at(-1)!.fade).toBe(OFF_FADE_MS);
+    expect(r.dipped()).toBe(false);
   });
 
   it("is text only for a line with no clip (warned once) and in a language with no voice", () => {
