@@ -923,6 +923,38 @@ describe("LessonsDirector: help taken, the session's suggestion, the intro's glo
     }
   });
 
+  it("shows a lesson resumed from Home at the same step, or a replay asked for again, as a new showing", () => {
+    // Lock I says its goal, the nudge, then the goal again (already said).
+    const r = rig(), f = r.d.frame;
+    r.d.start("l1", 1);
+    r.run(16);
+    r.run(12_100);
+    r.inp.warm.set(0, 0.15);
+    r.run(16);
+    expect([f.key, f.again]).toEqual(["goal", true]);
+    // Home: the lesson stops with no update in between; Continue starts it at the same step.
+    let before = f.shows;
+    r.d.stop();
+    r.d.start("l1", 1);
+    r.run(16);
+    expect([f.key, f.again, f.shows]).toEqual(["goal", false, before + 1]);
+    // Started over at the same step without a stop.
+    before = f.shows;
+    r.d.start("l1", 1);
+    r.run(16);
+    expect([f.key, f.again, f.shows]).toEqual(["goal", false, before + 1]);
+    // A replay stopped and asked for again: its first line is a new showing.
+    const q = rig();
+    q.d.replay("move");
+    q.run(16);
+    expect(q.d.frame.key).toBe("watch");
+    before = q.d.frame.shows;
+    q.d.stop();
+    expect(q.d.replay("move")).toBe(true);
+    q.run(16);
+    expect([q.d.frame.key, q.d.frame.again, q.d.frame.shows]).toEqual(["watch", false, before + 1]);
+  });
+
 });
 
 describe("LessonsDirector: lock I's last resort", () => {

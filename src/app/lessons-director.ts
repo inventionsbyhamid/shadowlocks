@@ -435,6 +435,7 @@ export class LessonsDirector {
     this.ghost = 0;
     this.ghostKind = null;
     this.resetFrame();
+    this.newLine();
     this.frame.form = 0;
     this.enter(from);
   }
@@ -459,6 +460,7 @@ export class LessonsDirector {
     this.script = null;
     this.help = false;
     this.resetFrame();
+    this.newLine();
   }
 
   /**
@@ -475,6 +477,7 @@ export class LessonsDirector {
     this.scriptMs = 0;
     this.replayEx = example;
     this.seenReplay.length = 0;
+    this.newLine();
     this.frame.box = lesson;
     this.deps.onReplay?.(example, lesson, true);
     this.runScript(0);
@@ -484,6 +487,16 @@ export class LessonsDirector {
   update(tMs: number): void {
     this.frameAt(tMs);
     this.settleLine();
+  }
+
+  /**
+   * The next line shown is a new showing, said for the first time: a lesson (re)started, stopped or a replay asked for.
+   * The director is not updated while it has no lesson, so a lesson stopped on a line and started again at the same
+   * step would otherwise keep that line's last showing.
+   */
+  private newLine(): void {
+    this.prevKey = null;
+    this.frame.again = false;
   }
 
   /**
