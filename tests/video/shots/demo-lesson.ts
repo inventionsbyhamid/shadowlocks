@@ -24,7 +24,7 @@ const AWAY_LEFT: Vec3 = [-0.4, 0.55, -0.55];
 const AWAY_RIGHT: Vec3 = [0.55, 0.55, -0.55];
 
 /** The seated eye on the whole box, the lantern beside it and the coach line above it. */
-const seated = (box: Vec3): View => ({ from: offset(EYE, -0.04, 0.02, 0.07), at: offset(box, 0.01, -0.04, 0.12) });
+const seated = (box: Vec3): View => ({ from: offset(EYE, -0.04, 0.03, 0.1), at: offset(box, 0.01, 0, 0.12) });
 
 export default defineShot<Data>({
   name: "demo-lesson",

@@ -251,12 +251,28 @@ export function renderEdit(name: string, edit: Edit, o: VideoOptions, log: (s: s
   const v = {
     ...cut,
     filter: card
-      ? endCardFilter(cut.filter, { frames: cut.frames, fps, extraFrames: cardFrames, fadeFrames: cardFade, cardInput: records.length + 1, blurSigma: (14 * first.width) / 960 })
+      ? endCardFilter(cut.filter, {
+          frames: cut.frames,
+          fps,
+          extraFrames: cardFrames,
+          fadeFrames: cardFade,
+          cardInput: records.length + 1,
+          stillInput: records.length + 2,
+          blurSigma: (14 * first.width) / 960,
+        })
       : cut.filter,
     frames: cut.frames + cardFrames,
     duration: (cut.frames + cardFrames) / fps,
   };
-  const cardInputs = card && cardPng ? [["-loop", "1", "-framerate", String(fps), "-t", String(cardFrames / fps + 0.5), "-i", cardPng]] : [];
+  const cardInputs: string[][] = [];
+  if (card && cardPng) {
+    // The held frame as a still: the edit's last frame, from the last shot's lossless picture.
+    const last = records[records.length - 1] as ShotRecord;
+    const still = path.join(workDir(o), `edit-${name}-last.png`);
+    ffmpeg(stillArgs(path.resolve(ROOT, last.mezz), last.frames - 1, still));
+    const hold = ["-loop", "1", "-framerate", String(fps), "-t", String(cardFrames / fps + 0.5)];
+    cardInputs.push([...hold, "-i", cardPng], [...hold, "-i", still]);
+  }
   // The corner label over its shots (crossfades between two labelled shots keep it up), after the card is laid.
   const label = edit.label;
   if (label && !labelPng) throw new Error(`edit ${name}: its corner label was not drawn`);

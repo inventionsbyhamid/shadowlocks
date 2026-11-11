@@ -358,7 +358,16 @@ describe("ffmpeg commands", () => {
     expect(v.startFrames).toEqual([0, 210, 480]);
     expect(v.frames).toBe(660);
     expect(v.duration).toBeCloseTo(11, 9);
-    expect(v.filter).toBe("[0:v][1:v]xfade=transition=fade:duration=0.5:offset=3.5[x1];[x1][2:v]xfade=transition=fade:duration=0.5:offset=8[v]");
+    // Each crossfade on its own short pieces (no clip held in memory until its turn), joined in order.
+    expect(v.filter).toContain("[0:v]split=2[b0s][t0s];[b0s]trim=start_frame=0:end_frame=210,setpts=PTS-STARTPTS[b0]");
+    expect(v.filter).toContain("[1:v]split=3[h1s][b1s][t1s];[h1s]trim=start_frame=0:end_frame=30,setpts=PTS-STARTPTS[h1]");
+    expect(v.filter).toContain("[b1s]trim=start_frame=30:end_frame=270,setpts=PTS-STARTPTS[b1]");
+    expect(v.filter).toContain("[t0][h1]xfade=transition=fade:duration=0.5:offset=0[x0]");
+    expect(v.filter).toContain("[b2s]trim=start_frame=30:end_frame=180,setpts=PTS-STARTPTS[b2]");
+    expect(v.filter.endsWith("[b0][x0][b1][x1][b2]concat=n=5:v=1:a=0[v]")).toBe(true);
+    // 210 + 30 + 240 + 30 + 150 frames: the edit's length.
+    expect(210 + 30 + 240 + 30 + 150).toBe(v.frames);
+    expect(() => editVideoFilter([{ file: "a", frames: 240 }, { file: "b", frames: 60 }, { file: "c", frames: 180 }], 30, 60)).toThrow(/two 30 frame crossfades/);
     expect(editVideoFilter([{ file: "a", frames: 240 }, { file: "b", frames: 300 }], 0, 60).filter).toBe("[0:v][1:v]concat=n=2:v=1:a=0[v]");
     expect(() => editVideoFilter([{ file: "a", frames: 20 }, { file: "b", frames: 300 }], 30, 60)).toThrow(/shortest clip/);
     expect(() => editVideoFilter([{ file: "a", frames: 20 }], 2.5, 60)).toThrow(/whole frames/);
@@ -383,16 +392,18 @@ describe("end card", () => {
       extraFrames: 108,
       fadeFrames: 18,
       cardInput: 3,
+      stillInput: 4,
       blurSigma: 14,
     });
     expect(g.startsWith("[0:v][1:v]xfade=transition=fade:duration=0.5:offset=5[vcut];")).toBe(true);
-    expect(g).toContain("[vcut]tpad=stop_mode=clone:stop=108,split[vhold][vtail]");
-    expect(g).toContain("[vtail]trim=start_frame=300,setpts=PTS-STARTPTS,gblur=sigma=14");
+    expect(g).toContain("[vcut]tpad=stop_mode=clone:stop=108[vhold]");
+    // The blurred hold is the last frame as its own still: nothing waits for the edit to reach it.
+    expect(g).toContain("[4:v]gblur=sigma=14");
     expect(g).toContain("fade=t=in:st=0:d=0.6:alpha=1,setpts=PTS+10/TB[vblur]");
     expect(g).toContain("[3:v]format=yuva444p,fade=t=in:st=0:d=0.6:alpha=1,setpts=PTS+10.166667/TB[vcard]");
     expect(g.endsWith("[vbg][vcard]overlay=eof_action=pass:format=auto[v]")).toBe(true);
-    expect(() => endCardFilter("[0:v]null[x]", { frames: 1, fps: 30, extraFrames: 30, fadeFrames: 3, cardInput: 2, blurSigma: 1 })).toThrow(/\[v\]/);
-    expect(() => endCardFilter("[0:v]null[v]", { frames: 1, fps: 30, extraFrames: 3, fadeFrames: 3, cardInput: 2, blurSigma: 1 })).toThrow(/longer/);
+    expect(() => endCardFilter("[0:v]null[x]", { frames: 1, fps: 30, extraFrames: 30, fadeFrames: 3, cardInput: 2, stillInput: 3, blurSigma: 1 })).toThrow(/\[v\]/);
+    expect(() => endCardFilter("[0:v]null[v]", { frames: 1, fps: 30, extraFrames: 3, fadeFrames: 3, cardInput: 2, stillInput: 3, blurSigma: 1 })).toThrow(/longer/);
   });
 
   it("fades the whole mix out under the card", () => {

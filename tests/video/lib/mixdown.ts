@@ -281,27 +281,47 @@ export function editVideoFilter(
   if (clips.length === 1) filter = "[0:v]null[v]";
   else if (fadeFrames === 0) filter = `${clips.map((_, i) => `[${i}:v]`).join("")}concat=n=${clips.length}:v=1:a=0[v]`;
   else {
-    const parts: string[] = [];
-    let prev = "[0:v]";
-    for (let i = 1; i < clips.length; i++) {
-      const label = i === clips.length - 1 ? "[v]" : `[x${i}]`;
-      parts.push(`${prev}[${i}:v]xfade=transition=fade:duration=${sec(fadeFrames)}:offset=${sec(startFrames[i] as number)}${label}`);
-      prev = label;
+    // Each clip cut into its head (the fade in), body and tail (the fade out); each tail crossfades with the next
+    // head on its own (offset 0), and the bodies and fades are joined in order. A chain of xfades with offsets into
+    // the edit would hold every later clip's frames in memory until its offset (gigabytes past a minute of edit).
+    const n = clips.length;
+    for (let i = 1; i < n - 1; i++) {
+      if ((clips[i] as EditClip).frames <= 2 * fadeFrames) throw new Error(`clip ${i} (${(clips[i] as EditClip).frames} frames) is not longer than its two ${fadeFrames} frame crossfades`);
     }
+    const parts: string[] = [];
+    const order: string[] = [];
+    const cut = (from: string, a: number, b: number, to: string) => parts.push(`${from}trim=start_frame=${a}:end_frame=${b},setpts=PTS-STARTPTS${to}`);
+    clips.forEach((c, i) => {
+      const outs = [...(i > 0 ? [`[h${i}]`] : []), `[b${i}]`, ...(i < n - 1 ? [`[t${i}]`] : [])];
+      const src = outs.map((o) => `${o.slice(0, -1)}s]`);
+      parts.push(`[${i}:v]split=${outs.length}${src.join("")}`);
+      if (i > 0) cut(`[h${i}s]`, 0, fadeFrames, `[h${i}]`);
+      cut(`[b${i}s]`, i > 0 ? fadeFrames : 0, i < n - 1 ? c.frames - fadeFrames : c.frames, `[b${i}]`);
+      if (i < n - 1) cut(`[t${i}s]`, c.frames - fadeFrames, c.frames, `[t${i}]`);
+    });
+    for (let i = 0; i < n; i++) {
+      order.push(`[b${i}]`);
+      if (i < n - 1) {
+        parts.push(`[t${i}][h${i + 1}]xfade=transition=fade:duration=${sec(fadeFrames)}:offset=0[x${i}]`);
+        order.push(`[x${i}]`);
+      }
+    }
+    parts.push(`${order.join("")}concat=n=${order.length}:v=1:a=0[v]`);
     filter = parts.join(";");
   }
   return { filter, startFrames, starts, frames, duration: frames / fps };
 }
 
 /**
- * An end card after an edit's last frame: the frame held for `extraFrames`, a blurred, slightly
- * darker copy of it fading in over `fadeFrames`, and the card's still (input `cardInput`, a
- * transparent PNG at the edit's size) fading in over it a few frames later. Takes the edit's filter
- * (ending in [v], `frames` long) and returns one that ends in [v], `frames + extraFrames` long.
+ * An end card after an edit's last frame: the frame held for `extraFrames`, a blurred, slightly darker copy of it
+ * (input `stillInput`: that last frame as a still, so nothing waits on the whole edit to reach it) fading in over
+ * `fadeFrames`, and the card's still (input `cardInput`, a transparent PNG at the edit's size) fading in over it a few
+ * frames later. Takes the edit's filter (ending in [v], `frames` long) and returns one that ends in [v],
+ * `frames + extraFrames` long.
  */
 export function endCardFilter(
   filter: string,
-  o: { frames: number; fps: number; extraFrames: number; fadeFrames: number; cardInput: number; blurSigma: number },
+  o: { frames: number; fps: number; extraFrames: number; fadeFrames: number; cardInput: number; stillInput: number; blurSigma: number },
 ): string {
   if (!/\[v\]$/.test(filter)) throw new Error("the edit filter must end in [v]");
   if (!Number.isInteger(o.extraFrames) || o.extraFrames <= o.fadeFrames) throw new Error(`an end card of ${o.extraFrames} frames is not longer than its fade`);
@@ -310,8 +330,8 @@ export function endCardFilter(
   const lag = f((o.frames + Math.round(o.fps * 0.15)) / o.fps);
   return (
     `${filter.slice(0, -3)}[vcut];` +
-    `[vcut]tpad=stop_mode=clone:stop=${o.extraFrames},split[vhold][vtail];` +
-    `[vtail]trim=start_frame=${o.frames},setpts=PTS-STARTPTS,gblur=sigma=${f(o.blurSigma)},eq=brightness=-0.03:saturation=0.85,` +
+    `[vcut]tpad=stop_mode=clone:stop=${o.extraFrames}[vhold];` +
+    `[${o.stillInput}:v]gblur=sigma=${f(o.blurSigma)},eq=brightness=-0.03:saturation=0.85,` +
     `format=yuva444p,fade=t=in:st=0:d=${fade}:alpha=1,setpts=PTS+${t0}/TB[vblur];` +
     `[vhold][vblur]overlay=eof_action=pass:format=auto[vbg];` +
     `[${o.cardInput}:v]format=yuva444p,fade=t=in:st=0:d=${fade}:alpha=1,setpts=PTS+${lag}/TB[vcard];` +
