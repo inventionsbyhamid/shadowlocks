@@ -15,7 +15,21 @@ export const END_CARD: EndCard = {
   fadeMs: 600,
 };
 
+/** The Devpost demo film from the render harness alone, in the order of plan/submission/demo-video-script.md. */
+const DEMO_SHOTS = ["demo-finger", "demo-room", "demo-lesson", "demo-box3", "demo-daily-home", "demo-daily-open", "demo-share", "demo-controller"];
+
 export const EDITS: Record<string, Edit> = {
+  /**
+   * The film: the cold open, the room, lesson 1, Box No. 3's finger lock and opening, the Daily Box, sharing on the 2D
+   * page, a Touch controller, the end card. Game sound and music only (its voice-over is made later from
+   * plan/submission/demo-narration-cues.md); every shot is emulator footage, and says so in the corner.
+   */
+  demo: {
+    shots: DEMO_SHOTS,
+    crossfadeMs: 500,
+    endCard: { ...END_CARD, holdSec: 5 },
+    label: { text: "Emulator footage", shots: DEMO_SHOTS },
+  },
   /** Proves the cut step: the sample twice, a half-second crossfade, one music bed, -14 LUFS. */
   "concat-check": { shots: ["sample", "sample"], crossfadeMs: 500 },
   /** Proves the end card: the sample, then the card over a blurred hold of its last frame. */
