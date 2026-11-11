@@ -29,6 +29,7 @@ import { BoxSession, LOCK_TO_BOX_MS } from "./box-session";
 import { FingerLockLoop } from "./finger-lock";
 import type { FingerSource } from "./session-fingers";
 import { emit } from "./bus";
+import { headWorld } from "./head-world";
 import { onLangChange } from "../i18n";
 import type { CoachLine, HintLevel } from "./events";
 import { HintMarks } from "./hints";
@@ -273,15 +274,14 @@ export class GameView implements SessionView {
   }
 }
 
-/** The head's gaze from the player's head (IWSDK keeps it on the XR viewer pose), in box units. */
+/** The head's gaze from the player's head (IWSDK keeps it on the XR viewer pose; head-world.ts), in box units. */
 export function playerHead(world: World, root: Object3D): HeadRay {
   const pos = new Vector3(), ahead = new Vector3(), tip: V3 = [0, 0, 0];
   return {
     read(_frame, origin, dir) {
       const head = world.player?.head;
       if (!head) return false;
-      head.updateWorldMatrix(true, false);
-      const e = head.matrixWorld.elements;
+      const e = headWorld(head).elements;
       // Forward is the head's -z axis.
       pos.set(e[12]!, e[13]!, e[14]!);
       ahead.set(e[12]! - e[8]!, e[13]! - e[9]!, e[14]! - e[10]!);

@@ -21,6 +21,7 @@ import { startAudio } from "./audio-unlock";
 import { FrameClock } from "./frame-clock";
 import { type FeedbackEvent, on, onAny } from "./bus";
 import { GAME_EVENT_TYPES } from "./events";
+import { headWorld } from "./head-world";
 import { type HapticSession, Haptics } from "./haptics";
 import type { Lifecycle } from "./lifecycle";
 import type { PanelButton } from "./panels";
@@ -206,12 +207,11 @@ export class Sound {
   }
 
   /**
-   * The listener at the head, while audio runs: one world matrix update, read straight from its columns. Whether audio
-   * runs (the context's state, a call into the browser) is asked only when the head has moved.
+   * The listener at the head, while audio runs: its world matrix as it stands (head-world.ts), read from its columns.
+   * Whether audio runs (the context's state, a call into the browser) is asked only when the head has moved.
    */
   private follow(head: Object3D): void {
-    head.updateWorldMatrix(true, false);
-    const e = head.matrixWorld.elements;
+    const e = headWorld(head).elements;
     const p = this.pose;
     const x = e[12] as number;
     const y = e[13] as number;

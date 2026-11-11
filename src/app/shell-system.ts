@@ -18,6 +18,7 @@ import { createSystem, Quaternion, Vector3 } from "@iwsdk/core";
 import { hands } from "../input/grab-system";
 import { BOX_SPHERE, boxInView, type LostInput, LostBox } from "../render/lost-box";
 import { PHONE_VIEW, PlaceGate, placeFromHead, placement, type ViewTangents, viewOf, wideViewOf } from "../render/placement";
+import { headWorld } from "./head-world";
 import type { Shell } from "./shell";
 import { onPhone, touchBusy } from "./touch-system";
 
@@ -73,11 +74,10 @@ export class ShellSystem extends createSystem({}) {
    * (sitting at a table) can be lower than a seated head: only a head at the origin is untracked.
    */
   private readHead(phone: boolean): boolean {
-    // getWorldPosition and getWorldQuaternion, with the one world matrix update they would each make.
-    const head = this.world.player.head;
-    head.updateWorldMatrix(true, false);
-    this.headPos.setFromMatrixPosition(head.matrixWorld);
-    head.matrixWorld.decompose(this.scratchPos, this.headQuat, this.scratchScale);
+    // getWorldPosition and getWorldQuaternion, read from the head's world matrix as it stands (head-world.ts).
+    const m = headWorld(this.world.player.head);
+    this.headPos.setFromMatrixPosition(m);
+    m.decompose(this.scratchPos, this.headQuat, this.scratchScale);
     return phone ? this.headPos.lengthSq() !== 0 : this.headPos.y >= MIN_HEAD_Y_M;
   }
 
@@ -171,7 +171,7 @@ export class ShellSystem extends createSystem({}) {
     }
     s.box.update(dt);
     // The theatre's veil stays round the head wherever it goes.
-    s.theatre.update(dt, this.world.player.head.getWorldPosition(this.headPos));
+    s.theatre.update(dt, this.headPos.setFromMatrixPosition(headWorld(this.world.player.head)));
     s.lifecycle.tick(now);
   }
 
