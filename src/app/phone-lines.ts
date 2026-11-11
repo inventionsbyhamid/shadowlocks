@@ -8,6 +8,8 @@ export const PHONE_KEYS: Readonly<Record<string, string>> = {
   "lessons.pickUp": "phone.pickUp",
   "lessons.slide": "phone.slide",
   "lessons.finger": "phone.finger",
+  // The crown's idle nudge: a phone sets the finger's depth itself, so "nearer or farther" means nothing there.
+  "lessons.fingerIdle": "phone.finger",
   "lessons.drawer": "phone.drawer",
   "lessons.puppets": "phone.puppets",
   "lessons.turnFinger": "phone.turnFinger",

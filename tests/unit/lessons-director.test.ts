@@ -1469,7 +1469,7 @@ const CLIP_MS: Record<string, number> = Object.fromEntries(
   ).map(([k, v]) => [k, v.ms]),
 );
 /** A lessons line's clip length as the chip shows it on a phone, with controllers, or by hand. */
-const PHONE: Record<string, string> = { pickUp: "phone.pickUp", slide: "phone.slide", finger: "phone.finger", turnFinger: "phone.turnFinger" };
+const PHONE: Record<string, string> = { pickUp: "phone.pickUp", slide: "phone.slide", finger: "phone.finger", fingerIdle: "phone.finger", turnFinger: "phone.turnFinger" };
 const CTRL: Record<string, string> = { turnFinger: "controller.turnFinger" };
 const clipMs = (device: "hands" | "phone" | "controllers") => (k: string) =>
   CLIP_MS[(device === "phone" ? PHONE[k] : device === "controllers" ? CTRL[k] : undefined) ?? (k.includes(".") ? k : `lessons.${k}`)] ?? 0;

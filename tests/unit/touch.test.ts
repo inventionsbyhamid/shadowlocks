@@ -892,6 +892,8 @@ describe("coach lines on a phone", () => {
     expect(phoneLine(COPY.lessons.drawer)).toBe(COPY.phone.drawer);
     expect(phoneLine(COPY.lessons.puppets)).toBe(COPY.phone.puppets);
     expect(phoneLine(COPY.game.controllerFinger)).toBe(COPY.phone.finger);
+    // The crown's idle nudge: a phone cannot move its finger nearer or farther.
+    expect(phoneLine(COPY.lessons.fingerIdle)).toBe(COPY.phone.finger);
     // Lesson 1's help and win lines that say how to do something with the hands, and lesson 2's turn.
     expect(phoneLine(COPY.lessons.turnFinger)).toBe(COPY.phone.turnFinger);
     expect(phoneLine(COPY.lessons.growShrink)).toBe(COPY.phone.growShrink);

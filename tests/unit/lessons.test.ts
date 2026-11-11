@@ -148,6 +148,20 @@ describe("Lessons: the voice guide", () => {
     b.run(32);
     expect(b.voice.ms).toHaveBeenCalledWith("phone.turnFinger");
   });
+
+  it("gives a phone player idle at the crown's turn the phone's finger line, never the hands' nearer-or-farther one", () => {
+    const b = voiced({ phone: true });
+    // A phone player at the crown: the session suggests the finger the whole turn.
+    b.play.view.coachLine = "controllerFinger";
+    b.lessons.start("l2", { step: 2 });
+    b.run(16_000);
+    const idle = b.calls.filter((c) => c.why === "idle");
+    expect(idle.length).toBeGreaterThan(0);
+    expect(idle.every((c) => c.line === COPY.phone.finger)).toBe(true);
+    expect(b.calls.some((c) => c.line === COPY.lessons.fingerIdle)).toBe(false);
+    expect(b.voice.ms).toHaveBeenCalledWith("phone.finger");
+    expect(b.voice.ms).not.toHaveBeenCalledWith("lessons.fingerIdle");
+  });
 });
 
 describe("Lessons", () => {
