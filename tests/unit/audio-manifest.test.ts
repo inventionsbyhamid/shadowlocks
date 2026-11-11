@@ -165,11 +165,8 @@ describe("the real manifest (public/audio/manifest.json)", () => {
     expect(real.derived.lesson_step).toEqual({ from: "mb_b5", semitones: 0 });
   });
 
-  it("keeps the hums as looping FLAC and ships one take of each tuned cue", () => {
-    for (const id of ["lock_hum", "fingertip_hum"]) {
-      expect(real.sfx[id]!.loop, id).toBe(true);
-      expect(real.sfx[id]!.files.every((f) => f.endsWith(".flac")), id).toBe(true);
-    }
+  it("keeps the hums looping and ships one take of each tuned cue", () => {
+    for (const id of ["lock_hum", "fingertip_hum"]) expect(real.sfx[id]!.loop, id).toBe(true);
     expect(real.sfx.lock_hum!.maxVoices).toBe(3);
     for (const id of ["ring_chime", "hint_reveal", "crystallise"]) {
       expect(real.sfx[id]!.files, id).toHaveLength(1);

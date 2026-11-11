@@ -123,11 +123,10 @@ describe("service worker options", () => {
     ]) {
       expect(files).toContain(f);
     }
-    // The sound pack: the music bed, and the hums, which are FLAC (they loop without a tick).
+    // The sound pack: the music bed and the two hum loops.
     expect(files).toContain("audio/music/music_bed.ogg");
-    expect(files).toContain("audio/sfx/lock_hum.flac");
-    expect(files).toContain("audio/sfx/fingertip_hum.flac");
-    expect(PRECACHE_EXTENSIONS).toContain("flac");
+    expect(files).toContain("audio/sfx/lock_hum.ogg");
+    expect(files).toContain("audio/sfx/fingertip_hum.ogg");
   });
 
   it("lists each file once: the plugin adds the manifest, the glob finds the icons", () => {

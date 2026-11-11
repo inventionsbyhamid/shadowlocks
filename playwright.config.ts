@@ -23,13 +23,19 @@ export const QUEST2_GATE_SPECS = "**/perf-budget-quest2.spec.ts";
  */
 export const FRAME_COST_SPECS = "**/frame-cost.spec.ts";
 
+/**
+ * The 300-box soak (tests/e2e/soak-long.spec.ts), for the pass before a deploy: opt in, about an hour and a half of exclusive
+ * server time. playwright.soak.config.ts runs it; the 60-box soak (soak.spec.ts) is in the routine suite.
+ */
+export const SOAK_LONG_SPECS = "**/soak-long.spec.ts";
+
 // Runs on the build server in the shadowlocks-e2e image (scripts/e2e.sh), never on a laptop.
 // Software rendering is slow, so tests run one at a time with long timeouts and always on the
 // virtual clock (tests/e2e/helpers).
 export default defineConfig({
   testDir: "tests/e2e",
   testMatch: "**/*.spec.ts",
-  testIgnore: [BOT_SPECS, QUEST2_GATE_SPECS, FRAME_COST_SPECS],
+  testIgnore: [BOT_SPECS, QUEST2_GATE_SPECS, FRAME_COST_SPECS, SOAK_LONG_SPECS],
   globalSetup: "./tests/e2e/global-setup.ts",
   outputDir: "test-results/artifacts",
   timeout: 10 * 60_000,

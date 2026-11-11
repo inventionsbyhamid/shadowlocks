@@ -208,6 +208,8 @@ export interface NsApi {
   ui: NsUi;
   /** Put an event on the app's bus. */
   emit(e: FeedbackEvent): void;
+  /** Listeners on the app's bus now (the soak checks a long session gathers none). */
+  busListeners(): number;
   audio: NsAudio;
   scene: NsScene;
   /**

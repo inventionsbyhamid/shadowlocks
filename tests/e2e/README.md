@@ -200,3 +200,22 @@ scripts/e2e.sh -c playwright.frame-cost.config.ts
 
 The first box of a run reads about 0.25 ms high, so box 12 goes first as a warm-up and is left out, as is each box's
 first window.
+
+## The soak
+
+`soak.spec.ts` plays 60 boxes in a row without a reload (each to its end, the next by the plate's Next) and checks that
+the session leaves nothing behind: after box 10 and box 60 the same geometries, textures and shader programs, scene
+objects, ECS entities, bus and page listeners and wired Web Audio nodes (but for the focus mark, one geometry first
+drawn at box 13, and with no exception from box 20 on), the heap after a forced GC within 1 MB, the
+stored profile grown only by its collection, and the reference box (box 15) costing the same at the start and the end
+at 4x. It is in the routine suite, tagged `@full` (a fix round's `--grep-invert @full` leaves it out), and exclusive
+(about 15 minutes). `soak-paths.spec.ts` does the same for the paths a session repeats: lesson replays, hint and Show
+me, the menus, the headset off and on, and summoning a lost box (`@full`, functional). The helpers
+(`helpers/soak.ts`) clear the logs only a test build keeps before every heap sample.
+
+The 300-box run, for the pass before a deploy, is opt in through its own config (about an hour and a half,
+exclusive; `NS_MAX_RUN` lifts the two-hour container limit for a loaded server):
+
+```sh
+NS_LOCK_WAIT=7200 NS_MAX_RUN=10800 scripts/e2e.sh -c playwright.soak.config.ts
+```

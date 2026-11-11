@@ -19,7 +19,7 @@ import { BOX_ROOT_NAME, boxToWorld, placement, worldToBox } from "../render/plac
 import { slotOf } from "../render/scraps";
 import type { Access, FakeBillingState } from "./access";
 import type { BoxSession } from "./box-session";
-import { emit, type FeedbackEvent, onAny } from "./bus";
+import { emit, type FeedbackEvent, listenerCount, onAny } from "./bus";
 import { census, probe } from "./gpu-census";
 import type { MenuDrawer } from "./drawer-system";
 import type { GameMenus } from "./menu-game";
@@ -471,6 +471,7 @@ export function installTestHooks(
       },
     },
     emit,
+    busListeners: () => listenerCount(),
     perfWhole: () => timing.whole(),
     gpu: {
       census: (o) => census(world, o),

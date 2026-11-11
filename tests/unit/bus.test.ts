@@ -68,4 +68,21 @@ describe("bus", () => {
     bus.emit({ type: "tracking-lost", hand: "left" });
     expect(seen.map((e) => e.type)).toEqual(["press", "notice"]);
   });
+
+  it("counts the listeners subscribed now, typed and catch-all together", () => {
+    const bus = createBus();
+    expect(bus.listeners()).toBe(0);
+    const offA = bus.on("press", () => {});
+    const offB = bus.on("press", () => {});
+    const offC = bus.on("notice", () => {});
+    const offAny = bus.onAny(() => {});
+    expect(bus.listeners()).toBe(4);
+    offB();
+    offB();
+    offAny();
+    expect(bus.listeners()).toBe(2);
+    offA();
+    offC();
+    expect(bus.listeners()).toBe(0);
+  });
 });
