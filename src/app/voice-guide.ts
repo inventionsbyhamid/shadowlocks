@@ -76,6 +76,8 @@ export interface VoiceGuideDeps {
   enabled(): boolean;
   /** The language the chip shows. */
   lang(): string;
+  /** The voice can be heard at all (the effects volume, which the voice sits under, is above 0). */
+  audible?(): boolean;
   warn?(message: string): void;
 }
 
@@ -124,10 +126,11 @@ export class VoiceGuide {
 
   /**
    * How long line `key` (a copy key, as the chip shows it) runs when spoken now, or 0: the Voice guide off, a language
-   * with no voice, no clip. The lessons' pacing waits for it.
+   * with no voice, no clip, or the effects volume at 0 (the lessons are not slowed for silence). The lessons' pacing
+   * waits for it.
    */
   ms(key: string): number {
-    return this.voiced() && this.clips ? this.clips.ms(key) : 0;
+    return this.voiced() && this.clips && (this.deps.audible?.() ?? true) ? this.clips.ms(key) : 0;
   }
 
   /** The lines a part of a lesson needs, by copy key: decoded now, the rest dropped. */

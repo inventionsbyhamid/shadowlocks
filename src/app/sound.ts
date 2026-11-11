@@ -105,6 +105,7 @@ export class Sound {
       now: this.clock.now,
       enabled: () => deps.settings.get().voice,
       lang: () => lang(),
+      audible: () => deps.settings.get().sfxVol > 0,
       warn: (m) => console.warn(m),
     });
     this.pack = loadSoundPack(this.engine, { baseUrl: `${import.meta.env.BASE_URL}audio/`, warn: (m) => console.warn(m) }).then(

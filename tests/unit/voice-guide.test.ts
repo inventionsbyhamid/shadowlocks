@@ -43,9 +43,9 @@ function rig(o: { missing?: string[]; undecoded?: string[]; lang?: string } = {}
     buffer: (k) => (undecoded.has(k) || (o.missing ?? []).includes(k) ? null : buf(k)),
     want: vi.fn(),
   };
-  const env = { on: true, lang: o.lang ?? "en" };
+  const env = { on: true, lang: o.lang ?? "en", audible: true };
   const warn = vi.fn();
-  const g = new VoiceGuide({ out, now: () => t, enabled: () => env.on, lang: () => env.lang, warn });
+  const g = new VoiceGuide({ out, now: () => t, enabled: () => env.on, lang: () => env.lang, audible: () => env.audible, warn });
   g.setClips(clips);
   /** What the chip shows, as Lessons hands it over every frame. */
   const chip = { line: null as string | null, why: null as VoiceWhy | null, again: false, shows: 0, scope: 0, visible: true };
@@ -209,6 +209,13 @@ describe("VoiceGuide", () => {
     r.show(C.moveIdle, "idle");
     r.run(500);
     expect(r.plays.length).toBe(1);
+  });
+
+  it("gives the lessons no line length to wait for while the effects volume is at 0", () => {
+    const r = rig();
+    expect(r.g.ms("lessons.goal")).toBe(3000);
+    r.env.audible = false;
+    expect(r.g.ms("lessons.goal")).toBe(0);
   });
 
   it("is text only for a line with no clip (warned once) and in a language with no voice", () => {
