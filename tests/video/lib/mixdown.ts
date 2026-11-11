@@ -125,15 +125,16 @@ export function mixCommand(r: MixRequest, files: MixFiles, scriptFile: string): 
   };
 
   const m = r.music;
-  if (m && files.calmLoop && files.intenseLoop) {
-    const used = VOICES.filter((v) => m.initial[v] > 0 || m.ramps[v].length > 0);
+  // A pack with a calm loop only (the music bed: the engine then plays nothing for intense) still has its music.
+  if (m && files.calmLoop) {
+    const used = VOICES.filter((v) => (m.initial[v] > 0 || m.ramps[v].length > 0) && (v !== "intense" || files.intenseLoop));
     const voiceOut: string[] = [];
     const calm = used.filter((v) => v !== "intense");
     if (calm.length) {
       const idx = loop(files.calmLoop, r.plan.music.offsetSec);
       chains.push(`[loop${idx}]asplit=${calm.length}${calm.map((v) => `[raw_${v}]`).join("")}`);
     }
-    if (used.includes("intense")) {
+    if (used.includes("intense") && files.intenseLoop) {
       const idx = loop(files.intenseLoop, r.plan.music.offsetSec);
       chains.push(`[loop${idx}]anull[raw_intense]`);
     }
@@ -316,6 +317,17 @@ export function endCardFilter(
     `[${o.cardInput}:v]format=yuva444p,fade=t=in:st=0:d=${fade}:alpha=1,setpts=PTS+${lag}/TB[vcard];` +
     `[vbg][vcard]overlay=eof_action=pass:format=auto[v]`
   );
+}
+
+/**
+ * A still layer (input `input`, a transparent PNG at the edit's size: the corner label) laid over the edit only within
+ * the given spans (seconds). Takes a filter ending in [v] and returns one ending in [v], the same length.
+ */
+export function labelFilter(filter: string, o: { input: number; spans: Array<[number, number]> }): string {
+  if (!/\[v\]$/.test(filter)) throw new Error("the edit filter must end in [v]");
+  if (o.spans.length === 0) return filter;
+  const on = o.spans.map(([a, b]) => `between(t,${f(a)},${f(b)})`).join("+");
+  return `${filter.slice(0, -3)}[vnl];[${o.input}:v]format=yuva444p[vlab];[vnl][vlab]overlay=x=0:y=0:eof_action=repeat:format=auto:enable='${on}'[v]`;
 }
 
 /** A crossfade in ms as whole frames at `fps` (nearest). */
