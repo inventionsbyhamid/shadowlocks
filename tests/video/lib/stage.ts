@@ -73,6 +73,9 @@ export const lerp3 = (a: readonly number[], b: readonly number[], k: number): Ve
 export const spotOf = async (page: Page, lock: number): Promise<V3> =>
   (await page.evaluate((i) => (window as any).__sl.session.state().locks[i].spot, lock)) as V3;
 
+/** A right hand reaching in to pinch: fingers forward and a little left and down, palm turned left (IWER directions). */
+export const PINCH_FROM_RIGHT = { fingers: { x: -0.35, y: -0.25, z: -1 }, palm: { x: -1, y: -0.35, z: 0.1 } };
+
 /** The shot hand, as the stage needs it (lib/shot.ts ShotHand). */
 interface Hand {
   shape(value: number, ms?: number): Promise<void>;
@@ -87,18 +90,34 @@ interface Hand {
  * the game: a lock still shut after the hold is left shut, with a warning, and the shot goes on as the game does.
  * Returns whether the lock opened.
  */
-export async function carryOpen(app: XrApp, page: Page, hand: Hand, lock: number, ms: number, rest: Vec3, o: { holdMs?: number; label?: string } = {}): Promise<boolean> {
+export async function carryOpen(
+  app: XrApp,
+  page: Page,
+  hand: Hand,
+  lock: number,
+  ms: number,
+  rest: Vec3,
+  o: { holdMs?: number; label?: string; pause?: { at: number; ms: number } } = {},
+): Promise<boolean> {
   const to = await spotOf(page, lock);
   const from = await toWorld(page, await lanternPos(page));
   await hand.shape(0.5, 200);
-  await hand.glide(offset(from, 0.01, 0.03, 0.03), 700);
+  // In from the right, fingers into the box and the palm turned in: the hand stays beside the lantern, not over the box.
+  await hand.glide(offset(from, 0.03, 0.03, 0.04), 700, PINCH_FROM_RIGHT);
   await hand.glide(from, 300);
   await hand.pinch(140);
   await app.stepUntil((_ns, w) => w.__sl.lantern().held, { maxMs: 1_000, batch: 1, label: "the lantern held" });
   // The grasp point stays where it closed on the lantern: carry the lantern itself onto the spot.
   const held = await toWorld(page, await lanternPos(page));
   const spotW = await toWorld(page, to);
-  await hand.glide([spotW[0] + from[0] - held[0], spotW[1] + from[1] - held[1], spotW[2] + from[2] - held[2]], ms);
+  const onSpot: Vec3 = [spotW[0] + from[0] - held[0], spotW[1] + from[1] - held[1], spotW[2] + from[2] - held[2]];
+  if (o.pause) {
+    // Part of the way, then a still moment (as a player stops to look) before the rest.
+    await hand.glide(lerp3(from, onSpot, o.pause.at), ms * o.pause.at);
+    const now = (await page.evaluate(() => (window as any).__vt.now)) as number;
+    await app.stepUntil((_ns, w, end) => w.__vt.now >= end, { arg: now + o.pause.ms, maxMs: o.pause.ms + 1000, label: "a still moment" });
+    await hand.glide(onSpot, ms * (1 - o.pause.at));
+  } else await hand.glide(onSpot, ms);
   let opened = true;
   try {
     await app.stepUntil((_ns, w, i) => w.__sl.session.state().open.includes(i), { arg: lock, maxMs: o.holdMs ?? 2_500, label: `lock ${lock} open` });

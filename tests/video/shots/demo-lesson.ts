@@ -24,7 +24,7 @@ const AWAY_LEFT: Vec3 = [-0.4, 0.55, -0.55];
 const AWAY_RIGHT: Vec3 = [0.55, 0.55, -0.55];
 
 /** The seated eye on the whole box, the lantern beside it and the coach line above it. */
-const seated = (box: Vec3): View => ({ from: offset(EYE, 0.02, 0.02, 0.07), at: offset(box, 0.02, -0.05, 0.12) });
+const seated = (box: Vec3): View => ({ from: offset(EYE, -0.04, 0.02, 0.07), at: offset(box, 0.01, -0.04, 0.12) });
 
 export default defineShot<Data>({
   name: "demo-lesson",
@@ -54,7 +54,8 @@ export default defineShot<Data>({
     const t0 = time();
     await until(Math.max(t0 + 5, 9));
     // Lock I: the Moon.
-    await carryOpen(app, page, right, 0, 2600, REST_RIGHT, { label: "demo-lesson" });
+    // Slow enough for the goal line to be said whole before the Moon fills.
+    await carryOpen(app, page, right, 0, 4200, REST_RIGHT, { label: "demo-lesson" });
     // Example 1, then the player's arrow.
     await app.stepUntil((_ns, w) => w.__sl.lessons.state().step === 3, { maxMs: 30_000, label: "example 1 done" });
     await wait(1000);
@@ -62,7 +63,8 @@ export default defineShot<Data>({
     // Example 2, then the player's Key.
     await app.stepUntil((_ns, w) => w.__sl.lessons.state().step === 5, { maxMs: 30_000, label: "example 2 done" });
     await wait(800);
-    await carryOpen(app, page, right, 2, 2800, REST_RIGHT, { label: "demo-lesson" });
+    // The rings lined up partway, a moment for the coach's lines, then the slide in.
+    await carryOpen(app, page, right, 2, 3200, REST_RIGHT, { label: "demo-lesson", pause: { at: 0.6, ms: 3800 } });
     // The box opens.
     await app.stepUntil((_ns, w) => w.__sl.lessons.state().step === 6, { maxMs: 8_000, label: "lesson 1's reward step" });
     await wait(4000);
