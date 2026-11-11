@@ -278,6 +278,25 @@ describe("VoiceGuide", () => {
     expect(r.g.ms("lessons.goal")).toBe(0);
   });
 
+  it("says nothing while the effects volume is at 0 (no silent line, no dip), and the next line once it is back up", () => {
+    const r = rig();
+    r.env.audible = false;
+    r.show(C.goal);
+    r.run(500);
+    expect(r.plays).toEqual([]);
+    expect(r.dipped()).toBe(false);
+    r.env.audible = true;
+    r.g.settingsChanged();
+    r.show(C.pickUp);
+    r.run(32);
+    expect(r.plays.map((p) => p.key)).toEqual(["lessons.pickUp"]);
+    // Turned down to 0 mid-line: the line fades out and the dips come up.
+    r.env.audible = false;
+    r.g.settingsChanged();
+    expect(r.hushes.at(-1)!.fade).toBe(OFF_FADE_MS);
+    expect(r.dipped()).toBe(false);
+  });
+
   it("is text only for a line with no clip (warned once) and in a language with no voice", () => {
     const r = rig({ missing: ["lessons.goal"] });
     r.show(C.goal);
