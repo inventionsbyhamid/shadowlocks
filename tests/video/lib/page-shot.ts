@@ -86,12 +86,25 @@ async function capturePage(shot: PageShot, browser: Browser, baseURL: string, o:
     },
     boot: (page, b = {}) => bootPage(page, { mode: "visual", ...b, viewport: shot.viewport }),
     async hold(page, sec) {
-      // The emulator's own "Enter XR" button (IWER's, not the game's) goes, as the headset shots hide its DevUI.
-      await page.evaluate(() => {
-        for (const b of Array.from(document.querySelectorAll("button"))) {
-          if (b.textContent?.trim() === "Enter XR" && !b.closest("#landing")) (b as HTMLElement).style.display = "none";
-        }
+      // The emulator's own "Enter XR" button (IWER's, not the game's) goes, as the headset shots hide its DevUI. It
+      // may live in a shadow root: whatever holds those words outside the game's page is hidden, host and all.
+      const hidden = await page.evaluate(() => {
+        let n = 0;
+        const sweep = (root: Document | ShadowRoot) => {
+          for (const el of Array.from(root.querySelectorAll("*"))) {
+            if (el.shadowRoot) sweep(el.shadowRoot);
+            const own = Array.from(el.childNodes).some((c) => c.nodeType === 3 && c.textContent?.trim() === "Enter XR");
+            if (!own || el.closest("#landing")) continue;
+            const inner = (el.closest("button") ?? el) as HTMLElement;
+            const host = (el.getRootNode() as ShadowRoot).host as HTMLElement | undefined;
+            for (const h of [inner, host]) if (h && !h.closest("#landing")) h.style.setProperty("display", "none", "important");
+            n++;
+          }
+        };
+        sweep(document);
+        return n;
       });
+      if (hidden) log(`${shot.name}: hid the emulator's Enter XR button (${hidden})`);
       const png = path.join(dir, `hold-${String(holds.length).padStart(3, "0")}.png`);
       await page.screenshot({ path: png, animations: "disabled", caret: "hide" });
       holds.push({ png, frames: Math.round(sec * o.fps) });
