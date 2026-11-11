@@ -1,0 +1,319 @@
+{
+  "version": 1,
+  "kind": "voice",
+  "container": "ogg",
+  "codec": "opus",
+  "kbps": 32,
+  "channels": 1,
+  "sampleRate": 48000,
+  "voice": "Morgan",
+  "model": "eleven_multilingual_v2",
+  "target": {
+    "integratedLufs": -20,
+    "ceilingDbtp": -2,
+    "leadMs": 100,
+    "tailMs": 150
+  },
+  "generatedUtc": "2026-11-10T16:52:22.566Z",
+  "bytes": {
+    "en": 616575
+  },
+  "langs": {
+    "en": {
+      "lessons.pickUp": {
+        "file": "en/lessons.pickUp.ogg",
+        "ms": 1666,
+        "bytes": 6996,
+        "group": "l1",
+        "text": "Pick up the lantern."
+      },
+      "lessons.goal": {
+        "file": "en/lessons.goal.ogg",
+        "ms": 3769,
+        "bytes": 16380,
+        "group": "l1",
+        "text": "Move the lantern until the shadow fills the moon."
+      },
+      "lessons.watch": {
+        "file": "en/lessons.watch.ogg",
+        "ms": 837,
+        "bytes": 3505,
+        "group": "l1",
+        "text": "Watch."
+      },
+      "lessons.watchMove": {
+        "file": "en/lessons.watchMove.ogg",
+        "ms": 2025,
+        "bytes": 8690,
+        "group": "l1",
+        "text": "Watch the shadows move."
+      },
+      "lessons.watchNearFar": {
+        "file": "en/lessons.watchNearFar.ogg",
+        "ms": 3633,
+        "bytes": 15453,
+        "group": "l1",
+        "text": "Watch. I will borrow your lantern for a moment."
+      },
+      "lessons.nearSwing": {
+        "file": "en/lessons.nearSwing.ogg",
+        "ms": 1945,
+        "bytes": 8488,
+        "group": "l1",
+        "text": "Near pieces swing more."
+      },
+      "lessons.turnNearFar": {
+        "file": "en/lessons.turnNearFar.ogg",
+        "ms": 3652,
+        "bytes": 15839,
+        "group": "l1",
+        "text": "Your turn. Make both pieces meet in the arrow."
+      },
+      "lessons.watchRings": {
+        "file": "en/lessons.watchRings.ogg",
+        "ms": 3347,
+        "bytes": 13744,
+        "group": "l1",
+        "text": "Watch. This key has two sight rings."
+      },
+      "lessons.lineUp": {
+        "file": "en/lessons.lineUp.ogg",
+        "ms": 1840,
+        "bytes": 7936,
+        "group": "l1",
+        "text": "Line up the two rings."
+      },
+      "lessons.slide": {
+        "file": "en/lessons.slide.ogg",
+        "ms": 3693,
+        "bytes": 16000,
+        "group": "l1",
+        "text": "Now slide nearer or farther until it fills."
+      },
+      "lessons.yourTurn": {
+        "file": "en/lessons.yourTurn.ogg",
+        "ms": 1086,
+        "bytes": 4712,
+        "group": "l1",
+        "text": "Your turn."
+      },
+      "lessons.lockOpen": {
+        "file": "en/lessons.lockOpen.ogg",
+        "ms": 3626,
+        "bytes": 15517,
+        "group": "l1",
+        "text": "Lock open! Every shape on the wall is a lock."
+      },
+      "lessons.twoOpen": {
+        "file": "en/lessons.twoOpen.ogg",
+        "ms": 2395,
+        "bytes": 10358,
+        "group": "l1",
+        "text": "Two locks open. One to go."
+      },
+      "lessons.boxOpen": {
+        "file": "en/lessons.boxOpen.ogg",
+        "ms": 3411,
+        "bytes": 14394,
+        "group": "l1",
+        "text": "The box is open. Lift out your reward."
+      },
+      "lessons.moveIdle": {
+        "file": "en/lessons.moveIdle.ogg",
+        "ms": 4255,
+        "bytes": 18390,
+        "group": "l1",
+        "text": "Find the gold moon outline. Slide the shadow onto it."
+      },
+      "lessons.growShrink": {
+        "file": "en/lessons.growShrink.ogg",
+        "ms": 4825,
+        "bytes": 19995,
+        "group": "l1",
+        "text": "Bring it nearer or farther. The shadow grows and shrinks."
+      },
+      "lessons.stuck": {
+        "file": "en/lessons.stuck.ogg",
+        "ms": 4570,
+        "bytes": 18080,
+        "group": "l1",
+        "text": "Stuck? Poke the little lantern on the frame for help."
+      },
+      "lessons.letGo": {
+        "file": "en/lessons.letGo.ogg",
+        "ms": 4160,
+        "bytes": 17734,
+        "group": "l1",
+        "text": "Let go any time. The lantern floats where you leave it."
+      },
+      "lessons.turnNearFarIdle": {
+        "file": "en/lessons.turnNearFarIdle.ogg",
+        "ms": 4456,
+        "bytes": 18354,
+        "group": "l1",
+        "text": "Move side to side. Watch which piece swings more."
+      },
+      "lessons.turnRingsIdle": {
+        "file": "en/lessons.turnRingsIdle.ogg",
+        "ms": 4112,
+        "bytes": 17786,
+        "group": "l1",
+        "text": "Move until one ring shadow sits inside the other."
+      },
+      "lessons.puppets": {
+        "file": "en/lessons.puppets.ogg",
+        "ms": 3191,
+        "bytes": 13650,
+        "group": "l2",
+        "text": "Now put your free hand inside the box."
+      },
+      "lessons.watchFinger": {
+        "file": "en/lessons.watchFinger.ogg",
+        "ms": 2998,
+        "bytes": 12646,
+        "group": "l2",
+        "text": "Watch. This crown is one piece short."
+      },
+      "lessons.finger": {
+        "file": "en/lessons.finger.ogg",
+        "ms": 3385,
+        "bytes": 14471,
+        "group": "l2",
+        "text": "One piece is missing. Your finger can cast it."
+      },
+      "lessons.turnFinger": {
+        "file": "en/lessons.turnFinger.ogg",
+        "ms": 4583,
+        "bytes": 19583,
+        "group": "l2",
+        "text": "Your turn. Point one finger into the gap and hold still."
+      },
+      "lessons.fingerIdle": {
+        "file": "en/lessons.fingerIdle.ogg",
+        "ms": 3921,
+        "bytes": 16668,
+        "group": "l2",
+        "text": "Move your finger nearer or farther until it fits."
+      },
+      "lessons.drawer": {
+        "file": "en/lessons.drawer.ogg",
+        "ms": 3178,
+        "bytes": 13660,
+        "group": "l2",
+        "text": "Pull the drawer to find these lessons again."
+      },
+      "lessons.tips.decoys": {
+        "file": "en/lessons.tips.decoys.ogg",
+        "ms": 4794,
+        "bytes": 20237,
+        "group": "tips",
+        "text": "Each lock has its own spot. Some scraps belong to none."
+      },
+      "lessons.tips.ringless": {
+        "file": "en/lessons.tips.ringless.ogg",
+        "ms": 2872,
+        "bytes": 12159,
+        "group": "tips",
+        "text": "No rings here. Read the shadows."
+      },
+      "lessons.tips.hidden": {
+        "file": "en/lessons.tips.hidden.ogg",
+        "ms": 4320,
+        "bytes": 18273,
+        "group": "tips",
+        "text": "This outline is hidden. What shape do the shadows make?"
+      },
+      "game.controllerFinger": {
+        "file": "en/game.controllerFinger.ogg",
+        "ms": 3059,
+        "bytes": 13280,
+        "group": "controller",
+        "text": "Or set a controller down and use your finger."
+      },
+      "controller.puppets": {
+        "file": "en/controller.puppets.ogg",
+        "ms": 3961,
+        "bytes": 17173,
+        "group": "controller",
+        "text": "Set a controller down and put that hand inside the box."
+      },
+      "controller.turnFinger": {
+        "file": "en/controller.turnFinger.ogg",
+        "ms": 4813,
+        "bytes": 20152,
+        "group": "controller",
+        "text": "Your turn. Aim a controller into the gap and hold still."
+      },
+      "phone.pickUp": {
+        "file": "en/phone.pickUp.ogg",
+        "ms": 1653,
+        "bytes": 7193,
+        "group": "phone",
+        "text": "Drag the lantern."
+      },
+      "phone.slide": {
+        "file": "en/phone.slide.ogg",
+        "ms": 3913,
+        "bytes": 16917,
+        "group": "phone",
+        "text": "Hold the lantern and move the phone nearer or farther."
+      },
+      "phone.finger": {
+        "file": "en/phone.finger.ogg",
+        "ms": 3860,
+        "bytes": 16439,
+        "group": "phone",
+        "text": "One piece is missing. Touch the gap and hold still."
+      },
+      "phone.drawer": {
+        "file": "en/phone.drawer.ogg",
+        "ms": 3268,
+        "bytes": 13979,
+        "group": "phone",
+        "text": "Tap the drawer to find these lessons again."
+      },
+      "phone.puppets": {
+        "file": "en/phone.puppets.ogg",
+        "ms": 2919,
+        "bytes": 12579,
+        "group": "phone",
+        "text": "Touch the box to put a finger in the light."
+      },
+      "phone.turnFinger": {
+        "file": "en/phone.turnFinger.ogg",
+        "ms": 3296,
+        "bytes": 14073,
+        "group": "phone",
+        "text": "Your turn. Touch the gap and hold still."
+      },
+      "phone.growShrink": {
+        "file": "en/phone.growShrink.ogg",
+        "ms": 5345,
+        "bytes": 22307,
+        "group": "phone",
+        "text": "Move the phone nearer or farther. The shadow grows and shrinks."
+      },
+      "phone.stuck": {
+        "file": "en/phone.stuck.ogg",
+        "ms": 4596,
+        "bytes": 18330,
+        "group": "phone",
+        "text": "Stuck? Tap the little lantern on the frame for help."
+      },
+      "phone.letGo": {
+        "file": "en/phone.letGo.ogg",
+        "ms": 4553,
+        "bytes": 19375,
+        "group": "phone",
+        "text": "Lift your finger any time. The lantern stays where you leave it."
+      },
+      "phone.boxOpen": {
+        "file": "en/phone.boxOpen.ogg",
+        "ms": 3554,
+        "bytes": 15080,
+        "group": "phone",
+        "text": "The box is open. Tap your reward to take it."
+      }
+    }
+  }
+}
