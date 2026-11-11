@@ -4,12 +4,34 @@ import {
   installedApp,
   JUDGE_HOSTS,
   paywallFor,
+  servedOrigin,
   showLanding,
   STORE_HOSTS,
   testOverrides,
 } from "../../src/app/edition";
 
 const at = (url: string): Location => new URL(url) as unknown as Location;
+
+describe("servedOrigin", () => {
+  it.each([
+    // Ours: the page's own host, so a judge is never sent to the store edition.
+    ["https://shadowlocks.pages.dev/?box=3", "https://shadowlocks.pages.dev"],
+    ["https://SHADOWLOCKS.pages.dev./", "https://shadowlocks.pages.dev"],
+    ["https://shadowlocks-judge.pages.dev/", "https://shadowlocks-judge.pages.dev"],
+    // Anything else (a preview, localhost, a look-alike): the public host.
+    ["https://abc123.shadowlocks.pages.dev/", "https://shadowlocks.pages.dev"],
+    ["http://localhost:8081/", "https://shadowlocks.pages.dev"],
+    ["https://shadowlocks-judge.pages.dev.evil.example/", "https://shadowlocks.pages.dev"],
+    ["https://evil.example/?url=https://shadowlocks-judge.pages.dev", "https://shadowlocks.pages.dev"],
+  ] as const)("%s links to %s", (url, origin) => {
+    expect(servedOrigin(at(url))).toBe(origin);
+  });
+
+  it("an empty or missing host links to the public host", () => {
+    expect(servedOrigin({ hostname: "" } as Location)).toBe("https://shadowlocks.pages.dev");
+    expect(servedOrigin({} as Location)).toBe("https://shadowlocks.pages.dev");
+  });
+});
 
 describe("detectEdition", () => {
   it("knows the store and judge hosts", () => {

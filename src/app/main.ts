@@ -1,26 +1,31 @@
 // Entry point: create the IWSDK world, open the profile, wire the shell, show the Enter button.
 // Boot order: a waiting update takes over first; test hooks (test builds) start logging before
 // anything can emit; the world; asset URL rewrites; field flags; profile and settings; the shell
-// and its systems; sound; the game (and a box at once with ?box=N); then Enter (or straight into XR
-// in the installed Quest app); offline last.
+// and its systems; sound; the game (and a box at once with ?box=N, or a shared link's: its landing line too); then
+// Enter (or straight into XR in the installed Quest app); offline last.
 import { AssetManager, World } from "@iwsdk/core";
 import projectOptions from "virtual:iwsdk-project";
+import { todayKey } from "../core/daily";
 import { PAYWALL_ON } from "../core/entitlement";
+import type { BoxResult } from "../core/result";
+import { parseSharedLink } from "../core/share";
 import { attachInput } from "../input/grab-system";
 import { installOffline, takeOverAtBoot } from "../platform/offline";
 import { openStore } from "../platform/store";
 import { APP_VERSION } from "../platform/version";
 import { copy } from "../i18n";
+import { shareOffer, todayOffer } from "../ui/share-text";
 import { MenuSystem, useMenus } from "../ui/menu-system";
 import { styleRayCursors } from "../ui/ray-cursor";
 import { Access, billingFor } from "./access";
 import { emit, on } from "./bus";
 import { attachDrawer } from "./drawer-system";
-import { detectEdition, installedApp, paywallFor, showLanding, testOverrides } from "./edition";
+import { detectEdition, installedApp, paywallFor, servedOrigin, showLanding, testOverrides } from "./edition";
 import { disableMultiview, readFieldFlags, showPerfPanel, startBox, startLesson } from "./field-flags";
 import { attachGame } from "./game";
 import { recordHands, recordSeconds } from "./hand-recorder";
 import { attachHands } from "./hand-system";
+import { questBrowser } from "./headset";
 import { localInputProfileUrl } from "./input-profiles";
 import { followLanguage } from "./language";
 import { ENTER_FAILED, Landing, LOADING, NO_XR, noticeLine, startLanguage } from "./landing";
@@ -30,6 +35,8 @@ import { GameMenus } from "./menu-game";
 import { ProfileStore } from "./profile-store";
 import { go } from "./screens";
 import { SettingsStore } from "./settings";
+import { browserEnv, SharePage } from "./share-page";
+import { ShareFlow } from "./share-flow";
 import { Shell } from "./shell";
 import { ShellSystem, useShell } from "./shell-system";
 import { Sound, SoundSystem, useSound } from "./sound";
@@ -53,6 +60,11 @@ async function main(): Promise<void> {
   document.body.classList.toggle("installed", !showLanding(window));
   startLanguage(document);
   const page = new Landing(document);
+  // Sharing on the 2D page: Web Launch away from a headset, a shared link's landing line (`?day=...`, `?box=N&t=...`:
+  // shown at once, so a computer that cannot play still says what was shared), the result's share button.
+  const shared = parseSharedLink(location.search, todayKey(Date.now()));
+  const sharing = new SharePage(document, browserEnv(navigator, questBrowser(navigator.userAgent), servedOrigin(location)));
+  sharing.landed(shared, null);
 
   const hooks = TEST_HOOKS ? await import("./test-hooks") : null;
   const video = VIDEO ? await import("../video/video-mode") : null;
@@ -128,7 +140,13 @@ async function main(): Promise<void> {
   const play = attachGame({ world, shell, lantern, sound, hands, canPlayBox: () => access.canPlayBox, boxRefused: () => go("trial") });
   // Where the player starts: a field flag's box or lesson (practice), else a first launch's lesson, else Home. Test
   // builds can keep Home (the e2e boot does, unless a test asks for the lessons).
-  const box = startBox(location.search), lesson = startLesson(location.search);
+  // A shared link names the box to play; else the field flags may.
+  const box = shared ? null : startBox(location.search), lesson = shared ? null : startLesson(location.search);
+  let flow: ShareFlow | null = null;
+  /** The shared link's landing line as the flow stands: Lesson 1 first, else what its box is, none once played. */
+  const landShared = () => {
+    if (flow) sharing.landed(flow.link, flow.note());
+  };
   const skipLessons = TEST_HOOKS && !!(window as { __slSkipLessons?: boolean }).__slSkipLessons;
   // The lessons (priority -2.7, after the game): the director, the ghost, the coach line; "Show me" on the hint
   // lantern; the menus' lesson rows.
@@ -144,7 +162,14 @@ async function main(): Promise<void> {
     // In XR, seen and placed: a hidden headset (or page), or a box still waiting for its first placement, holds the
     // lesson's clock, as the lifecycle holds the box's.
     presenting: () => shell.sessionMode !== null && shell.lifecycle.active && !shell.placing,
-    autoStart: () => !box && !lesson && !skipLessons,
+    autoStart: () => !box && !lesson && !shared && !skipLessons,
+    // A new player's shared link: Lesson 1 first, then the friend's box in place of lesson 2 (the landing then says
+    // what that box is).
+    afterFirst: () => {
+      const took = flow?.afterLesson() ?? false;
+      if (took) landShared();
+      return took;
+    },
     phone: () => touch.phone,
   });
   // What the menus play through: the box session and the lessons. A progress reset lets a lesson or replay in the
@@ -191,7 +216,35 @@ async function main(): Promise<void> {
   void access.refresh();
   // A first launch goes straight into its lesson (the shell asks the lessons); a field flag's box or lesson after.
   shell.start();
-  if (box) play.game.playBox(box);
+  // The 2D page offers the latest box opened (today's Daily Box played for real), else today's from the collection.
+  let latest: BoxResult | null = null;
+  const offer = () =>
+    (latest ? shareOffer(latest, shell.profiles.profile, todayKey(Date.now()), flow?.key ?? null) : null) ?? todayOffer(shell.profiles.profile, todayKey(Date.now()));
+  play.view.onResult = (r) => {
+    latest = r;
+    if (flow?.played(r.key)) landShared();
+    sharing.offer(offer);
+  };
+  sharing.offer(offer);
+  if (shared) {
+    const f = (flow = new ShareFlow({
+      link: shared,
+      profiles: shell.profiles,
+      game: play.game,
+      now: () => Date.now(),
+      lessons,
+      lessonsFirst: () => !skipLessons,
+      // The friend's box done: lesson 2 for a new player who came by the link, else Home.
+      after: () => {
+        if (!shell.profiles.profile.lessons.l2) lessons.start("l2");
+        else go("home");
+      },
+    }));
+    play.view.friendFor = (key) => f.friendFor(key);
+    play.session.nextHook = () => f.next(play.session);
+    f.start();
+    landShared();
+  } else if (box) play.game.playBox(box);
   else if (lesson) lessons.start(lesson, { practice: true });
   sound.loadMusicLater();
   video?.installVideoMode(world);

@@ -27,7 +27,7 @@ const box2 = (): Box =>
     ],
   }) as unknown as Box;
 
-function bench(o: { presenting?: boolean; autoStart?: boolean } = {}) {
+function bench(o: { presenting?: boolean; autoStart?: boolean; afterFirst?: () => boolean } = {}) {
   const profile = newProfile(0, "1.0.0");
   const plays: { spec: BoxSpec; snap: BoxSnapshot | null; practice: boolean }[] = [];
   const open = new Set<number>();
@@ -76,6 +76,7 @@ function bench(o: { presenting?: boolean; autoStart?: boolean } = {}) {
     play,
     presenting: () => env.presenting,
     autoStart: () => o.autoStart ?? true,
+    afterFirst: o.afterFirst,
     view: view as unknown as LessonView,
   } as unknown as LessonsDeps;
   const lessons = new Lessons(deps);
@@ -539,5 +540,36 @@ describe("Lessons", () => {
     b.run(32);
     expect(b.lessons.director.done).toBe(true);
     expect(b.profile.lessons).toEqual({ l1: false, l2: true, step: null });
+  });
+
+  it("gives a real lesson 1's end to a shared link's box in place of lesson 2; a practice lesson 1 never asks", () => {
+    /** Lesson 1's end, as the director calls it when its last step is done. */
+    const finish = (b: ReturnType<typeof bench>) => (b.lessons as unknown as { finished(id: "l1"): void }).finished("l1");
+    // The link takes it: no lesson 2, and lesson 1 is saved as done.
+    const took = vi.fn(() => true);
+    const a = bench({ afterFirst: took });
+    a.lessons.start("l1");
+    finish(a);
+    expect(took).toHaveBeenCalledTimes(1);
+    expect(a.plays.map((p) => p.spec)).toEqual([{ kind: "lesson", id: "l1" }]);
+    expect(a.profile.lessons).toMatchObject({ l1: true, step: null });
+    // The link waits for nothing (false): lesson 2 as usual.
+    const none = bench({ afterFirst: () => false });
+    none.lessons.start("l1");
+    finish(none);
+    expect(none.plays.at(-1)).toMatchObject({ spec: { kind: "lesson", id: "l2" }, practice: false });
+    // A practice replay of lesson 1 (`?lesson=l1`): the link is never asked, lesson 2 follows as practice too.
+    const asked = vi.fn(() => true);
+    const practice = bench({ afterFirst: asked });
+    practice.lessons.start("l1", { practice: true });
+    finish(practice);
+    expect(asked).not.toHaveBeenCalled();
+    expect(practice.plays.at(-1)).toMatchObject({ spec: { kind: "lesson", id: "l2" }, practice: true });
+    expect(practice.profile.lessons.l1).toBe(false);
+    // No hook at all: lesson 2.
+    const plain = bench();
+    plain.lessons.start("l1");
+    finish(plain);
+    expect(plain.plays.at(-1)!.spec).toEqual({ kind: "lesson", id: "l2" });
   });
 });

@@ -5,6 +5,7 @@
 // The paywall is off in every v1 release (PAYWALL_ON); only a test build may force it on, with
 // fake billing, through the address (`?edition=store&paywall=1&billing=app`).
 import type { Edition } from "../core/entitlement";
+import { PUBLIC_ORIGIN } from "../platform/site-origin";
 
 /** The store edition's hosts (Cloudflare Pages, ship steps section 1). */
 export const STORE_HOSTS: readonly string[] = ["shadowlocks.pages.dev"];
@@ -39,6 +40,16 @@ function host(loc: Partial<Pick<Location, "hostname">>): string {
 export function detectEdition(loc: Partial<Pick<Location, "hostname">>, over: TestOverrides | null = null): Edition {
   if (over?.edition) return over.edition;
   return STORE_HOSTS.includes(host(loc)) ? "store" : "judge";
+}
+
+/**
+ * The origin the page's own links name (Web Launch, Copy link): the host serving the page when it is one of ours (the
+ * public host or the judges'), so a judge is never sent to the store edition; else the public host. Only a listed host
+ * is ever returned, never the page's own text.
+ */
+export function servedOrigin(loc: Partial<Pick<Location, "hostname">>): string {
+  const h = host(loc), ours = [...STORE_HOSTS, ...JUDGE_HOSTS].find((o) => o === h);
+  return ours ? `https://${ours}` : PUBLIC_ORIGIN;
 }
 
 /** The installed Quest app (a TWA exposes the Digital Goods API); a plain browser is not. */

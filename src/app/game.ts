@@ -8,6 +8,7 @@ import { createBoxClient } from "../core/box-client";
 import { todayKey } from "../core/daily";
 import { seedKey, specOfKey } from "../core/generator";
 import type { BoxSnapshot } from "../core/profile";
+import type { BoxResult } from "../core/result";
 import type { Box, BoxSpec, V3, Vec3 } from "../core/types";
 import { hands } from "../input/grab-system";
 import { pressGate } from "../input/poke";
@@ -22,6 +23,7 @@ import { type FrameTips, frameTips } from "../ui/fingertips";
 import { HINT_ASK, HintLantern } from "../ui/hint-lantern";
 import { NO_TIPS } from "../ui/key-view";
 import { Plate } from "../ui/plate";
+import { type ResultCard, resultCard } from "../ui/result-card";
 import type { PokeKey } from "../ui/poke-key";
 import { BoxSession, LOCK_TO_BOX_MS } from "./box-session";
 import { FingerLockLoop } from "./finger-lock";
@@ -48,6 +50,8 @@ export interface GameViewDeps {
   lantern: Pick<Lantern, "grab">;
   /** "Show me" can be offered (the lessons wired it). */
   canShowMe: () => boolean;
+  /** The result card for a box that opened (null: none), in the language shown. */
+  card?: (r: BoxResult) => ResultCard | null;
 }
 
 /** The session as the player sees it beyond the panel (the box scene draws the panel, scraps and lantern). */
@@ -71,6 +75,12 @@ export class GameView implements SessionView {
   private tapTake = false;
   private readonly rewardAt: V3 = [0, 0, 0];
   private readonly rewardWorld = new Vector3();
+  /** The result the box in play opened with (its card is built again in a new language), or null. */
+  private opened: BoxResult | null = null;
+  /** Told of every box that opens, with its result (the 2D page's share block keeps the latest). */
+  onResult: ((r: BoxResult) => void) | null = null;
+  /** A friend's result for the box with this seed key (a shared link's), shown on its card beside the player's. */
+  friendFor: ((key: string) => { t: number; h: number | null } | null) | null = null;
 
   constructor(private readonly d: GameViewDeps) {
     const scene = d.scene, root = scene.root;
@@ -104,6 +114,7 @@ export class GameView implements SessionView {
     this.plate.relabel();
     this.hintLantern.relabel();
     this.reward.relabel();
+    if (this.opened && this.reward.resultCard) this.reward.setResult(this.d.card?.(this.opened) ?? null);
   }
 
   /** What the box's lettering says now, for the test hooks. */
@@ -115,6 +126,7 @@ export class GameView implements SessionView {
 
   setBox(box: Box, spec: BoxSpec, practice = false): void {
     this.box = box;
+    this.opened = null;
     // A new box: the flash budget starts afresh (a box left at its opening leaves no reservation behind).
     this.d.scene.flashes.reset();
     this.marks.setBox(box);
@@ -162,6 +174,13 @@ export class GameView implements SessionView {
     this.reward.rise(this.boxFx.drawerTop(this.drawer));
     this.marks.focus(null);
     this.hintLantern.reset(false, this.d.settings.get().handed === "left" ? 1 : -1);
+  }
+
+  /** The box opened with result `r`: its card under the reward. */
+  result(r: BoxResult): void {
+    this.opened = r;
+    this.reward.setResult(this.d.card?.(r) ?? null);
+    this.onResult?.(r);
   }
 
   rewardTaken(): void {
@@ -377,7 +396,14 @@ export function attachGame(d: GameDeps): { game: Game; session: BoxSession; view
   const { world, shell } = d;
   const scene = shell.box;
   let session: BoxSession | null = null;
-  const view = new GameView({ world, scene, settings: shell.settings, lantern: d.lantern, canShowMe: () => session?.showMe != null });
+  const view: GameView = new GameView({
+    world,
+    scene,
+    settings: shell.settings,
+    lantern: d.lantern,
+    canShowMe: () => session?.showMe != null,
+    card: (r): ResultCard | null => resultCard(r, shell.profiles.profile, view.friendFor?.(r.key) ?? null),
+  });
   session = new BoxSession({
     // The finger locks (session-fingers.ts): the hands' finger shadow, a FingerLockLoop per finger lock, and the
     // piece forming where the finger was (or put back at once for a resumed box).

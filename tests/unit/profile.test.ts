@@ -201,6 +201,14 @@ describe("profile", () => {
     expect(m.current).toEqual(snap());
   });
 
+  it("keeps a reward's hint level per lock (the result card's tiles), and drops a bad list", () => {
+    const withLevels = { ...item(), levels: [0, 4, 2] };
+    expect(migrate({ ...played(), collection: [withLevels] }, NOW, BUILD).collection).toEqual([withLevels]);
+    for (const bad of [[0, 5], [], [0, 0, 0, 0], [1.5], ["1"], [-1], "0,1", null]) {
+      expect(migrate({ ...played(), collection: [{ ...item(), levels: bad }] }, NOW, BUILD).collection, JSON.stringify(bad)).toEqual([item()]);
+    }
+  });
+
   it("keeps the generator version a box was saved under, and drops a broken one", () => {
     const m = migrate({ version: 1, current: { ...snap(), gen: 3 }, daily: { current: { ...snap("shadow-locks/daily/2026-11-06"), gen: 2 } } }, NOW, BUILD);
     expect(m.current).toEqual({ ...snap(), gen: 3 });
