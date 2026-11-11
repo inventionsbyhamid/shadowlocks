@@ -62,7 +62,7 @@ async function main(): Promise<void> {
   const page = new Landing(document);
   // Sharing on the 2D page: Web Launch away from a headset, a shared link's landing line (`?day=...`, `?box=N&t=...`:
   // shown at once, so a computer that cannot play still says what was shared), the result's share button.
-  const shared = parseSharedLink(location.search);
+  const shared = parseSharedLink(location.search, todayKey(Date.now()));
   const sharing = new SharePage(document, browserEnv(navigator, questBrowser(navigator.userAgent), servedOrigin(location)));
   sharing.landed(shared, null);
 

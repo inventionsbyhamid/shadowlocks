@@ -3,8 +3,9 @@
 // result: their time in whole seconds, their hints and the generator version that built their box.
 //   https://shadowlocks.pages.dev/?box=12&t=222&h=0&g=4
 //   https://shadowlocks.pages.dev/?day=2026-11-10&t=252&h=1&g=4
-// No free text, no name, no id, no other site: only numbers and a day, each checked on its own. A bad value is dropped
-// and the box still opens; a link naming no box is no shared link (`?box=N` alone stays the field flag). Times can be
+// No free text, no name, no id, no other site: only numbers and a day, each checked on its own. One empty or bad value,
+// or a day after the device's today, and it is no shared link (the plain landing; `?box=N&h=` plays as `?box=N`); a
+// link naming no box is no shared link either (`?box=N` alone stays the field flag). Times can be
 // edited by anyone, which is fine: the receiver is told "your friend says", and nothing is stored or ranked.
 import { PUBLIC_ORIGIN } from "../platform/site-origin";
 import { BUILDABLE_VERSIONS, genOf, seedKey } from "./generator";
@@ -31,10 +32,12 @@ export const MAX_LINK_HINTS = 12;
 const FIRST_YEAR = 2026;
 const LAST_YEAR = 2099;
 
-/** The one value of `name`, or null when it is missing or given more than once. */
-function one(q: URLSearchParams, name: string): string | null {
+/**
+ * The one value of `name`: undefined when it is missing, null when it is given more than once (which is no good value).
+ */
+function one(q: URLSearchParams, name: string): string | null | undefined {
   const all = q.getAll(name);
-  return all.length === 1 ? all[0]! : null;
+  return all.length === 0 ? undefined : all.length === 1 ? all[0]! : null;
 }
 
 function wholeIn(v: string | null, re: RegExp, lo: number, hi: number): number | null {
@@ -47,31 +50,50 @@ function boxOf(v: string | null): number | null {
   return wholeIn(v, /^[1-9]\d{0,5}$/, 1, 999_999);
 }
 
-function dayOf(v: string | null): string | null {
+/** A real day from FIRST_YEAR on, and not after `today` (a later day's box is not out yet where the link opens). */
+function dayOf(v: string | null, today: string): string | null {
   if (v === null || !/^\d{4}-\d{2}-\d{2}$/.test(v) || !isDayKey(v)) return null;
   const y = Number(v.slice(0, 4));
-  return y >= FIRST_YEAR && y <= LAST_YEAR ? v : null;
+  return y >= FIRST_YEAR && y <= LAST_YEAR && v <= today ? v : null;
+}
+
+/** Each name a link may hold, and its check (null: a bad value). */
+function checks(today: string): Record<"box" | "day" | "t" | "h" | "g", (v: string | null) => unknown> {
+  return {
+    box: boxOf,
+    day: (v) => dayOf(v, today),
+    t: (v) => wholeIn(v, /^[1-9]\d{0,5}$/, 1, MAX_SECONDS),
+    h: (v) => wholeIn(v, /^(0|[1-9]\d?)$/, 0, MAX_LINK_HINTS),
+    g: (v) => {
+      const g = wholeIn(v, /^[1-9]\d{0,2}$/, 1, 999);
+      return g !== null && BUILDABLE_VERSIONS.includes(g) ? g : null;
+    },
+  };
 }
 
 /**
- * The shared link in a page address's query (`location.search`), or null: no box or day named (or only bad ones), or
- * `?box=N` with nothing of a result (the field flag). A box and a day both named: the box.
+ * The shared link in a page address's query (`location.search`), or null: no box or day named, `?box=N` with nothing of
+ * a result (the field flag), or any of its names given empty, bad, out of range, more than once, or a day after
+ * `today` (the device's local day, as the Daily Box counts it: todayKey). A box and a day both named: the box.
  */
-export function parseSharedLink(search: string): SharedLink | null {
+export function parseSharedLink(search: string, today: string): SharedLink | null {
   const q = new URLSearchParams(search);
-  const n = boxOf(one(q, "box")), day = dayOf(one(q, "day"));
-  const shared = q.has("day") || q.has("t") || q.has("h") || q.has("g");
+  if (!(q.has("day") || q.has("t") || q.has("h") || q.has("g"))) return null;
+  const c = checks(today);
+  const v: Partial<Record<keyof typeof c, unknown>> = {};
+  for (const name of Object.keys(c) as (keyof typeof c)[]) {
+    const raw = one(q, name);
+    if (raw === undefined) continue;
+    const ok = c[name](raw);
+    if (ok === null) return null;
+    v[name] = ok;
+  }
   let target: ShareTarget;
-  if (n !== null && shared) target = { kind: "box", n };
-  else if (day !== null) target = { kind: "daily", day };
+  if (v.box !== undefined) target = { kind: "box", n: v.box as number };
+  else if (v.day !== undefined) target = { kind: "daily", day: v.day as string };
   else return null;
-  const g = wholeIn(one(q, "g"), /^[1-9]\d{0,2}$/, 1, 999);
-  return {
-    target,
-    t: wholeIn(one(q, "t"), /^[1-9]\d{0,5}$/, 1, MAX_SECONDS),
-    h: wholeIn(one(q, "h"), /^(0|[1-9]\d?)$/, 0, MAX_LINK_HINTS),
-    g: g !== null && BUILDABLE_VERSIONS.includes(g) ? g : null,
-  };
+  const num = (x: unknown) => (x === undefined ? null : (x as number));
+  return { target, t: num(v.t), h: num(v.h), g: num(v.g) };
 }
 
 /** The link's address on `origin` (the public host): the target, then t, h and g where they are given. */
