@@ -80,6 +80,8 @@ export interface LessonsDeps {
   voice?: Pick<VoiceGuide, "update" | "ms" | "prepare" | "quiet">;
   /** The app is seen (not hidden: headset on, page shown); default `presenting`. */
   visible?: () => boolean;
+  /** The player is in XR: on the 2D page (the landing, a shared link's page) the voice says nothing. Default true. */
+  inXr?: () => boolean;
 }
 
 export class Lessons implements MenuLessons {
@@ -322,6 +324,7 @@ export class Lessons implements MenuLessons {
       voice.quiet(CLICK_QUIET_MS);
     }
     const visible = this.d.visible?.() ?? this.d.presenting();
+    if (this.d.inXr && !this.d.inXr()) said = null;
     if (lesson) {
       if (f.scope !== this.prepScope && dir.lesson) {
         this.prepScope = f.scope;

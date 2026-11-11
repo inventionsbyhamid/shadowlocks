@@ -107,6 +107,49 @@ function bench(o: { presenting?: boolean; autoStart?: boolean; afterFirst?: () =
   return { lessons, profile, session, plays, open, env, run, shown, tipShown, play, lantern, hands, adopt };
 }
 
+describe("Lessons: the voice guide", () => {
+  function voiced(o: { inXr?: boolean; phone?: boolean } = {}) {
+    const b = bench();
+    const calls: { line: string | null; why: string | null }[] = [];
+    const voice = {
+      update: vi.fn((line: string | null, why: string | null) => calls.push({ line, why })),
+      ms: vi.fn(() => 0),
+      prepare: vi.fn(),
+      quiet: vi.fn(),
+    };
+    const env = { xr: o.inXr ?? true };
+    // The bench's deps object is the Lessons' own: give it a voice, whether the player is in XR, and a phone.
+    const d = (b.lessons as unknown as { d: Record<string, unknown> }).d;
+    d.voice = voice;
+    d.inXr = () => env.xr;
+    if (o.phone) d.phone = () => true;
+    return { ...b, voice, calls, env };
+  }
+
+  it("hands the voice the chip's line as shown (a phone's wording) and prepares each step's clips", () => {
+    const b = voiced({ phone: true });
+    b.lessons.start("l1");
+    b.run(FORM_MS + 200);
+    expect(b.calls.at(-1)).toEqual({ line: COPY.phone.pickUp, why: "step" });
+    expect(b.voice.prepare).toHaveBeenLastCalledWith(expect.arrayContaining(["phone.pickUp", "lessons.goal"]));
+  });
+
+  it("keeps the voice silent on the 2D page (not in XR), however the lesson stands", () => {
+    const b = voiced({ inXr: false });
+    b.lessons.start("l1");
+    b.run(FORM_MS + 200);
+    expect(b.calls.length).toBeGreaterThan(0);
+    expect(b.calls.every((c) => c.line === null)).toBe(true);
+  });
+
+  it("asks the voice for each line's length as the device shows it, for the director's pacing", () => {
+    const b = voiced({ phone: true });
+    b.lessons.start("l2", { step: 2 });
+    b.run(32);
+    expect(b.voice.ms).toHaveBeenCalledWith("phone.turnFinger");
+  });
+});
+
 describe("Lessons", () => {
   it("goes into lesson 1 on a first launch, at the step it was left at; never once it is done or not allowed", () => {
     const b = bench();

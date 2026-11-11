@@ -174,6 +174,7 @@ async function main(): Promise<void> {
     // The voice says the chip's lines; it stops while the headset is off or the page hidden.
     voice: sound.voice,
     visible: () => shell.lifecycle.active,
+    inXr: () => shell.sessionMode !== null,
   });
   // What the menus play through: the box session and the lessons. A progress reset lets a lesson or replay in the
   // lap go as well as the box.
