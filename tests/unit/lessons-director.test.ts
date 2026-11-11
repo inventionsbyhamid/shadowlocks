@@ -1,6 +1,9 @@
 import { Matrix4, Vector3 } from "@iwsdk/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildTipScript, gripOf, SAID, SWEEP_CLEAR } from "../../src/app/lesson-scripts";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { buildScript, buildTipScript, gripOf, SAID, SWEEP_CLEAR } from "../../src/app/lesson-scripts";
+import { LOCK_QUIET_MS, VOICE_TAIL_MS } from "../../src/audio/voice";
 import { tipLock } from "../../src/app/tips";
 import { generateBox } from "../../src/core/generator";
 import { buildLessonLock, LESSON_1, LESSON_2, lessonPlan } from "../../src/core/lessons-data";
@@ -17,6 +20,7 @@ import {
   EXAMPLES,
   exampleFor,
   FORM_MS,
+  IDLE_SHOW_MS,
   GHOST_CLEAR,
   IDLE_GHOST_MS,
   LESSON_STEPS,
@@ -101,6 +105,8 @@ function rig(left = false): Rig {
     onRestart: vi.fn(),
     onDone: vi.fn(),
     onReplay: vi.fn(),
+    // The voice guide off (or no clips): the pacing as it always was. A test sets its own.
+    voiceMs: () => 0,
   };
   const r: Rig = {
     d: new LessonsDirector(deps),
@@ -1454,4 +1460,132 @@ describe("lesson copy", () => {
     expect(C.puppets).toMatch(/^[A-Z][^.]*\.$/);
     expectCleanCopy(C);
   });
+});
+
+/** Each line's real length (ms), by copy key, from the shipped voice pack's manifest. */
+const CLIP_MS: Record<string, number> = Object.fromEntries(
+  Object.entries(
+    (JSON.parse(readFileSync(path.resolve(__dirname, "../../public/audio/voice/manifest.json"), "utf8")) as { langs: { en: Record<string, { ms: number }> } }).langs.en,
+  ).map(([k, v]) => [k, v.ms]),
+);
+/** A lessons line's clip length as the chip shows it on a phone, with controllers, or by hand. */
+const PHONE: Record<string, string> = { pickUp: "phone.pickUp", slide: "phone.slide", finger: "phone.finger", turnFinger: "phone.turnFinger" };
+const CTRL: Record<string, string> = { turnFinger: "controller.turnFinger" };
+const clipMs = (device: "hands" | "phone" | "controllers") => (k: string) =>
+  CLIP_MS[(device === "phone" ? PHONE[k] : device === "controllers" ? CTRL[k] : undefined) ?? (k.includes(".") ? k : `lessons.${k}`)] ?? 0;
+
+describe("LessonsDirector: paced by the voice", () => {
+  it("leaves every example line time to be said before the next, for each device, in a lesson and in a replay", () => {
+    for (const device of ["hands", "phone", "controllers"] as const) {
+      for (const ex of ["move", "near-far", "rings", "finger"] as const) {
+        for (const replay of [false, true]) {
+          const plan = lessonPlan(EXAMPLES[ex].lesson, false);
+          const s = buildScript(ex, plan, false, replay, clipMs(device));
+          for (let i = 0; i + 1 < s.lines.length; i++) {
+            const a = s.lines[i]!, b = s.lines[i + 1]!;
+            expect(b.t - a.t, `${device} ${ex}${replay ? " replay" : ""}: ${a.key} then ${b.key}`).toBeGreaterThanOrEqual(clipMs(device)(a.key) + VOICE_TAIL_MS);
+          }
+        }
+      }
+    }
+  });
+
+  it("keeps an example's timing as it was with the voice off, and only lengthens the wait before its first beat with it on", () => {
+    const plan = lessonPlan("l1", false);
+    const off = buildScript("rings", plan, false, false);
+    const none = buildScript("rings", plan, false, false, () => 0);
+    expect(none).toEqual(off);
+    // "Watch. This key has two sight rings." runs 3.35 s; the first beat came at 2.2 s.
+    expect(off.lines[1]).toEqual({ t: 2200, key: "lineUp" });
+    const on = buildScript("rings", plan, false, false, clipMs("hands"));
+    const lead = CLIP_MS["lessons.watchRings"]! + VOICE_TAIL_MS - 2200;
+    expect(on.lines[1]!.t).toBe(2200 + lead);
+    expect(on.end).toBe(off.end + lead);
+    expect(on.clickT).toBe(off.clickT + lead);
+  });
+
+  it("names a win, then waits for its line to be said after the lock's layers before the next example", () => {
+    const r = rig();
+    r.deps.voiceMs = clipMs("hands");
+    r.d.start("l1", 1);
+    r.run(100);
+    r.inp.open.add(0);
+    r.run(16);
+    expect(r.d.frame.key).toBe("lockOpen");
+    const wait = Math.max(FIRST_WIN_MS, LOCK_QUIET_MS + CLIP_MS["lessons.lockOpen"]! + VOICE_TAIL_MS);
+    r.run(wait - 100);
+    expect([r.d.frame.key, r.d.showing]).toEqual(["lockOpen", false]);
+    r.run(200);
+    expect([r.d.frame.key, r.d.showing]).toEqual(["watchNearFar", true]);
+    // With the voice off, the pause as before.
+    const q = rig();
+    q.d.start("l1", 1);
+    q.run(100);
+    q.inp.open.add(0);
+    q.run(16);
+    q.run(FIRST_WIN_MS + 100);
+    expect(q.d.showing).toBe(true);
+  });
+
+  it("holds the crown's turn line until it has been said before the session's suggestion takes the chip", () => {
+    const r = rig();
+    r.deps.voiceMs = clipMs("controllers");
+    r.inp.suggest = "controllerFinger";
+    r.d.start("l2", 2);
+    const hold = CLIP_MS["controller.turnFinger"]! + VOICE_TAIL_MS;
+    expect(hold).toBeGreaterThan(SUGGEST_AFTER_MS);
+    r.run(hold - 100, () => expect(r.d.frame.key).toBe("turnFinger"));
+    r.run(200);
+    expect(r.d.frame.key).toBe("game.controllerFinger");
+  });
+
+  it("counts each step (and each replay) so the voice can start its idle counts over", () => {
+    const r = rig();
+    r.d.start("l1", 1);
+    r.run(16);
+    const a = r.d.frame.scope;
+    r.inp.open.add(0);
+    r.run(16);
+    expect(r.d.frame.scope).toBeGreaterThan(a);
+    const b = r.d.frame.scope;
+    r.run(10_000);
+    expect(r.d.frame.scope).toBe(b + 0);
+  });
+});
+
+describe("LessonsDirector: idle help on the crown's turn with controllers or a phone", () => {
+  /** Every change of the chip's key over `ms`, with its time. */
+  function changes(r: Rig, ms: number): { t: number; key: string | null; why: string | null }[] {
+    const out: { t: number; key: string | null; why: string | null }[] = [];
+    r.run(ms, () => {
+      const f = r.d.frame;
+      if (out.at(-1)?.key !== f.key) out.push({ t: r.t, key: f.key, why: f.why });
+    });
+    return out;
+  }
+
+  for (const voice of [false, true]) {
+    it(`says the nudge at 15 s and "Stuck?" at 40 s between the session's suggestions, never two lines within 1.2 s${voice ? " (voice on)" : ""}`, () => {
+      const r = rig();
+      if (voice) r.deps.voiceMs = clipMs("phone");
+      // A controller (or phone) player at the crown: the session suggests the finger the whole turn.
+      r.inp.suggest = "controllerFinger";
+      r.d.start("l2", 2);
+      const t0 = r.t;
+      const seen = changes(r, 60_000);
+      const keys = seen.map((c) => c.key);
+      expect(keys).toEqual(["turnFinger", "game.controllerFinger", "fingerIdle", "game.controllerFinger", "stuck", "game.controllerFinger"]);
+      const at = (k: string) => seen.find((c) => c.key === k)!.t - t0;
+      expect(at("fingerIdle")).toBeGreaterThanOrEqual(15_000);
+      expect(at("fingerIdle")).toBeLessThan(15_200);
+      expect(at("stuck")).toBeGreaterThanOrEqual(40_000);
+      expect(at("stuck")).toBeLessThan(40_200);
+      expect(seen.find((c) => c.key === "stuck")!.why).toBe("idle");
+      for (let i = 1; i < seen.length; i++) expect(seen[i]!.t - seen[i - 1]!.t).toBeGreaterThanOrEqual(1200);
+      // Each nudge keeps the chip long enough to be read (and said).
+      const after = (k: string) => seen[seen.findIndex((c) => c.key === k) + 1]!.t - seen.find((c) => c.key === k)!.t;
+      expect(after("fingerIdle")).toBeGreaterThanOrEqual(IDLE_SHOW_MS);
+      expect(after("stuck")).toBeGreaterThanOrEqual(IDLE_SHOW_MS);
+    });
+  }
 });

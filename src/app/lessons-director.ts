@@ -15,9 +15,13 @@
 //
 // Every coach line is a copy key (COPY.lessons[key] is its words): the frame says which one shows (`key`) and why
 // (`why`: a step's own line, an idle nudge, a win, or an example's), so a voice can say exactly what the chip shows.
+// With the voice guide on, the waits that are there for a line to be taken in (an example's opening, the pause after a
+// win, a turn's line before the session's suggestion, a nudge between suggestions) last at least as long as the line
+// is said (`voiceMs`: its clip's length) plus VOICE_TAIL_MS; with it off, or no clip, they are as they always were.
 import { type LessonId, type LessonPlan, lessonPlan } from "../core/lessons-data";
 import type { TipId } from "../core/profile";
 import type { Box, Lock, V3 } from "../core/types";
+import { LOCK_QUIET_MS, VOICE_TAIL_MS } from "../audio/voice";
 import { LESSON_STUCK_MS } from "../feel/constants";
 import type { CoachLine } from "./events";
 import { StuckWatch } from "../feel/stuck-watch";
@@ -82,6 +86,11 @@ export const PUPPET_MAX_MS = 12000;
 export const YOUR_TURN_MS = 3000;
 /** A turn's own line keeps the chip this long before the session's suggestion may take it (it is read, not flashed). */
 export const SUGGEST_AFTER_MS = 3000;
+/**
+ * With the session's suggestion holding the chip (a controller or phone player at the crown), an idle nudge or "Stuck?"
+ * takes the chip back for this long as it falls due, then the suggestion returns: the two take turns, never flicker.
+ */
+export const IDLE_SHOW_MS = 6000;
 /**
  * A lesson lock opened: its win is named ("Two locks open. One to go.") and the next example waits this long, so the
  * gold, the chord and the words land before the ghost takes the lantern...
@@ -218,6 +227,11 @@ export interface DirectorDeps {
   onDone?(id: LessonId): void;
   /** A replay starts (show `lesson`'s box afresh) or ends (put back what was there). */
   onReplay?(example: ExampleId, lesson: LessonId, start: boolean): void;
+  /**
+   * How long line `key` is said for, as the chip would show it now (ms): its voice clip's length, or 0 with the voice
+   * guide off, a language with no voice, or no clip. Asked as a step, an example or a nudge starts, never per frame.
+   */
+  voiceMs?(key: ChipKey): number;
 }
 
 export interface LessonFrame {
@@ -236,6 +250,8 @@ export interface LessonFrame {
    */
   again: boolean;
   shows: number;
+  /** Counts the steps (and replays) begun: a change means a new step, whose lines are all new. */
+  scope: number;
   /** The lock marked as the one to open (lock I through its step), -1 for none, and its outline's warmth now. */
   mark: number;
   markWarmth: number;
@@ -278,6 +294,7 @@ function newFrame(): LessonFrame {
     why: null,
     again: false,
     shows: 0,
+    scope: 0,
     mark: -1,
     markWarmth: 0,
     coachNear: false,
@@ -356,6 +373,14 @@ export class LessonsDirector {
   private readonly seenStep: ChipKey[] = [];
   private readonly seenReplay: ChipKey[] = [];
   private prevKey: ChipKey | null = null;
+  /** How long a turn's own line keeps the chip before the session's suggestion (SUGGEST_AFTER_MS, or its voice's). */
+  private suggestAfter = SUGGEST_AFTER_MS;
+  /** The idle line holding the chip over the session's suggestion: which, for how long, and for how long it may. */
+  private nudgeKey: ChipKey | null = null;
+  private nudgeAge = 0;
+  private nudgeHold = IDLE_SHOW_MS;
+  /** Each line's voice length, for the example scripts (made once). */
+  private readonly sayMs = (k: LessonLine): number => this.deps.voiceMs?.(k) ?? 0;
   /** The reaching ghost's shift clear of a real hand (eased), and that hand's pinch point. */
   private readonly off: V3 = [0, 0, 0];
   private readonly real: V3 = [0, 0, 0];
@@ -473,7 +498,7 @@ export class LessonsDirector {
     this.tipS = null;
     const { lesson } = EXAMPLES[example];
     const left = (this.replayLeft = this.deps.leftHanded());
-    this.script = buildScript(example, lessonPlan(lesson, left), left, true);
+    this.script = buildScript(example, lessonPlan(lesson, left), left, true, this.sayMs);
     this.scriptMs = 0;
     this.replayEx = example;
     this.seenReplay.length = 0;
@@ -497,6 +522,7 @@ export class LessonsDirector {
   private newLine(): void {
     this.prevKey = null;
     this.frame.again = false;
+    this.frame.scope++;
   }
 
   /**
@@ -615,7 +641,7 @@ export class LessonsDirector {
         this.advance();
         break;
     }
-    this.suggest();
+    this.suggest(dt);
   }
 
   /** A replay cut short: the view puts back what it showed before. */
@@ -700,10 +726,27 @@ export class LessonsDirector {
    * first. Everywhere else in a lesson its own line stays: lesson 2's puppets ask for a hand in the box though the crown
    * is already short (its lantern starts on the spot), and an example never gives the chip up.
    */
-  private suggest(): void {
+  private suggest(dt: number): void {
     if (this.script || !this.id || this.finished || this.deps.inputs.suggestion() === null) return;
-    if (LESSON_STEPS[this.id][this.n]?.kind !== "turn" || this.stepMs < SUGGEST_AFTER_MS) return;
+    if (LESSON_STEPS[this.id][this.n]?.kind !== "turn" || this.stepMs < this.suggestAfter) return;
+    // An idle line falling due takes the chip back for a while (and the hint lantern's glow gets its "Stuck?"), then
+    // the suggestion returns.
+    const f = this.frame;
+    if (f.why === "idle") {
+      if (f.key !== this.nudgeKey) {
+        this.nudgeKey = f.key;
+        this.nudgeAge = 0;
+        this.nudgeHold = this.paced(IDLE_SHOW_MS, f.key!, 0);
+      } else this.nudgeAge += dt;
+      if (this.nudgeAge < this.nudgeHold) return;
+    } else this.nudgeKey = null;
     this.show(SUGGESTION_KEY, "suggest");
+  }
+
+  /** `ms`, or longer with the voice on: `quietMs` and line `key` said, with VOICE_TAIL_MS to spare. */
+  private paced(ms: number, key: ChipKey, quietMs: number): number {
+    const say = this.deps.voiceMs?.(key) ?? 0;
+    return say > 0 ? Math.max(ms, quietMs + say + VOICE_TAIL_MS) : ms;
   }
 
   /** On to the next step; `won`: this one ended on the player opening its lock. */
@@ -722,7 +765,7 @@ export class LessonsDirector {
 
   /** Start example `ex` as the lesson's own (its end moves the lesson on). */
   private startScript(ex: ExampleId): void {
-    this.script = buildScript(ex, this.plan!, this.left, false);
+    this.script = buildScript(ex, this.plan!, this.left, false, this.sayMs);
     this.scriptMs = 0;
     this.runScript(0);
   }
@@ -747,6 +790,8 @@ export class LessonsDirector {
     this.helped = false;
     this.restartClocks();
     this.seenStep.length = 0;
+    this.frame.scope++;
+    this.nudgeKey = null;
     if (n >= steps.length) {
       this.finished = true;
       this.show(null, null);
@@ -761,7 +806,11 @@ export class LessonsDirector {
     // The step's first line shows from this very frame (a demo's comes from its script).
     if (s.kind === "intro") this.show(formed ? "pickUp" : null, "step");
     else if (s.kind === "move") this.show("goal", "step");
-    else if (s.kind === "turn") this.show(this.turnLine(s, 0), "step");
+    else if (s.kind === "turn") {
+      const own = this.turnLine(s, 0);
+      this.show(own, "step");
+      this.suggestAfter = this.paced(SUGGEST_AFTER_MS, own, 0);
+    }
     else if (s.kind === "puppets") this.show(formed ? "puppets" : null, "step");
     else if (s.kind === "drawer") this.show(inp.settled() ? "drawer" : inp.rewardUp() ? "boxOpen" : null, inp.settled() ? "step" : "win");
     else if (s.kind === "reward") this.show(inp.rewardUp() ? "boxOpen" : null, "win");
@@ -771,7 +820,8 @@ export class LessonsDirector {
       if (won) {
         const win = this.winLine();
         this.beatMs = 0;
-        this.beatEndMs = win === "lockOpen" ? FIRST_WIN_MS : BEAT_MS;
+        // With the voice on, long enough for the win to be said after the lock's layers.
+        this.beatEndMs = this.paced(win === "lockOpen" ? FIRST_WIN_MS : BEAT_MS, win, LOCK_QUIET_MS);
         this.show(win, "win");
       } else this.startScript(s.example);
     }
