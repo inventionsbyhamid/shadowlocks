@@ -16,6 +16,12 @@
 // to the budget. Left in, a few stalls push the window's slow-but-ordinary frames down onto the 95th place: the same
 // code measured 2.10 and 3.20 ms in two windows with 1 and 4 stalls.
 //
+// Our JS leaves out the emulator's work, as perf-budget-quest2.spec.ts does: IWSDK's input update (where IWER makes up
+// the hands' joints in JavaScript) is not ours, and IWER's joint-pose JavaScript run inside our own systems
+// (XRFrame.fillPoses, called by the hand pinch system and the game's fingertip keys) is timed there and taken off our
+// JS frame by frame (Ruling 180a; helpers/perf-play.ts, timeEmulatorPoses): on a headset that call is native. Each
+// window prints our JS raw and judged and the pose time excused; the budget reads the judged frames.
+//
 // Allocation: V8 boxes a float that crosses a call it did not inline (12-16 bytes), and the heap sampler cannot tell
 // those from objects; Rulings 58 and 80 accept them within a byte budget that a per-frame array or object per shadow
 // would break. Measured: about 980 bytes a frame in all, the most in one function the shadow mesh's cast (about 550;
@@ -87,21 +93,29 @@ const playCase = (n: number) => async ({ page, boot }: { page: Page; boot: BootF
     const game = [...all.byFunction].filter(([k]) => !TEST_ONLY.some((t) => k.startsWith(t)));
     const bytes = game.reduce((s, [, v]) => s + v, 0);
 
-    const stats = windows.map((w) => ({ ...frameStats(w.frames), rule: p95WithoutStalls(w.frames) }));
-    const judged = judgeWindowsP95(windows.map((w) => w.frames));
+    const stats = windows.map((w) => ({
+      ...frameStats(w.judged),
+      rule: p95WithoutStalls(w.judged),
+      raw: p95WithoutStalls(w.frames),
+      poses: frameStats(w.poses),
+    }));
+    const judged = judgeWindowsP95(windows.map((w) => w.judged));
     const lines = [
       ...windows.map(
         (w, i) =>
-          `perf-budget, window ${i + 1}: ${w.calls} draw calls, ${w.triangles} triangles at most; our JS over ${TIMED_FRAMES} frames at 4x: ` +
+          `perf-budget, window ${i + 1}: ${w.calls} draw calls, ${w.triangles} triangles at most; our JS (judged) over ${TIMED_FRAMES} frames at 4x: ` +
           `mean ${stats[i]!.meanMs.toFixed(3)}, median ${stats[i]!.medianMs.toFixed(3)}, p95 ${stats[i]!.p95Ms.toFixed(2)}, ` +
           `max ${stats[i]!.maxMs.toFixed(2)} ms (${stats[i]!.rule.stalls} stalls (host or ours) over ${STALL_MS} ms; p95 ` +
-          `${stats[i]!.rule.p95Ms.toFixed(2)} without them); every system (IWSDK's too) p95 ` +
+          `${stats[i]!.rule.p95Ms.toFixed(2)} without them); raw (IWER's joint poses in) p95 ${stats[i]!.raw.p95Ms.toFixed(2)} without ` +
+          `stalls; IWER's joint poses excused mean ${stats[i]!.poses.meanMs.toFixed(3)}, p95 ${stats[i]!.poses.p95Ms.toFixed(2)} ms; ` +
+          `every system (IWSDK's too) p95 ` +
           `${p95WithoutStalls(w.update).p95Ms.toFixed(2)} ms, the render's (software GL) ${p95WithoutStalls(w.render).p95Ms.toFixed(2)} ms; ` +
           `server load ${w.load?.toFixed(1) ?? "?"}; ` +
           `p95 by system: ${Object.entries(w.systems).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")}`,
       ),
       `perf-budget: judged on window ${judged.index + 1}: p95 ${judged.p95Ms.toFixed(2)} ms a frame without stalls ` +
-        `(${judged.stalls} of them); box ${n} through the box session, stage ${st.stage}, ${st.open.length} locks open`,
+        `(${judged.stalls} of them; raw ${stats[judged.index]!.raw.p95Ms.toFixed(2)}); box ${n} through the box session, stage ${st.stage}, ` +
+        `${st.open.length} locks open`,
       `perf-budget: our per-frame code allocated about ${bytes.toFixed(0)} bytes a frame over ${nFrames} frames` +
         (game.length ? `: ${game.sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k} ${v.toFixed(0)}`).join("; ")}` : ""),
     ];
