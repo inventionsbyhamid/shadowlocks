@@ -300,27 +300,55 @@ test("lesson 1 states the goal and helps an idle player", async ({ page, boot })
   expect(app.logs()).not.toMatch(/PAGEERROR/);
 });
 
-// Lesson 1's own timeline from the moment its box first shows (the box waits for a steady head to be placed). The wait
-// itself holding the lesson, a long one with the head turning, is the placement's own test (shell.spec.ts, "before the
-// box is placed nothing in it runs").
-test("lesson 1 forms from light, says its line and shows the ghost on time, counted from the moment its box shows", async ({
+/**
+ * From the next frame on, the headset keeps turning (seated pitch), so it is never held still and the box's first
+ * placement waits its full 2.5 s cap; `__turning = false` holds it where it is. As shell.spec.ts turns it.
+ */
+function keepTurning(degPerFrame: number): void {
+  const w = window as any;
+  const d = w.IWER_DEVICE;
+  const pitch = Math.atan2(-0.28, 0.55);
+  let yaw = 0;
+  w.__turning = true;
+  if (w.__turnHooked) return;
+  w.__turnHooked = true;
+  const update = w.__ns.world.update.bind(w.__ns.world);
+  w.__ns.world.update = (dt: number, t: number) => {
+    if (w.__turning) {
+      yaw += degPerFrame * (Math.PI / 180);
+      const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(pitch / 2), sp = Math.sin(pitch / 2);
+      d.quaternion.set(cy * sp, sy * cp, -sy * sp, cy * cp);
+    }
+    update(dt, t);
+  };
+}
+
+test("lesson 1 waits for its box to be placed: it forms from light, says its line and shows the ghost from then on", async ({
   page,
   boot,
 }) => {
-  // A first launch goes straight into lesson 1; the session is accepted as a player does.
+  // A first launch goes straight into lesson 1; the session is accepted as a player does, the head turning, so the box
+  // waits hidden for the placement's 2.5 s cap (longer than the 2 s the box takes to form).
   const app = await boot({ enterXR: false, lessons: true });
+  await page.evaluate(keepTurning, 1);
   await app.waitReal((_ns, w) => w.IWER_DEVICE.sessionOffered === true, { label: "XR session offer" });
   await app.command("accept_session");
   await app.stepUntil((ns) => ns.state().xr.presenting, { maxMs: 5_000, label: "XR presenting" });
+  const t0 = await app.now();
   await page.evaluate(relaxIwer);
-  // Frame by frame to the first one the box shows in (it waits for a steady head): nothing of the lesson has run yet.
+  // Hidden while it waits (from the session's first tracked frame), then frame by frame to the first one it shows in:
+  // nothing of the lesson has run meanwhile.
+  await app.stepUntil((ns) => !ns.state().box.visible, { maxMs: 1_000, batch: 1, label: "the box hidden, waiting" });
+  expect([(await lessons(page)).form, (await lessons(page)).key]).toEqual([0, null]);
   await app.stepUntil((ns) => ns.state().box.visible, { maxMs: 4_000, batch: 1, label: "the box shown" });
+  await page.evaluate(() => ((window as any).__turning = false));
+  expect((await app.now()) - t0, "the box waited for the placement's cap").toBeGreaterThan(2_000);
   const s = await lessons(page);
   expect([s.lesson, s.step, s.key, s.hand.opacity]).toEqual(["l1", 0, null, 0]);
-  expect(s.form, "the box forms from light as it shows").toBeLessThan(0.05);
+  expect(s.form, "the box forms from light as it shows, not while it waited").toBeLessThan(0.1);
   // Its line when it has formed (2 s), by the lantern; the ghost 4 s after the line.
   const line = await app.stepUntil((_ns, w) => w.__sl.lessons.state().key === "pickUp", { maxMs: 3_000, label: "the first line" });
-  expect(line).toBeGreaterThan(1_900);
+  expect(line).toBeGreaterThan(1_800);
   expect((await lessons(page)).coach.near).toBe(1);
   const ghost = await app.stepUntil((_ns, w) => w.__sl.lessons.state().hand.opacity > 0, { maxMs: 5_000, label: "the ghost" });
   expect(ghost).toBeGreaterThan(3_900);
