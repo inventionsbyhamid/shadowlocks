@@ -45,7 +45,7 @@ import type { SettingsStore } from "./settings";
 import { registerAppSystem } from "./systems";
 import { TIP_FROM, TIP_LINES, tipDone, tipFor } from "./tips";
 import { LineHold } from "../ui/coach-line";
-import { CLICK_QUIET_MS } from "../audio/voice";
+import { CLICK_QUIET_MS, MENU_BACK_MS } from "../audio/voice";
 import type { VoiceGuide } from "./voice-guide";
 import { chipPath, type Device, deviceKey, replayLines, stepLines } from "./voice-lines";
 import { COPY } from "../ui/copy";
@@ -139,7 +139,10 @@ export class Lessons implements MenuLessons {
     const { lantern, hands, settings } = d;
     const session = d.play.session;
     onBus("screen", (e) => {
+      const was = this.menuUp;
       this.menuUp = isMenuScreen(e.to);
+      // Back from a menu (the drawer): the line comes back to the chip, and is said again a moment later.
+      if (was && !this.menuUp) this.d.voice?.quiet(MENU_BACK_MS);
     });
     // A hint taken from the hint lantern: the lesson's "Stuck?" line has done its work.
     onBus("hint", () => this.director.helpTaken());

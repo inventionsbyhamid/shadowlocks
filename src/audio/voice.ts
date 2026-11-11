@@ -24,6 +24,8 @@ export const LOCK_QUIET_MS = 800;
 export const CLICK_QUIET_MS = 300;
 /** ...or from a finger hold starting to this long after its piece forms. The box's tune is quiet for its length. */
 export const FINGER_QUIET_MS = 1500;
+/** A menu (the drawer) closed over a lesson: its line is said again after this long. */
+export const MENU_BACK_MS = 800;
 
 /** What ducks under the voice besides the music (the hums). */
 export interface VoiceDuck {

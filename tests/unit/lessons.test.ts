@@ -14,6 +14,7 @@ import type { BoxSnapshot, Profile } from "../../src/core/profile";
 import type { Box, BoxSpec } from "../../src/core/types";
 import type { BoxScene } from "../../src/render/box-scene";
 import { replayLines, stepLines } from "../../src/app/voice-lines";
+import { MENU_BACK_MS } from "../../src/audio/voice";
 import { COPY } from "../../src/ui/copy";
 
 /** A box with decoys, as tipFor sees one (box 2 brings in the decoys tip). */
@@ -179,6 +180,18 @@ describe("Lessons: the voice guide", () => {
     expect(b.voice.prepare).toHaveBeenLastCalledWith([]);
     b.run(1000);
     expect(b.voice.prepare.mock.calls.length).toBe(n + 1);
+  });
+
+  it("waits 0.8 s after a menu closes over a lesson before its line is said again", () => {
+    const b = voiced();
+    b.lessons.start("l1");
+    b.run(FORM_MS + 200);
+    go("home");
+    b.run(500);
+    expect(b.voice.quiet).not.toHaveBeenCalledWith(MENU_BACK_MS);
+    go("play");
+    expect(b.voice.quiet).toHaveBeenLastCalledWith(MENU_BACK_MS);
+    expect(MENU_BACK_MS).toBe(800);
   });
 
   it("gives a phone player idle at the crown's turn the phone's finger line, never the hands' nearer-or-farther one", () => {
