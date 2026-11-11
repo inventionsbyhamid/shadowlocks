@@ -35,8 +35,8 @@ import { GameMenus } from "./menu-game";
 import { ProfileStore } from "./profile-store";
 import { go } from "./screens";
 import { SettingsStore } from "./settings";
-import { type LandingNote, browserEnv, SharePage } from "./share-page";
-import { ShareFlow, type SharedRoute } from "./share-flow";
+import { browserEnv, SharePage } from "./share-page";
+import { ShareFlow } from "./share-flow";
 import { Shell } from "./shell";
 import { ShellSystem, useShell } from "./shell-system";
 import { Sound, SoundSystem, useSound } from "./sound";
@@ -143,9 +143,9 @@ async function main(): Promise<void> {
   // A shared link names the box to play; else the field flags may.
   const box = shared ? null : startBox(location.search), lesson = shared ? null : startLesson(location.search);
   let flow: ShareFlow | null = null;
-  /** The shared link's landing line as the flow stands: Lesson 1 first, else what its box is. */
+  /** The shared link's landing line as the flow stands: Lesson 1 first, else what its box is, none once played. */
   const landShared = () => {
-    if (flow) sharing.landed(flow.link, flow.lessonFirst ? "lessonFirst" : landingNote(flow.route!, todayKey(Date.now())));
+    if (flow) sharing.landed(flow.link, flow.note());
   };
   const skipLessons = TEST_HOOKS && !!(window as { __slSkipLessons?: boolean }).__slSkipLessons;
   // The lessons (priority -2.7, after the game): the director, the ghost, the coach line; "Show me" on the hint
@@ -222,6 +222,7 @@ async function main(): Promise<void> {
     (latest ? shareOffer(latest, shell.profiles.profile, todayKey(Date.now()), flow?.key ?? null) : null) ?? todayOffer(shell.profiles.profile, todayKey(Date.now()));
   play.view.onResult = (r) => {
     latest = r;
+    if (flow?.played(r.key)) landShared();
     sharing.offer(offer);
   };
   sharing.offer(offer);
@@ -293,10 +294,3 @@ main().catch((err) => {
   const status = document.getElementById("status");
   if (status) status.textContent = copy().page.startupFailed;
 });
-
-/** What Open the box does with a shared link, as its landing says. */
-function landingNote(route: SharedRoute, today: string): LandingNote {
-  if (route.kind === "daily") return "today";
-  const s = route.spec;
-  return s.kind === "daily" && s.day !== today ? "otherDay" : "practice";
-}

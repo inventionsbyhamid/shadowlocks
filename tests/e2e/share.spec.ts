@@ -199,6 +199,9 @@ test("beat my time: the receiver sees both results", async ({ page, boot }) => {
   await page.evaluate(() => (window.__ns!.world as unknown as { session?: XRSession }).session?.end());
   await app.stepUntil((ns) => !ns.state().xr.presenting, { maxMs: 5_000, label: "out of XR" });
   await expect(page.locator("#share-result")).toHaveText(COPY.share.sendBack);
+  // The friend's box is played: no "your turn" line left above it.
+  await expect(page.locator("#shared-note")).toBeHidden();
+  await expect(page.locator("#shared-line")).toHaveText(fill(COPY.share.sentBox, { n: 2 }));
   expect((await page.locator("#result-text").textContent())!.split("\n").slice(2)).toEqual([COPY.share.beat, `https://shadowlocks.pages.dev/?box=2&t=${secs}&h=1&g=4`]);
   await page.setViewportSize({ width: 1280, height: 720 });
   // Taller than the window now: the page scrolls, and nothing above is cut off.

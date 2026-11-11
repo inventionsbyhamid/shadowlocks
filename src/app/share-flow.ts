@@ -12,6 +12,7 @@ import { GENERATOR_VERSION } from "../core/generator";
 import type { Profile } from "../core/profile";
 import { type SharedLink, targetKey } from "../core/share";
 import type { BoxSpec } from "../core/types";
+import type { LandingNote } from "./share-page";
 
 export type SharedRoute = { kind: "daily" } | { kind: "practice"; spec: BoxSpec };
 
@@ -51,6 +52,7 @@ export interface FriendResult {
 export class ShareFlow {
   private routed: SharedRoute | null = null;
   private waiting = false;
+  private done = false;
 
   constructor(private readonly d: ShareFlowDeps) {}
 
@@ -76,6 +78,27 @@ export class ShareFlow {
   /** Lesson 1 plays first (a new player); the link's box comes when it is done. */
   get lessonFirst(): boolean {
     return this.waiting;
+  }
+
+  /**
+   * What the landing's last line says Open the box does: Lesson 1 first, else what the link's box is; null before the
+   * start, and once the link's box has been played (no "your turn" above the player's own result).
+   */
+  note(): LandingNote | null {
+    if (this.done) return null;
+    if (this.waiting) return "lessonFirst";
+    const r = this.routed;
+    if (!r) return null;
+    if (r.kind === "daily") return "today";
+    const s = r.spec;
+    return s.kind === "daily" && s.day !== todayKey(this.d.now()) ? "otherDay" : "practice";
+  }
+
+  /** A box with seed key `key` was opened: true the first time it is the link's box (the landing changes). */
+  played(key: string): boolean {
+    if (this.done || key !== this.key) return false;
+    this.done = true;
+    return true;
   }
 
   /** Start: Lesson 1 first for a new player (at its saved step), else the link's box now. */

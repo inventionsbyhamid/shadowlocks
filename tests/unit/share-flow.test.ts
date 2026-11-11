@@ -106,4 +106,39 @@ describe("the shared link's start", () => {
     expect(f.friendFor("shadow-locks/13")).toBeNull();
     expect(flow({ ...box, t: null }, player()).f.friendFor("shadow-locks/12")).toBeNull();
   });
+
+  it("the landing's last line says what Open the box does, and nothing once the link's box has been played", () => {
+    const box: SharedLink = { target: { kind: "box", n: 12 }, t: 222, h: 0, g: 4 };
+    // Before the start: nothing yet. A numbered box: practice; today's own Daily Box: today; another day: that.
+    const b = flow(box, player());
+    expect(b.f.note()).toBeNull();
+    b.f.start();
+    expect(b.f.note()).toBe("practice");
+    const own = flow(dailyLink(TODAY), player());
+    own.f.start();
+    expect(own.f.note()).toBe("today");
+    const other = flow(dailyLink("2026-11-09"), player());
+    other.f.start();
+    expect(other.f.note()).toBe("otherDay");
+    // Today's Daily Box once solved plays as practice, and is today's: practice, not another day.
+    const solved = flow(dailyLink(TODAY), player({ lastDay: TODAY }));
+    solved.f.start();
+    expect(solved.f.note()).toBe("practice");
+    // Another box's result changes nothing; the link's box played: no "your turn" left above "Send yours back".
+    expect(b.f.played("shadow-locks/13")).toBe(false);
+    expect(b.f.note()).toBe("practice");
+    expect(b.f.played("shadow-locks/12")).toBe(true);
+    expect(b.f.note()).toBeNull();
+    expect(b.f.played("shadow-locks/12")).toBe(false);
+    expect(own.f.played("shadow-locks/daily/2026-11-10")).toBe(true);
+    expect(own.f.note()).toBeNull();
+    // A new player: Lesson 1 first until it is done.
+    const p = newProfile(0, "test");
+    const fresh = flow(box, p);
+    fresh.f.start();
+    expect(fresh.f.note()).toBe("lessonFirst");
+    p.lessons = { l1: true, l2: false, step: null };
+    fresh.f.afterLesson();
+    expect(fresh.f.note()).toBe("practice");
+  });
 });
