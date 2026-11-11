@@ -205,7 +205,8 @@ first window.
 
 `soak.spec.ts` plays 60 boxes in a row without a reload (each to its end, the next by the plate's Next) and checks that
 the session leaves nothing behind: after box 10 and box 60 the same geometries, textures and shader programs, scene
-objects, ECS entities, bus and page listeners and wired Web Audio nodes, the heap after a forced GC within 1 MB, the
+objects, ECS entities, bus and page listeners and wired Web Audio nodes (but for the focus mark, one geometry first
+drawn at box 13, and with no exception from box 20 on), the heap after a forced GC within 1 MB, the
 stored profile grown only by its collection, and the reference box (box 15) costing the same at the start and the end
 at 4x. It is in the routine suite, tagged `@full` (a fix round's `--grep-invert @full` leaves it out), and exclusive
 (about 15 minutes). `soak-paths.spec.ts` does the same for the paths a session repeats: lesson replays, hint and Show

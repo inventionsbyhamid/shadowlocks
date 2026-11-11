@@ -342,15 +342,6 @@ export function note(testInfo: TestInfo, line: string): void {
   addRunNote(line);
 }
 
-/**
- * Everything counted at `to` as at `from` (no slack: every count is of things made once, or made and let go), and the
- * heap after GC grown by less than `heapKB`.
- */
-export function expectNothingGrew(from: Sample, to: Sample, heapKB: number): void {
-  expect(counts(to), `${to.label} against ${from.label}`).toEqual(counts(from));
-  expect(to.heapKB - from.heapKB, `heap growth from ${from.label} to ${to.label} (KB)`).toBeLessThan(heapKB);
-}
-
 // --- The reference box's cost -------------------------------------------------------------------------------------
 
 /** The reference box: perf-budget's box 15, played and timed the same way (helpers/perf-play.ts). */
@@ -542,14 +533,29 @@ export interface SoakOptions {
   profileBytesPerBox: number;
   /** The reference box's p95 at the end at most this many times the start's. */
   costRatio: number;
+  /**
+   * Counts the box `every` sample is short of, by name: parts made once and drawn for the first time after it
+   * (FOCUS_MARK_SHOWN_LATER). Every sample after the next one must then match the next one exactly.
+   */
+  shownLater?: Readonly<Record<string, number>>;
 }
+
+/**
+ * The one geometry a soak draws for the first time after box 10: HintMarks' focus mark (src/app/hints.ts), the small
+ * gold diamond above the lock the head's gaze rests on. It is made once, with the hint marks, and drawn the first time
+ * the gaze rests on a closed lock. The soak's head never moves (SEATED), so that is the first box with a closed lock
+ * on its line of sight: box 13, whose one lock sits there. One geometry, made once and never again; the counts from
+ * box 20 on match box 20's exactly, so a part made per box still fails.
+ */
+export const FOCUS_MARK_SHOWN_LATER: Readonly<Record<string, number>> = { geometries: 1 };
 
 /**
  * The box soak: the reference box timed, then boxes 1 to `boxes` in a row, each to its end and the next by the plate's
  * Next, sampled (in the same state: the reward taken, Next offered) after box 1 and every `every` boxes, then the
- * reference box timed again. Asserts the box `every` sample and the last agree (expectNothingGrew), the profile grows
- * only by its collection, the reference box's p95 at the end is within `costRatio` of the start's, and its draw calls
- * are the same.
+ * reference box timed again. Asserts the last sample counts what the box `every` sample counts, plus `shownLater` and
+ * nothing else, and exactly what the sample after that counts; the heap after GC grown by less than `heapKB` from the
+ * box `every` sample; the profile grown only by its collection; the reference box's p95 at the end within `costRatio`
+ * of the start's, with the same draw calls and triangles.
  */
 export async function soakBoxes(app: XrApp, testInfo: TestInfo, o: SoakOptions): Promise<{ samples: Sample[]; start: Cost; end: Cost }> {
   const page = app.page;
@@ -591,7 +597,13 @@ export async function soakBoxes(app: XrApp, testInfo: TestInfo, o: SoakOptions):
       `box ${REF_BOX} p95 ${start.p95Ms.toFixed(2)} -> ${end.p95Ms.toFixed(2)} ms (${((end.p95Ms / start.p95Ms - 1) * 100).toFixed(1)}%), ` +
       `draw calls ${start.calls} -> ${end.calls}`,
   );
-  expectNothingGrew(from, last, o.heapKB);
+  const later = o.shownLater ?? {};
+  const expected = counts(from);
+  for (const [k, v] of Object.entries(later)) expected[k] = (expected[k] ?? 0) + v;
+  expect(counts(last), `${last.label} against ${from.label}, with what shows later (${JSON.stringify(later)})`).toEqual(expected);
+  expect(last.heapKB - from.heapKB, `heap growth from ${from.label} to ${last.label} (KB)`).toBeLessThan(o.heapKB);
+  const next = samples[samples.indexOf(from) + 1];
+  if (next && next !== last) expect(counts(last), `${last.label} against ${next.label}`).toEqual(counts(next));
   expect(last.collection - from.collection, "one collection item a box").toBe(boxes);
   expect((last.profileBytes - from.profileBytes) / boxes, "stored profile bytes a box").toBeLessThanOrEqual(o.profileBytesPerBox);
   expect(end.calls, `box ${REF_BOX}'s draw calls at the end`).toBe(start.calls);
