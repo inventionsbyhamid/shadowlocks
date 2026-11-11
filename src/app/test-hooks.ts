@@ -559,6 +559,14 @@ export function installTestHooks(
       return { world: v3(boxToWorld(box.root.matrixWorld, p, tmp)), up: r.up, held: r.held };
     },
     hint: () => ses.useHint(),
+    card: () => {
+      const r = view.reward, card = r.resultCard;
+      let shown = r.result.visible;
+      r.result.traverseAncestors((o) => {
+        if (!o.visible) shown = false;
+      });
+      return { shown, card: card ? { ...card, tiles: [...card.tiles], lines: [...card.lines] } : null, world: v3(r.result.getWorldPosition(tmp)) };
+    },
   };
   const les = app.lessons;
   const lessons: SlLessons = {

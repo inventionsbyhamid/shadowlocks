@@ -220,3 +220,43 @@ export function storedInProgress(): Promise<unknown> {
     };
   });
 }
+
+/**
+ * The whole profile stored in IndexedDB right now (null with none), as storedProgress reads it: it never creates the
+ * database.
+ */
+export function storedProfile(): Promise<Record<string, unknown> | null> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("shadow-locks");
+    let missing = false;
+    req.onupgradeneeded = () => {
+      missing = true;
+      req.transaction?.abort();
+    };
+    req.onblocked = () => reject(new Error("IndexedDB open blocked"));
+    req.onerror = () => (missing ? resolve(null) : reject(req.error ?? new Error("IndexedDB open failed")));
+    req.onsuccess = () => {
+      const db = req.result;
+      try {
+        if (!db.objectStoreNames.contains("profile")) {
+          db.close();
+          resolve(null);
+          return;
+        }
+        const get = db.transaction("profile", "readonly").objectStore("profile").get("me");
+        get.onsuccess = () => {
+          db.close();
+          resolve((get.result as Record<string, unknown> | undefined) ?? null);
+        };
+        get.onerror = () => {
+          db.close();
+          reject(get.error ?? new Error("IndexedDB read failed"));
+        };
+      } catch (e) {
+        db.close();
+        reject(e);
+      }
+    };
+  });
+}
+

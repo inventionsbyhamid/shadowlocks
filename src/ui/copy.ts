@@ -18,6 +18,44 @@ export const COPY = {
     notSaved: "Progress will not be saved on this device.",
     updated: "Updated to the latest version.",
   },
+  /**
+   * Sharing: the result card on an opened box's reward (its time, a tile per lock and the streak), the player's own
+   * bests. A {time} is minutes and seconds ("4:12").
+   */
+  share: {
+    /** The player's best time: on a Daily Box, of every other Daily Box; on a box played again, that box's own. */
+    best: "Your best {time}",
+    /** A Daily Box opened faster than every other Daily Box before it. */
+    newBest: "New best",
+    /** The landing for a shared link: what was shared, what the friend says they did, and what Open the box does. */
+    sentDaily: "A friend sent you the Daily Box for {day}.",
+    sentBox: "A friend sent you Box No. {n}.",
+    says: "Your friend says {time}.",
+    saysHints: "Your friend says {time}, {help}.",
+    noHints: "no hints",
+    hints: { one: "{n} hint", other: "{n} hints" },
+    todayTurn: "It is today's Daily Box. Your turn.",
+    practiceTurn: "Your turn. It plays as practice.",
+    otherDay: "That box was for another day. It plays as practice.",
+    /** Meta's Web Launch from a computer or phone (Meta asks for Meta Quest on the button). */
+    openQuest: "Open on my Meta Quest",
+    copyLink: "Copy link",
+    copied: "Copied.",
+    copyFailed: "Could not copy. Copy the address from the address bar.",
+    /** The 2D page after a session, under the result's text. */
+    shareToday: "Share today's result",
+    manual: "Take a screenshot, or copy the text.",
+    /** A new player's landing: Lesson 1 plays first (about 2.5 minutes), then the shared box. */
+    lessonFirst: "Lesson 1 comes first, then your friend's box.",
+    /** The result card on a shared box: both results ("your friend says": a link's time can be edited). */
+    you: "You {time}, {help}",
+    friend: "Your friend says {time}, {help}",
+    friendTime: "Your friend says {time}",
+    /** The 2D page's share button after any other box, and after a friend's box; the line the text asks. */
+    challenge: "Challenge a friend",
+    sendBack: "Send yours back",
+    beat: "Can you beat my time?",
+  },
   /** Settings rows: a toggle's label and the short note under it; slider labels; values. */
   settings: {
     on: "On",

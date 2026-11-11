@@ -15,6 +15,7 @@ import { HINT_GLOW_GAIN } from "../audio/cues";
 import { genOf, specForSave, specOfKey } from "../core/generator";
 import { mirrorBox } from "../core/mirror";
 import type { BoxSnapshot } from "../core/profile";
+import { levelsOf } from "../core/result";
 import { type Coverage, measure, meets, prepareLock, ShadowCaster, SKIP_MISSING, warmth, WARMTH_RANGE } from "../core/solve";
 import type { Box, BoxSpec, Lock, V3, Vec3 } from "../core/types";
 import { LANTERN_MIN_Z, LANTERN_RESTORE, LESSON_STUCK_MS, MAX_STEP_MS, OPEN_DWELL_MS, STUCK_MS } from "../feel/constants";
@@ -46,6 +47,11 @@ const EPS_MS = 1e-6;
 export class BoxSession {
   /** "Show me" on the hint lantern: replays the example the lock needs (wired by the lessons). */
   showMe: ((lock: Lock) => void) | null = null;
+  /**
+   * The plate's Next, asked first: true when it took the press (a friend's shared box goes on to lesson 2 or Home,
+   * never to another box). Wired by the app's shared link.
+   */
+  nextHook: (() => boolean) | null = null;
   private current: Box | null = null;
   private currentSpec: BoxSpec | null = null;
   private stageNow: Stage = "idle";
@@ -217,6 +223,7 @@ export class BoxSession {
    */
   next(): Promise<void> {
     if (this.stageNow !== "offered") return Promise.resolve();
+    if (this.nextHook?.()) return Promise.resolve();
     // Every Next is an endless box: asked of the entitlement first (a trial over keeps only the Daily Box and lessons).
     if (!(this.deps.canPlayBox?.() ?? true)) {
       this.deps.boxRefused?.();
@@ -610,11 +617,15 @@ export class BoxSession {
     this.view.boxOpened();
     // Solved: the profile moves on and the reward is in the collection now, with the time and hints final (taking it
     // is the moment the player sees; a reload before that loses nothing). A practice box changes nothing.
+    const recorded = !this.practiceNow && !p.collection.some((c) => c.key === box.key);
+    const levels = levelsOf(this.book.levels(), box.locks.length);
     if (!this.practiceNow) {
       solveBox(p, this.currentSpec!);
-      collect(p, box, d.wallNow(), this.elapsed, this.book.count);
+      collect(p, box, d.wallNow(), this.elapsed, this.book.count, levels);
       void d.profiles.save();
     }
+    // The result card, from the profile as it is now (the streak moved on, the collection has the box).
+    this.view.result?.({ spec: this.currentSpec!, key: box.key, practice: this.practiceNow, recorded, timeMs: this.elapsed, hints: this.book.count, levels });
     d.boxes.prefetch({ kind: "box", n: p.nextBox });
   }
 

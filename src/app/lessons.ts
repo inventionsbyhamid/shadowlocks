@@ -67,6 +67,11 @@ export interface LessonsDeps {
   presenting(): boolean;
   /** A first launch may go into lesson 1 now (false: a field flag picked what plays, or a test keeps Home). */
   autoStart?: () => boolean;
+  /**
+   * Lesson 1 is done (for real): true when something else plays now in place of lesson 2 (a shared link's box, which
+   * a new player gets after Lesson 1).
+   */
+  afterFirst?: () => boolean;
   /** What draws the lessons (tests pass their own; the real one needs a world and the box scene). */
   view?: LessonView;
   /** The session is a phone's: the coach chip says the lines about hands the phone's way (phone-lines.ts). */
@@ -444,9 +449,11 @@ export class Lessons implements MenuLessons {
       p.lessons = { ...p.lessons, [id]: true, step: null };
       void this.d.profiles.save();
     }
-    // Lesson 1 leads into lesson 2; lesson 2 ends on the menu it just taught.
-    if (id === "l1") this.start("l2", { practice: this.practice });
-    else go("home");
+    // Lesson 1 leads into lesson 2 (unless a shared link's box comes in its place); lesson 2 ends on the menu it just
+    // taught.
+    if (id === "l1") {
+      if (this.practice || !this.d.afterFirst?.()) this.start("l2", { practice: this.practice });
+    } else go("home");
   }
 
   private replayed(_ex: ExampleId, lesson: LessonId, start: boolean): void {
