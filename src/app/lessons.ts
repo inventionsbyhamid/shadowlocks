@@ -51,6 +51,9 @@ import { chipPath, type Device, deviceKey, replayLines, stepLines } from "./voic
 import { COPY } from "../ui/copy";
 import type { CoachLine } from "./events";
 
+/** No lesson lines to keep decoded. */
+const NO_LINES: readonly string[] = [];
+
 /** The lantern within this brightness of a hand counts as the player reaching for it (lantern-grab.ts: 30 cm). */
 const NEAR_GLOW = 0.05;
 
@@ -125,7 +128,10 @@ export class Lessons implements MenuLessons {
   private outScope = 0;
   private outBox: unknown = null;
   private readonly outSeen: string[] = [];
-  /** The lesson part the voice's clips were last prepared for (the director's scope), and the ghost's clicks. */
+  /**
+   * The lesson part the voice's clips were last prepared for (the director's scope; -1: none, nothing held), and the
+   * ghost's clicks.
+   */
   private prepScope = -1;
   private clicks = 0;
 
@@ -304,7 +310,7 @@ export class Lessons implements MenuLessons {
     // phone the phone's way, and with controllers in hand the controllers' way.
     const said = this.d.phone?.() ? phoneLine(line) : this.d.hands.controllers ? controllerLine(line) : line;
     this.view.update(dir.frame, this.onScreen, localLine(said), dt, tMs);
-    if (this.d.voice) this.speak(said, shown !== null, session);
+    if (this.d.voice) this.speak(said, shown !== null, on !== null, session);
   }
 
   /** The input in hand, as the chip words its lines. */
@@ -314,11 +320,16 @@ export class Lessons implements MenuLessons {
 
   /**
    * The chip's line to the voice guide: the director's with its own showings and steps; a tip or the session's
-   * suggestion outside a lesson said once a box. On a new lesson part, its clips are decoded (and the last part's
-   * dropped); the ghost's click is a quiet moment. Allocates nothing per frame.
+   * suggestion outside a lesson said once a box. On a new lesson part (or replay), its clips are decoded (and the last
+   * part's dropped); once no lesson runs (`running`: under a menu it still does), none are kept. The ghost's click is a
+   * quiet moment. Allocates nothing per frame.
    */
-  private speak(said: string | null, lesson: boolean, session: BoxSession): void {
+  private speak(said: string | null, lesson: boolean, running: boolean, session: BoxSession): void {
     const voice = this.d.voice!, f = this.director.frame, dir = this.director;
+    if (!running && this.prepScope !== -1) {
+      this.prepScope = -1;
+      voice.prepare(NO_LINES);
+    }
     if (f.clicks !== this.clicks) {
       this.clicks = f.clicks;
       voice.quiet(CLICK_QUIET_MS);

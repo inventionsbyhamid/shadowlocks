@@ -13,7 +13,7 @@ import { newProfile } from "../../src/core/profile";
 import type { BoxSnapshot, Profile } from "../../src/core/profile";
 import type { Box, BoxSpec } from "../../src/core/types";
 import type { BoxScene } from "../../src/render/box-scene";
-import { replayLines } from "../../src/app/voice-lines";
+import { replayLines, stepLines } from "../../src/app/voice-lines";
 import { COPY } from "../../src/ui/copy";
 
 /** A box with decoys, as tipFor sees one (box 2 brings in the decoys tip). */
@@ -150,12 +150,35 @@ describe("Lessons: the voice guide", () => {
     expect(b.voice.ms).toHaveBeenCalledWith("phone.turnFinger");
   });
 
-  it("decodes a replay's lines ahead from Home once the lessons are done", () => {
+  it("decodes a replay's lines ahead from Home once the lessons are done, and drops them when it ends", () => {
     const b = voiced();
     b.profile.lessons = { l1: true, l2: true, step: null };
     expect(b.lessons.replay("rings")).toBe(true);
     b.run(100);
     expect(b.voice.prepare).toHaveBeenCalledWith(replayLines("rings", "hands"));
+    b.run(40_000);
+    expect(b.lessons.director.replaying).toBeNull();
+    expect(b.voice.prepare).toHaveBeenLastCalledWith([]);
+  });
+
+  it("drops a lesson part's clips when the lesson stops, and not under a menu", () => {
+    const b = voiced();
+    b.lessons.start("l1");
+    b.run(FORM_MS + 200);
+    expect(b.voice.prepare).toHaveBeenLastCalledWith(stepLines("l1", 0, "hands"));
+    const n = b.voice.prepare.mock.calls.length;
+    // A menu over the lesson keeps them: the lesson waits.
+    go("home");
+    b.run(1000);
+    go("play");
+    b.run(32);
+    expect(b.voice.prepare.mock.calls.length).toBe(n);
+    // Another box started: the lesson stops where it is.
+    b.play.game.play({ kind: "box", n: 2 });
+    b.run(100);
+    expect(b.voice.prepare).toHaveBeenLastCalledWith([]);
+    b.run(1000);
+    expect(b.voice.prepare.mock.calls.length).toBe(n + 1);
   });
 
   it("gives a phone player idle at the crown's turn the phone's finger line, never the hands' nearer-or-farther one", () => {
