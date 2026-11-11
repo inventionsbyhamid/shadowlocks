@@ -2,7 +2,8 @@
 // - the landing for a shared link: what was shared, what the friend says they did ("your friend says": a link's time
 //   can be edited, and that is fine), and what Open the box does with it;
 // - on a computer or a phone (never on a headset), Meta's Web Launch "Open on my Meta Quest" (the shared link, else
-//   the game's address) and, for a shared link, "Copy link";
+//   the game's address) and, for a shared link, "Copy link", both on the host serving the page when it is one of ours
+//   (a judge stays on the judges' host), else the public host;
 // - after a session, the result's text (selectable by hand) with its share button: the system share sheet where there
 //   is one, else the clipboard, else a plain word to take a screenshot or copy the text. The 2D page only: a click
 //   there is a real user gesture, which a poke inside XR is not.
@@ -31,6 +32,8 @@ export interface SharePageDoc {
 export interface ShareEnv {
   /** A Meta Quest browser (the headset): no Web Launch, no Copy link. */
   quest: boolean;
+  /** The origin Web Launch and Copy link name (edition.ts servedOrigin: one of our hosts); the public host if none. */
+  origin?: string;
   /** The system share sheet (navigator.share), where there is one. */
   share?: (data: { text: string }) => Promise<void>;
   /** The clipboard (navigator.clipboard.writeText), where there is one. */
@@ -43,9 +46,12 @@ export type LandingNote = "today" | "practice" | "otherDay" | "lessonFirst";
 /** The share note's line, kept as which line it is so a new language paints it again. */
 type Note = "copied" | "copyFailed" | "manual" | null;
 
-/** The env of this browser: the Quest browser by its user agent; the share sheet and clipboard where they exist. */
-export function browserEnv(nav: Navigator, quest: boolean): ShareEnv {
-  const env: ShareEnv = { quest };
+/**
+ * The env of this browser: the Quest browser by its user agent, the origin its links name (one of our hosts), the share
+ * sheet and clipboard where they exist.
+ */
+export function browserEnv(nav: Navigator, quest: boolean, origin: string): ShareEnv {
+  const env: ShareEnv = { quest, origin };
   if (typeof nav.share === "function") env.share = (d) => nav.share(d);
   if (nav.clipboard && typeof nav.clipboard.writeText === "function") env.copy = (t) => nav.clipboard.writeText(t);
   return env;
@@ -104,7 +110,7 @@ export class SharePage {
   /** Copy the shared link (or say to copy it from the address bar). */
   async copyLink(): Promise<void> {
     if (!this.link) return;
-    this.say((await this.copied(sharedLinkUrl(this.link))) ? "copied" : "copyFailed");
+    this.say((await this.copied(sharedLinkUrl(this.link, this.origin))) ? "copied" : "copyFailed");
   }
 
   /** Every word in the language shown. */
@@ -135,7 +141,7 @@ export class SharePage {
     const launch = this.el("quest-launch");
     if (launch) {
       launch.textContent = c.openQuest;
-      launch.setAttribute("href", webLaunchUrl(l ? sharedLinkUrl(l) : `${PUBLIC_ORIGIN}/`));
+      launch.setAttribute("href", webLaunchUrl(l ? sharedLinkUrl(l, this.origin) : `${this.origin}/`));
     }
     const copyKey = this.el("copy-link");
     if (copyKey) copyKey.textContent = c.copyLink;
@@ -167,6 +173,11 @@ export class SharePage {
     } catch {
       return false;
     }
+  }
+
+  /** The origin the page's links name. */
+  private get origin(): string {
+    return this.env.origin ?? PUBLIC_ORIGIN;
   }
 
   private show(id: string, on: boolean): void {

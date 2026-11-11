@@ -20,7 +20,7 @@ import { styleRayCursors } from "../ui/ray-cursor";
 import { Access, billingFor } from "./access";
 import { emit, on } from "./bus";
 import { attachDrawer } from "./drawer-system";
-import { detectEdition, installedApp, paywallFor, showLanding, testOverrides } from "./edition";
+import { detectEdition, installedApp, paywallFor, servedOrigin, showLanding, testOverrides } from "./edition";
 import { disableMultiview, readFieldFlags, showPerfPanel, startBox, startLesson } from "./field-flags";
 import { attachGame } from "./game";
 import { recordHands, recordSeconds } from "./hand-recorder";
@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   // Sharing on the 2D page: Web Launch away from a headset, a shared link's landing line (`?day=...`, `?box=N&t=...`:
   // shown at once, so a computer that cannot play still says what was shared), the result's share button.
   const shared = parseSharedLink(location.search);
-  const sharing = new SharePage(document, browserEnv(navigator, questBrowser(navigator.userAgent)));
+  const sharing = new SharePage(document, browserEnv(navigator, questBrowser(navigator.userAgent), servedOrigin(location)));
   sharing.landed(shared, null);
 
   const hooks = TEST_HOOKS ? await import("./test-hooks") : null;

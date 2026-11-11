@@ -56,6 +56,22 @@ describe("the landing for a shared link", () => {
     expect(els.result!.hidden).toBe(true);
   });
 
+  it("Open on my Meta Quest and Copy link name the host the page is served from: the judges' stays the judges'", async () => {
+    const judge = "https://shadowlocks-judge.pages.dev";
+    const copied: string[] = [];
+    const { els, p } = page({ origin: judge, copy: async (t) => void copied.push(t) });
+    p.landed(null, null);
+    expect(els["quest-launch"]!.attrs.href).toBe(launch(`${judge}/`));
+    p.landed(daily, "today");
+    expect(els["quest-launch"]!.attrs.href).toBe(launch(`${judge}/?day=2026-11-10&t=252&h=1&g=4`));
+    await els["copy-link"]!.click();
+    expect(copied).toEqual([`${judge}/?day=2026-11-10&t=252&h=1&g=4`]);
+    // No origin given: the public host.
+    const plain = page();
+    plain.p.landed(daily, "today");
+    expect(plain.els["quest-launch"]!.attrs.href).toBe(launch(LINK));
+  });
+
   it("on a headset: neither Open on my Meta Quest nor Copy link", () => {
     const { els, p } = page({ quest: true });
     p.landed(daily, "today");
