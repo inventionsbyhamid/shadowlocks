@@ -103,8 +103,8 @@ export const LOOP_FADE_MS = 150;
 const NO_OPTIONS: PlayOptions = Object.freeze({});
 
 export const VOICE_POOL_SIZE = 16;
-const DUCK_ATTACK = 0.05;
-const DUCK_RELEASE = 0.3;
+export const DUCK_ATTACK = 0.05;
+export const DUCK_RELEASE = 0.3;
 const STING_DUCK_DB = 6;
 const STEAL_FADE = 0.005;
 const AMBIENCE_FADE = 1;
@@ -156,6 +156,8 @@ export class AudioEngine {
   private master: GainNode;
   private musicBus: GainNode;
   private duck: GainNode;
+  /** The voice guide's own dip, in series after the engine's: the voice ramps it, nothing else touches it. */
+  private voiceDuck: GainNode;
   private sfxBus: GainNode;
   private uiBus: GainNode;
   private ambienceBus: GainNode;
@@ -200,10 +202,12 @@ export class AudioEngine {
 
     this.musicBus = c.createGain();
     this.duck = c.createGain();
+    this.voiceDuck = c.createGain();
     this.sfxBus = c.createGain();
     this.uiBus = c.createGain();
     this.ambienceBus = c.createGain();
-    this.duck.connect(this.musicBus);
+    this.duck.connect(this.voiceDuck);
+    this.voiceDuck.connect(this.musicBus);
     this.musicBus.connect(this.master);
     this.sfxBus.connect(this.master);
     // UI and ambience sit inside effects, so the effects slider scales them too.
@@ -254,15 +258,9 @@ export class AudioEngine {
     this.duckMusic(dbDown, sec);
   }
 
-  /** End the music's dip now (a voice line cut short): back up over the usual 300 ms. */
-  releaseDuck(): void {
-    const now = this.ctx.currentTime;
-    if (now >= this.duckUntil) return;
-    this.duckUntil = now;
-    const g = this.duck.gain;
-    g.cancelScheduledValues(now);
-    g.setValueAtTime(g.value, now);
-    g.linearRampToValueAtTime(1, now + DUCK_RELEASE);
+  /** The music's dip under the voice guide (voice.ts), apart from the dips the engine's own sounds make. */
+  voiceDuckGain(): GainNode {
+    return this.voiceDuck;
   }
 
   private get ready(): boolean {

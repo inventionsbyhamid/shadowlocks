@@ -4,7 +4,7 @@
 // - A line is said the first time it shows (in its step, or its replay); a line coming back is not said again, unless
 //   it is an idle nudge coming back, which is said at most IDLE_REPEATS times a step.
 // - One line at a time: when the chip moves on, the line playing fades out over STALE_FADE_MS and the next one starts
-//   NEXT_GAP_MS later. Doing what a line asks moves the chip on, so it ends the line. An idle line never interrupts a
+//   NEXT_GAP_MS later (the music and the hums stay dipped in between). Doing what a line asks moves the chip on, so it ends the line. An idle line never interrupts a
 //   line, and is dropped within IDLE_AFTER_MS of one ending.
 // - Quiet windows (a lock's layers, the ghost's click, the box's tune, the finger lock's moment): a line waits for the
 //   window's end, if it is still the chip's.
@@ -46,8 +46,13 @@ export interface VoiceOut {
   readonly running: boolean;
   /** Start `buffer` (the line before it is already stopped); `ended` when it is over, by itself or stopped. */
   say(buffer: AudioBuffer, ended: () => void): void;
-  /** Fade the line playing out over `fadeMs` and stop it. */
-  hush(fadeMs: number): void;
+  /**
+   * Fade the line playing out over `fadeMs` and stop it. `hold`: another line is queued to follow, so the music and
+   * the hums stay dipped until it starts (or `release`).
+   */
+  hush(fadeMs: number, hold?: boolean): void;
+  /** The line held for will not start: with none playing, the music and the hums come back up. */
+  release(): void;
 }
 
 /** The clips (voice-pack.ts VoicePack). */
@@ -140,9 +145,9 @@ export class VoiceGuide {
   /** The settings changed: the Voice guide switched off fades the line out at once (the chip keeps it). */
   settingsChanged(): void {
     if (this.voiced()) return;
-    this.pending = null;
     this.wakeAt = Infinity;
     this.resumeKey = null;
+    if (this.pending !== null) this.drop();
     if (this.playing) this.stop(OFF_FADE_MS);
   }
 
@@ -173,25 +178,38 @@ export class VoiceGuide {
     const was = this.playing;
     this.key = key;
     this.why = key === null ? null : why;
+    const held = this.pending !== null;
     this.pending = null;
     this.wakeAt = Infinity;
     this.resumeKey = null;
     if (was !== null && was === key) return;
-    if (was !== null) this.stop(STALE_FADE_MS);
-    if (key === null || !this.voiced() || !this.clips) return;
+    const now = this.deps.now();
+    const say = key !== null && this.sayable(key, why, again, was !== null, now);
+    // The line playing stops; the dips under it stay down only when the new one is queued to follow.
+    if (was !== null) this.stop(STALE_FADE_MS, say);
+    else if (held && !say) this.deps.out.release();
+    if (say && key !== null) this.queue(key, was !== null ? now + STALE_FADE_MS + NEXT_GAP_MS : now, now);
+  }
+
+  /** Line `key` showing now (why, again, with a line playing until now) is to be said. */
+  private sayable(key: string, why: VoiceWhy | null, again: boolean, cut: boolean, now: number): boolean {
+    if (!this.voiced() || !this.clips) return false;
     if (!this.clips.has(key)) {
       if (!this.clips.known(key) && !this.warned.has(key)) {
         this.warned.add(key);
         this.deps.warn?.(`voice: no clip for ${key}; text only`);
       }
-      return;
+      return false;
     }
-    const now = this.deps.now();
-    if (why === "idle") {
-      // A nudge never interrupts, never follows a line closely, and comes back at most IDLE_REPEATS times a step.
-      if (was !== null || now - this.lastEnd < IDLE_AFTER_MS || (this.idleSaid.get(key) ?? 0) >= IDLE_REPEATS) return;
-    } else if (again) return;
-    this.queue(key, was !== null ? now + STALE_FADE_MS + NEXT_GAP_MS : now, now);
+    // A nudge never interrupts, never follows a line closely, and comes back at most IDLE_REPEATS times a step.
+    if (why === "idle") return !cut && now - this.lastEnd >= IDLE_AFTER_MS && (this.idleSaid.get(key) ?? 0) < IDLE_REPEATS;
+    return !again;
+  }
+
+  /** The waiting line is given up: the dips held for it come back up. */
+  private drop(): void {
+    this.pending = null;
+    this.deps.out.release();
   }
 
   /** Line `key` to start at `at` (or once a quiet window, audio or its clip allows). */
@@ -214,7 +232,7 @@ export class VoiceGuide {
       return;
     }
     if (!this.deps.out.running) {
-      if (now - this.shownAt > UNLOCK_HOLD_MS) this.pending = null;
+      if (now - this.shownAt > UNLOCK_HOLD_MS) this.drop();
       else {
         // Its clip gets its own wait once audio starts.
         this.readyBy = now + READY_WAIT_MS;
@@ -224,7 +242,7 @@ export class VoiceGuide {
     }
     const b = this.clips.buffer(key);
     if (!b) {
-      if (now > this.readyBy) this.pending = null;
+      if (now > this.readyBy) this.drop();
       else this.wakeAt = now + POLL_MS;
       return;
     }
@@ -244,11 +262,12 @@ export class VoiceGuide {
     });
   }
 
-  private stop(fadeMs: number): void {
+  /** The line playing stops, over `fadeMs`; `hold`: another is queued to follow, so the dips stay down. */
+  private stop(fadeMs: number, hold = false): void {
     this.token++;
     this.playing = null;
     this.lastEnd = this.deps.now();
-    this.deps.out.hush(fadeMs);
+    this.deps.out.hush(fadeMs, hold);
   }
 
   /** Hidden: the line stops. Seen again: it is said again from its start, if still shown. */

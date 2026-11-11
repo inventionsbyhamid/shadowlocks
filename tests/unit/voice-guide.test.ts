@@ -23,7 +23,7 @@ const buf = (key: string) => ({ key, duration: 3 }) as unknown as AudioBuffer;
 function rig(o: { missing?: string[]; undecoded?: string[]; lang?: string } = {}) {
   let t = 0;
   const plays: { key: string; at: number }[] = [];
-  const hushes: { fade: number; at: number }[] = [];
+  const hushes: { fade: number; at: number; hold: boolean }[] = [];
   let ended: (() => void) | null = null;
   const out = {
     running: true,
@@ -31,7 +31,8 @@ function rig(o: { missing?: string[]; undecoded?: string[]; lang?: string } = {}
       plays.push({ key: (b as unknown as { key: string }).key, at: t });
       ended = done;
     }),
-    hush: vi.fn((fade: number) => hushes.push({ fade, at: t })),
+    hush: vi.fn((fade: number, hold = false) => hushes.push({ fade, at: t, hold })),
+    release: vi.fn(),
   };
   const undecoded = new Set(o.undecoded ?? []);
   const clips: VoiceClips = {
@@ -102,6 +103,39 @@ describe("VoiceGuide", () => {
     r.show(null, null);
     r.run(16);
     expect(r.hushes.length).toBe(2);
+  });
+
+  it("keeps the dips down when a cut line has another queued to follow, and lets them up when none does", () => {
+    const r = rig();
+    r.show(C.watchRings, "example");
+    r.run(32);
+    r.show(C.lineUp, "example");
+    r.run(16);
+    expect(r.hushes.at(-1)!.hold).toBe(true);
+    r.run(STALE_FADE_MS + NEXT_GAP_MS + 32);
+    expect(r.plays.length).toBe(2);
+    // A blank chip: nothing follows.
+    r.show(null, null);
+    r.run(16);
+    expect(r.hushes.at(-1)!.hold).toBe(false);
+    // A line coming back (not said again) follows nothing either.
+    r.show(C.goal);
+    r.run(32);
+    r.show(C.goal, "step", true);
+    r.show(C.pickUp, "step", true);
+    r.run(16);
+    expect(r.hushes.at(-1)!.hold).toBe(false);
+    // A follower dropped before it starts (the chip moved on again inside a quiet window) lets the dips up.
+    r.show(C.watch, "example");
+    r.run(32);
+    r.g.quiet(800);
+    r.show(C.watchNearFar, "example");
+    r.run(16);
+    expect(r.hushes.at(-1)!.hold).toBe(true);
+    const released = r.out.release.mock.calls.length;
+    r.show(null, null);
+    r.run(16);
+    expect(r.out.release.mock.calls.length).toBe(released + 1);
   });
 
   it("says an idle line on its first showing and when it comes back, at most twice a step; never over a line or right after one", () => {
