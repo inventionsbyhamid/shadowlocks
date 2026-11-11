@@ -25,11 +25,11 @@ type Measure = Parameters<typeof keyLabelFit>[0];
 
 /**
  * Every line the coach chip shows: each lesson's lines (not the lessons' names), the tips, the session's suggestion,
- * and a phone's wording of the lines about hands.
+ * and a phone's and a controller's wording of the lines about hands.
  */
 export function coachLines(c: Copy): string[] {
   const said = Object.values(c.lessons).filter((v): v is string => typeof v === "string");
-  return [...said, ...Object.values(c.lessons.tips), c.game.controllerFinger, ...Object.values(c.phone)];
+  return [...said, ...Object.values(c.lessons.tips), c.game.controllerFinger, ...Object.values(c.phone), ...Object.values(c.controller)];
 }
 
 /** Measure every piece of the box's lettering in every language with `g` (its fonts loaded). */

@@ -138,6 +138,28 @@ export class LanternGrab {
     return this.who === side;
   }
 
+  /**
+   * Where the tracked hand (or controller) nearest the lantern pinches, as of the last update, into `out` (box units);
+   * false when none is in tracking. The lessons keep their ghost hand clear of it.
+   */
+  nearestPinch(out: V3): boolean {
+    let best = Infinity, who = -1;
+    for (let i = 0; i < 2; i++) {
+      if (!this.ok[i]) continue;
+      const d = dist(this.pt[i]!, this.ctrl.pos);
+      if (d < best) {
+        best = d;
+        who = i;
+      }
+    }
+    if (who < 0) return false;
+    const p = this.pt[who]!;
+    out[0] = p[0];
+    out[1] = p[1];
+    out[2] = p[2];
+    return true;
+  }
+
   /** Put the lantern at `p` (box units), never deeper than the box's open front. A hand holding it holds on. */
   place(p: Readonly<V3>): void {
     this.placed[0] = p[0];

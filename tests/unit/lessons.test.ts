@@ -38,6 +38,9 @@ function bench(o: { presenting?: boolean; autoStart?: boolean } = {}) {
     practice: false,
     revealed: true,
     isOpen: (i: number) => open.has(i),
+    warmth: () => 0,
+    stuck: false,
+    restartStuck: vi.fn(),
     snapshot: () => ({ key: session.box?.key ?? "", lantern: [0, 0, 1], open: [...open], crystal: [], elapsedMs: 1234, hints: 0, hintLevel: {} }) as BoxSnapshot,
   };
   const game = {
@@ -67,7 +70,7 @@ function bench(o: { presenting?: boolean; autoStart?: boolean } = {}) {
       },
     },
     settings: { get: () => ({ reducedMotion: false, handed: "right" }) },
-    lantern: { grab: { holder: null, brightness: 0 }, feel: { aligned: () => false }, ctrl: { pos: [0.3, -0.3, 1.3] } },
+    lantern: { grab: { holder: null, brightness: 0, nearestPinch: () => false }, feel: { aligned: () => false }, ctrl: { pos: [0.3, -0.3, 1.3] } },
     hands: { n: 0 },
     sound: { game: { lessonStep: vi.fn(), settle: vi.fn(), crystallise: vi.fn() } },
     play,
@@ -88,6 +91,7 @@ function bench(o: { presenting?: boolean; autoStart?: boolean } = {}) {
   /** Whether the view was last told a tip's demo is on screen. */
   const tipShown = () => (view.update.mock.calls.at(-1)![1] as { tip?: boolean }).tip === true;
   const lantern = (deps as unknown as { lantern: { grab: { holder: string | null } } }).lantern;
+  const hands = (deps as unknown as { hands: { n: number; controllers?: boolean } }).hands;
   /**
    * Another window's profile taken in place of this one's, as profile-store.ts does it: `change` makes the other
    * window's from this one's, which is copied in place, and the listeners hear of this one's as it was.
@@ -99,7 +103,7 @@ function bench(o: { presenting?: boolean; autoStart?: boolean } = {}) {
     Object.assign(profile, theirs);
     for (const fn of adopters) fn(before, before);
   };
-  return { lessons, profile, session, plays, open, env, run, shown, tipShown, play, lantern, adopt };
+  return { lessons, profile, session, plays, open, env, run, shown, tipShown, play, lantern, hands, adopt };
 }
 
 describe("Lessons", () => {
@@ -183,6 +187,78 @@ describe("Lessons", () => {
     expect(b.lessons.director.frame.form).toBeLessThan(0.7);
   });
 
+  it("starts the session's stuck watch over with every lesson step, so the hint lantern glows 40 s into a step", () => {
+    const b = bench();
+    b.lessons.start("l1", { step: 1 });
+    expect(b.session.restartStuck).toHaveBeenCalledTimes(1);
+    b.run(500);
+    b.open.add(0);
+    b.run(32);
+    expect(b.lessons.director.step).toBe(2);
+    expect(b.session.restartStuck).toHaveBeenCalledTimes(2);
+  });
+
+  it("tells a controller player the lines about a free hand or a finger the controllers' way; the director's stay English", () => {
+    const b = bench();
+    b.hands.controllers = true;
+    b.lessons.start("l2");
+    b.run(FORM_MS + 200);
+    expect(b.lessons.director.frame.line).toBe(COPY.lessons.puppets);
+    expect(b.shown().line).toBe(COPY.controller.puppets);
+    // Hands again: the hands' words.
+    b.hands.controllers = false;
+    b.run(32);
+    expect(b.shown().line).toBe(COPY.lessons.puppets);
+  });
+
+  it("ends the Stuck? line when the player takes a hint from the hint lantern", () => {
+    const b = bench();
+    b.lessons.start("l1", { step: 3 });
+    b.run(40_200);
+    expect(b.shown().line).toBe(COPY.lessons.stuck);
+    emit({ type: "hint", lock: 1, level: 1 });
+    b.run(32);
+    expect(b.shown().line).toBe(COPY.lessons.turnNearFar);
+  });
+
+  it("explains the hint lantern's glow while lesson 1 waits for the lantern: Stuck? with the glow", () => {
+    const b = bench();
+    b.lessons.start("l1");
+    b.run(FORM_MS + 500);
+    expect(b.shown().line).toBe(COPY.lessons.pickUp);
+    b.session.stuck = true;
+    b.run(32);
+    expect(b.shown().line).toBe(COPY.lessons.stuck);
+  });
+
+  it("holds a lesson lock's idle clocks and the pause after a win while the headset is hidden", () => {
+    const b = bench();
+    b.lessons.start("l1", { step: 1 });
+    b.run(8000);
+    expect(b.lessons.director.frame.key).toBe("goal");
+    // Thirty seconds hidden count nothing: no nudge, no last resort.
+    b.env.presenting = false;
+    b.run(30_000);
+    expect([b.lessons.director.frame.key, b.lessons.director.showing]).toEqual(["goal", false]);
+    // Seen again, the 12 s nudge comes 4 s on (the first frame back counts at most 0.1 s).
+    b.env.presenting = true;
+    b.run(3800);
+    expect(b.lessons.director.frame.key).toBe("goal");
+    b.run(400);
+    expect(b.lessons.director.frame.key).toBe("moveIdle");
+    // The pause after the first win holds too.
+    b.open.add(0);
+    b.run(32);
+    expect([b.lessons.director.frame.key, b.lessons.director.showing]).toEqual(["lockOpen", false]);
+    b.env.presenting = false;
+    b.run(10_000);
+    b.env.presenting = true;
+    b.run(1000);
+    expect([b.lessons.director.frame.key, b.lessons.director.showing]).toEqual(["lockOpen", false]);
+    b.run(1700);
+    expect(b.lessons.director.showing).toBe(true);
+  });
+
   it("waits under a menu, its ghost and line put away", () => {
     const b = bench();
     b.lessons.start("l1");
@@ -198,40 +274,47 @@ describe("Lessons", () => {
     expect(b.shown().lesson).toBe("l1");
   });
 
-  it("shows the session's controller line under a lesson, with a line of its own or not, but never over an example", () => {
+  it("keeps a lesson's own line over the session's controller line outside a turn, and its example's always", () => {
     const b = bench();
-    b.lessons.start("l1");
+    b.hands.controllers = true;
+    b.lessons.start("l2");
     b.play.view.coachLine = "controllerFinger";
-    // The box still forming (no lesson line yet), then formed ("Pick up the lantern."): the session's line either way.
-    b.run(100);
-    expect(b.lessons.director.frame.line).toBeNull();
-    expect(b.shown().line).toBe(COPY.game.controllerFinger);
-    b.run(FORM_MS);
-    expect(b.lessons.director.frame.line).toBe(COPY.lessons.pickUp);
-    expect(b.shown().line).toBe(COPY.game.controllerFinger);
-    // Gone (after its 1.2 s hold): the lesson's own line.
-    b.play.view.coachLine = null;
-    b.run(1500);
-    expect(b.shown().line).toBe(COPY.lessons.pickUp);
+    // Lesson 2's puppets: the crown is short from the start (its lantern on the spot), but the player is asked for a
+    // hand in the box first, the controllers' way.
+    b.run(FORM_MS + 500);
+    expect(b.shown().line).toBe(COPY.controller.puppets);
+    expect(b.lessons.director.frame.key).toBe("puppets");
     // An example's lines always win.
     b.lessons.start("l1", { step: 2 });
-    b.play.view.coachLine = "controllerFinger";
     b.run(500);
     expect(b.lessons.director.showing).toBe(true);
     expect(b.shown().line).toBe(b.lessons.director.frame.line);
-  });
-
-  it("lets the controller line win over a lesson's own line in lesson 2's turn, where a controller player needs it", () => {
-    const b = bench();
-    b.lessons.start("l2", { step: 2 });
-    b.run(FORM_MS + 200);
-    expect(b.lessons.director.step).toBe(2);
-    expect(b.lessons.director.frame.line).not.toBeNull();
-    b.play.view.coachLine = "controllerFinger";
+    // Out of the lessons, a box's finger lock: the session's line, as before.
+    b.lessons.stop();
+    b.play.game.play({ kind: "box", n: 7 });
     b.run(32);
     expect(b.shown().line).toBe(COPY.game.controllerFinger);
+  });
+
+  it("lets the controller line win over a lesson's own line in lesson 2's turn once that has had its 3 s, and says so", () => {
+    const b = bench();
+    b.hands.controllers = true;
+    b.lessons.start("l2", { step: 2 });
+    // The session asks from the turn's start (the lock is short and controllers are in hand)...
+    b.play.view.coachLine = "controllerFinger";
+    b.run(FORM_MS + 200);
+    expect(b.lessons.director.step).toBe(2);
+    // ...but the turn's own line (the controllers' way) keeps the chip for its first 3 s: no flash of it.
+    expect(b.shown().line).toBe(COPY.controller.turnFinger);
+    expect(b.lessons.director.frame.key).toBe("turnFinger");
+    b.run(1000);
+    // Then the session's line, and the director says it is the one showing.
+    expect(b.shown().line).toBe(COPY.game.controllerFinger);
+    expect(b.lessons.director.frame.key).toBe("game.controllerFinger");
+    expect(b.lessons.director.frame.line).toBe(COPY.game.controllerFinger);
     // Hands again: once the session's line has gone (held 1.2 s), the lesson's own line is back.
     b.play.view.coachLine = null;
+    b.hands.controllers = false;
     b.run(2000);
     expect(b.shown().line).not.toBeNull();
     expect(b.shown().line).toBe(b.lessons.director.frame.line);

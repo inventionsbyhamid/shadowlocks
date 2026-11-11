@@ -331,8 +331,21 @@ test("owner's look shots: lesson 1 forming, its idle ghost hand, and Example 1 w
   const idle = await app.perf();
   const L = (await page.evaluate(() => window.__sl!.lantern())).pos;
   const [mid] = await page.evaluate((p) => window.__ns!.scene.toWorld([[p[0] / 2, (p[1] - 0.1) / 2, (p[2] + 0.5) / 2]]), L);
+  // (The first line sits by the lantern meanwhile, where the eyes are.)
+  expect((await page.evaluate(() => window.__sl!.lessons.state())).coach.near).toBe(1);
   await app.captureHeadset("look-owner-lesson1-ghost-headset", { x: mid![0], y: mid![1], z: mid![2] }, 14);
   await app.capture("look-owner-lesson1-ghost-wide");
+  // Lock I's step (practice, from its start): the goal over the box, the Moon's outline breathing, its scrap lit.
+  await page.evaluate(() => window.__sl!.lessons.start("l1", 1, true));
+  await app.stepUntil(
+    (_ns, w) => {
+      const s = w.__sl.lessons.state();
+      return s.key === "goal" && s.coach.opacity > 0.9 && s.coach.near === 0;
+    },
+    { maxMs: 6_000, dt: 50, label: "the goal over the box" },
+  );
+  await app.step(Math.ceil(1600 / DT));
+  await app.captureHeadset("look-owner-lesson1-goal-headset", at, 14);
   // Example 1 (practice, from its step): the ghost lantern swings over the twin while the player's waits in its cradle.
   await page.evaluate(() => window.__sl!.lessons.start("l1", 2, true));
   await app.stepUntil(

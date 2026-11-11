@@ -249,6 +249,11 @@ export interface SlLantern {
   ripple: number;
   /** How see-through it is drawn (a phone's: 0 solid, 1 dithered with a small flame). */
   see: number;
+  /**
+   * Where the tracked hand nearest the lantern pinches, as the lantern grab read it this frame (box units; the point
+   * the lessons' reaching ghost keeps clear of), or null with no hand in tracking.
+   */
+  nearPinch: V3 | null;
 }
 
 /** A lock's ring line as the lantern feel sees it this frame (box units): mark on the panel, direction out to the spot. */
@@ -402,7 +407,18 @@ export interface SlLessonsState {
   practice: boolean;
   /** The coach line the director asks for, and what the chip shows now (text, opacity). */
   line: string | null;
-  coach: { text: string | null; opacity: number };
+  /**
+   * The director's line as its copy key: a COPY.lessons key (COPY.lessons[key] is `line`), or "game.controllerFinger"
+   * for the session's suggestion; and why it shows: "step" (a step's own line), "idle" (a nudge after a while with no
+   * progress), "win" (a lock or the box opened), "example", "suggest" (the session's); null with no line.
+   */
+  key: string | null;
+  why: string | null;
+  /** The line showing has shown before in its step (or replay); how many times a line has taken the chip. */
+  again: boolean;
+  shows: number;
+  /** `near`: how far the chip is over by the lantern (0 over the box, 1 by the lantern). */
+  coach: { text: string | null; opacity: number; near: number };
   /** The ghost hand as drawn now (its opacity; the frame's `hand` is what the director asks for). */
   ghost: number;
   form: number;

@@ -4,6 +4,7 @@
 // ray from the camera.
 import { Euler, Matrix4, Quaternion, Vector3 } from "@iwsdk/core";
 import { describe, expect, it, vi } from "vitest";
+import { controllerLine } from "../../src/app/controller-lines";
 import { phoneLine } from "../../src/app/phone-lines";
 import { type TouchDeps, Touches, TOUCH_SIDE } from "../../src/app/touch-system";
 import type { Box, Lock, V2, V3 } from "../../src/core/types";
@@ -891,8 +892,36 @@ describe("coach lines on a phone", () => {
     expect(phoneLine(COPY.lessons.drawer)).toBe(COPY.phone.drawer);
     expect(phoneLine(COPY.lessons.puppets)).toBe(COPY.phone.puppets);
     expect(phoneLine(COPY.game.controllerFinger)).toBe(COPY.phone.finger);
+    // Lesson 1's help and win lines that say how to do something with the hands, and lesson 2's turn.
+    expect(phoneLine(COPY.lessons.turnFinger)).toBe(COPY.phone.turnFinger);
+    expect(phoneLine(COPY.lessons.growShrink)).toBe(COPY.phone.growShrink);
+    expect(phoneLine(COPY.lessons.stuck)).toBe(COPY.phone.stuck);
+    expect(phoneLine(COPY.lessons.letGo)).toBe(COPY.phone.letGo);
+    expect(phoneLine(COPY.lessons.boxOpen)).toBe(COPY.phone.boxOpen);
     expect(phoneLine(COPY.lessons.watch)).toBe(COPY.lessons.watch);
+    expect(phoneLine(COPY.lessons.goal)).toBe(COPY.lessons.goal);
     expect(phoneLine(null)).toBeNull();
-    for (const s of Object.values(COPY.phone)) expect(s).toMatch(/^[A-Z].*\.$/);
+    // Every phone line stands in for one lesson line (or the session's), named after it.
+    for (const [k, s] of Object.entries(COPY.phone)) {
+      expect(s).toMatch(/^[A-Z].*\.$/);
+      const en = (COPY.lessons as Record<string, unknown>)[k];
+      expect(typeof en, k).toBe("string");
+      expect(phoneLine(en as string), k).toBe(s);
+    }
+  });
+});
+
+describe("coach lines with controllers", () => {
+  it("say the lines about a free hand or a finger the controllers' way, and leave every other line as it is", () => {
+    expect(controllerLine(COPY.lessons.puppets)).toBe(COPY.controller.puppets);
+    expect(controllerLine(COPY.lessons.turnFinger)).toBe(COPY.controller.turnFinger);
+    // A controller pokes a key and lifts the lantern and the reward as a hand does: those lines stand.
+    for (const k of ["pickUp", "stuck", "letGo", "boxOpen", "goal", "growShrink"] as const) expect(controllerLine(COPY.lessons[k])).toBe(COPY.lessons[k]);
+    expect(controllerLine(COPY.game.controllerFinger)).toBe(COPY.game.controllerFinger);
+    expect(controllerLine(null)).toBeNull();
+    for (const [k, s] of Object.entries(COPY.controller)) {
+      expect(s).toMatch(/^[A-Z].*\.$/);
+      expect(controllerLine((COPY.lessons as unknown as Record<string, string>)[k]!), k).toBe(s);
+    }
   });
 });

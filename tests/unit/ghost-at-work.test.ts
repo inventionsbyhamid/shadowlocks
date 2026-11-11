@@ -27,7 +27,12 @@ class Idle implements LessonInputs {
   active = () => false;
   isOpen = () => false;
   aligned = () => false;
+  warmth = () => 0;
   inBeam = () => false;
+  rewardUp = () => false;
+  stuck = () => false;
+  suggestion = () => null;
+  hand = () => false;
   settled = () => false;
   drawerPulled = () => false;
   reducedMotion = () => false;

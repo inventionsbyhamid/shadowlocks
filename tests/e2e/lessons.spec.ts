@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // The lessons end to end, in IWER's emulated headset with scripted hands on the virtual clock: a first launch going
-// straight into lesson 1 and through it (a hand picks the lantern up, the locks are opened from their spots, both
-// staged examples run with the lantern parked in its cradle and the scraps swinging home, the reward is lifted out
-// by hand), lesson 2 (shadow puppets, the ghost finger's example, the player's crown filled by a finger, the real
+// straight into lesson 1 and through it (a hand picks the lantern up, the locks are opened from their spots, each win
+// named, both staged examples run with the lantern parked in its cradle and the scraps swinging home, the reward is
+// lifted out by hand), lesson 1 saying its goal and helping a player who makes no progress (read through the copy key
+// the director shows), lesson 2 (shadow puppets, the ghost finger's example, the player's crown filled by a finger, the real
 // drawer pulled by hand), the drawer over a lesson (it waits; Continue goes back; a progress reset lets it go), "Show
 // me" replaying an example without touching progress (the drawer shut meanwhile), a reload resuming the lesson step,
 // lesson 1 for a left-handed player, the `?lesson=` address, a lesson 2 left half done going on from Home after a
@@ -14,7 +15,7 @@ import type { V3 } from "../../src/core/types";
 import { axisOf, fingerLocks, onRay, Pointer, worldOf } from "./helpers/finger";
 import { Hands } from "./helpers/hands";
 import { add, sub, unit } from "./helpers/lantern";
-import { storedInProgress } from "./helpers/page-scripts";
+import { relaxIwer, storedInProgress } from "./helpers/page-scripts";
 import { expect, test } from "./helpers/test";
 import { POKE_DEPTH_M, type XrApp } from "./helpers/xr-app";
 
@@ -142,12 +143,15 @@ async function playLesson1(app: XrApp, page: Page, side: "left" | "right") {
   await untilBox(app, "shadow-locks/lesson/l1");
   let s = await lessons(page);
   expect([s.lesson, s.step]).toEqual(["l1", 0]);
-  // The box forms out of light, then the one line; no ghost before 4 s without input.
+  // The box forms out of light, then the one line, by the lantern; the ghost shows how 4 s after it, not before.
   await app.stepUntil((_ns, w) => w.__sl.lessons.state().form >= 1, { maxMs: 3_000, label: "the box formed" });
   s = await lessons(page);
-  expect(s.line).toBe(C.pickUp);
+  expect([s.line, s.key, s.why]).toEqual([C.pickUp, "pickUp", "step"]);
   expect(s.hand.opacity).toBe(0);
-  await app.stepUntil((_ns, w) => w.__sl.lessons.state().hand.opacity > 0.5, { maxMs: 4_000, label: "the ghost after 4 s idle" });
+  await app.stepUntil((_ns, w) => w.__sl.lessons.state().coach.opacity > 0.9, { maxMs: 1_000, label: "the first line up" });
+  expect((await lessons(page)).coach.near).toBe(1);
+  const ghostIn = await app.stepUntil((_ns, w) => w.__sl.lessons.state().hand.opacity > 0.5, { maxMs: 6_000, label: "the ghost 4 s after the line" });
+  expect(ghostIn).toBeGreaterThan(3_500);
   expect((await lessons(page)).hand.side).toBe(side);
   // What the idle ghost costs: interactive play's draw-call budget holds.
   let idleCalls = 0;
@@ -155,10 +159,12 @@ async function playLesson1(app: XrApp, page: Page, side: "left" | "right") {
     await app.step(3);
     idleCalls = Math.max(idleCalls, await callsPerView(app));
   }
-  // A hand picks the lantern up: lock I.
+  // A hand picks the lantern up: lock I, its goal said, the line back over the box.
   await pickUpLantern(app, page, side);
   await untilStep(app, "l1", 1, 2_000);
-  expect((await lessons(page)).line).toBe(C.watchMove);
+  s = await lessons(page);
+  expect([s.line, s.key, s.why]).toEqual([C.goal, "goal", "step"]);
+  await app.stepUntil((_ns, w) => w.__sl.lessons.state().coach.near === 0, { maxMs: 2_000, label: "the line back over the box" });
   await openAtSpot(app, page, 0);
   // Example 1, then the player's arrow.
   await untilStep(app, "l1", 2, 2_000);
@@ -170,8 +176,10 @@ async function playLesson1(app: XrApp, page: Page, side: "left" | "right") {
   const ex2 = await watchExample(app, page, 2);
   expect((await lessons(page)).step).toBe(5);
   await openAtSpot(app, page, 2);
-  // The box opens; the first reward is lifted out by hand.
+  // The box opens; once its reward is up the line says to lift it out, and it is lifted out by hand.
   await untilStep(app, "l1", 6, 2_000);
+  await app.stepUntil((_ns, w) => w.__sl.lessons.state().key === "boxOpen", { maxMs: 5_000, label: "the reward's line" });
+  expect((await session(page)).stage).toBe("reward");
   await takeReward(app, page, side === "left" ? "right" : "left");
   return { ex1, ex2, idleCalls };
 }
@@ -187,9 +195,10 @@ test("lesson 1 completes with scripted hands", async ({ page, boot }, testInfo) 
   console.log(calls);
   expect(idleCalls, calls).toBeLessThanOrEqual(50);
   expect(Math.max(ex1.calls, ex2.calls), calls).toBeLessThanOrEqual(100);
+  // Each lock opened is named first; each example opens with its own line and ends on the player's task.
   for (const [ex, lines] of [
-    [ex1, [C.watch, C.nearSwing, C.yourTurn]],
-    [ex2, [C.watch, C.lineUp, C.slide, C.yourTurn]],
+    [ex1, [C.lockOpen, C.watchNearFar, C.nearSwing, C.turnNearFar]],
+    [ex2, [C.twoOpen, C.watchRings, C.lineUp, C.slide, C.yourTurn]],
   ] as const) {
     expect(ex.lines).toEqual(lines);
     expect(ex.park).toBe(1);
@@ -207,6 +216,144 @@ test("lesson 1 completes with scripted hands", async ({ page, boot }, testInfo) 
   expect(app.logs()).not.toMatch(/PAGEERROR/);
 });
 
+test("lesson 1 states the goal and helps an idle player", async ({ page, boot }) => {
+  const app = await boot({ lessons: true, expectScreen: "play" });
+  await untilBox(app, "shadow-locks/lesson/l1");
+  // The first line, by the lantern where the eyes are.
+  await app.stepUntil(
+    (_ns, w) => {
+      const s = w.__sl.lessons.state();
+      return s.key === "pickUp" && s.coach.opacity > 0.9;
+    },
+    { maxMs: 4_000, label: "pick up the lantern, shown" },
+  );
+  expect((await lessons(page)).coach.near).toBe(1);
+  // A real hand at the lantern's loop that does not pinch: the ghost still shows how, 4 s after the line, a hand's
+  // width away from it.
+  const L = (await page.evaluate(() => window.__sl!.lantern())).pos as V3;
+  const loop: V3 = [L[0] + 0.04, L[1] + 0.155, L[2] + 0.04];
+  const [loopW] = await worldOf(page, [loop]);
+  const reacher = new Hands(app, "right");
+  await reacher.pinchAt(loopW!, { pinch: false });
+  // An open hand's pinch point (halfway between thumb and index tips) is not IWER's grasp anchor: move the hand so
+  // that its pinch point, as the lantern reads it, is at the loop.
+  const pinch = async () => (await page.evaluate(() => window.__sl!.lantern())).nearPinch!;
+  const [pW] = await worldOf(page, [await pinch()]);
+  await reacher.moveTo(add(loopW!, sub(loopW!, pW!)), 150);
+  const real = await pinch();
+  expect(Math.hypot(real[0] - loop[0], real[1] - loop[1], real[2] - loop[2]), "the real pinch point at the loop").toBeLessThan(0.1);
+  expect((await page.evaluate(() => window.__sl!.lantern())).held).toBe(false);
+  await app.stepUntil((_ns, w) => w.__sl.lessons.state().hand.opacity > 0.9, { maxMs: 6_000, label: "the ghost beside the reaching hand" });
+  // Where the ghost pinches (its "hold"), over two of its loops: a hand's width from the real hand's pinch, never in it.
+  let apart = Infinity, holds = 0;
+  for (let i = 0; i < 80; i++) {
+    await app.step(3);
+    const h = (await lessons(page)).hand;
+    if (h.opacity < 0.5 || h.pose !== "hold") continue;
+    holds++;
+    apart = Math.min(apart, Math.hypot(h.at[0] - real[0], h.at[1] - real[1], h.at[2] - real[2]));
+  }
+  expect(holds).toBeGreaterThan(3);
+  expect(apart, "the ghost pinches a hand's width from the real hand").toBeGreaterThan(0.4);
+  await reacher.moveTo(add(loopW!, [0.25, 0.2, 0.25]), 200);
+  // Picked up: lock I's goal, by its key; the line glides back over the box.
+  await pickUpLantern(app, page, "right");
+  await untilStep(app, "l1", 1, 2_000);
+  let s = await lessons(page);
+  expect([s.key, s.why, s.line]).toEqual(["goal", "step", C.goal]);
+  await app.stepUntil((_ns, w) => w.__sl.lessons.state().coach.near === 0, { maxMs: 2_000, label: "the line back over the box" });
+  // The lantern left where it is, far from the Moon's spot: no progress. The nudges come at 12 s and 25 s, then at 40 s
+  // the hint lantern glows and the ghost shows lock I on the lock itself.
+  const t0 = await app.now();
+  const at = async () => (await app.now()) - t0;
+  const until = (key: string, maxMs: number) =>
+    app.stepUntil((_ns, w, k) => w.__sl.lessons.state().key === k, { arg: key, maxMs, dt: 50, batch: 8, label: key });
+  await until("moveIdle", 14_000);
+  expect(await at()).toBeGreaterThan(11_500);
+  s = await lessons(page);
+  expect([s.why, s.step]).toEqual(["idle", 1]);
+  await until("growShrink", 15_000);
+  expect(await at()).toBeGreaterThan(24_500);
+  await until("watch", 17_000);
+  expect(await at()).toBeGreaterThan(39_500);
+  s = await lessons(page);
+  expect([s.why, s.step, s.replaying, s.box]).toEqual(["example", 1, null, null]);
+  expect((await session(page)).stuck, "the hint lantern glows at 40 s in a lesson").toBe(true);
+  await app.stepUntil((_ns, w) => w.__sl.lessons.state().frozen, { maxMs: 2_000, dt: 50, label: "the lantern in its cradle" });
+  await app.stepUntil(
+    (_ns, w) => {
+      const l = w.__sl.lessons.state();
+      return l.key === "goal" && !l.frozen && l.park === 0;
+    },
+    { maxMs: 20_000, dt: 50, label: "lock I's example over" },
+  );
+  s = await lessons(page);
+  expect([s.step, s.progress.step]).toEqual([1, { id: "l1", index: 1 }]);
+  expect((await session(page)).open).toEqual([]);
+  // The player opens lock I: the win named, the pause, then Example 1 with its own line.
+  await openAtSpot(app, page, 0);
+  s = await lessons(page);
+  expect([s.step, s.key, s.why]).toEqual([2, "lockOpen", "win"]);
+  const pause = await app.stepUntil((_ns, w) => w.__sl.lessons.state().key === "watchNearFar", { maxMs: 4_000, label: "Example 1" });
+  // Long enough to read "Lock open! Every shape on the wall is a lock." (2.6 s).
+  expect(pause).toBeGreaterThan(2_400);
+  expect(app.logs()).not.toMatch(/PAGEERROR/);
+});
+
+/**
+ * From the next frame on, the headset keeps turning (seated pitch), so it is never held still and the box's first
+ * placement waits its full 2.5 s cap; `__turning = false` holds it where it is. As shell.spec.ts turns it.
+ */
+function keepTurning(degPerFrame: number): void {
+  const w = window as any;
+  const d = w.IWER_DEVICE;
+  const pitch = Math.atan2(-0.28, 0.55);
+  let yaw = 0;
+  w.__turning = true;
+  if (w.__turnHooked) return;
+  w.__turnHooked = true;
+  const update = w.__ns.world.update.bind(w.__ns.world);
+  w.__ns.world.update = (dt: number, t: number) => {
+    if (w.__turning) {
+      yaw += degPerFrame * (Math.PI / 180);
+      const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(pitch / 2), sp = Math.sin(pitch / 2);
+      d.quaternion.set(cy * sp, sy * cp, -sy * sp, cy * cp);
+    }
+    update(dt, t);
+  };
+}
+
+test("lesson 1 waits for its box to be placed: it forms from light, says its line and shows the ghost from then on", async ({
+  page,
+  boot,
+}) => {
+  // A first launch goes straight into lesson 1; the session is accepted as a player does, the head turning, so the box
+  // waits hidden for the placement's 2.5 s cap (longer than the 2 s the box takes to form).
+  const app = await boot({ enterXR: false, lessons: true });
+  await page.evaluate(keepTurning, 1);
+  await app.waitReal((_ns, w) => w.IWER_DEVICE.sessionOffered === true, { label: "XR session offer" });
+  await app.command("accept_session");
+  await app.stepUntil((ns) => ns.state().xr.presenting, { maxMs: 5_000, label: "XR presenting" });
+  const t0 = await app.now();
+  await page.evaluate(relaxIwer);
+  // Hidden while it waits (from the session's first tracked frame), then frame by frame to the first one it shows in:
+  // nothing of the lesson has run meanwhile.
+  await app.stepUntil((ns) => !ns.state().box.visible, { maxMs: 1_000, batch: 1, label: "the box hidden, waiting" });
+  expect([(await lessons(page)).form, (await lessons(page)).key]).toEqual([0, null]);
+  await app.stepUntil((ns) => ns.state().box.visible, { maxMs: 4_000, batch: 1, label: "the box shown" });
+  await page.evaluate(() => ((window as any).__turning = false));
+  expect((await app.now()) - t0, "the box waited for the placement's cap").toBeGreaterThan(2_000);
+  const s = await lessons(page);
+  expect([s.lesson, s.step, s.key, s.hand.opacity]).toEqual(["l1", 0, null, 0]);
+  expect(s.form, "the box forms from light as it shows, not while it waited").toBeLessThan(0.1);
+  // Its line when it has formed (2 s), by the lantern; the ghost 4 s after the line.
+  const line = await app.stepUntil((_ns, w) => w.__sl.lessons.state().key === "pickUp", { maxMs: 3_000, label: "the first line" });
+  expect(line).toBeGreaterThan(1_800);
+  expect((await lessons(page)).coach.near).toBe(1);
+  const ghost = await app.stepUntil((_ns, w) => w.__sl.lessons.state().hand.opacity > 0, { maxMs: 5_000, label: "the ghost" });
+  expect(ghost).toBeGreaterThan(3_900);
+});
+
 test("lesson 2 completes and teaches the drawer", async ({ page, boot }) => {
   const app = await boot();
   await page.evaluate(() => window.__sl!.lessons.start("l2"));
@@ -222,7 +369,7 @@ test("lesson 2 completes and teaches the drawer", async ({ page, boot }) => {
   await puppet.moveTo(add(inBeam!, [0.3, 0.3, 0.3]), 200);
   // Example 3: a ghost finger fills the twin crown's prong; the player's lantern settles on the spot.
   const ex3 = await watchExample(app, page, 0);
-  expect(ex3.lines).toEqual([C.watch, C.finger, C.yourTurn]);
+  expect(ex3.lines).toEqual([C.watchFinger, C.finger, C.turnFinger]);
   expect(ex3.clicks).toBe(1);
   expect(ex3.minLayout).toBe(0);
   const st = await session(page);
@@ -369,7 +516,7 @@ test("reload resumes the lesson step", async ({ page, boot }) => {
   expect(s.layout).toEqual([1, 1, 1]);
   expect((await session(page)).open).toEqual([0]);
   await app.step(10);
-  expect((await lessons(page)).line).toBe(C.yourTurn);
+  expect((await lessons(page)).line).toBe(C.turnNearFar);
 });
 
 test("left-handed lesson 1", async ({ page, boot }) => {

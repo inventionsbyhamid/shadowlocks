@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { BoxSession, LOCK_TO_BOX_MS, REWARD_AUTO_MS, REWARD_UP_MS } from "../../src/app/box-session";
 import { ACT_HINT, ACT_NEXT, ACT_TAKE, type BoxSessionDeps, type SessionView } from "../../src/app/session-deps";
+import { withLessons } from "../../src/app/lesson-boxes";
 import { COACH_HOLD_MS, CRYSTAL_MS, type FingerLoop } from "../../src/app/session-fingers";
 import type { FeedbackEvent } from "../../src/app/bus";
 import { ENVELOPE } from "../../src/core/envelope";
@@ -11,7 +12,7 @@ import { mirrorBox } from "../../src/core/mirror";
 import { type BoxSnapshot, defaultSettings, migrate, newProfile, type Profile, type Settings } from "../../src/core/profile";
 import { type Coverage, measure, meets, prepareLock, SKIP_MISSING, shadowBuffers, shadowPolys } from "../../src/core/solve";
 import type { Box, BoxSpec, Lock, V2, V3, Vec3 } from "../../src/core/types";
-import { GAZE_DWELL_MS, LANTERN_MIN_Z, OPEN_DWELL_MS, STUCK_MS } from "../../src/feel/constants";
+import { GAZE_DWELL_MS, LANTERN_MIN_Z, LESSON_STUCK_MS, OPEN_DWELL_MS, STUCK_MS } from "../../src/feel/constants";
 import { FingerHold } from "../../src/feel/finger-hold";
 import { type FeelEvent, LanternController } from "../../src/feel/lantern-controller";
 import { LanternCtxBuilder } from "../../src/feel/lantern-ctx";
@@ -214,7 +215,8 @@ function harness(o: { warmth?: boolean; profile?: Profile; handed?: "left" | "ri
   const deps: BoxSessionDeps = {
     scene,
     lantern,
-    boxes: { get: async (spec) => generateBox(spec), prefetch: () => {} },
+    // The lessons' boxes as the game serves them; every other spec generated.
+    boxes: withLessons({ get: async (spec) => generateBox(spec), prefetch: () => {} }),
     profiles: {
       profile,
       save: async () => {
@@ -878,6 +880,35 @@ describe("box session", () => {
       { type: "stuck", on: true },
       { type: "stuck", on: false },
     ]);
+  });
+
+  it("lights the hint lantern after 40 s in a lesson's box, and starts its watch over when the lesson asks", async () => {
+    const h = harness();
+    await h.session.start({ kind: "lesson", id: "l1" });
+    h.frames(Math.ceil((LESSON_STUCK_MS - 1000) / DT));
+    expect(h.session.stuck).toBe(false);
+    h.frames(Math.ceil(2000 / DT));
+    expect(h.session.stuck).toBe(true);
+    // A lesson step starting over (a new step, or a help example over): the glow goes out, and 40 s more to the next.
+    h.session.restartStuck();
+    expect(h.session.stuck).toBe(false);
+    expect(h.types("stuck")).toEqual([
+      { type: "stuck", on: true },
+      { type: "stuck", on: false },
+    ]);
+    h.frames(Math.ceil((LESSON_STUCK_MS - 1000) / DT));
+    expect(h.session.stuck).toBe(false);
+    h.frames(Math.ceil(2000 / DT));
+    expect(h.session.stuck).toBe(true);
+    // A numbered box afterwards keeps the 90 s (the existing case above), whatever came before.
+    await h.session.start(BOX(2));
+    h.frames(Math.ceil((LESSON_STUCK_MS + 5000) / DT));
+    expect(h.session.stuck).toBe(false);
+    h.session.restartStuck();
+    h.frames(Math.ceil((STUCK_MS - 1000) / DT));
+    expect(h.session.stuck).toBe(false);
+    h.frames(Math.ceil(2000 / DT));
+    expect(h.session.stuck).toBe(true);
   });
 
   it("forwards feel events as copies, and a new box mutes the release of the lantern it drops", async () => {
