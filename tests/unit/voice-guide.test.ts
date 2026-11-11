@@ -9,6 +9,7 @@ import {
   NEXT_GAP_MS,
   OFF_FADE_MS,
   READY_WAIT_MS,
+  SAID_KEPT,
   STALE_FADE_MS,
   UNLOCK_HOLD_MS,
   type VoiceClips,
@@ -291,6 +292,17 @@ describe("VoiceGuide", () => {
     r.out.running = true;
     r.run(1000);
     expect(r.plays.length).toBe(1);
+  });
+
+  it("keeps only the latest lines in its record of what was said", () => {
+    const r = rig();
+    for (let i = 0; i < SAID_KEPT + 20; i++) {
+      r.show(i % 2 ? C.goal : C.pickUp);
+      r.run(STALE_FADE_MS + NEXT_GAP_MS + 32);
+    }
+    expect(r.plays.length).toBe(SAID_KEPT + 20);
+    expect(r.g.said.length).toBe(SAID_KEPT);
+    expect(r.g.said.at(-1)).toBe(r.plays.at(-1)!.key);
   });
 
   it("says a tip once a box, and decodes only what a step needs", () => {

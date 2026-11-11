@@ -37,6 +37,8 @@ export const READY_WAIT_MS = 1500;
 export const BACK_AFTER_MS = 1000;
 /** Switching the Voice guide off fades the line out over this long. */
 export const OFF_FADE_MS = 300;
+/** The record of lines said keeps this many, the latest (a lesson says about 20). */
+export const SAID_KEPT = 64;
 /** How often a waiting line checks again (audio started, its clip decoded). */
 const POLL_MS = 100;
 
@@ -78,7 +80,7 @@ export interface VoiceGuideDeps {
 }
 
 export class VoiceGuide {
-  /** Every line said, in order, by copy key (tests and the test hooks read it). */
+  /** The lines said, in order, by copy key: the latest SAID_KEPT (tests and the test hooks read it). */
   readonly said: string[] = [];
   private clips: VoiceClips | null = null;
   private line: string | null = null;
@@ -254,6 +256,7 @@ export class VoiceGuide {
     const turn = ++this.token;
     this.playing = key;
     if (this.why === "idle") this.idleSaid.set(key, (this.idleSaid.get(key) ?? 0) + 1);
+    if (this.said.length >= SAID_KEPT) this.said.shift();
     this.said.push(key);
     this.deps.out.say(b, () => {
       if (turn !== this.token) return;
