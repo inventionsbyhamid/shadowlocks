@@ -463,13 +463,14 @@ test("no live button within 10 cm of the box mouth during play", async ({ page, 
 
 /**
  * A whole panel in the headset's view: half Quest 3's pixel density (12 px per degree, a 60 degree tall
- * view at 720p), so the panel fits; the text is then drawn about half as sharp as on the device.
+ * view at 720p), so the panel fits; the text is then drawn about half as sharp as on the device. Settings, about
+ * 60 degrees tall from the seated eye since its sixth switch, is shot at 10.5 (a 69 degree view) to fit whole.
  */
 async function look(app: XrApp, screen: string, name = screen): Promise<void> {
   await app.page.evaluate((s) => window.__ns!.ui.go(s as any), screen);
   await app.stepUntil((n, _w, s) => n.state().screen === s && !n.ui.busy(), { arg: screen, maxMs: 3_000, label: `${screen} at rest` });
   const p = await app.page.evaluate((s) => window.__ns!.ui.panelBox(s as any), screen);
-  await app.captureHeadset(`menu-${name}`, { x: p!.center[0], y: p!.center[1], z: p!.center[2] }, 12);
+  await app.captureHeadset(`menu-${name}`, { x: p!.center[0], y: p!.center[1], z: p!.center[2] }, screen === "settings" ? 10.5 : 12);
 }
 
 test("menus in the headset (screenshots for review)", async ({ page, boot }) => {
