@@ -228,7 +228,8 @@ export function deliveryArgs(d: DeliveryRequest): string[] {
   const graph = `${d.videoFilter ?? "[0:v]null[v]"};[v]${downscale(d.scale)}${DELIVERY_VF}[vo]`;
   return [
     "-y", "-hide_banner", "-loglevel", "error",
-    ...d.inputs.flatMap((f) => ["-i", f]), "-i", d.audio, ...(d.extraInputs ?? []).flat(),
+    // Two decoder threads per clip: with a thread per core, twenty open 1440p decoders hold gigabytes of frames.
+    ...d.inputs.flatMap((f) => ["-threads", "2", "-i", f]), "-i", d.audio, ...(d.extraInputs ?? []).flat(),
     "-filter_complex", graph, "-map", "[vo]", "-map", `${d.inputs.length}:a`,
     "-c:v", "libx264", "-preset", d.preset, "-crf", String(d.crf), "-x264-params", "aq-mode=3", "-r", String(d.fps),
     "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
