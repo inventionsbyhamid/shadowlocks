@@ -19,7 +19,7 @@ const BOX = 9;
 export default defineShot<Data>({
   name: "demo2-d-hand",
   description: "Hands first: the hand carries the lantern in an arc and the shadows sweep across the panel.",
-  seconds: 1.25,
+  seconds: 2.4,
   profile: playedProfile(BOX, 0, DEFAULT_DATE),
   darkStage: true,
   async setup({ app, page, hand }) {
@@ -39,12 +39,13 @@ export default defineShot<Data>({
     };
   },
   firstView: ({ first }) => first,
-  async play({ camera, hand, until }, { path, grip, last }) {
-    camera.move(last, 1250);
+  async play({ camera, hand, until, wait }, { path, grip, last }) {
+    camera.move(last, 2400);
+    await wait(100);
     await hand("right").follow((k) => {
       const p = path(k);
       return [p[0] + grip[0], p[1] + grip[1], p[2] + grip[2]];
-    }, 1150);
-    await until(1.25);
+    }, 2100);
+    await until(2.4);
   },
 });

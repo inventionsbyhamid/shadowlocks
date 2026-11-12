@@ -23,7 +23,7 @@ const xyz = (p: Vec3) => ({ x: p[0], y: p[1], z: p[2] });
 export default defineShot<Data>({
   name: "demo2-d-controller",
   description: "Controllers too: a Touch controller carries the lantern across the box; the shadows slide.",
-  seconds: 1.2,
+  seconds: 2.4,
   profile: playedProfile(BOX, 0, DEFAULT_DATE),
   darkStage: true,
   async setup({ app, page }) {
@@ -67,9 +67,9 @@ export default defineShot<Data>({
   },
   firstView: ({ first }) => first,
   async play({ app, camera, until, wait }, { hold, to, last }) {
-    camera.move(last, 1200);
-    await wait(80);
-    await app.queue("animate_to", { device: "controller-right", position: xyz(offset(to, hold[0], hold[1], hold[2])), duration: 1.05 });
-    await until(1.2);
+    camera.move(last, 2400);
+    await wait(150);
+    await app.queue("animate_to", { device: "controller-right", position: xyz(offset(to, hold[0], hold[1], hold[2])), duration: 2.05 });
+    await until(2.4);
   },
 });

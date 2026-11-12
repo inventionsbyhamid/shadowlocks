@@ -7,10 +7,10 @@ export default endlessShot({
   name: "demo2-d-box22",
   n: 22,
   lock: 1,
-  seconds: 1.1,
+  seconds: 2.2,
   off: [0.2, -0.05, 0.08],
-  carryMs: 280,
-  startMs: 0,
+  carryMs: 500,
+  startMs: 250,
   first: [[0.0, 0.22, 3.05], [0.0, 0.08, 0.45], 51],
   last: [[0.0, 0.2, 2.9], [0.0, 0.1, 0.45], 49],
 });

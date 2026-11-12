@@ -8,10 +8,10 @@ export default endlessShot({
   name: "demo2-d-box630",
   n: 630,
   lock: 1,
-  seconds: 1.2,
+  seconds: 2.2,
   off: [0.2, -0.05, 0.08],
-  carryMs: 300,
-  startMs: 0,
+  carryMs: 520,
+  startMs: 250,
   first: [[0.48, 0.62, 3.0], [0.02, 0.08, 0.45], 52],
   last: [[0.44, 0.58, 2.8], [0.02, 0.1, 0.45], 49],
 });

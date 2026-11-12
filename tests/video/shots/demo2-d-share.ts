@@ -31,12 +31,12 @@ export default definePageShot({
     await app.stepUntil((ns) => !ns.state().xr.presenting, { maxMs: 5_000, label: "out of XR" });
     await until(page, () => !document.getElementById("result")!.hidden, "the result on the page");
     await page.evaluate(() => document.getElementById("result")!.scrollIntoView({ block: "center" }));
-    await hold(page, 2.0);
+    await hold(page, 2.4);
 
     const friend = await open({ profile: dailyProfile(4, []) });
     await boot(friend, { url: FRIEND_LINK, enterXR: false });
     await until(friend, () => (document.getElementById("shared-says")?.textContent ?? "") !== "", "the friend's time");
     await friend.evaluate(() => document.getElementById("shared-says")!.scrollIntoView({ block: "center" }));
-    await hold(friend, 2.1);
+    await hold(friend, 2.4);
   },
 });
