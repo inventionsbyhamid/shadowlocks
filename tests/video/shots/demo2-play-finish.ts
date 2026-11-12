@@ -49,7 +49,7 @@ export default defineShot<Data>({
     for (const k of [0.08, 0.16, 0.24, 0.32]) nearer.push(await toWorld(page, lerp3(f.tip, f.spot, k)));
     return { lock: f.lock, tip: await toWorld(page, f.tip), inBeam: await toWorld(page, lerp3(f.tip, f.spot, 0.45)), nearer };
   },
-  firstView: (): View => seatedView(-31, 80, [0, -0.01, -0.03]),
+  firstView: (): View => seatedView(-31, 80, [0, -0.01, 0.05]),
   async play({ app, page, hand, camera, until, time, wait }, { lock, tip, inBeam, nearer }) {
     const right = hand("right");
     await until(0.3);
@@ -76,7 +76,7 @@ export default defineShot<Data>({
     await right.relax(250);
     await right.glide(REST_RIGHT, 900);
     // The head comes up a little for the reward and the card.
-    camera.move(seatedView(-26, 80, [0, 0, 0]), 2600);
+    camera.move(seatedView(-30, 80, [0, 0, 0.05]), 2600);
     try {
       await app.stepUntil((_ns, w) => !!w.__sl.session.reward()?.up, { maxMs: 8_000, label: "the reward up" });
     } catch {
@@ -88,10 +88,10 @@ export default defineShot<Data>({
       console.warn("demo2-play-finish: no result card in view");
     }
     const card = (await page.evaluate(() => (window as any).__sl.session.card())) as { world: Vec3 } | null;
-    // The player leans in a little to read the plaque and the card (a few centimetres: the room is a photograph,
-    // so the eye stays near where it was).
-    if (card) camera.move({ from: offset(EYE, 0, -0.01, -0.04), at: offset(card.world, 0, 0.2, 0), hfovDeg: 78 }, 3000);
-    else console.warn("demo2-play-finish: no card position");
+    // The player leans in a little to read the plaque and the card (a centimetre or two and a touch of lens: the room
+    // is a photograph, so the eye stays near where it was; the lantern and the sofas stay in frame).
+    if (card) camera.move(seatedView(-30.5, 79, [0, -0.01, 0.035]), 3000);
+    else console.warn("demo2-play-finish: no result card");
     await until(Math.max(time() + 3.2, 11.8));
   },
 });

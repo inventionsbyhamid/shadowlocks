@@ -47,8 +47,9 @@ export default defineShot<Data>({
     await right.glideTip([cont.world[0] + 0.16, cont.world[1] - 0.18, cont.world[2] + 0.12], 300);
     return { cont };
   },
-  // The seated eye on Home over the lap and the room beyond it.
-  firstView: (): View => seatedView(-33, 82),
+  // The seated eye on Home over the lap and the room beyond it, sat a few centimetres back so the whole panel is in
+  // frame (the box was placed from the seated head before the shot, so it stays where it is).
+  firstView: (): View => seatedView(-31.5, 80, [0, 0, 0.06]),
   async play({ app, page, hand, camera, until, wait }, { cont }) {
     const right = hand("right");
     // Narration line 5 ("The box sits in your lap, and your room dims like a theatre.", 3.58 s) starts with the shot:
@@ -57,8 +58,9 @@ export default defineShot<Data>({
     await right.glideTip(along(cont, 0.06), 900);
     await right.glideTip(along(cont, POKE_DEPTH_M), 200);
     await right.glideTip(along(cont, 0.07), 240);
-    // The head drops to the box as it forms.
-    camera.move(seatedView(-31, 80, [0, -0.01, -0.03]), 1800);
+    // The head settles on the box as it forms: the box about two thirds of the frame high, the lantern whole at its
+    // front edge.
+    camera.move(seatedView(-31, 80, [0, -0.01, 0.05]), 1800);
     await right.relax(200);
     await right.glide(offset(REST_RIGHT, -0.08, 0.1, -0.1), 700);
     await app.stepUntil((_ns, w) => {
