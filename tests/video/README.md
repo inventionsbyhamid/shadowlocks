@@ -68,6 +68,9 @@ export default defineShot<Data>({
 - `darkStage: true`: the emulator's room is not drawn (as the store art's plates), the Dim room
   setting is off, and each frame lays the app over a flat warm near-black (`DARK_BACKDROP`). Nothing
   is added to the scene: the box lit by its own lantern.
+- `hideHint: true`: the hint lantern (the brass key beside the frame) is left out of every drawn
+  frame, hidden only while the scene is drawn (the film's explainer on the dark stage; never in
+  play shots).
 - `profile`: the player's stored history when the shot starts (boxes opened, a streak, the
   collection); the video build reads it at boot through the usual migration, which starts afresh
   from anything without `version: 1` (`lib/stage.ts` `playedProfile` makes one).
@@ -93,11 +96,14 @@ export default defineShot<Data>({
 
 1. `boot()` at the render size; IWER's field of view set to 90 degrees across (a Quest recording, not
    the emulator's 120); DevUI hidden; only the room and app canvases are captured, never the page.
-   Video builds (`VITE_VIDEO=1`, never production; `check-dist` fails on it) draw IWSDK's outline
-   hands as a see-through "system hand": a light body at about 30 percent, a warm-white fresnel rim,
-   a depth-only pre-pass (a skinned copy sharing the skeleton, so a finger over the palm does not
-   double up), a soft warm grey contour, a wrist stub that fades out 7 cm past the wrist (no
-   forearm), drawn at render order 998, with its own light (`src/video/`).
+   Video builds (`VITE_VIDEO=1`, never production; `check-dist` fails on it) draw a stand-in for
+   the player's hand in the spirit of the Quest system hand: a smoky fill at about 46 percent and a
+   thin warm-white outline where the surface turns away, fading out over the 4.5 cm from the wrist
+   (no forearm). It covers the game's hand mask (its capsules, read from the mask's buffers, a
+   little wider) and IWSDK's hand mesh (a little inflated) as one surface, with a depth-only pass
+   first, so the mask's hole never shows as a dark halo; IWSDK's outline is not drawn
+   (`src/video/hand-look.ts`). The mask hides the box behind the hand as on a headset, so the fill
+   shows the backdrop, not the box.
 2. The clock is stepped without drawing to a fixed virtual time (`START_MS`, 30 s; a shot's
    `startMs`), whatever boot took, then the setup runs, then a second of held first view, two drawn
    warm-up frames, and recording.
