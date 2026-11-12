@@ -28,7 +28,7 @@ const REST: Vec3 = [0.55, 0.5, -1.0];
 export default defineShot<Data>({
   name: "demo2-light",
   description: "One light: from the pinch, the hand carries the lantern in an arc, the shadows gather into the Crown, it opens in gold.",
-  seconds: 7,
+  seconds: 8.3,
   hideHint: true,
   profile: playedProfile(3, 0, DEFAULT_DATE),
   darkStage: true,
@@ -56,28 +56,36 @@ export default defineShot<Data>({
   async play({ app, page, camera, hand, until, time }, { start, from, spot, end }) {
     const right = hand("right");
     // A slow drift in toward the panel over the whole take.
-    camera.move(end, 6800);
+    camera.move(end, 8200);
     await right.pinch(140);
     await app.stepUntil((_ns, w) => w.__sl.lantern().held, { maxMs: 1_000, batch: 1, label: "the lantern held" });
     const held = await toWorld(page, await lanternPos(page));
     const grip: Vec3 = [from[0] - held[0], from[1] - held[1], from[2] - held[2]];
+    const carry = (f: (k: number) => Vec3) => (k: number): Vec3 => {
+      const p = f(k);
+      return [p[0] + grip[0], p[1] + grip[1], p[2] + grip[2]];
+    };
+    // Timed to the narration ("This is Shadow Locks. One lantern. Move it, and every shadow moves, until they fill the
+    // lock."): the lantern lifted a little while the title and "one lantern" are said, the carry on "move it", the
+    // Crown filling on "until they fill the lock".
+    const lifted: Vec3 = [start[0], start[1] + 0.08, start[2] + 0.05];
+    const lift = await boxCurve(page, [start, [start[0], start[1] + 0.03, start[2] + 0.02], [lifted[0], lifted[1] - 0.02, lifted[2]], lifted]);
+    await until(0.35);
+    await right.follow(carry(lift), 3200);
     // Up and over to the left, then down onto the spot: the shadows sweep across the panel and come together.
     const path = await boxCurve(page, [
-      start,
+      lifted,
       [start[0] - 0.05, start[1] + 0.28, start[2] + 0.1],
       [spot[0] - 0.32, spot[1] + 0.26, spot[2] + 0.05],
       spot,
     ]);
-    await right.follow((k) => {
-      const p = path(k);
-      return [p[0] + grip[0], p[1] + grip[1], p[2] + grip[2]];
-    }, 5000);
+    await right.follow(carry(path), 3600);
     const t = time();
     try {
       await app.stepUntil((_ns, w, i) => w.__sl.session.state().open.includes(i), { arg: LOCK, maxMs: 2_000, label: "the Crown open" });
     } catch {
       console.warn(`demo2-light: lock ${LOCK} stayed shut with the lantern carried onto its spot at ${t.toFixed(2)} s (left as the game has it)`);
     }
-    await until(time() + 0.75);
+    await until(Math.max(time() + 0.8, 8.25));
   },
 });

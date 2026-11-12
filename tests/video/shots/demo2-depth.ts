@@ -28,7 +28,7 @@ const SWING = 0.24;
 export default defineShot<Data>({
   name: "demo2-depth",
   description: "Depth: from beside the box the scraps hang at different depths; from the front the near shadow swings wide.",
-  seconds: 6.4,
+  seconds: 6.3,
   hideHint: true,
   profile: playedProfile(2, 0, DEFAULT_DATE),
   darkStage: true,
@@ -61,17 +61,20 @@ export default defineShot<Data>({
       const p = f(k);
       return [p[0] + grip[0], p[1] + grip[1], p[2] + grip[2]];
     };
-    // From beside: the lantern drifts left, and the shadows on the panel move under the hanging scraps.
+    // Timed to the narration ("Depth is the puzzle. Near pieces swing wide and blur. Far ones stay sharp."), which
+    // starts at 0.4 s. From beside, on "depth is the puzzle": the lantern drifts left and the shadows move under the
+    // hanging scraps.
     const a = await boxCurve(page, [hover, [hover[0] - 0.08, hover[1], hover[2]], [left[0] + 0.04, left[1], left[2]], left]);
-    await right.follow(at(a), 1300);
-    // Round to the front while the lantern waits.
-    camera.move(front, 2000);
-    await until(3.3);
-    // Left to right: the near scrap's shadow sweeps wide and soft, the far one barely moves.
+    await right.follow(at(a), 1200);
+    // Round to the front, arriving as "near pieces swing wide" is said.
+    camera.move(front, 1500);
+    await until(1.9);
+    // Left to right on "swing wide and blur": the near scrap's shadow sweeps wide and soft, the far one barely moves.
     const b = await boxCurve(page, [left, [left[0] + 0.1, left[1], left[2]], [right_[0] - 0.1, right_[1], right_[2]], right_]);
     await right.follow(at(b), 2000);
+    // Back toward the middle, slowly, on "far ones stay sharp".
     const c = await boxCurve(page, [right_, [right_[0] - 0.04, right_[1], right_[2]], [hover[0] + 0.04, hover[1], hover[2]], hover]);
-    await right.follow(at(c), 1000);
-    await until(6.4);
+    await right.follow(at(c), 1800);
+    await until(6.3);
   },
 });
