@@ -51,12 +51,16 @@ export function sideCardHtml(card: EndCard, width: number, height: number, fontD
   const h = (k: number) => `${(k * height).toFixed(2)}px`;
   const facts = card.facts.map((t, i) => `<span class="chip${i === 0 ? " accent" : ""}">${esc(t)}</span>`).join("");
   const words = card.title.split(" ");
+  // The tagline's last sentence on its own line ("Your hands. One light." / "Every shadow a lock."), never a lone word.
+  const sentences = card.tagline.split(/(?<=\.) /);
+  const last = sentences.pop() as string;
+  const tagline = sentences.length ? `${esc(sentences.join(" "))}<br>${esc(last)}` : esc(last);
   const title = words.length === 2 ? `${esc(words[0] as string)}<br>${esc(words[1] as string)}` : esc(card.title);
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 @font-face { font-family: Archivo; src: url(${fontDataUrl}) format("truetype"); font-weight: 100 900; font-stretch: 62% 125%; }
 @font-face { font-family: Display; src: url(${displayDataUrl}) format("truetype"); }
 html, body { margin: 0; width: ${width}px; height: ${height}px; background: transparent; overflow: hidden; }
-.shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(18,13,10,0) 40%, rgba(18,13,10,0.62) 58%, rgba(18,13,10,0.8) 100%); }
+.shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(18,13,10,0) 38%, rgba(18,13,10,0.72) 53%, rgba(18,13,10,0.88) 100%); }
 .col { position: absolute; left: 57%; right: 4%; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: center;
   align-items: flex-start; font-family: Archivo; color: ${TEXT}; }
 .bar { width: ${h(0.07)}; height: ${h(0.009)}; border-radius: ${h(0.005)}; background: ${BRASS}; margin-bottom: ${h(0.035)}; }
@@ -71,7 +75,7 @@ html, body { margin: 0; width: ${width}px; height: ${height}px; background: tran
 </style></head><body><div class="shade"></div><div class="col">
 <div class="bar"></div>
 <div class="title">${title}</div>
-<div class="tagline">${esc(card.tagline)}</div>
+<div class="tagline">${tagline}</div>
 <div class="facts">${facts}</div>
 ${card.link ? `<div class="link">${esc(card.link)}</div>` : ""}
 </div></body></html>`;
