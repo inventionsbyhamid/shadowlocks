@@ -46,9 +46,9 @@ export default defineShot<Data>({
   firstView: ({ first }) => first,
   async play({ hand, camera, until }, { daily, last }) {
     const right = hand("right");
-    // The press lands about 0.3 s before the cut: the panel starts to leave just as it ends.
+    // The press lands about 0.33 s before the cut: the panel starts to leave on the last two frames (30 fps).
     camera.move(last, 2200);
-    await until(0.8);
+    await until(0.87);
     await right.glideTip(along(daily, 0.05), 900);
     await right.glideTip(along(daily, POKE_DEPTH_M), 200);
     await right.glideTip(along(daily, 0.06), 200);
