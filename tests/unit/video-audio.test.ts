@@ -15,9 +15,9 @@ import {
   planMusic,
   voiceLevel,
 } from "../video/lib/audio";
-import { EDIT_LOUDNESS, editLoudness, SILENT_MANIFEST } from "../video/lib/deliver";
+import { captionSpans, EDIT_LOUDNESS, editLoudness, outScale, SILENT_MANIFEST } from "../video/lib/deliver";
 import { endCardHtml } from "../video/lib/endcard";
-import { contactSheetArgs, deliveryArgs, duckFilter, editVideoFilter, endCardFilter, fadeFramesFor, labelFilter, mezzanineArgs, mixCommand } from "../video/lib/mixdown";
+import { captionFilter, contactSheetArgs, deliveryArgs, duckFilter, editVideoFilter, endCardFilter, fadeFramesFor, labelFilter, mezzanineArgs, mixCommand } from "../video/lib/mixdown";
 import { fixtureManifest } from "./helpers/audio-fixture";
 
 // The shapes the sound pack's manifest has (the sound tools write them), with test values: the video
@@ -349,6 +349,37 @@ describe("ffmpeg commands", () => {
     expect(d).toContain("-c:v libx264 -preset slow -crf 18");
     expect(d).toContain("-map 1:a");
     expect(d).toContain("+faststart");
+  });
+
+  it("scales supersampled frames down to the delivery size before the delivery conversion", () => {
+    const o = { width: 2560, height: 1440, outWidth: 1920, outHeight: 1080 };
+    const d = deliveryArgs({ inputs: ["m.mkv"], videoFilter: null, audio: "a.wav", fps: 60, crf: 18, preset: "slow", out: "o.mp4", scale: outScale(o) }).join(" ");
+    expect(d).toMatch(/\[v\]scale=1920:1080:flags=lanczos[^,]*,scale=out_color_matrix=bt709/);
+    expect(outScale({ ...o, outWidth: 2560, outHeight: 1440 })).toBeUndefined();
+    const plain = deliveryArgs({ inputs: ["m.mkv"], videoFilter: null, audio: "a.wav", fps: 60, crf: 18, preset: "slow", out: "o.mp4" }).join(" ");
+    expect(plain).not.toContain("lanczos");
+  });
+
+  it("lays captions over their shots, fading in and out, and refuses one too short to read", () => {
+    const spans = captionSpans(
+      [
+        { text: "a", shot: "s2", atSec: 1, sec: 3 },
+        { text: "b", shot: "s3", atSec: 0.5, sec: 2.5 },
+      ],
+      ["s1", "s2", "s3"],
+      [0, 5, 12],
+      [5, 7, 5],
+    );
+    expect(spans).toEqual([[6, 9], [12.5, 15]]);
+    expect(() => captionSpans([{ text: "a", shot: "s2", atSec: 0, sec: 2 }], ["s2"], [0], [5])).toThrow(/at least 2.5/);
+    expect(() => captionSpans([{ text: "a", shot: "s2", atSec: 4, sec: 3 }], ["s2"], [0], [5])).toThrow(/runs past/);
+    expect(() => captionSpans([{ text: "a", shot: "x", atSec: 0, sec: 3 }], ["s2"], [0], [5])).toThrow(/not in the edit/);
+    const g = captionFilter("[0:v]null[v]", { input: 3, spans, fade: 0.25 });
+    expect(g).toContain("[0:v]null[vc0];[3:v]format=yuva444p,fade=t=in:st=6:d=0.25:alpha=1,fade=t=out:st=8.75:d=0.25:alpha=1[cap0]");
+    expect(g).toContain("[vc0][cap0]overlay=x=0:y=0:eof_action=pass:format=auto[vc1]");
+    expect(g).toContain("[4:v]format=yuva444p,fade=t=in:st=12.5:");
+    expect(g.endsWith("[vc1][cap1]overlay=x=0:y=0:eof_action=pass:format=auto[v]")).toBe(true);
+    expect(captionFilter("[0:v]null[v]", { input: 3, spans: [], fade: 0.25 })).toBe("[0:v]null[v]");
   });
 
   it("cuts edits in whole frames and refuses a crossfade as long as a clip", () => {

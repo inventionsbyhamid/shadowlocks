@@ -87,6 +87,41 @@ html, body { margin: 0; width: ${width}px; height: ${height}px; background: tran
 </style></head><body><div class="label">${esc(text)}</div></body></html>`;
 }
 
+/** The caption face: the game's own serif for painted lettering (the coach line, the plate), Noto Serif Bold (OFL). */
+export const CAPTION_FONT_FILE = path.join("public", "fonts", "noto-serif-bd.woff2");
+
+/**
+ * A caption in the lower third: the words in the game's serif, cream, large enough for a phone (a line is 5.6% of the
+ * frame height), centred, with a soft dark shadow so they read over the brass, under a short brass rule.
+ */
+export function captionHtml(text: string, width: number, height: number, fontDataUrl: string): string {
+  const h = (k: number) => `${(k * height).toFixed(2)}px`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face { font-family: Caption; src: url(${fontDataUrl}) format("woff2"); font-weight: 500 900; }
+html, body { margin: 0; width: ${width}px; height: ${height}px; background: transparent; overflow: hidden; }
+.cap { position: absolute; left: 6%; right: 6%; top: ${h(0.78)}; display: flex; flex-direction: column; align-items: center;
+  font-family: Caption; font-weight: 700; font-size: ${h(0.056)}; line-height: 1.18; color: ${TEXT}; text-align: center;
+  text-shadow: 0 ${h(0.003)} ${h(0.012)} rgba(0,0,0,0.9), 0 0 ${h(0.03)} rgba(0,0,0,0.65); }
+.rule { width: ${h(0.06)}; height: ${h(0.006)}; border-radius: ${h(0.003)}; background: ${BRASS}; margin-bottom: ${h(0.022)};
+  box-shadow: 0 0 ${h(0.012)} rgba(0,0,0,0.8); }
+</style></head><body><div class="cap"><div class="rule"></div><div>${esc(text)}</div></div></body></html>`;
+}
+
+/** Draw a caption's layer to `out`, a PNG at width x height, transparent but for the words. */
+export async function renderCaption(page: Page, text: string, size: { width: number; height: number }, root: string, out: string): Promise<void> {
+  if (/[\u2013\u2014]/.test(text)) throw new Error(`caption "${text}": no en or em dashes`);
+  const font = fs.readFileSync(path.join(root, CAPTION_FONT_FILE)).toString("base64");
+  await page.setViewportSize(size);
+  await page.setContent(captionHtml(text, size.width, size.height, `data:font/woff2;base64,${font}`));
+  const ok = await page.evaluate(async () => {
+    await document.fonts.ready;
+    return document.fonts.check(`700 20px Caption`);
+  });
+  if (!ok) throw new Error("caption: the serif did not load");
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  await page.screenshot({ path: out, omitBackground: true, fullPage: false });
+}
+
 /** Draw the corner label's layer to `out`, a PNG at width x height, transparent but for the label. */
 export async function renderCornerLabel(page: Page, text: string, size: { width: number; height: number }, root: string, out: string): Promise<void> {
   const font = fs.readFileSync(path.join(root, FONT_FILE)).toString("base64");

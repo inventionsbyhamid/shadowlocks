@@ -88,6 +88,15 @@ describe("render options and disk", () => {
     expect(() => videoOptions({ SIZE: "1281x720" })).toThrow(/even/);
   });
 
+  it("draws at the render size and delivers at OUT_SIZE, never larger", () => {
+    const o = videoOptions({ QUALITY: "final", SIZE: "2560x1440", OUT_SIZE: "1920x1080" }, "/w");
+    expect([o.width, o.height, o.outWidth, o.outHeight]).toEqual([2560, 1440, 1920, 1080]);
+    expect(o.outDir).toBe("/w/test-results/video/2560x1440-60");
+    const plain = videoOptions({ QUALITY: "final" }, "/w");
+    expect([plain.outWidth, plain.outHeight]).toEqual([1920, 1080]);
+    expect(() => videoOptions({ SIZE: "1280x720", OUT_SIZE: "1920x1080" })).toThrow(/larger/);
+  });
+
   it("stops for low disk or frames past their budget", () => {
     const o = { minFreeGb: 100, expectGb: 4 };
     expect(diskProblem(200e9, 1e9, o)).toBeNull();

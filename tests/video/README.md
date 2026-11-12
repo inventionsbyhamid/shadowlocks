@@ -7,6 +7,7 @@ still plays smoothly because time only moves when a frame is stepped.
 
 ```sh
 scripts/video.sh --shots sample --size 960x540 --fps 30  # the 2 s smoke shot, attached
+scripts/video.sh --shots sample --final --size 2560x1440 --out 1920x1080  # drawn at 1440p, delivered at 1080p
 scripts/video.sh --shots sample                          # 1280x720 60 fps draft
 scripts/video.sh --shots sample --final                  # 1920x1080, x264 CRF 18
 scripts/video.sh --shots sample --edit card-check        # the shot, then the end card after it
@@ -59,7 +60,14 @@ export default defineShot<Data>({
   while the hands do (IWER's own `animate_to` holds its single queue, which would freeze the hands).
   A slow head drift (1.5 mm, 0.12 degrees) keeps it from looking like a tripod; `sway` sets it.
 - `hand(side)` is the e2e `Hands` plus `park`, `glide`, `pinch`, `shape`, `open`, `point`, `relax`,
-  `gripPose` and `glideTip`, all smooth.
+  `gripPose`, `glideTip` and `follow` (a path set frame by frame, eased: an arc instead of glides
+  that stop at each corner), all smooth.
+- A view may name its lens (`hfovDeg`, the horizontal field of view; default the render's `HFOV`);
+  a move eases the lens with the view. `lib/stage.ts` `boxView` sets a view in box units (beside the
+  box, close on the panel: views a player never has), `boxCurve` a path in box units.
+- `darkStage: true`: the emulator's room is not drawn (as the store art's plates), the Dim room
+  setting is off, and each frame lays the app over a flat warm near-black (`DARK_BACKDROP`). Nothing
+  is added to the scene: the box lit by its own lantern.
 - `profile`: the player's stored history when the shot starts (boxes opened, a streak, the
   collection); the video build reads it at boot through the usual migration, which starts afresh
   from anything without `version: 1` (`lib/stage.ts` `playedProfile` makes one).
@@ -132,7 +140,10 @@ shot's effects stem at its start, one continuous music bed across the cuts, an o
 loudness to -14 LUFS (linear; a peak limiter at 4x the rate first when the gain would pass the
 ceiling; the PCM is aimed 0.5 dB under -1 dBTP for what AAC adds, more on a second or third encode
 when the AAC still comes out over), and one delivery encode with the shots' own settings. A
-`label` lays a corner label ("Emulator footage") over the shots it names. An
+`label` lays a corner label ("Emulator footage") over the shots it names; `captions` lay lower third
+captions (the game's serif, Noto Serif Bold, at least 2.5 s each, fading in and out) over the shots
+they name. With `--out` (OUT_SIZE), shots, edits and stills are drawn at the render size and scaled
+down (Lanczos) in the one delivery encode. An
 `endCard` (title, tagline, facts, an optional link) holds the last frame, blurs and dims it in, and
 lays a card drawn by the browser in Archivo and the game's ebony and gold over it (`lib/endcard.ts`,
 the font in `assets/fonts/`, OFL) for `holdSec`; the music runs on under it and fades out. Its words

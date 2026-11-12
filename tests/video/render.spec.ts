@@ -5,7 +5,7 @@ import path from "node:path";
 import { test } from "../e2e/helpers/test";
 import { EDITS } from "./edits";
 import { renderEdit } from "./lib/deliver";
-import { renderCornerLabel, renderEndCard } from "./lib/endcard";
+import { renderCaption, renderCornerLabel, renderEndCard } from "./lib/endcard";
 import { videoOptions, workDir } from "./lib/options";
 import { shotFile } from "./lib/records";
 import { renderShot, stoppedNote } from "./lib/shoot";
@@ -69,7 +69,13 @@ if (o.edit) {
       label = path.join(workDir(o), `edit-${name}-label.png`);
       await renderCornerLabel(page, edit.label.text, { width: o.width, height: o.height }, process.cwd(), label);
     }
-    renderEdit(name, edit, o, log, card, label);
+    const captions: string[] = [];
+    for (const [i, c] of (edit.captions ?? []).entries()) {
+      const file = path.join(workDir(o), `edit-${name}-caption-${i}.png`);
+      await renderCaption(page, c.text, { width: o.width, height: o.height }, process.cwd(), file);
+      captions.push(file);
+    }
+    renderEdit(name, edit, o, log, card, label, captions);
   });
 }
 

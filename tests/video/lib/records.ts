@@ -17,6 +17,9 @@ export interface ShotRecord {
   height: number;
   fps: number;
   hfovDeg: number;
+  /** The delivery size (frames are drawn at width x height); absent in older records: the render size. */
+  outWidth?: number;
+  outHeight?: number;
   frames: number;
   duration: number;
   /** Delivery encode settings this MP4 was made with. */

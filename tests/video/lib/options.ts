@@ -11,6 +11,12 @@ export interface VideoOptions {
   quality: Quality;
   width: number;
   height: number;
+  /**
+   * Delivery size (OUT_SIZE=WxH, default the render size): frames are drawn at width x height and the delivery
+   * encode scales them down (Lanczos), so thin threads and gold edges are supersampled instead of shimmering.
+   */
+  outWidth: number;
+  outHeight: number;
   fps: number;
   /** Horizontal field of view in degrees (a Quest 3 recording shows about 90). */
   hfovDeg: number;
@@ -62,6 +68,15 @@ export function videoOptions(env: Record<string, string | undefined> = process.e
   }
   // x264 with yuv420p needs even sizes.
   if (width % 2 || height % 2) throw new Error(`SIZE must be even: ${width}x${height}`);
+  let [outWidth, outHeight] = [width, height];
+  if (env.OUT_SIZE) {
+    const m = /^(\d+)x(\d+)$/.exec(env.OUT_SIZE);
+    if (!m) throw new Error(`OUT_SIZE is WxH, not ${env.OUT_SIZE}`);
+    outWidth = Number(m[1]);
+    outHeight = Number(m[2]);
+    if (outWidth % 2 || outHeight % 2) throw new Error(`OUT_SIZE must be even: ${outWidth}x${outHeight}`);
+    if (outWidth > width || outHeight > height) throw new Error(`OUT_SIZE ${outWidth}x${outHeight} is larger than the render size ${width}x${height}`);
+  }
   const shots = (env.SHOTS ?? "")
     .split(",")
     .map((s) => s.trim())
@@ -76,6 +91,8 @@ export function videoOptions(env: Record<string, string | undefined> = process.e
     quality,
     width,
     height,
+    outWidth,
+    outHeight,
     fps,
     hfovDeg: num(env.HFOV, 90),
     crf: num(env.CRF, q.crf),

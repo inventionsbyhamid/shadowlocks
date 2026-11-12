@@ -216,11 +216,16 @@ export interface DeliveryRequest {
   out: string;
   /** More inputs after the audio (input options, then "-i", file), as an end card's still. */
   extraInputs?: string[][];
+  /** Scale the picture down to this size first (Lanczos, in RGB): frames drawn larger than delivered. */
+  scale?: { width: number; height: number };
 }
+
+/** A Lanczos scale to `s`, in front of the delivery conversion; nothing when absent. */
+export const downscale = (s?: { width: number; height: number }): string => (s ? `scale=${s.width}:${s.height}:flags=lanczos+accurate_rnd+full_chroma_int,` : "");
 
 /** The one lossy encode: H.264 (aq-mode 3), BT.709 tagged, AAC stereo, ready to stream (faststart). */
 export function deliveryArgs(d: DeliveryRequest): string[] {
-  const graph = `${d.videoFilter ?? "[0:v]null[v]"};[v]${DELIVERY_VF}[vo]`;
+  const graph = `${d.videoFilter ?? "[0:v]null[v]"};[v]${downscale(d.scale)}${DELIVERY_VF}[vo]`;
   return [
     "-y", "-hide_banner", "-loglevel", "error",
     ...d.inputs.flatMap((f) => ["-i", f]), "-i", d.audio, ...(d.extraInputs ?? []).flat(),
@@ -231,9 +236,10 @@ export function deliveryArgs(d: DeliveryRequest): string[] {
   ];
 }
 
-/** Full-size stills (PNG) of frames `at` from a clip. */
-export function stillArgs(input: string, frame: number, out: string): string[] {
-  return ["-y", "-hide_banner", "-loglevel", "error", "-i", input, "-vf", `select='eq(n,${frame})'`, "-frames:v", "1", "-update", "1", out];
+/** Full-size stills (PNG) of frames `at` from a clip, scaled down to `scale` (the delivery size) when given. */
+export function stillArgs(input: string, frame: number, out: string, scale?: { width: number; height: number }): string[] {
+  const vf = `select='eq(n,${frame})'${scale ? `,${downscale(scale).slice(0, -1)}` : ""}`;
+  return ["-y", "-hide_banner", "-loglevel", "error", "-i", input, "-vf", vf, "-frames:v", "1", "-update", "1", out];
 }
 
 /** A contact sheet: `cols` x `rows` frames spread evenly over the clip, each `width` px wide. */
@@ -348,6 +354,25 @@ export function labelFilter(filter: string, o: { input: number; spans: Array<[nu
   if (o.spans.length === 0) return filter;
   const on = o.spans.map(([a, b]) => `between(t,${f(a)},${f(b)})`).join("+");
   return `${filter.slice(0, -3)}[vnl];[${o.input}:v]format=yuva444p[vlab];[vnl][vlab]overlay=x=0:y=0:eof_action=repeat:format=auto:enable='${on}'[v]`;
+}
+
+/**
+ * Caption layers (inputs `input`, `input + 1`, ...: transparent PNGs at the edit's size, each looped from t = 0) laid
+ * over the edit, each from `from` to `to` (seconds), its opacity fading in and out over `fade`. Takes a filter ending in
+ * [v] and returns one ending in [v], the same length.
+ */
+export function captionFilter(filter: string, o: { input: number; spans: Array<[number, number]>; fade: number }): string {
+  if (!/\[v\]$/.test(filter)) throw new Error("the edit filter must end in [v]");
+  if (o.spans.length === 0) return filter;
+  let out = `${filter.slice(0, -3)}[vc0]`;
+  o.spans.forEach(([a, b], i) => {
+    if (b - a < 2 * o.fade) throw new Error(`caption ${i} is on for ${(b - a).toFixed(2)} s, less than its fades`);
+    const last = i === o.spans.length - 1;
+    out +=
+      `;[${o.input + i}:v]format=yuva444p,fade=t=in:st=${f(a)}:d=${f(o.fade)}:alpha=1,fade=t=out:st=${f(b - o.fade)}:d=${f(o.fade)}:alpha=1[cap${i}]` +
+      `;[vc${i}][cap${i}]overlay=x=0:y=0:eof_action=pass:format=auto${last ? "[v]" : `[vc${i + 1}]`}`;
+  });
+  return out;
 }
 
 /** A crossfade in ms as whole frames at `fps` (nearest). */
