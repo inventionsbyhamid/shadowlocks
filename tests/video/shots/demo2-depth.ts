@@ -48,7 +48,7 @@ export default defineShot<Data>({
       // Beside the box and a little in front of it, so the front post stands clear of the lantern.
       side: await boxView(page, [-1.75, 0.1, 1.15], [0, -0.04, 0.66], 50),
       // From above and left of the lantern: the hand that holds it stays below the panel's middle.
-      front: await boxView(page, [-0.32, 0.5, 2.9], [0.0, -0.04, 0.3], 46),
+      front: await boxView(page, [-0.32, 0.56, 2.95], [0.0, 0.02, 0.3], 48),
     };
   },
   firstView: ({ side }) => side,
