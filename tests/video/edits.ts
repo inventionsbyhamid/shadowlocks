@@ -71,16 +71,16 @@ export const EDITS: Record<string, Edit> = {
     narration: { file: "video-assets/demo2-film-narration.wav", startSec: 0, duckDb: 8 },
   },
   /**
-   * Parts D and E of the film, version 2, cut to the narration (take 1 of lines 7 to 12, laid at their beats in
-   * video-assets/demo2-more-narration.wav, not committed: plan/sdd/sl-v1/task-49-report.md says how it is made). Straight
-   * cuts, the music bed under all of it, dipped under the voice; no captions and no corner label (the dark stage shows
-   * no room).
+   * Parts D and E of the film, version 2, cut to the narration (take 1 of lines 7 to 12, each phrase laid over its picture
+   * in video-assets/demo2-more-narration.wav, not committed: plan/sdd/sl-v1/task-49-report.md says how it is made), at
+   * the film's own voice levels. Straight cuts, the music bed under all of it, dipped under the voice; no captions and
+   * no corner label (the dark stage shows no room).
    */
   "demo2-more": {
     shots: DEMO2_MORE,
     crossfadeMs: 0,
     endCard: DEMO2_END,
-    narration: { file: "video-assets/demo2-more-narration.wav", startSec: 0, gainDb: 4, duckDb: 8 },
+    narration: { file: "video-assets/demo2-more-narration.wav", startSec: 0, duckDb: 8 },
   },
   /** The same cut without the voice, at the game's own levels (as demo2-open: the sparse mix misses -14 LUFS). */
   "demo2-more-silent": { shots: DEMO2_MORE, crossfadeMs: 0, endCard: DEMO2_END, loudness: null },
