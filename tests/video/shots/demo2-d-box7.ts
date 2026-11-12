@@ -1,12 +1,13 @@
 // The film's part D, "endless boxes" (third of five, from "and keep getting trickier"): Box No. 7 on the dark stage,
-// three locks; the Arrow is the last. Its other locks were opened before the first frame the way a player does; the
-// hand carries the lantern onto the last one's spot and the game opens it.
+// three locks; the Arrow opens. One other lock was opened before the first frame the way a player does and one stays
+// shut, so the box stays closed and the gold holds; the hand carries the lantern onto the Arrow's spot.
 import { endlessShot } from "./demo2-d-kit";
 
 export default endlessShot({
   name: "demo2-d-box7",
   n: 7,
   lock: 0,
+  shut: [2],
   seconds: 2.2,
   off: [0.2, -0.05, 0.08],
   carryMs: 500,
