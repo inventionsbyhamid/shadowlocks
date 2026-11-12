@@ -8,7 +8,7 @@ import type { Room } from "../../e2e/helpers/boot";
 import { Hands, type Side } from "../../e2e/helpers/hands";
 import type { XYZ } from "../../e2e/helpers/page-scripts";
 import { POKE_DEPTH_M } from "../../e2e/helpers/xr-app";
-import type { Ease, Sway, View } from "./camera";
+import { type Ease, minimumJerk, type Sway, type View } from "./camera";
 import type { VideoApp } from "./recorder";
 
 type Point = Vec3 | XYZ;
@@ -101,6 +101,28 @@ export class ShotHand extends Hands {
    */
   async shape(value: number, ms = 160): Promise<void> {
     await this.app.queue("set_select_value", { device: this.device, value, duration: ms / 1000 });
+    await this.app.settle();
+  }
+
+  /**
+   * Carry the grasp point along a path: `at(k)` for k from 0 to 1, eased (minimum jerk) over `ms`, set frame by frame
+   * at the shot's rate, so a curve (an arc) is followed smoothly instead of as straight glides that stop at each
+   * corner. `orientation` (default kept) is held throughout. Grip and pinch are left as they are.
+   */
+  async follow(at: (k: number) => Point, ms: number, orientation?: HandOrientation, anchor: "grasp" | "index-tip" = "grasp"): Promise<void> {
+    const app = this.app as unknown as VideoApp;
+    const fps = app.fps();
+    const n = Math.max(1, Math.round((ms / 1000) * fps));
+    for (let i = 1; i <= n; i++) {
+      const k = minimumJerk(i / n);
+      await app.queue("set_transform", {
+        device: this.device,
+        anchor,
+        position: xyz(at(k)),
+        ...(orientation === undefined ? {} : { orientation }),
+      });
+      await app.step(1);
+    }
     await this.app.settle();
   }
 
@@ -207,6 +229,14 @@ export interface Shot<S = unknown> {
   };
   /** Keep IWSDK's outline hands instead of the see-through system hands. */
   outlineHands?: boolean;
+  /**
+   * The dark stage (page-video.ts darkStage): no room drawn, the Dim room setting off, a flat warm near-black
+   * (DARK_BACKDROP) or the given colour where the room would be. The box lit by its own lantern, as the store art.
+   */
+  darkStage?: boolean | { backdrop: string };
 }
+
+/** The dark stage's backdrop: a deep warm near-black, so the brass and the lantern's light carry the frame. */
+export const DARK_BACKDROP = "#120d0a";
 
 export const defineShot = <S>(shot: Shot<S>): Shot<S> => shot;

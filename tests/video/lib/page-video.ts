@@ -200,6 +200,27 @@ export function videoPrepare(o: { fovy: number; epochMs: number; fingerprint: st
   return { canvas: [canvas.width, canvas.height], fovy: d.fovy };
 }
 
+/**
+ * The dark stage (a shot's `darkStage`): the emulator's room is not drawn (as the store art's plates), the theatre's
+ * veil is off (the player's own Dim room setting, so nothing darkens the backdrop), and each captured frame lays the
+ * app over `backdrop`, a flat colour, where the room would be. Nothing is added to the scene: the box, its lantern,
+ * its shadows and the hands are what the game draws.
+ */
+export function darkStage(o: { backdrop: string }): { dimming: string } {
+  const w = window as any;
+  const sem = w.IWER_DEVICE?.sem;
+  w.__nsNoRoom = true;
+  if (sem) {
+    sem.render = () => {};
+    if (sem.environmentCanvas) sem.environmentCanvas.style.display = "none";
+  }
+  w.__nsCaptureBackdrop = o.backdrop;
+  const ui = w.__ns.ui;
+  if (typeof ui.settings()?.dimming !== "boolean") return { dimming: "missing" };
+  ui.setSettings({ dimming: false });
+  return { dimming: ui.settings().dimming === false ? "off" : "stuck" };
+}
+
 /** The headset's pose now. */
 export function headsetPose(): { position: [number, number, number]; quaternion: [number, number, number, number] } {
   const d = (window as any).IWER_DEVICE;
@@ -255,6 +276,8 @@ export interface FrameArgs {
   dt: number;
   position: readonly [number, number, number];
   quaternion: readonly [number, number, number, number];
+  /** IWER's vertical field of view (radians) for this frame: the view's lens. */
+  fovy?: number;
   /** Step without drawing (fast-forward). */
   skip: boolean;
   capture: boolean;
@@ -342,6 +365,7 @@ export async function videoFrame(a: FrameArgs): Promise<FrameResult> {
   const idleMs = vt.realNow() - i0;
   d.position.set(a.position[0], a.position[1], a.position[2]);
   d.quaternion.set(a.quaternion[0], a.quaternion[1], a.quaternion[2], a.quaternion[3]);
+  if (a.fovy !== undefined && Math.abs(d.fovy - a.fovy) > 1e-9) d.fovy = a.fovy;
   const hands = a.solidHands && w.__nsVideo ? w.__nsVideo.styleHands(true) : null;
   w.__nsVideoSkip = a.skip;
   const s0 = vt.realNow();

@@ -20,9 +20,9 @@ import { FRAME_PATTERN, type FramesMeta, FrameStore } from "./journal";
 import { mezzanineArgs } from "./mixdown";
 import { framesDir, mezzDir, type VideoOptions, workDir } from "./options";
 import { readRecord, type ShotRecord, shotFile, writeRecord } from "./records";
-import { frameFingerprint, videoInit, videoPrepare } from "./page-video";
+import { darkStage, frameFingerprint, videoInit, videoPrepare } from "./page-video";
 import { Diverged, DiskStop, diskProblem, freeBytes, Recorder, Stopped, VideoApp } from "./recorder";
-import { type PlayContext, type Shot, ShotHand } from "./shot";
+import { DARK_BACKDROP, type PlayContext, type Shot, ShotHand } from "./shot";
 import { shotVersions, type Versions } from "./version";
 
 const ROOT = process.cwd();
@@ -137,7 +137,14 @@ export async function renderShot(shot: Shot<any>, page: Page, boot: BootFn, opts
     if (r.record === null) return { record: null, stopped: r.stopped, did: "stopped" };
     base = r.record;
     did = "rendered";
-  } else if (base.mixVersion === v.mix && base.crf === o.crf && base.preset === o.preset && fs.existsSync(mp4)) {
+  } else if (
+    base.mixVersion === v.mix &&
+    base.crf === o.crf &&
+    base.preset === o.preset &&
+    (base.outWidth ?? base.width) === o.outWidth &&
+    (base.outHeight ?? base.height) === o.outHeight &&
+    fs.existsSync(mp4)
+  ) {
     log(`${name}: up to date (${base.frames} frames, frames ${base.frameVersion}, sound ${base.mixVersion}); FRESH=1 renders it again`);
     fs.rmSync(stoppedNote(o, name), { force: true });
     return { record: base, stopped: null, did: "cached" };
@@ -179,6 +186,11 @@ async function renderFrames(
   const epochMs = new Date(shot.date ?? DEFAULT_DATE).getTime();
   const prep = await page.evaluate(videoPrepare, { fovy: fovyFor(o.hfovDeg, o.width, o.height), epochMs, fingerprint: frameFingerprint.toString() });
   if (prep.canvas[0] !== o.width || prep.canvas[1] !== o.height) throw new Error(`the XR canvas is ${prep.canvas.join("x")}, not ${o.width}x${o.height}`);
+  if (shot.darkStage) {
+    const backdrop = typeof shot.darkStage === "object" ? shot.darkStage.backdrop : DARK_BACKDROP;
+    const r = await page.evaluate(darkStage, { backdrop });
+    if (r.dimming !== "off") log(`warning: ${name}: the Dim room setting is ${r.dimming}; the dark stage may show the theatre veil`);
+  }
   const bootMs = Date.now() - t0;
   // Nothing before the first frame is drawn (the recorder turns drawing on per frame).
   await page.evaluate(() => {
@@ -208,7 +220,7 @@ async function renderFrames(
   app.setup = false;
   const setupMs = Date.now() - setupStart;
 
-  const camera = new CameraTrack(shot.firstView(data), shot.sway ?? { mm: 1.5, deg: 0.12 });
+  const camera = new CameraTrack(shot.firstView(data), shot.sway ?? { mm: 1.5, deg: 0.12 }, o.hfovDeg);
   const rec = new Recorder(page, store, camera, {
     shot: name,
     fps: o.fps,
@@ -217,6 +229,8 @@ async function renderFrames(
     minFreeGb: o.minFreeGb,
     expectGb: o.expectGb,
     expectFrames: Math.round((shot.seconds ?? 0) * o.fps),
+    width: o.width,
+    height: o.height,
     log,
   });
   app.rec = rec;

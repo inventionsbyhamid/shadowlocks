@@ -107,7 +107,8 @@ export function swayHead(): void {
 
 /**
  * Installs `window.__nsCapture()`: draws the room canvas (unless the room is off) and the app canvas
- * into one 2D canvas and returns a data URL. Call it in the same task as the frame step that rendered,
+ * into one 2D canvas and returns a data URL. Under them a flat backdrop: black, or
+ * `window.__nsCaptureBackdrop` (a video shot's dark stage). Call it in the same task as the frame step that rendered,
  * so no preserveDrawingBuffer is needed, and set `window.__nsRoomFrame` around that step (roomOnCaptureOnly).
  */
 export function installCapture(): void {
@@ -123,7 +124,7 @@ export function installCapture(): void {
       c.height = height;
     }
     const ctx = c.getContext("2d") as CanvasRenderingContext2D;
-    ctx.fillStyle = "#000";
+    ctx.fillStyle = w.__nsCaptureBackdrop || "#000";
     ctx.fillRect(0, 0, width, height);
     if (env && env.width) ctx.drawImage(env, 0, 0, width, height);
     ctx.drawImage(app, 0, 0, width, height);
