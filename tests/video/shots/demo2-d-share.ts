@@ -1,9 +1,9 @@
 // The film's part D, share: the game's own 2D page in a browser window (lib/page-shot.ts), a window small enough that
 // its words read in the film's frame (640x360 CSS px, drawn at the render size). The player of the records shots opens
-// today's Daily Box in the headset (before the first capture: the locks opened through the test hooks after a little
-// under three minutes of play, as the e2e share spec does) and takes the headset off: the page shows the result's
-// text, its tiles and time, and "Share today's result". Then a friend's link for the same Daily Box lands in another
-// window: "Your friend says 4:12."
+// today's Daily Box in the headset (before the first capture: the locks opened through the test hooks after two and a
+// half minutes of play, as the e2e share spec does, so the page says the 2:32 the headset shots show) and takes the
+// headset off: the page shows the result's text, its tiles and time, and "Share today's result". Then a friend's link
+// for the same Daily Box lands in another window: "Your friend says 4:12."
 import { boxInPlay, rewardUp, solveBox } from "../../e2e/helpers/solve";
 import { definePageShot } from "../lib/page-shot";
 import { dailyProfile, TODAY } from "./demo2-d-kit";
@@ -11,7 +11,7 @@ import { dailyProfile, TODAY } from "./demo2-d-kit";
 /** A friend's link for today's Daily Box: 4:12, no hints (the game's own link format, src/core/share.ts). */
 const FRIEND_LINK = `/?day=${TODAY}&t=252&h=0&g=4`;
 /** Play time before the last lock, virtual ms, in steps of this many ms. */
-const PLAY_MS = 160_000;
+const PLAY_MS = 150_000;
 const STEP_MS = 100;
 
 export default definePageShot({
