@@ -8,10 +8,14 @@
 export type V3 = readonly [number, number, number];
 export type Quat = [number, number, number, number];
 
-/** Where the eyes are and the point they look at (no roll, like a seated player). */
+/**
+ * Where the eyes are and the point they look at (no roll, like a seated player), and optionally the lens: the
+ * horizontal field of view in degrees (default: the render's, HFOV). A move eases the lens with the view.
+ */
 export interface View {
   from: V3;
   at: V3;
+  hfovDeg?: number;
 }
 
 export type Ease = "linear" | "minimum-jerk";
@@ -74,6 +78,8 @@ export class CameraTrack {
   constructor(
     private readonly start: View,
     private readonly sway: Sway = { mm: 0, deg: 0 },
+    /** The lens of a view that names none (the render's HFOV). */
+    private readonly hfovDeg = 90,
   ) {}
 
   /** Jump to `view` at time `t`. */
@@ -108,7 +114,17 @@ export class CameraTrack {
     if (!m) return this.start;
     if (t >= m.t1) return m.to;
     const k = EASE[m.ease]((t - m.t0) / (m.t1 - m.t0));
-    return { from: lerp3(m.from.from, m.to.from, k), at: lerp3(m.from.at, m.to.at, k) };
+    const v: View = { from: lerp3(m.from.from, m.to.from, k), at: lerp3(m.from.at, m.to.at, k) };
+    if (m.from.hfovDeg !== undefined || m.to.hfovDeg !== undefined) {
+      const a = m.from.hfovDeg ?? this.hfovDeg;
+      v.hfovDeg = a + ((m.to.hfovDeg ?? this.hfovDeg) - a) * k;
+    }
+    return v;
+  }
+
+  /** The horizontal field of view at shot time `t`, degrees. */
+  hfovAt(t: number): number {
+    return this.viewAt(t).hfovDeg ?? this.hfovDeg;
   }
 
   /** Headset position and orientation at shot time `t`, sway included. */
