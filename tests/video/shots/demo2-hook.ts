@@ -45,7 +45,7 @@ export default defineShot<Data>({
       lock: f.lock,
       path,
       open: await boxView(page, [0.5, 0.14, 2.6], [0.21, -0.13, 0.0], 25),
-      close: await boxView(page, [0.47, 0.12, 2.45], [0.22, -0.13, 0.0], 22),
+      close: await boxView(page, [0.49, 0.13, 2.55], [0.215, -0.13, 0.0], 24),
     };
   },
   firstView: ({ open }) => open,
