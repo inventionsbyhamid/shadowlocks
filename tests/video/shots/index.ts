@@ -10,6 +10,10 @@ import demoFinger from "./demo-finger";
 import demoLesson from "./demo-lesson";
 import demoRoom from "./demo-room";
 import demoShare from "./demo-share";
+import demo2Depth from "./demo2-depth";
+import demo2Hand from "./demo2-hand";
+import demo2Hook from "./demo2-hook";
+import demo2Light from "./demo2-light";
 import inlineFinger from "./inline-finger";
 import inlineLock from "./inline-lock";
 import inlineRoom from "./inline-room";
@@ -32,6 +36,11 @@ export const SHOTS: Record<string, Shot<any>> = {
   "demo-daily-home": demoDailyHome,
   "demo-daily-open": demoDailyOpen,
   "demo-controller": demoController,
+  // The film, version 2 (plan/submission/demo-video-script-v2.md): part A and part B on the dark stage.
+  "demo2-hook": demo2Hook,
+  "demo2-light": demo2Light,
+  "demo2-depth": demo2Depth,
+  "demo2-hand": demo2Hand,
 };
 
 // Shots of the game's 2D page in a browser window (lib/page-shot.ts), by name like the others.

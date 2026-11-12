@@ -7,6 +7,7 @@ import type { Page } from "@playwright/test";
 import { generateBox } from "../../../src/core/generator";
 import type { V3, Vec3 } from "../../../src/core/types";
 import type { XrApp } from "../../e2e/helpers/xr-app";
+import type { View } from "./camera";
 
 /** From any screen: the menus away and box `n` shown in the lap, its lantern at the start. */
 export async function showBox(app: XrApp, page: Page, n: number): Promise<void> {
@@ -175,6 +176,62 @@ export async function playBoxReady(app: XrApp, page: Page, n: number, keepShut: 
   // The locks' openings and the lantern's settle play out before the first frame.
   await app.step(150);
   return f;
+}
+
+/**
+ * Before recording: numbered box `n` in play through the box session, as the menus start it, every lock shut and the
+ * lantern where the box starts it.
+ */
+export async function startBox(app: XrApp, page: Page, n: number): Promise<void> {
+  await page.evaluate(() => (window as any).__ns.ui.go("play"));
+  await app.stepUntil((ns) => !ns.ui.busy(), { maxMs: 3_000, label: "menus away" });
+  await page.evaluate((k) => (window as any).__sl.session.play({ kind: "box", n: k }), n);
+  await app.stepUntil(
+    (_ns, w) => {
+      const s = w.__sl.session.state();
+      return s?.stage === "playing" && s.revealed;
+    },
+    { maxMs: 15_000, label: `box ${n} in play` },
+  );
+  // The box's forming, the etching and the lantern's settle play out before the first frame.
+  await app.step(150);
+}
+
+/**
+ * A camera on the box in box units (x right, y up the panel, z out toward the player; 1 unit = the box size), as the
+ * store art's views: the eye, the point it looks at and the lens (horizontal field of view), turned into a world view
+ * for the box in play. Views a player never has (beside the box, close to the panel) are fine: the box is the game's.
+ */
+export async function boxView(page: Page, eye: readonly [number, number, number], at: readonly [number, number, number], hfovDeg?: number): Promise<View> {
+  const [from, to] = await Promise.all([toWorld(page, eye), toWorld(page, at)]);
+  return hfovDeg === undefined ? { from, at: to } : { from, at: to, hfovDeg };
+}
+
+/** A cubic Bezier through box-unit control points, in world metres (the box is rigid, so the curve maps over). */
+export async function boxCurve(page: Page, pts: ReadonlyArray<readonly [number, number, number]>): Promise<(k: number) => Vec3> {
+  if (pts.length !== 4) throw new Error("a cubic curve takes four control points");
+  const [a, b, c, d] = (await Promise.all(pts.map((p) => toWorld(page, p)))) as [Vec3, Vec3, Vec3, Vec3];
+  return (k) => {
+    const u = 1 - k;
+    const w0 = u * u * u, w1 = 3 * u * u * k, w2 = 3 * u * k * k, w3 = k * k * k;
+    return [0, 1, 2].map((i) => w0 * a[i]! + w1 * b[i]! + w2 * c[i]! + w3 * d[i]!) as Vec3;
+  };
+}
+
+/**
+ * The player's reach and pinch, recorded: the open hand in from the right beside the lantern over `ms`, closing on it.
+ * Returns the grasp point's offset from the lantern once held (world metres): carry the lantern to p by taking the
+ * grasp point to p plus that offset.
+ */
+export async function takeLantern(app: XrApp, page: Page, hand: Hand, ms = 1000): Promise<Vec3> {
+  const from = await toWorld(page, await lanternPos(page));
+  await hand.shape(0.5, 200);
+  await hand.glide(offset(from, 0.03, 0.03, 0.04), ms * 0.7, PINCH_FROM_RIGHT);
+  await hand.glide(from, ms * 0.3);
+  await hand.pinch(140);
+  await app.stepUntil((_ns, w) => w.__sl.lantern().held, { maxMs: 1_000, batch: 1, label: "the lantern held" });
+  const held = await toWorld(page, await lanternPos(page));
+  return [from[0] - held[0], from[1] - held[1], from[2] - held[2]];
 }
 
 /** A day in ms. */

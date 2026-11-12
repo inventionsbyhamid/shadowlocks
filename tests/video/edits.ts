@@ -18,7 +18,23 @@ export const END_CARD: EndCard = {
 /** The Devpost demo film from the render harness alone, in the order of plan/submission/demo-video-script.md. */
 const DEMO_SHOTS = ["demo-finger", "demo-room", "demo-lesson", "demo-box3", "demo-daily-home", "demo-daily-open", "demo-share", "demo-controller"];
 
+/** The film, version 2, its opening (parts A and B): the hook and the three beats on the dark stage. */
+const DEMO2_OPEN = ["demo2-hook", "demo2-light", "demo2-depth", "demo2-hand"];
+
 export const EDITS: Record<string, Edit> = {
+  /**
+   * The opening 25 seconds of the film, version 2 (plan/submission/demo-video-script-v2.md, parts A and B): straight
+   * cuts on the sounds, the game's sound and the music bed, no narration yet, and no corner label (the dark stage shows
+   * no room; the label returns with the room in part C). Two captions, in the game's serif.
+   */
+  "demo2-open": {
+    shots: DEMO2_OPEN,
+    crossfadeMs: 0,
+    captions: [
+      { text: "Near pieces swing wide. Far pieces barely move.", shot: "demo2-depth", atSec: 2.2, sec: 4.6 },
+      { text: "Your hand casts shadows too.", shot: "demo2-hand", atSec: 0.6, sec: 3.6 },
+    ],
+  },
   /**
    * The film: the cold open, the room, lesson 1, Box No. 3's finger lock and opening, the Daily Box, sharing on the 2D
    * page, a Touch controller, the end card. Game sound and music only (its voice-over is made later from
