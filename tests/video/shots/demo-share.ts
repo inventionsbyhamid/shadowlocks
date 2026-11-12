@@ -20,7 +20,7 @@ export default definePageShot({
   name: "demo-share",
   description: "The 2D page after a Daily Box: the result and its share button pressed; then a friend's link landing.",
   viewport: { width: 1280, height: 720 },
-  async play({ window: open, boot, hold }) {
+  async play({ window: open, boot, hold, until }) {
     const page = await open({ profile: playedProfile(4, 4, DEFAULT_DATE) });
     const app = await boot(page, { mode: "logic" });
     await page.evaluate((day) => window.__sl!.session.play({ kind: "daily", day }), TODAY);
@@ -31,17 +31,18 @@ export default definePageShot({
     // The headset view ends: back on the 2D page.
     await page.evaluate(() => (window.__ns!.world as unknown as { session?: XRSession }).session?.end());
     await app.stepUntil((ns) => !ns.state().xr.presenting, { maxMs: 5_000, label: "out of XR" });
-    await page.locator("#result").waitFor({ state: "visible" });
-    await page.locator("#share-result").scrollIntoViewIfNeeded();
+    await until(page, () => !document.getElementById("result")!.hidden, "the result on the page");
+    await page.evaluate(() => document.getElementById("share-result")!.scrollIntoView({ block: "center" }));
     await hold(page, 4);
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
-    await page.locator("#share-result").click();
-    await page.waitForFunction(() => (document.getElementById("share-note")?.textContent ?? "") !== "");
+    // A real click (a user gesture) without Playwright's frame-timed checks, which the virtual clock would hold.
+    await page.locator("#share-result").click({ force: true, timeout: 15_000 });
+    await until(page, () => (document.getElementById("share-note")?.textContent ?? "") !== "", "the share note");
     await hold(page, 2.5);
 
     const friend = await open({ profile: playedProfile(4, 0, DEFAULT_DATE) });
     await boot(friend, { url: FRIEND_LINK, enterXR: false });
-    await friend.locator("#shared-says").waitFor({ state: "visible" });
+    await until(friend, () => (document.getElementById("shared-says")?.textContent ?? "") !== "", "the friend's time");
     await hold(friend, 4.5);
   },
 });

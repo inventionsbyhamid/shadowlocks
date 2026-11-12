@@ -26,6 +26,11 @@ export interface PageShotContext {
   boot(page: Page, o?: Omit<BootOptions, "viewport" | "testInfo" | "consoleLines">): Promise<XrApp>;
   /** Capture the window as it is now and hold it for `sec`. */
   hold(page: Page, sec: number): Promise<void>;
+  /**
+   * Wait (real time, polled from here) until `fn` is true in the page. The e2e boot's virtual clock holds the page's
+   * animation frames, so Playwright's own frame-polled waits would never return.
+   */
+  until(page: Page, fn: () => boolean, label: string, timeoutMs?: number): Promise<void>;
 }
 
 export interface PageShot {
@@ -85,6 +90,13 @@ async function capturePage(shot: PageShot, browser: Browser, baseURL: string, o:
       return page;
     },
     boot: (page, b = {}) => bootPage(page, { mode: "visual", ...b, viewport: shot.viewport }),
+    async until(page, fn, label, timeoutMs = 20_000) {
+      const end = Date.now() + timeoutMs;
+      while (!(await page.evaluate(fn))) {
+        if (Date.now() > end) throw new Error(`${shot.name}: still false after ${timeoutMs} ms: ${label}`);
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    },
     async hold(page, sec) {
       // The emulator's own "Enter XR" button (IWER's, not the game's) goes, as the headset shots hide its DevUI. It
       // may live in a shadow root: whatever holds those words outside the game's page is hidden, host and all.
