@@ -90,7 +90,7 @@ export default defineShot<Data>({
     const card = (await page.evaluate(() => (window as any).__sl.session.card())) as { world: Vec3 } | null;
     // The player leans in a little to read the plaque and the card (a few centimetres: the room is a photograph,
     // so the eye stays near where it was).
-    if (card) camera.move({ from: offset(EYE, 0, -0.02, -0.06), at: offset(card.world, 0, 0.1, 0), hfovDeg: 76 }, 3000);
+    if (card) camera.move({ from: offset(EYE, 0, -0.01, -0.04), at: offset(card.world, 0, 0.2, 0), hfovDeg: 78 }, 3000);
     else console.warn("demo2-play-finish: no card position");
     await until(Math.max(time() + 3.2, 11.8));
   },
