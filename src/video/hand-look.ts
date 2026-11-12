@@ -2,7 +2,7 @@
 // drop it). On a headset the player sees their own hand through passthrough: the game's hand mask
 // (render/hand-mask.ts) keeps every bone of a tracked hand clear of the box, so the camera image
 // shows there. A render has no camera image, so the video build draws a stand-in in the spirit of
-// the Quest system hand: a soft smoky fill with a thin light outline, fading out toward the wrist
+// the Quest system hand: a soft pale fill with a light outline, fading out toward the wrist
 // so the missing forearm never shows. It covers the mask's capsules (read from the mask's own
 // buffers, a little wider) and IWSDK's hand mesh (a little inflated) as one surface, so the hole the
 // mask leaves never shows as a dark halo round the hand. IWSDK's thin outline mesh is not drawn.
@@ -23,13 +23,13 @@ import {
 } from "@iwsdk/core";
 
 export const HAND_LOOK = {
-  /** The fill: a cool smoky grey (sRGB) at this opacity. */
-  fill: 0x6a6e76,
-  fillAlpha: 0.46,
+  /** The fill: a pale warm grey (sRGB) at this opacity, so the hand reads as a light glove on the dark stage. */
+  fill: 0xd6d0c6,
+  fillAlpha: 0.6,
   /** The outline: warm white, where the surface turns away from the eye (1 - n.v from `edge[0]` to `edge[1]`). */
   rim: 0xf6efe4,
   rimAlpha: 0.95,
-  edge: [0.8, 0.95] as const,
+  edge: [0.55, 0.96] as const,
   /** Drawn after the box and its glows (IWSDK draws its outline at 999), still depth tested. */
   renderOrder: 998,
   /** IWSDK's hand mesh is pushed out along its normals by this much (m). */
@@ -72,7 +72,7 @@ void main() {
   vec3 v = normalize(cameraPosition - vWorldPos);
   float rim = smoothstep(uEdge.x, uEdge.y, 1.0 - clamp(abs(dot(n, v)), 0.0, 1.0));
   float wrapped = max(0.0, (dot(n, uKeyDir) + 0.5) / 1.5);
-  vec3 fill = uFill * (0.85 + 0.15 * wrapped);
+  vec3 fill = uFill * (0.62 + 0.38 * wrapped);
   vec3 color = mix(fill, uRim, rim);
   float alpha = mix(uFillAlpha, uRimAlpha, rim) * smoothstep(uFade.x, uFade.y, vAlong);
   gl_FragColor = vec4(color, alpha);
