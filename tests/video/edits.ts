@@ -60,7 +60,7 @@ export const EDITS: Record<string, Edit> = {
     shots: DEMO2_MORE,
     crossfadeMs: 0,
     endCard: DEMO2_END,
-    narration: { file: "video-assets/demo2-more-narration.wav", startSec: 0, gainDb: 2, duckDb: 8 },
+    narration: { file: "video-assets/demo2-more-narration.wav", startSec: 0, gainDb: 4, duckDb: 8 },
   },
   /** The same cut without the voice, at the game's own levels (as demo2-open: the sparse mix misses -14 LUFS). */
   "demo2-more-silent": { shots: DEMO2_MORE, crossfadeMs: 0, endCard: DEMO2_END, loudness: null },
