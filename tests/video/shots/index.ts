@@ -10,6 +10,20 @@ import demoFinger from "./demo-finger";
 import demoLesson from "./demo-lesson";
 import demoRoom from "./demo-room";
 import demoShare from "./demo-share";
+import demo2DBest from "./demo2-d-best";
+import demo2DBox1 from "./demo2-d-box1";
+import demo2DBox7 from "./demo2-d-box7";
+import demo2DBox22 from "./demo2-d-box22";
+import demo2DBox382 from "./demo2-d-box382";
+import demo2DBox630 from "./demo2-d-box630";
+import demo2DCollection from "./demo2-d-collection";
+import demo2DController from "./demo2-d-controller";
+import demo2DDailyCard from "./demo2-d-daily-card";
+import demo2DDailyHome from "./demo2-d-daily-home";
+import demo2DHand from "./demo2-d-hand";
+import demo2DLetgo from "./demo2-d-letgo";
+import demo2DShare from "./demo2-d-share";
+import demo2EOpen from "./demo2-e-open";
 import demo2Depth from "./demo2-depth";
 import demo2Hand from "./demo2-hand";
 import demo2Handlook from "./demo2-handlook";
@@ -49,9 +63,25 @@ export const SHOTS: Record<string, Shot<any>> = {
   // Part C (play) in the photographic room.
   "demo2-play-start": demo2PlayStart,
   "demo2-play-finish": demo2PlayFinish,
+  // The film, version 2: part D (more: endless boxes, records, the Daily Box, controllers and letting go) and part E's
+  // held frame, on the dark stage (edits.ts "demo2-more").
+  "demo2-d-box382": demo2DBox382,
+  "demo2-d-box1": demo2DBox1,
+  "demo2-d-box7": demo2DBox7,
+  "demo2-d-box22": demo2DBox22,
+  "demo2-d-box630": demo2DBox630,
+  "demo2-d-best": demo2DBest,
+  "demo2-d-collection": demo2DCollection,
+  "demo2-d-daily-home": demo2DDailyHome,
+  "demo2-d-daily-card": demo2DDailyCard,
+  "demo2-d-hand": demo2DHand,
+  "demo2-d-controller": demo2DController,
+  "demo2-d-letgo": demo2DLetgo,
+  "demo2-e-open": demo2EOpen,
 };
 
 // Shots of the game's 2D page in a browser window (lib/page-shot.ts), by name like the others.
 export const PAGE_SHOTS: Record<string, PageShot> = {
   "demo-share": demoShare,
+  "demo2-d-share": demo2DShare,
 };

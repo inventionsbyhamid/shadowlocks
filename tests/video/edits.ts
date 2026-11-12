@@ -24,20 +24,71 @@ const DEMO2_OPEN = ["demo2-hook", "demo2-light", "demo2-depth", "demo2-hand"];
 const DEMO2_OPEN_CUT: Edit = {
   shots: DEMO2_OPEN,
   crossfadeMs: 0,
-  captions: [
-    { text: "Near pieces swing wide. Far pieces barely move.", shot: "demo2-depth", atSec: 1.9, sec: 4.2 },
-    { text: "Your hand casts shadows too.", shot: "demo2-hand", atSec: 0.4, sec: 3.0 },
-  ],
 };
 /** The film, version 2, part C (play): Box No. 157 in the photographic room. */
 const DEMO2_PLAY = ["demo2-play-start", "demo2-play-finish"];
 
+/**
+ * The film, version 2, parts D and E: endless boxes (Box No. 382, then 1, 7, 22 and 630), records (New best, the
+ * Collection), the Daily Box and its streak, sharing on the 2D page, hands, a controller and letting go; then Box No.
+ * 12 opening, held under the end card.
+ */
+const DEMO2_MORE = [
+  "demo2-d-box382",
+  "demo2-d-box1",
+  "demo2-d-box7",
+  "demo2-d-box22",
+  "demo2-d-box630",
+  "demo2-d-best",
+  "demo2-d-collection",
+  "demo2-d-daily-home",
+  "demo2-d-daily-card",
+  "demo2-d-share",
+  "demo2-d-hand",
+  "demo2-d-controller",
+  "demo2-d-letgo",
+  "demo2-e-open",
+];
+
+/**
+ * The end card over part E's held frame: Box No. 12 just opened, sharp, left of centre; the title large in the display
+ * face in the dark to its right, the facts, and the site's name (as the result card prints it).
+ */
+const DEMO2_END: EndCard = { ...END_CARD, link: "shadowlocks.pages.dev", layout: "side", blurSigma: 0, holdSec: 4.5, fadeMs: 500 };
+
 export const EDITS: Record<string, Edit> = {
+  /**
+   * The whole film, version 2 (plan/submission/demo-video-script-v2.md, the amendment): the opening on the dark stage,
+   * play in the photographed room (labelled "Simulated room"), the montage, the end card. Straight cuts, the music bed
+   * under all of it, dipped under the voice (the twelve lines laid at their beats in one file, video-assets/, not
+   * committed). No captions.
+   */
+  "demo2-film": {
+    shots: [...DEMO2_OPEN, ...DEMO2_PLAY, ...DEMO2_MORE],
+    crossfadeMs: 0,
+    endCard: DEMO2_END,
+    label: { text: "Simulated room", shots: DEMO2_PLAY },
+    narration: { file: "video-assets/demo2-film-narration.wav", startSec: 0, duckDb: 8 },
+  },
+  /**
+   * Parts D and E of the film, version 2, cut to the narration (take 1 of lines 7 to 12, laid at their beats in
+   * video-assets/demo2-more-narration.wav, not committed: plan/sdd/sl-v1/task-49-report.md says how it is made). Straight
+   * cuts, the music bed under all of it, dipped under the voice; no captions and no corner label (the dark stage shows
+   * no room).
+   */
+  "demo2-more": {
+    shots: DEMO2_MORE,
+    crossfadeMs: 0,
+    endCard: DEMO2_END,
+    narration: { file: "video-assets/demo2-more-narration.wav", startSec: 0, gainDb: 4, duckDb: 8 },
+  },
+  /** The same cut without the voice, at the game's own levels (as demo2-open: the sparse mix misses -14 LUFS). */
+  "demo2-more-silent": { shots: DEMO2_MORE, crossfadeMs: 0, endCard: DEMO2_END, loudness: null },
   /**
    * The opening of the film, version 2 (plan/submission/demo-video-script-v2.md, parts A and B): straight cuts, the
    * first on the lantern's pick-up sound, the game's sound and the music bed, the narration's first four lines, and no
-   * corner label (the dark stage shows no room; the label returns with the room in part C). Two captions, in the game's
-   * serif. The voice-over is the four takes laid at the beats' times (video-assets/, not committed; how it is built is
+   * corner label (the dark stage shows no room; the label returns with the room in part C). No captions: the
+   * narration says it. The voice-over is the four takes laid at the beats' times (video-assets/, not committed; how it is built is
    * in plan/sdd/sl-v1/task-47-report.md), levelled to -20 LUFS; the bed ducks 6 dB under it.
    */
   "demo2-open": { ...DEMO2_OPEN_CUT, narration: { file: "video-assets/demo2-open-narration.wav", startSec: 0, duckDb: 6 } },

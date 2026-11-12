@@ -323,7 +323,8 @@ export function editVideoFilter(
  * (input `stillInput`: that last frame as a still, so nothing waits on the whole edit to reach it) fading in over
  * `fadeFrames`, and the card's still (input `cardInput`, a transparent PNG at the edit's size) fading in over it a few
  * frames later. Takes the edit's filter (ending in [v], `frames` long) and returns one that ends in [v],
- * `frames + extraFrames` long.
+ * `frames + extraFrames` long. A `blurSigma` of 0 keeps the held frame as it is (sharp, its colours untouched): the card
+ * lays its own shade where its words go.
  */
 export function endCardFilter(
   filter: string,
@@ -334,6 +335,14 @@ export function endCardFilter(
   const t0 = f(o.frames / o.fps);
   const fade = f(o.fadeFrames / o.fps);
   const lag = f((o.frames + Math.round(o.fps * 0.15)) / o.fps);
+  if (o.blurSigma <= 0) {
+    return (
+      `${filter.slice(0, -3)}[vcut];` +
+      `[vcut]tpad=stop_mode=clone:stop=${o.extraFrames}[vbg];` +
+      `[${o.cardInput}:v]format=yuva444p,fade=t=in:st=0:d=${fade}:alpha=1,setpts=PTS+${lag}/TB[vcard];` +
+      `[vbg][vcard]overlay=eof_action=pass:format=auto[v]`
+    );
+  }
   return (
     `${filter.slice(0, -3)}[vcut];` +
     `[vcut]tpad=stop_mode=clone:stop=${o.extraFrames}[vhold];` +
