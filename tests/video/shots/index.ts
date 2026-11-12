@@ -14,6 +14,8 @@ import demo2Depth from "./demo2-depth";
 import demo2Hand from "./demo2-hand";
 import demo2Hook from "./demo2-hook";
 import demo2Light from "./demo2-light";
+import demo2PlayFinish from "./demo2-play-finish";
+import demo2PlayStart from "./demo2-play-start";
 import inlineFinger from "./inline-finger";
 import inlineLock from "./inline-lock";
 import inlineRoom from "./inline-room";
@@ -41,6 +43,9 @@ export const SHOTS: Record<string, Shot<any>> = {
   "demo2-light": demo2Light,
   "demo2-depth": demo2Depth,
   "demo2-hand": demo2Hand,
+  // Part C (play) in the photographic room.
+  "demo2-play-start": demo2PlayStart,
+  "demo2-play-finish": demo2PlayFinish,
 };
 
 // Shots of the game's 2D page in a browser window (lib/page-shot.ts), by name like the others.
