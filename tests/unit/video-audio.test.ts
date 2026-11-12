@@ -358,7 +358,7 @@ describe("end card", () => {
   it("says the game's own words: the name, the tagline and three facts, no dashes", () => {
     expect(END_CARD.title).toBe("Shadow Locks");
     expect(END_CARD.tagline).toBe("Your hands. One light. Every shadow a lock.");
-    expect(END_CARD.facts).toEqual(["Seated", "Hands only", "Plays offline"]);
+    expect(END_CARD.facts).toEqual(["Seated", "Hands first", "Plays offline"]);
     expect([END_CARD.title, END_CARD.tagline, ...END_CARD.facts].join(" ")).not.toMatch(/[‒–—―]/);
     expect(END_CARD.title).toBe(COPY.film.title);
     // The link slot stays free until the hosted link exists.
@@ -369,7 +369,7 @@ describe("end card", () => {
     const html = endCardHtml(END_CARD, 960, 540, "data:x");
     expect(html).toContain(">Shadow Locks<");
     expect(html).toContain(">Your hands. One light. Every shadow a lock.<");
-    expect(html).toContain('<span class="chip accent">Seated</span><span class="chip">Hands only</span><span class="chip">Plays offline</span>');
+    expect(html).toContain('<span class="chip accent">Seated</span><span class="chip">Hands first</span><span class="chip">Plays offline</span>');
     expect(html).toContain('<div class="link"></div>');
     expect(html).toContain("font-size: 54.00px");
     // Ebony and gold, not Number Smash's orange.
