@@ -1,4 +1,4 @@
-// Part B, beat 1 (one light), one unbroken take: Box No. 2 on the dark stage, seen from the front left and from far
+// Part B, beat 1 (one light), one unbroken take that starts on the pinch: Box No. 2 on the dark stage, seen from the front left and from far
 // enough back that the lantern, the scraps on their threads and the panel are all in frame (from further round, the box's front post
 // would cross the panel). Its Star stays shut, so the box does not open after the Crown. The right hand comes in, takes
 // the lantern and carries it in one slow arc, up and across and down onto the lock's spot; on the panel the shadows slide and
@@ -9,10 +9,12 @@ import type { Vec3 } from "../../../src/core/types";
 import { DEFAULT_DATE } from "../../e2e/helpers/boot";
 import type { View } from "../lib/camera";
 import { defineShot } from "../lib/shot";
-import { boxCurve, boxView, lanternPos, playedProfile, spotOf, startBox, takeLantern } from "../lib/stage";
+import { boxCurve, boxView, lanternPos, offset, PINCH_FROM_RIGHT, playedProfile, spotOf, startBox, toWorld } from "../lib/stage";
 
 interface Data {
   start: Vec3;
+  /** The lantern's grasp point, where the hand waits to pinch (world). */
+  from: Vec3;
   spot: Vec3;
   view: View;
   end: View;
@@ -25,8 +27,9 @@ const REST: Vec3 = [0.55, 0.5, -1.0];
 
 export default defineShot<Data>({
   name: "demo2-light",
-  description: "One light: the hand carries the lantern in an arc, the shadows gather into the Crown, it opens in gold.",
-  seconds: 8,
+  description: "One light: from the pinch, the hand carries the lantern in an arc, the shadows gather into the Crown, it opens in gold.",
+  seconds: 7,
+  hideHint: true,
   profile: playedProfile(3, 0, DEFAULT_DATE),
   darkStage: true,
   async setup({ app, page, hand }) {
@@ -34,20 +37,30 @@ export default defineShot<Data>({
     await startBox(app, page, BOX);
     const right = hand("right");
     await right.park(REST);
+    // The reach is not filmed: the take starts with the open hand at the lantern, closing on it.
+    const start = (await lanternPos(page)) as Vec3;
+    const from = await toWorld(page, start);
+    await right.shape(0.5, 200);
+    await right.glide(offset(from, 0.03, 0.03, 0.04), 500, PINCH_FROM_RIGHT);
+    await right.glide(from, 300);
+    await app.step(10);
     return {
-      start: (await lanternPos(page)) as Vec3,
+      start,
+      from,
       spot: (await spotOf(page, LOCK)) as Vec3,
       view: await boxView(page, [-0.62, 0.14, 3.05], [0.0, -0.14, 0.6], 50),
       end: await boxView(page, [-0.56, 0.12, 2.85], [-0.04, -0.12, 0.5], 47),
     };
   },
   firstView: ({ view }) => view,
-  async play({ app, page, camera, hand, until, time }, { start, spot, end }) {
+  async play({ app, page, camera, hand, until, time }, { start, from, spot, end }) {
     const right = hand("right");
     // A slow drift in toward the panel over the whole take.
-    camera.move(end, 7800);
-    await until(0.2);
-    const grip = await takeLantern(app, page, right, 1000);
+    camera.move(end, 6800);
+    await right.pinch(140);
+    await app.stepUntil((_ns, w) => w.__sl.lantern().held, { maxMs: 1_000, batch: 1, label: "the lantern held" });
+    const held = await toWorld(page, await lanternPos(page));
+    const grip: Vec3 = [from[0] - held[0], from[1] - held[1], from[2] - held[2]];
     // Up and over to the left, then down onto the spot: the shadows sweep across the panel and come together.
     const path = await boxCurve(page, [
       start,
@@ -65,6 +78,6 @@ export default defineShot<Data>({
     } catch {
       console.warn(`demo2-light: lock ${LOCK} stayed shut with the lantern carried onto its spot at ${t.toFixed(2)} s (left as the game has it)`);
     }
-    await until(Math.max(time() + 0.6, 8));
+    await until(time() + 0.75);
   },
 });
