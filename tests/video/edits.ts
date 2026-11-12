@@ -30,6 +30,9 @@ export const EDITS: Record<string, Edit> = {
   "demo2-open": {
     shots: DEMO2_OPEN,
     crossfadeMs: 0,
+    // The game's own levels for now: on this sparse mix (chimes over the music bed, no voice) the two-pass loudness
+    // step lands 0.8 LU short of its target every time (-14.8 for -14, -15.8 for -15). The narration fixes the level.
+    loudness: null,
     captions: [
       { text: "Near pieces swing wide. Far pieces barely move.", shot: "demo2-depth", atSec: 2.2, sec: 4.6 },
       { text: "Your hand casts shadows too.", shot: "demo2-hand", atSec: 0.6, sec: 3.6 },
