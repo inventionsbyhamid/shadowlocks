@@ -15,7 +15,43 @@ export const END_CARD: EndCard = {
   fadeMs: 600,
 };
 
+/** The Devpost demo film from the render harness alone, in the order of plan/submission/demo-video-script.md. */
+const DEMO_SHOTS = ["demo-finger", "demo-room", "demo-lesson", "demo-box3", "demo-daily-home", "demo-daily-open", "demo-share", "demo-controller"];
+
+/** The film, version 2, its opening (parts A and B): the hook and the three beats on the dark stage. */
+const DEMO2_OPEN = ["demo2-hook", "demo2-light", "demo2-depth", "demo2-hand"];
+
+const DEMO2_OPEN_CUT: Edit = {
+  shots: DEMO2_OPEN,
+  crossfadeMs: 0,
+  captions: [
+    { text: "Near pieces swing wide. Far pieces barely move.", shot: "demo2-depth", atSec: 1.9, sec: 4.2 },
+    { text: "Your hand casts shadows too.", shot: "demo2-hand", atSec: 0.4, sec: 3.0 },
+  ],
+};
+
 export const EDITS: Record<string, Edit> = {
+  /**
+   * The opening of the film, version 2 (plan/submission/demo-video-script-v2.md, parts A and B): straight cuts, the
+   * first on the lantern's pick-up sound, the game's sound and the music bed, the narration's first four lines, and no
+   * corner label (the dark stage shows no room; the label returns with the room in part C). Two captions, in the game's
+   * serif. The voice-over is the four takes laid at the beats' times (video-assets/, not committed; how it is built is
+   * in plan/sdd/sl-v1/task-47-report.md), levelled to -20 LUFS; the bed ducks 6 dB under it.
+   */
+  "demo2-open": { ...DEMO2_OPEN_CUT, narration: { file: "video-assets/demo2-open-narration.wav", startSec: 0, duckDb: 6 } },
+  /** The same opening without the narration (the game's sound and the music bed only). */
+  "demo2-open-quiet": DEMO2_OPEN_CUT,
+  /**
+   * The film: the cold open, the room, lesson 1, Box No. 3's finger lock and opening, the Daily Box, sharing on the 2D
+   * page, a Touch controller, the end card. Game sound and music only (its voice-over is made later from
+   * plan/submission/demo-narration-cues.md); every shot is emulator footage, and says so in the corner.
+   */
+  demo: {
+    shots: DEMO_SHOTS,
+    crossfadeMs: 500,
+    endCard: { ...END_CARD, holdSec: 5 },
+    label: { text: "Emulator footage", shots: DEMO_SHOTS },
+  },
   /** Proves the cut step: the sample twice, a half-second crossfade, one music bed, -14 LUFS. */
   "concat-check": { shots: ["sample", "sample"], crossfadeMs: 500 },
   /** Proves the end card: the sample, then the card over a blurred hold of its last frame. */

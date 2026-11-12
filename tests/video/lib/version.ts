@@ -60,6 +60,8 @@ export const FRAME_INPUTS = [
   "tests/video/lib/shot.ts",
   // Shared setup of a box in play (the store's inline media shots).
   "tests/video/lib/stage.ts",
+  // Shots of the 2D page.
+  "tests/video/lib/page-shot.ts",
   // The start time, epoch, boot options and the align, setup and warm-up order live here.
   "tests/video/lib/shoot.ts",
   "tests/video/lib/options.ts",

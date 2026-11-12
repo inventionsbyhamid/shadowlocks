@@ -10,7 +10,7 @@ import type { FeedbackEvent } from "../../../src/app/bus";
 import type { NsApi } from "../../../src/app/test-api";
 import { DT, type StepUntilOptions, XrApp } from "../../e2e/helpers/xr-app";
 import type { FrameEvents } from "./audio";
-import type { CameraTrack } from "./camera";
+import { type CameraTrack, fovyFor } from "./camera";
 import { type FrameStore, pngSha } from "./journal";
 import { alignStep, type FrameResult, setupStep, videoFrame } from "./page-video";
 
@@ -44,6 +44,9 @@ export interface RecorderOptions {
   expectGb: number;
   /** Expected frames of the shot (for the progress line); 0 when unknown. */
   expectFrames: number;
+  /** The render size: a view's lens (horizontal field of view) becomes IWER's vertical one with it. */
+  width: number;
+  height: number;
   log: (line: string) => void;
 }
 
@@ -117,6 +120,7 @@ export class Recorder {
       dt: this.dt,
       position: pose.position,
       quaternion: pose.quaternion,
+      fovy: fovyFor(this.camera.hfovAt(t), this.o.width, this.o.height),
       skip,
       capture,
       solidHands: this.o.solidHands,
@@ -271,6 +275,11 @@ export class VideoApp extends XrApp {
     v.bootRealMs = app.bootRealMs;
     v.bootVirtualMs = app.bootVirtualMs;
     return v;
+  }
+
+  /** Frames a second: the video rate while recording, else the e2e step (setup frames). */
+  fps(): number {
+    return this.recording ? this.recording.o.fps : 1000 / DT;
   }
 
   private get recording(): Recorder | null {

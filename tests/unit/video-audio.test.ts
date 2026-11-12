@@ -15,9 +15,9 @@ import {
   planMusic,
   voiceLevel,
 } from "../video/lib/audio";
-import { EDIT_LOUDNESS, editLoudness, SILENT_MANIFEST } from "../video/lib/deliver";
+import { captionSpans, EDIT_LOUDNESS, editLoudness, outScale, SILENT_MANIFEST } from "../video/lib/deliver";
 import { endCardHtml } from "../video/lib/endcard";
-import { contactSheetArgs, deliveryArgs, duckFilter, editVideoFilter, endCardFilter, fadeFramesFor, mezzanineArgs, mixCommand } from "../video/lib/mixdown";
+import { captionFilter, contactSheetArgs, deliveryArgs, duckFilter, editVideoFilter, endCardFilter, fadeFramesFor, labelFilter, mezzanineArgs, mixCommand } from "../video/lib/mixdown";
 import { fixtureManifest } from "./helpers/audio-fixture";
 
 // The shapes the sound pack's manifest has (the sound tools write them), with test values: the video
@@ -147,6 +147,31 @@ describe("mix plan", () => {
     expect(plan.ducks).toHaveLength(1);
     expect(plan.ducks[0]!.t).toBe(1);
     expect(plan.ducks[0]!.depth).toBeCloseTo(db(-6), 6);
+  });
+
+  it("lays the voice guide's own clips in where the game said them, the music dipped under each, a cut line faded", () => {
+    const plan = planMix(
+      [
+        frame(1, [{ type: "video.voice", kind: "say", key: "lessons.pickUp", ms: 1500 }]),
+        frame(3, [{ type: "video.voice", kind: "say", key: "lessons.goal", ms: 2000 }]),
+        frame(3.5, [{ type: "video.voice", kind: "hush", fadeMs: 120 }]),
+      ],
+      manifest,
+      { duration: 8, seed: "v", initialMusic: "calm" },
+    );
+    const lines = plan.layers.filter((l) => l.id.startsWith("voice "));
+    expect(lines.map((l) => [l.file, l.t, l.azimuth])).toEqual([
+      ["voice/en/lessons.pickUp.ogg", 1, null],
+      ["voice/en/lessons.goal.ogg", 3, null],
+    ]);
+    expect(lines[0]!.duration).toBeCloseTo(1.5, 6);
+    expect(lines[0]!.gain).toBeCloseTo(manifest.buses.sfx, 6);
+    expect(lines[1]!.duration).toBeCloseTo(0.62, 6);
+    expect(lines[1]!.fadeOut).toBeCloseTo(0.12, 6);
+    expect(plan.ducks[0]!.t).toBe(1);
+    expect(plan.ducks[0]!.depth).toBeCloseTo(db(-8), 6);
+    // A game sound in the same frame as a line still plays.
+    expect(planMix([frame(1, [{ type: "video.voice", kind: "say", key: "lessons.goal", ms: 900 }, { type: "grab", hand: "right" }])], manifest, { duration: 4, seed: "v", initialMusic: "calm" }).layers.length).toBeGreaterThan(1);
   });
 
   it("dips the music 4 dB under the box's tune, from its first note until its last has rung, as the game does", () => {
@@ -284,6 +309,18 @@ describe("ffmpeg commands", () => {
     expect(stereo.script).toMatch(/pan=stereo\|c0=[\d.]+\*c0(\+[\d.]+\*c1)?\|c1=([\d.]+\*c0\+)?[\d.]+\*c1/);
   });
 
+  it("plays the music bed from a pack with a calm loop only, as the engine does", () => {
+    const plan = planMix([frame(1, [{ type: "screen", from: "home", to: "play" }])], manifest, { duration: 4, seed: "b", initialMusic: "menu" });
+    const cmd = mixCommand(
+      { plan, music: planMusic(plan.music, musicSetup(manifest)), musicBus: 0.5, limiter: true, out: "out.wav" },
+      { audioDir: "/a", calmLoop: { file: "/w/bed.wav", samples: 960000, startSample: 0 }, channels: () => 2 },
+      "mix.filter",
+    );
+    expect(cmd.args).toContain("/w/bed.wav");
+    expect(cmd.script).toContain("[music]");
+    expect(cmd.script).not.toContain("raw_intense");
+  });
+
   it("ducks the bed under a voice-over by about the asked depth", () => {
     const plan = planMix([], manifest, { duration: 4, seed: "n", initialMusic: "calm" });
     const cmd = mixCommand(
@@ -314,6 +351,37 @@ describe("ffmpeg commands", () => {
     expect(d).toContain("+faststart");
   });
 
+  it("scales supersampled frames down to the delivery size before the delivery conversion", () => {
+    const o = { width: 2560, height: 1440, outWidth: 1920, outHeight: 1080 };
+    const d = deliveryArgs({ inputs: ["m.mkv"], videoFilter: null, audio: "a.wav", fps: 60, crf: 18, preset: "slow", out: "o.mp4", scale: outScale(o) }).join(" ");
+    expect(d).toMatch(/\[v\]scale=1920:1080:flags=lanczos[^,]*,scale=out_color_matrix=bt709/);
+    expect(outScale({ ...o, outWidth: 2560, outHeight: 1440 })).toBeUndefined();
+    const plain = deliveryArgs({ inputs: ["m.mkv"], videoFilter: null, audio: "a.wav", fps: 60, crf: 18, preset: "slow", out: "o.mp4" }).join(" ");
+    expect(plain).not.toContain("lanczos");
+  });
+
+  it("lays captions over their shots, fading in and out, and refuses one too short to read", () => {
+    const spans = captionSpans(
+      [
+        { text: "a", shot: "s2", atSec: 1, sec: 3 },
+        { text: "b", shot: "s3", atSec: 0.5, sec: 2.5 },
+      ],
+      ["s1", "s2", "s3"],
+      [0, 5, 12],
+      [5, 7, 5],
+    );
+    expect(spans).toEqual([[6, 9], [12.5, 15]]);
+    expect(() => captionSpans([{ text: "a", shot: "s2", atSec: 0, sec: 2 }], ["s2"], [0], [5])).toThrow(/at least 2.5/);
+    expect(() => captionSpans([{ text: "a", shot: "s2", atSec: 4, sec: 3 }], ["s2"], [0], [5])).toThrow(/runs past/);
+    expect(() => captionSpans([{ text: "a", shot: "x", atSec: 0, sec: 3 }], ["s2"], [0], [5])).toThrow(/not in the edit/);
+    const g = captionFilter("[0:v]null[v]", { input: 3, spans, fade: 0.25 });
+    expect(g).toContain("[0:v]null[vc0];[3:v]format=yuva444p,fade=t=in:st=6:d=0.25:alpha=1,fade=t=out:st=8.75:d=0.25:alpha=1[cap0]");
+    expect(g).toContain("[vc0][cap0]overlay=x=0:y=0:eof_action=pass:format=auto[vc1]");
+    expect(g).toContain("[4:v]format=yuva444p,fade=t=in:st=12.5:");
+    expect(g.endsWith("[vc1][cap1]overlay=x=0:y=0:eof_action=pass:format=auto[v]")).toBe(true);
+    expect(captionFilter("[0:v]null[v]", { input: 3, spans: [], fade: 0.25 })).toBe("[0:v]null[v]");
+  });
+
   it("cuts edits in whole frames and refuses a crossfade as long as a clip", () => {
     expect(fadeFramesFor(500, 60)).toBe(30);
     expect(fadeFramesFor(333, 60)).toBe(20);
@@ -321,11 +389,29 @@ describe("ffmpeg commands", () => {
     expect(v.startFrames).toEqual([0, 210, 480]);
     expect(v.frames).toBe(660);
     expect(v.duration).toBeCloseTo(11, 9);
-    expect(v.filter).toBe("[0:v][1:v]xfade=transition=fade:duration=0.5:offset=3.5[x1];[x1][2:v]xfade=transition=fade:duration=0.5:offset=8[v]");
+    // Each crossfade on its own short pieces (no clip held in memory until its turn), joined in order.
+    expect(v.filter).toContain("[0:v]split=2[b0s][t0s];[b0s]trim=start_frame=0:end_frame=210,setpts=PTS-STARTPTS[b0]");
+    expect(v.filter).toContain("[1:v]split=3[h1s][b1s][t1s];[h1s]trim=start_frame=0:end_frame=30,setpts=PTS-STARTPTS[h1]");
+    expect(v.filter).toContain("[b1s]trim=start_frame=30:end_frame=270,setpts=PTS-STARTPTS[b1]");
+    expect(v.filter).toContain("[t0][h1]xfade=transition=fade:duration=0.5:offset=0[x0]");
+    expect(v.filter).toContain("[b2s]trim=start_frame=30:end_frame=180,setpts=PTS-STARTPTS[b2]");
+    expect(v.filter.endsWith("[b0][x0][b1][x1][b2]concat=n=5:v=1:a=0[v]")).toBe(true);
+    // 210 + 30 + 240 + 30 + 150 frames: the edit's length.
+    expect(210 + 30 + 240 + 30 + 150).toBe(v.frames);
+    expect(() => editVideoFilter([{ file: "a", frames: 240 }, { file: "b", frames: 60 }, { file: "c", frames: 180 }], 30, 60)).toThrow(/two 30 frame crossfades/);
     expect(editVideoFilter([{ file: "a", frames: 240 }, { file: "b", frames: 300 }], 0, 60).filter).toBe("[0:v][1:v]concat=n=2:v=1:a=0[v]");
     expect(() => editVideoFilter([{ file: "a", frames: 20 }, { file: "b", frames: 300 }], 30, 60)).toThrow(/shortest clip/);
     expect(() => editVideoFilter([{ file: "a", frames: 20 }], 2.5, 60)).toThrow(/whole frames/);
     expect(contactSheetArgs({ input: "x.mp4", frames: 360, out: "c.png" }).join(" ")).toContain("not(mod(n,30))");
+  });
+});
+
+describe("corner label", () => {
+  it("lays the label over its shots' spans only, and leaves an edit with none as it is", () => {
+    const g = labelFilter("[0:v][1:v]xfade=transition=fade:duration=0.5:offset=5[v]", { input: 4, spans: [[0, 5.5], [9, 12.25]] });
+    expect(g.startsWith("[0:v][1:v]xfade=transition=fade:duration=0.5:offset=5[vnl];[4:v]format=yuva444p[vlab];")).toBe(true);
+    expect(g.endsWith("[vnl][vlab]overlay=x=0:y=0:eof_action=repeat:format=auto:enable='between(t,0,5.5)+between(t,9,12.25)'[v]")).toBe(true);
+    expect(labelFilter("[0:v]null[v]", { input: 2, spans: [] })).toBe("[0:v]null[v]");
   });
 });
 
@@ -337,16 +423,18 @@ describe("end card", () => {
       extraFrames: 108,
       fadeFrames: 18,
       cardInput: 3,
+      stillInput: 4,
       blurSigma: 14,
     });
     expect(g.startsWith("[0:v][1:v]xfade=transition=fade:duration=0.5:offset=5[vcut];")).toBe(true);
-    expect(g).toContain("[vcut]tpad=stop_mode=clone:stop=108,split[vhold][vtail]");
-    expect(g).toContain("[vtail]trim=start_frame=300,setpts=PTS-STARTPTS,gblur=sigma=14");
+    expect(g).toContain("[vcut]tpad=stop_mode=clone:stop=108[vhold]");
+    // The blurred hold is the last frame as its own still: nothing waits for the edit to reach it.
+    expect(g).toContain("[4:v]gblur=sigma=14");
     expect(g).toContain("fade=t=in:st=0:d=0.6:alpha=1,setpts=PTS+10/TB[vblur]");
     expect(g).toContain("[3:v]format=yuva444p,fade=t=in:st=0:d=0.6:alpha=1,setpts=PTS+10.166667/TB[vcard]");
     expect(g.endsWith("[vbg][vcard]overlay=eof_action=pass:format=auto[v]")).toBe(true);
-    expect(() => endCardFilter("[0:v]null[x]", { frames: 1, fps: 30, extraFrames: 30, fadeFrames: 3, cardInput: 2, blurSigma: 1 })).toThrow(/\[v\]/);
-    expect(() => endCardFilter("[0:v]null[v]", { frames: 1, fps: 30, extraFrames: 3, fadeFrames: 3, cardInput: 2, blurSigma: 1 })).toThrow(/longer/);
+    expect(() => endCardFilter("[0:v]null[x]", { frames: 1, fps: 30, extraFrames: 30, fadeFrames: 3, cardInput: 2, stillInput: 3, blurSigma: 1 })).toThrow(/\[v\]/);
+    expect(() => endCardFilter("[0:v]null[v]", { frames: 1, fps: 30, extraFrames: 3, fadeFrames: 3, cardInput: 2, stillInput: 3, blurSigma: 1 })).toThrow(/longer/);
   });
 
   it("fades the whole mix out under the card", () => {

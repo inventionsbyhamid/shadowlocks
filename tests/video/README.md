@@ -7,6 +7,7 @@ still plays smoothly because time only moves when a frame is stepped.
 
 ```sh
 scripts/video.sh --shots sample --size 960x540 --fps 30  # the 2 s smoke shot, attached
+scripts/video.sh --shots sample --final --size 2560x1440 --out 1920x1080  # drawn at 1440p, delivered at 1080p
 scripts/video.sh --shots sample                          # 1280x720 60 fps draft
 scripts/video.sh --shots sample --final                  # 1920x1080, x264 CRF 18
 scripts/video.sh --shots sample --edit card-check        # the shot, then the end card after it
@@ -59,9 +60,26 @@ export default defineShot<Data>({
   while the hands do (IWER's own `animate_to` holds its single queue, which would freeze the hands).
   A slow head drift (1.5 mm, 0.12 degrees) keeps it from looking like a tripod; `sway` sets it.
 - `hand(side)` is the e2e `Hands` plus `park`, `glide`, `pinch`, `shape`, `open`, `point`, `relax`,
-  `gripPose` and `glideTip`, all smooth.
+  `gripPose`, `glideTip` and `follow` (a path set frame by frame, eased: an arc instead of glides
+  that stop at each corner), all smooth.
+- A view may name its lens (`hfovDeg`, the horizontal field of view; default the render's `HFOV`);
+  a move eases the lens with the view. `lib/stage.ts` `boxView` sets a view in box units (beside the
+  box, close on the panel: views a player never has), `boxCurve` a path in box units.
+- `darkStage: true`: the emulator's room is not drawn (as the store art's plates), the Dim room
+  setting is off, and each frame lays the app over a flat warm near-black (`DARK_BACKDROP`). Nothing
+  is added to the scene: the box lit by its own lantern.
+- `hideHint: true`: the hint lantern (the brass key beside the frame) is left out of every drawn
+  frame, hidden only while the scene is drawn (the film's explainer on the dark stage; never in
+  play shots).
 - `profile`: the player's stored history when the shot starts (boxes opened, a streak, the
-  collection); the video build reads it at boot through the usual migration.
+  collection); the video build reads it at boot through the usual migration, which starts afresh
+  from anything without `version: 1` (`lib/stage.ts` `playedProfile` makes one).
+- The voice guide speaks in renders: the video build gives it a stand-in that counts as started and
+  times each line on the frame clock, and the shot's sound lays the game's own clip
+  (`public/audio/voice/en/<key>.ogg`) in where it was said (`video.voice` events in `<shot>.json`).
+- A page shot (`lib/page-shot.ts`, listed in `PAGE_SHOTS`) films the game's 2D page in a browser
+  window instead of the headset's view: each state of the page held for its time. It renders and
+  cuts like any shot.
 - While recording, each frame drains the app's event log for the sound, so a wait on bus events
   reads `w.__nsVideoEvents(type)` (the events since recording started), or `app.events()`, which
   does. `app.hold(ms)` holds still at the video rate.
@@ -78,11 +96,14 @@ export default defineShot<Data>({
 
 1. `boot()` at the render size; IWER's field of view set to 90 degrees across (a Quest recording, not
    the emulator's 120); DevUI hidden; only the room and app canvases are captured, never the page.
-   Video builds (`VITE_VIDEO=1`, never production; `check-dist` fails on it) draw IWSDK's outline
-   hands as a see-through "system hand": a light body at about 30 percent, a warm-white fresnel rim,
-   a depth-only pre-pass (a skinned copy sharing the skeleton, so a finger over the palm does not
-   double up), a soft warm grey contour, a wrist stub that fades out 7 cm past the wrist (no
-   forearm), drawn at render order 998, with its own light (`src/video/`).
+   Video builds (`VITE_VIDEO=1`, never production; `check-dist` fails on it) draw a stand-in for
+   the player's hand in the spirit of the Quest system hand: a smoky fill at about 46 percent and a
+   thin warm-white outline where the surface turns away, fading out over the 4.5 cm from the wrist
+   (no forearm). It covers the game's hand mask (its capsules, read from the mask's buffers, a
+   little wider) and IWSDK's hand mesh (a little inflated) as one surface, with a depth-only pass
+   first, so the mask's hole never shows as a dark halo; IWSDK's outline is not drawn
+   (`src/video/hand-look.ts`). The mask hides the box behind the hand as on a headset, so the fill
+   shows the backdrop, not the box.
 2. The clock is stepped without drawing to a fixed virtual time (`START_MS`, 30 s; a shot's
    `startMs`), whatever boot took, then the setup runs, then a second of held first view, two drawn
    warm-up frames, and recording.
@@ -121,10 +142,14 @@ of a render.
 
 Edits: pictures from the mezzanines, crossfades in whole frames (shorter than every clip), each
 shot's effects stem at its start, one continuous music bed across the cuts, an optional voice-over
-(`narration`, from a file in `video-assets/`, not committed) that the rest ducks under, two-pass
-loudness to -14 LUFS (linear; a peak limiter at 4x the rate first when the gain would pass the
-ceiling; the PCM is aimed 0.5 dB under -1 dBTP for what AAC adds, more on a second or third encode
-when the AAC still comes out over), and one delivery encode with the shots' own settings. An
+(`narration`, from a file in `video-assets/`, not committed) that the rest ducks under, loudness
+to -14 LUFS, measured with ebur128 throughout (a plain gain; a peak limiter at 4x the rate first,
+its ceiling lowered step by step until the gain fits under the true peak ceiling; the PCM is aimed 0.5 dB under -1 dBTP for what AAC adds, more on a second or third encode
+when the AAC still comes out over), and one delivery encode with the shots' own settings. A
+`label` lays a corner label ("Emulator footage") over the shots it names; `captions` lay lower third
+captions (the game's serif, Noto Serif Bold, at least 2.5 s each, fading in and out) over the shots
+they name. With `--out` (OUT_SIZE), shots, edits and stills are drawn at the render size and scaled
+down (Lanczos) in the one delivery encode. An
 `endCard` (title, tagline, facts, an optional link) holds the last frame, blurs and dims it in, and
 lays a card drawn by the browser in Archivo and the game's ebony and gold over it (`lib/endcard.ts`,
 the font in `assets/fonts/`, OFL) for `holdSec`; the music runs on under it and fades out. Its words

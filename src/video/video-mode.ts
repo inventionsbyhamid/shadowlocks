@@ -3,6 +3,7 @@ import { migrate, newProfile, type Profile } from "../core/profile";
 import type { Store } from "../platform/store";
 
 export { installVideoMode } from "./hand-look";
+export { VideoVoiceSystem, videoVoiceOut } from "./voice-out";
 
 /**
  * Progress in memory for a render: IndexedDB answers in real time, so a save or load could land on

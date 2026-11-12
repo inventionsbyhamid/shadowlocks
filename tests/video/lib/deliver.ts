@@ -5,14 +5,18 @@ import path from "node:path";
 import type { AudioManifest } from "../../../src/audio/manifest";
 import { type Duck, type Layer, type MixPlan, type MusicChange, musicSetup, musicSummary, planMix, planMusic } from "./audio";
 import { audioFacts, channelsOf, ffmpeg, measureEbur128, mediaFacts, normalizeLoudness, type NormalizeResult } from "./ffrun";
-import type { EndCard } from "./endcard";
+import { CAPTION_TOP, type EndCard } from "./endcard";
 import { type Ebur128, type LoudnessTarget, loudnessProblems } from "./loudness";
-import { contactSheetArgs, deliveryArgs, editVideoFilter, endCardFilter, fadeFramesFor, mixCommand, type Narration, type PcmLoop, shiftDucks, stillArgs } from "./mixdown";
+import { captionFilter, contactSheetArgs, deliveryArgs, editVideoFilter, endCardFilter, fadeFramesFor, labelFilter, mixCommand, type Narration, type PcmLoop, shiftDucks, stillArgs } from "./mixdown";
 import { type VideoOptions, workDir } from "./options";
 import { readRecord, type ShotRecord, shotFile, writeRecord } from "./records";
 import { shotVersions, type Versions } from "./version";
 
 const ROOT = process.cwd();
+
+/** The delivery scale, when frames are drawn larger than delivered (OUT_SIZE). */
+export const outScale = (o: Pick<VideoOptions, "width" | "height" | "outWidth" | "outHeight">): { width: number; height: number } | undefined =>
+  o.outWidth !== o.width || o.outHeight !== o.height ? { width: o.outWidth, height: o.outHeight } : undefined;
 const AUDIO_DIR = path.resolve(ROOT, "public/audio");
 const SAMPLE_RATE = 48000;
 
@@ -101,12 +105,13 @@ export async function finishShot(base: ShotRecord, o: VideoOptions, v: Versions,
 
   const mp4 = path.join(o.outDir, `${name}.mp4`);
   const encAt = Date.now();
-  ffmpeg(deliveryArgs({ inputs: [mezz], videoFilter: null, audio: mix, fps: o.fps, crf: o.crf, preset: o.preset, out: mp4 }));
+  const scale = outScale(o);
+  ffmpeg(deliveryArgs({ inputs: [mezz], videoFilter: null, audio: mix, fps: o.fps, crf: o.crf, preset: o.preset, out: mp4, scale }));
   const encodeMs = Date.now() - encAt;
   const facts = mediaFacts(mp4);
   const problems: string[] = [];
   if (facts.frames !== base.frames) problems.push(`${facts.frames} frames in the MP4, ${base.frames} rendered`);
-  if (facts.width !== o.width || facts.height !== o.height) problems.push(`MP4 is ${facts.width}x${facts.height}`);
+  if (facts.width !== o.outWidth || facts.height !== o.outHeight) problems.push(`MP4 is ${facts.width}x${facts.height}, not ${o.outWidth}x${o.outHeight}`);
   if (Math.abs(facts.fps - o.fps) > 0.01) problems.push(`MP4 runs at ${facts.fps} fps`);
   if (!facts.audio || facts.audio.channels !== 2) problems.push("no stereo audio track");
   else if (Math.abs(facts.audio.duration - base.duration) > 0.1) problems.push(`audio is ${facts.audio.duration.toFixed(2)} s, picture ${base.duration.toFixed(2)} s`);
@@ -116,13 +121,15 @@ export async function finishShot(base: ShotRecord, o: VideoOptions, v: Versions,
   // Full-size stills from the lossless picture (a quarter, half and three quarters in).
   const stills = [0.25, 0.5, 0.75].map((k, i) => {
     const file = path.join(o.outDir, `${name}-still-${i + 1}.png`);
-    ffmpeg(stillArgs(mezz, Math.min(base.frames - 1, Math.floor(base.frames * k)), file));
+    ffmpeg(stillArgs(mezz, Math.min(base.frames - 1, Math.floor(base.frames * k)), file, scale));
     return path.basename(file);
   });
 
   const record: ShotRecord = {
     ...base,
     mixVersion: v.mix,
+    outWidth: o.outWidth,
+    outHeight: o.outHeight,
     quality: o.quality,
     crf: o.crf,
     preset: o.preset,
@@ -153,7 +160,7 @@ export interface Edit {
   /** Crossfade between shots, ms (rounded to whole frames; 0: straight cuts). */
   crossfadeMs: number;
   /**
-   * Delivery loudness (two-pass, linear, true peak checked). Default -14 LUFS, -1 dBTP; null keeps
+   * Delivery loudness (ebur128, a plain gain after a peak limiter when needed, true peak checked). Default -14 LUFS, -1 dBTP; null keeps
    * the game's own levels.
    */
   loudness?: LoudnessTarget | null;
@@ -161,6 +168,36 @@ export interface Edit {
   narration?: { file: string; startSec?: number; gainDb?: number; duckDb?: number };
   /** A title card after the last shot, over a blurred hold of its last frame (lib/endcard.ts). */
   endCard?: EndCard;
+  /** A corner label (lib/endcard.ts cornerLabelHtml) over the named shots, never over the end card. */
+  label?: { text: string; shots: string[] };
+  /**
+   * Captions (lib/endcard.ts captionHtml) in the lower third: each over shot `shot` from `atSec` into it for `sec`
+   * seconds (at least 2.5 so it can be read), fading in and out.
+   */
+  captions?: Caption[];
+}
+
+export interface Caption {
+  text: string;
+  shot: string;
+  atSec: number;
+  sec: number;
+}
+
+/** A caption must stay up this long to be read. */
+export const CAPTION_MIN_SEC = 2.5;
+const CAPTION_FADE_SEC = 0.25;
+
+/** Where each caption is on in the edit (seconds), from the shots' starts; throws on a caption too short or off its shot. */
+export function captionSpans(captions: Caption[], shots: string[], starts: number[], durations: number[]): Array<[number, number]> {
+  return captions.map((c) => {
+    const i = shots.indexOf(c.shot);
+    if (i < 0) throw new Error(`caption "${c.text}": shot ${c.shot} is not in the edit`);
+    if (c.sec < CAPTION_MIN_SEC) throw new Error(`caption "${c.text}" is on for ${c.sec} s; at least ${CAPTION_MIN_SEC} s`);
+    if (c.atSec < 0 || c.atSec + c.sec > (durations[i] as number) + 1e-6) throw new Error(`caption "${c.text}" runs past shot ${c.shot}`);
+    const a = (starts[i] as number) + c.atSec;
+    return [a, a + c.sec];
+  });
 }
 
 /** The music tail under an end card fades out over the card's last this many seconds. */
@@ -210,6 +247,8 @@ export interface EditRecord {
   narration: Edit["narration"] | null;
   /** The end card, where it starts (s) and how many frames it adds. */
   endCard: (EndCard & { startSec: number; frames: number }) | null;
+  label: Edit["label"] | null;
+  captions: Caption[];
 }
 
 /**
@@ -218,7 +257,15 @@ export interface EditRecord {
  * under all of it, an optional voice-over the rest ducks under, loudness to the target, and one
  * delivery encode with the shots' own settings.
  */
-export function renderEdit(name: string, edit: Edit, o: VideoOptions, log: (s: string) => void, cardPng?: string): string {
+export function renderEdit(
+  name: string,
+  edit: Edit,
+  o: VideoOptions,
+  log: (s: string) => void,
+  cardPng?: string,
+  labelPng?: string,
+  captionPngs: string[] = [],
+): string {
   const records = edit.shots.map((s) => {
     const r = readRecord(o, s);
     if (!r || !r.mp4) throw new Error(`edit ${name}: shot ${s} is not rendered at ${o.width}x${o.height}`);
@@ -248,12 +295,49 @@ export function renderEdit(name: string, edit: Edit, o: VideoOptions, log: (s: s
   const v = {
     ...cut,
     filter: card
-      ? endCardFilter(cut.filter, { frames: cut.frames, fps, extraFrames: cardFrames, fadeFrames: cardFade, cardInput: records.length + 1, blurSigma: (14 * first.width) / 960 })
+      ? endCardFilter(cut.filter, {
+          frames: cut.frames,
+          fps,
+          extraFrames: cardFrames,
+          fadeFrames: cardFade,
+          cardInput: records.length + 1,
+          stillInput: records.length + 2,
+          blurSigma: (14 * first.width) / 960,
+        })
       : cut.filter,
     frames: cut.frames + cardFrames,
     duration: (cut.frames + cardFrames) / fps,
   };
-  const cardInputs = card && cardPng ? [["-loop", "1", "-framerate", String(fps), "-t", String(cardFrames / fps + 0.5), "-i", cardPng]] : [];
+  const cardInputs: string[][] = [];
+  if (card && cardPng) {
+    // The held frame as a still: the edit's last frame, from the last shot's lossless picture.
+    const last = records[records.length - 1] as ShotRecord;
+    const still = path.join(workDir(o), `edit-${name}-last.png`);
+    ffmpeg(stillArgs(path.resolve(ROOT, last.mezz), last.frames - 1, still));
+    const hold = ["-loop", "1", "-framerate", String(fps), "-t", String(cardFrames / fps + 0.5)];
+    cardInputs.push([...hold, "-i", cardPng], [...hold, "-i", still]);
+  }
+  // The corner label over its shots (crossfades between two labelled shots keep it up), after the card is laid.
+  const label = edit.label;
+  if (label && !labelPng) throw new Error(`edit ${name}: its corner label was not drawn`);
+  if (label) {
+    const unknown = label.shots.filter((s) => !edit.shots.includes(s));
+    if (unknown.length) throw new Error(`edit ${name}: the label names shots not in the edit: ${unknown.join(", ")}`);
+    const spans: Array<[number, number]> = [];
+    edit.shots.forEach((s, i) => {
+      if (label.shots.includes(s)) spans.push([v.starts[i] as number, (v.starts[i] as number) + (records[i] as ShotRecord).frames / fps]);
+    });
+    v.filter = labelFilter(v.filter, { input: records.length + 1 + cardInputs.length, spans });
+    cardInputs.push(["-loop", "1", "-framerate", String(fps), "-t", String(v.duration + 0.5), "-i", labelPng as string]);
+  }
+  const caps = edit.captions ?? [];
+  if (caps.length) {
+    if (captionPngs.length !== caps.length) throw new Error(`edit ${name}: its captions were not drawn`);
+    const spans = captionSpans(caps, edit.shots, v.starts, records.map((r) => r.duration));
+    const y = Math.round(CAPTION_TOP * first.height);
+    v.filter = captionFilter(v.filter, { input: records.length + 1 + cardInputs.length, spans, fade: CAPTION_FADE_SEC, y });
+    spans.forEach(([, b], i) => cardInputs.push(["-loop", "1", "-framerate", String(fps), "-t", String(b + 0.5), "-i", captionPngs[i] as string]));
+  }
   const fade = fadeFrames / fps;
   const m = readManifest(log);
 
@@ -310,7 +394,6 @@ export function renderEdit(name: string, edit: Edit, o: VideoOptions, log: (s: s
       // AAC can lift the true peak: aim the PCM under the ceiling by the headroom.
       const r = normalizeLoudness(wav, audio, { ...target, TP: target.TP - headroom });
       loud = { ...r, target, aacHeadroomDb: headroom };
-      if (!r.linear) log(`edit ${name}: loudnorm fell back to dynamic mode`);
       const miss = loudnessProblems(r.result, target);
       if (miss.length) throw new Error(`edit ${name}: the mix missed its loudness target after every try: ${miss.join("; ")}`);
     }
@@ -325,6 +408,7 @@ export function renderEdit(name: string, edit: Edit, o: VideoOptions, log: (s: s
         preset: first.preset,
         out: tmp,
         extraInputs: cardInputs,
+        scale: outScale(o),
       }),
     );
     const facts = mediaFacts(tmp);
@@ -354,6 +438,8 @@ export function renderEdit(name: string, edit: Edit, o: VideoOptions, log: (s: s
     delivered,
     narration: edit.narration ?? null,
     endCard: card ? { ...card, startSec: cut.duration, frames: cardFrames } : null,
+    label: label ?? null,
+    captions: caps,
   };
   fs.writeFileSync(path.join(o.outDir, `${name}.json`), JSON.stringify(rec, null, 2));
   log(

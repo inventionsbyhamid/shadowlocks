@@ -48,6 +48,17 @@ describe("camera track", () => {
     expect(biggest).toBeGreaterThan((dist / 120) * 1.8);
   });
 
+  it("eases a view's lens with the view, from the render's default when a view names none", () => {
+    const c = new CameraTrack(A, { mm: 0, deg: 0 }, 90);
+    expect(c.hfovAt(0)).toBe(90);
+    c.move(1, { ...B, hfovDeg: 50 }, 2000);
+    expect(c.hfovAt(2)).toBeCloseTo(70, 9);
+    expect(c.hfovAt(3)).toBe(50);
+    c.move(4, A, 1000);
+    expect(c.hfovAt(4.5)).toBeCloseTo(70, 9);
+    expect(c.hfovAt(6)).toBe(90);
+  });
+
   it("a move that starts mid-move takes over from where the camera is", () => {
     const c = new CameraTrack(A);
     c.move(0, B, 2000);

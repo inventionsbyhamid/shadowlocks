@@ -3,12 +3,14 @@
 # Slow by nature: about 0.9 s of server time per 720p frame and 1.9 s at 1080p (55 and 110 s per
 # second of video).
 # Usage: scripts/video.sh [--detach] [--shots a,b] [--edit name] [--final] [--size WxH] [--fps n]
-#                         [--hfov deg] [--crf n] [--fresh] [--reuse-stale] [--keep-frames]
+#                         [--out WxH] [--hfov deg] [--crf n] [--fresh] [--reuse-stale] [--keep-frames]
 #                         [--stop-after n] [--expect-gb n]
 #        scripts/video.sh --status | --pull | --stop
 #   --shots a,b     shots to render (tests/video/shots/<name>.ts), in order; finished ones are reused
 #   --edit name     then cut the edit <name> (tests/video/edits.ts) from rendered shots
 #   --final         1920x1080 x264 CRF 18 (default: the 1280x720 draft)
+#   --out WxH       deliver at WxH, frames drawn at the render size and scaled down (supersampling:
+#                   --final --size 2560x1440 --out 1920x1080)
 #   --crf n         x264 CRF of the delivery encode (a change re-encodes from the mezzanine only)
 #   --fresh         ignore frames and finished shots from earlier runs (first attempt only)
 #   --reuse-stale   reuse finished shots (and their mezzanines) made from an older app, image or shot
@@ -57,6 +59,7 @@ while [ $# -gt 0 ]; do
     --edit) ENVS+=("EDIT=$2"); shift 2 ;;
     --final) QUALITY=final; shift ;;
     --size) ENVS+=("SIZE=$2"); shift 2 ;;
+    --out) ENVS+=("OUT_SIZE=$2"); shift 2 ;;
     --fps) ENVS+=("FPS=$2"); shift 2 ;;
     --hfov) ENVS+=("HFOV=$2"); shift 2 ;;
     --crf) ENVS+=("CRF=$2"); shift 2 ;;
@@ -69,7 +72,7 @@ while [ $# -gt 0 ]; do
     --status) MODE=status; shift ;;
     --pull) MODE=pull; shift ;;
     --stop) MODE=stop; shift ;;
-    -h|--help) sed -n '2,39p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,41p' "$0"; exit 0 ;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
   esac
 done
