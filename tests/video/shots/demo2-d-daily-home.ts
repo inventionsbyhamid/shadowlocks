@@ -20,7 +20,7 @@ const along = (b: NsButton, d: number): Vec3 => [b.world[0] + b.normal[0] * d, b
 export default defineShot<Data>({
   name: "demo2-d-daily-home",
   description: "Daily Box: Home, the Daily Box key at Streak 4, pressed by a fingertip.",
-  seconds: 1.25,
+  seconds: 2.2,
   profile: DAILY_PLAYER,
   darkStage: true,
   async setup({ app, hand }) {
@@ -46,11 +46,12 @@ export default defineShot<Data>({
   firstView: ({ first }) => first,
   async play({ hand, camera, until }, { daily, last }) {
     const right = hand("right");
-    camera.move(last, 1250);
-    await until(0.3);
-    await right.glideTip(along(daily, 0.05), 600);
-    await right.glideTip(along(daily, POKE_DEPTH_M), 170);
-    await right.glideTip(along(daily, 0.06), 230);
-    await until(1.25);
+    // The press lands about 0.33 s before the cut: the panel starts to leave on the last two frames (30 fps).
+    camera.move(last, 2200);
+    await until(0.87);
+    await right.glideTip(along(daily, 0.05), 900);
+    await right.glideTip(along(daily, POKE_DEPTH_M), 200);
+    await right.glideTip(along(daily, 0.06), 200);
+    await until(2.2);
   },
 });

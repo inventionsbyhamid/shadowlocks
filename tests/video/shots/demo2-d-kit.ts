@@ -94,15 +94,18 @@ interface EndlessData {
 }
 
 /**
- * A numbered box's last moment before it opens, for the "endless boxes" run: Box No. `n` on the dark stage with every
- * lock open but `lock`, the right hand holding the lantern `off` (box units) from that lock's spot. Recorded: the hand
- * carries it onto the spot in `carryMs`, the game fills the lock and opens it in gold (and, given time, the box). The
- * camera eases from `first` to `last` (box units: eye, look-at point, lens) over the shot.
+ * A lock about to open, for the "endless boxes" run: Box No. `n` on the dark stage with every lock open but `lock` (and
+ * `shut`), the right hand holding the lantern `off` (box units) from that lock's spot. Recorded: the hand carries it
+ * onto the spot in `carryMs`, the game fills the lock and opens it in gold. With `lock` the last one the box opens 0.7 s
+ * later; a lock left in `shut` keeps the box closed, so the gold can hold to the cut. The camera eases from `first` to
+ * `last` (box units: eye, look-at point, lens) over the shot.
  */
 export function endlessShot(o: {
   name: string;
   n: number;
   lock: number;
+  /** Locks left shut as well (the box stays closed when the lock opens). */
+  shut?: number[];
   seconds: number;
   off: V3;
   carryMs: number;
@@ -122,7 +125,7 @@ export function endlessShot(o: {
       const right = hand("right");
       await right.park([0.55, 0.5, -1.0]);
       await startBox(app, page, o.n);
-      await openAllBut(app, page, [o.lock]);
+      await openAllBut(app, page, [o.lock, ...(o.shut ?? [])]);
       await right.park([0.55, 0.5, -1.0]);
       const spot = (await spotOf(page, o.lock)) as V3;
       const from: V3 = [spot[0] + o.off[0], spot[1] + o.off[1], spot[2] + o.off[2]];
@@ -132,6 +135,7 @@ export function endlessShot(o: {
       const grip = await takeLantern(app, page, right, 900);
       await app.step(20);
       if (await isOpen(page, o.lock)) throw new Error(`${o.name}: lock ${o.lock} opened as the hand took the lantern`);
+      for (const k of o.shut ?? []) if (await isOpen(page, k)) throw new Error(`${o.name}: lock ${k} opened before its turn`);
       // Where the grasp point goes for the lantern to sit on the spot.
       const spotW = await toWorld(page, spot);
       return {

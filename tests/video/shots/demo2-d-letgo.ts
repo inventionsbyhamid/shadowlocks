@@ -19,7 +19,7 @@ const REST: Vec3 = [0.6, 0.45, -0.95];
 export default defineShot<Data>({
   name: "demo2-d-letgo",
   description: "Let go any time: the hand opens and leaves; the lantern stays where it was left.",
-  seconds: 1.6,
+  seconds: 2.6,
   profile: playedProfile(BOX, 0, DEFAULT_DATE),
   darkStage: true,
   async setup({ app, page, hand }) {
@@ -41,11 +41,11 @@ export default defineShot<Data>({
   firstView: ({ first }) => first,
   async play({ app, page, camera, hand, until, wait }, { last }) {
     const right = hand("right");
-    camera.move(last, 1600);
-    await wait(100);
-    await right.open(180);
-    await right.glide(offset(REST, 0, 0, 0), 800);
-    await until(1.6);
+    camera.move(last, 2600);
+    await wait(300);
+    await right.open(250);
+    await right.glide(offset(REST, 0, 0, 0), 1300);
+    await until(2.6);
     const held = (await page.evaluate(() => (window as any).__sl.lantern().held)) as boolean;
     if (held) console.warn("demo2-d-letgo: the lantern is still held after the hand opened");
     void app;

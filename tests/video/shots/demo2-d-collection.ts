@@ -1,6 +1,6 @@
 // The film's part D, records: the Collection over the lap for a player past Box No. 11 with four Daily Boxes opened:
 // fifteen rewards, three to a page, each with its box and its story lines. The fingertip pokes Older and the next three
-// come up.
+// come up; the fingertip draws back out of the way.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { NsButton } from "../../../src/app/test-api";
 import type { Vec3 } from "../../../src/core/types";
@@ -22,7 +22,7 @@ const along = (b: NsButton, d: number): Vec3 => [b.world[0] + b.normal[0] * d, b
 export default defineShot<Data>({
   name: "demo2-d-collection",
   description: "Records: the Collection, rewards and their story lines; Older pages to more.",
-  seconds: 2.3,
+  seconds: 3.0,
   profile: DAILY_PLAYER,
   darkStage: true,
   async setup({ app, page, hand }) {
@@ -48,11 +48,13 @@ export default defineShot<Data>({
   firstView: ({ first }) => first,
   async play({ hand, camera, until }, { older, last }) {
     const right = hand("right");
-    camera.move(last, 2300);
-    await until(0.5);
-    await right.glideTip(along(older, 0.05), 500);
-    await right.glideTip(along(older, POKE_DEPTH_M), 180);
-    await right.glideTip(along(older, 0.07), 260);
-    await until(2.3);
+    camera.move(last, 3000);
+    await until(0.7);
+    await right.glideTip(along(older, 0.05), 700);
+    await right.glideTip(along(older, POKE_DEPTH_M), 200);
+    await right.glideTip(along(older, 0.07), 300);
+    // Back where it waited, below and to the right, so the new page reads.
+    await right.glideTip([older.world[0] + 0.1, older.world[1] - 0.1, older.world[2] + 0.1], 700);
+    await until(3.0);
   },
 });

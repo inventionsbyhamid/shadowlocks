@@ -21,7 +21,7 @@ const LOCK = 1;
 export default defineShot<Data>({
   name: "demo2-e-open",
   description: "End: Box No. 12 opens in gold, left of the frame, the dark to its right for the end card.",
-  seconds: 1.0,
+  seconds: 1.5,
   profile: playedProfile(BOX, 0, DEFAULT_DATE),
   darkStage: true,
   async setup({ app, page, hand }) {
@@ -43,7 +43,7 @@ export default defineShot<Data>({
   },
   firstView: ({ first }) => first,
   async play({ camera, until }, { last }) {
-    camera.move(last, 1000);
-    await until(1.0);
+    camera.move(last, 1500);
+    await until(1.5);
   },
 });

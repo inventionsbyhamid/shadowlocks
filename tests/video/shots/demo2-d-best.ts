@@ -16,7 +16,7 @@ interface Data {
 export default defineShot<Data>({
   name: "demo2-d-best",
   description: "Records: the Daily Box's result card, its time and New best, close.",
-  seconds: 1.8,
+  seconds: 2.6,
   profile: DAILY_PLAYER,
   darkStage: true,
   async setup({ app, page, hand }) {
@@ -32,7 +32,7 @@ export default defineShot<Data>({
   },
   firstView: ({ first }) => first,
   async play({ camera, until }, { last }) {
-    camera.move(last, 1800);
-    await until(1.8);
+    camera.move(last, 2600);
+    await until(2.6);
   },
 });
