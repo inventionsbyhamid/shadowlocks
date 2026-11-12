@@ -234,6 +234,8 @@ export interface Shot<S = unknown> {
    * (DARK_BACKDROP) or the given colour where the room would be. The box lit by its own lantern, as the store art.
    */
   darkStage?: boolean | { backdrop: string };
+  /** Leave the hint lantern (the brass key beside the frame) out of the picture: the film's explainer only. */
+  hideHint?: boolean;
 }
 
 /** The dark stage's backdrop: a deep warm near-black, so the brass and the lantern's light carry the frame. */

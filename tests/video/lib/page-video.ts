@@ -221,6 +221,32 @@ export function darkStage(o: { backdrop: string }): { dimming: string } {
   return { dimming: ui.settings().dimming === false ? "off" : "stuck" };
 }
 
+/**
+ * Objects of the game left out of every drawn frame (a shot's `hideHint`): each named object is hidden only while
+ * the scene is drawn and shown again at once, so the game's state, its keys and its sounds are untouched.
+ */
+export function hideInDraw(o: { names: string[] }): number {
+  const w = window as any;
+  const r = w.__ns.world.renderer;
+  const draw = r.render.bind(r);
+  r.render = (scene: any, camera: any) => {
+    const off: any[] = [];
+    for (const n of o.names) {
+      const obj = scene.getObjectByName(n);
+      if (obj?.visible) {
+        obj.visible = false;
+        off.push(obj);
+      }
+    }
+    try {
+      return draw(scene, camera);
+    } finally {
+      for (const obj of off) obj.visible = true;
+    }
+  };
+  return o.names.filter((n) => w.__ns.world.scene.getObjectByName(n)).length;
+}
+
 /** The headset's pose now. */
 export function headsetPose(): { position: [number, number, number]; quaternion: [number, number, number, number] } {
   const d = (window as any).IWER_DEVICE;
