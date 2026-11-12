@@ -234,6 +234,12 @@ export interface Shot<S = unknown> {
    * (DARK_BACKDROP) or the given colour where the room would be. The box lit by its own lantern, as the store art.
    */
   darkStage?: boolean | { backdrop: string };
+  /**
+   * A photographic room in place of the emulator's (page-video.ts photoRoom): an equirectangular JPEG (`file`, from
+   * the repo root; tests/video/assets/rooms/README.md) drawn behind the app at infinity, turned `yawDeg`. The theatre's
+   * dimming works over it as over the emulator's room. No parallax: keep the camera near the seated eye.
+   */
+  photoRoom?: { file: string; yawDeg: number };
 }
 
 /** The dark stage's backdrop: a deep warm near-black, so the brass and the lantern's light carry the frame. */
