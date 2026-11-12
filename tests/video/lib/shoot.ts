@@ -20,7 +20,7 @@ import { FRAME_PATTERN, type FramesMeta, FrameStore } from "./journal";
 import { mezzanineArgs } from "./mixdown";
 import { framesDir, mezzDir, type VideoOptions, workDir } from "./options";
 import { readRecord, type ShotRecord, shotFile, writeRecord } from "./records";
-import { darkStage, frameFingerprint, hideInDraw, videoInit, videoPrepare } from "./page-video";
+import { darkStage, frameFingerprint, hideInDraw, photoRoom, videoInit, videoPrepare } from "./page-video";
 import { Diverged, DiskStop, diskProblem, freeBytes, Recorder, Stopped, VideoApp } from "./recorder";
 import { DARK_BACKDROP, type PlayContext, type Shot, ShotHand } from "./shot";
 import { shotVersions, type Versions } from "./version";
@@ -192,6 +192,12 @@ async function renderFrames(
     if (r.dimming !== "off") log(`warning: ${name}: the Dim room setting is ${r.dimming}; the dark stage may show the theatre veil`);
   }
   if (shot.hideHint && !(await page.evaluate(hideInDraw, { names: ["Hint Lantern"] }))) log(`warning: ${name}: no hint lantern to hide`);
+  if (shot.photoRoom) {
+    const jpegBase64 = fs.readFileSync(path.join(ROOT, shot.photoRoom.file)).toString("base64");
+    const r = await page.evaluate(photoRoom, { jpegBase64, yawDeg: shot.photoRoom.yawDeg });
+    if (!r.ok) throw new Error(`${name}: the photographic room did not load: ${r.why}`);
+    log(`${name}: photographic room ${shot.photoRoom.file} (${r.size?.join("x")}, anisotropy ${r.aniso}) at yaw ${shot.photoRoom.yawDeg}`);
+  }
   const bootMs = Date.now() - t0;
   // Nothing before the first frame is drawn (the recorder turns drawing on per frame).
   await page.evaluate(() => {

@@ -29,6 +29,8 @@ const DEMO2_OPEN_CUT: Edit = {
     { text: "Your hand casts shadows too.", shot: "demo2-hand", atSec: 0.4, sec: 3.0 },
   ],
 };
+/** The film, version 2, part C (play): Box No. 157 in the photographic room. */
+const DEMO2_PLAY = ["demo2-play-start", "demo2-play-finish"];
 
 export const EDITS: Record<string, Edit> = {
   /**
@@ -41,6 +43,17 @@ export const EDITS: Record<string, Edit> = {
   "demo2-open": { ...DEMO2_OPEN_CUT, narration: { file: "video-assets/demo2-open-narration.wav", startSec: 0, duckDb: 6 } },
   /** The same opening without the narration (the game's sound and the music bed only). */
   "demo2-open-quiet": DEMO2_OPEN_CUT,
+  /**
+   * Part C of the film, version 2 (play, about 20 s): Box No. 157 in a photographed sitting room standing in for the
+   * player's room, so every shot says "Simulated room" in the corner. One cut, between the Snail and the fingertip. The
+   * game's sound and the music bed, no narration, no captions; the game's own levels, as demo2-open.
+   */
+  "demo2-play": {
+    shots: DEMO2_PLAY,
+    crossfadeMs: 0,
+    loudness: null,
+    label: { text: "Simulated room", shots: DEMO2_PLAY },
+  },
   /**
    * The film: the cold open, the room, lesson 1, Box No. 3's finger lock and opening, the Daily Box, sharing on the 2D
    * page, a Touch controller, the end card. Game sound and music only (its voice-over is made later from

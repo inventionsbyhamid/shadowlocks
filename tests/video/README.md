@@ -71,6 +71,11 @@ export default defineShot<Data>({
 - `hideHint: true`: the hint lantern (the brass key beside the frame) is left out of every drawn
   frame, hidden only while the scene is drawn (the film's explainer on the dark stage; never in
   play shots).
+- `photoRoom: { file, yawDeg }`: a photographed room (an equirectangular JPEG, `assets/rooms/`, its source and
+  licence in the README there) drawn where the emulator draws its room, from the headset's pose and lens, at
+  infinity. The emulator's room stays loaded but undrawn (the game places the box from the head, not its planes).
+  The game's theatre veil dims it as it dims any room. A panorama has no parallax: keep the camera near the seated
+  eye. Label such shots "Simulated room" in the edit (`label`).
 - `profile`: the player's stored history when the shot starts (boxes opened, a streak, the
   collection); the video build reads it at boot through the usual migration, which starts afresh
   from anything without `version: 1` (`lib/stage.ts` `playedProfile` makes one).

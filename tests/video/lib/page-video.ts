@@ -247,6 +247,153 @@ export function hideInDraw(o: { names: string[] }): number {
   return o.names.filter((n) => w.__ns.world.scene.getObjectByName(n)).length;
 }
 
+/**
+ * The photographic room (a shot's `photoRoom`): an equirectangular photograph drawn where the emulator draws its room,
+ * on the emulator's own environment canvas, behind the app. The emulator's room stays loaded (the game never reads its
+ * planes: the box is placed from the head alone) but is no longer drawn; instead each drawn frame paints the photograph
+ * as seen from the headset's pose with its lens (IWER_DEVICE position, quaternion, fovy), at infinity, turned `yawDeg`
+ * (the photograph's column 0.5 + yawDeg / 360 straight ahead, as ffmpeg's v360 yaw). No parallax: keep the camera near
+ * one eye point. The theatre's veil is the app's, drawn over this canvas, so the room dims exactly as the game dims it.
+ * The image comes as base64 (a JPEG); its pixels are drawn as they are (no colour conversion), sampled with gradients
+ * worked out from the view so the seam at the photograph's edge and the mip levels stay smooth.
+ */
+export async function photoRoom(o: { jpegBase64: string; yawDeg: number }): Promise<{ ok: boolean; why?: string; size?: [number, number]; maxTexture?: number; aniso?: number }> {
+  const w = window as any;
+  const d = w.IWER_DEVICE;
+  const sem = d?.sem;
+  if (!sem?.renderer) return { ok: false, why: "the emulator has no synthetic environment" };
+  const canvas = sem.environmentCanvas as HTMLCanvasElement;
+  const gl = sem.renderer.getContext() as WebGL2RenderingContext;
+  if (!gl || typeof gl.texStorage2D !== "function") return { ok: false, why: "the environment canvas has no WebGL2 context" };
+  const bin = atob(o.jpegBase64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const bmp = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }), { colorSpaceConversion: "none", premultiplyAlpha: "none", imageOrientation: "none" });
+  const maxTexture = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+  if (bmp.width > maxTexture || bmp.height > maxTexture) return { ok: false, why: `the photograph is ${bmp.width}x${bmp.height}, the GPU takes ${maxTexture}`, maxTexture };
+  const compile = (type: number, src: string) => {
+    const s = gl.createShader(type) as WebGLShader;
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(`photo room shader: ${gl.getShaderInfoLog(s)}`);
+    return s;
+  };
+  const prog = gl.createProgram() as WebGLProgram;
+  gl.attachShader(
+    prog,
+    compile(
+      gl.VERTEX_SHADER,
+      `#version 300 es
+out vec2 ndc;
+void main() {
+  vec2 p = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
+  ndc = p;
+  gl_Position = vec4(p, 0.0, 1.0);
+}`,
+    ),
+  );
+  gl.attachShader(
+    prog,
+    compile(
+      gl.FRAGMENT_SHADER,
+      `#version 300 es
+precision highp float;
+in vec2 ndc;
+uniform sampler2D pano;
+uniform mat3 rot;
+uniform vec2 tanHalf;
+uniform vec2 px;
+uniform float yaw;
+out vec4 color;
+const float PI = 3.141592653589793;
+vec2 uvOf(vec2 n) {
+  vec3 d = normalize(rot * vec3(n.x * tanHalf.x, n.y * tanHalf.y, -1.0));
+  float lon = atan(d.x, -d.z);
+  float lat = asin(clamp(d.y, -1.0, 1.0));
+  return vec2(0.5 + (lon + yaw) / (2.0 * PI), 0.5 - lat / PI);
+}
+void main() {
+  vec2 uv = uvOf(ndc);
+  vec2 ux = uvOf(ndc + vec2(px.x, 0.0)) - uv;
+  vec2 uy = uvOf(ndc + vec2(0.0, px.y)) - uv;
+  ux.x -= floor(ux.x + 0.5);
+  uy.x -= floor(uy.x + 0.5);
+  color = vec4(textureGrad(pano, uv, ux, uy).rgb, 1.0);
+}`,
+    ),
+  );
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return { ok: false, why: `photo room program: ${gl.getProgramInfoLog(prog)}` };
+  const tex = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+  gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+  gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+  gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const ext = gl.getExtension("EXT_texture_filter_anisotropic");
+  let aniso = 1;
+  if (ext) {
+    aniso = Math.min(8, gl.getParameter(ext.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number);
+    gl.texParameterf(gl.TEXTURE_2D, ext.TEXTURE_MAX_ANISOTROPY_EXT, aniso);
+  }
+  const size: [number, number] = [bmp.width, bmp.height];
+  bmp.close();
+  const vao = gl.createVertexArray();
+  const at = (n: string) => gl.getUniformLocation(prog, n);
+  const uPano = at("pano"), uRot = at("rot"), uTan = at("tanHalf"), uPx = at("px"), uYaw = at("yaw");
+  const app = w.__ns.world.renderer.domElement as HTMLCanvasElement;
+  const rot = new Float32Array(9);
+  sem.render = () => {
+    // Undrawn frames (setup, fast-forward) draw nothing here either.
+    if (w.__nsVideoSkip) return;
+    const dims = d.canvasDimensions as { width: number; height: number } | undefined;
+    const cw = dims?.width ?? app.width, ch = dims?.height ?? app.height;
+    if (canvas.width !== cw || canvas.height !== ch) {
+      canvas.width = cw;
+      canvas.height = ch;
+    }
+    const q = d.quaternion as { x: number; y: number; z: number; w: number };
+    const { x, y, z } = q, qw = q.w;
+    // Camera to world, column major.
+    rot[0] = 1 - 2 * (y * y + z * z);
+    rot[1] = 2 * (x * y + z * qw);
+    rot[2] = 2 * (x * z - y * qw);
+    rot[3] = 2 * (x * y - z * qw);
+    rot[4] = 1 - 2 * (x * x + z * z);
+    rot[5] = 2 * (y * z + x * qw);
+    rot[6] = 2 * (x * z + y * qw);
+    rot[7] = 2 * (y * z - x * qw);
+    rot[8] = 1 - 2 * (x * x + y * y);
+    const ty = Math.tan((d.fovy as number) / 2);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, cw, ch);
+    for (const cap of [gl.DEPTH_TEST, gl.CULL_FACE, gl.BLEND, gl.SCISSOR_TEST, gl.STENCIL_TEST]) gl.disable(cap);
+    gl.colorMask(true, true, true, true);
+    gl.useProgram(prog);
+    gl.bindVertexArray(vao);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.uniform1i(uPano, 0);
+    gl.uniformMatrix3fv(uRot, false, rot);
+    gl.uniform2f(uTan, ty * (cw / ch), ty);
+    gl.uniform2f(uPx, 2 / cw, 2 / ch);
+    gl.uniform1f(uYaw, (o.yawDeg * Math.PI) / 180);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  };
+  return { ok: true, size, maxTexture, aniso };
+}
+
 /** The headset's pose now. */
 export function headsetPose(): { position: [number, number, number]; quaternion: [number, number, number, number] } {
   const d = (window as any).IWER_DEVICE;

@@ -65,6 +65,8 @@ export const FRAME_INPUTS = [
   // The start time, epoch, boot options and the align, setup and warm-up order live here.
   "tests/video/lib/shoot.ts",
   "tests/video/lib/options.ts",
+  // The photographic rooms a shot may draw behind the app (Shot.photoRoom).
+  "tests/video/assets/rooms",
 ];
 
 /** Everything that changes a shot's sound (given the same events). */
