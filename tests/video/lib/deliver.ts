@@ -302,7 +302,7 @@ export function renderEdit(
           fadeFrames: cardFade,
           cardInput: records.length + 1,
           stillInput: records.length + 2,
-          blurSigma: (14 * first.width) / 960,
+          blurSigma: ((card.blurSigma ?? 14) * first.width) / 960,
         })
       : cut.filter,
     frames: cut.frames + cardFrames,

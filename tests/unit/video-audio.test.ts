@@ -437,6 +437,14 @@ describe("end card", () => {
     expect(() => endCardFilter("[0:v]null[v]", { frames: 1, fps: 30, extraFrames: 3, fadeFrames: 3, cardInput: 2, stillInput: 3, blurSigma: 1 })).toThrow(/longer/);
   });
 
+  it("keeps the held frame sharp under a card with no blur", () => {
+    const g = endCardFilter("[0:v]null[v]", { frames: 300, fps: 30, extraFrames: 108, fadeFrames: 18, cardInput: 3, stillInput: 4, blurSigma: 0 });
+    expect(g).toContain("[vcut]tpad=stop_mode=clone:stop=108[vbg]");
+    expect(g).not.toContain("gblur");
+    expect(g).not.toContain("[4:v]");
+    expect(g.endsWith("[vbg][vcard]overlay=eof_action=pass:format=auto[v]")).toBe(true);
+  });
+
   it("fades the whole mix out under the card", () => {
     const plan = { ...planMix([], manifest, { duration: 6, seed: "e", initialMusic: "calm" }), fadeOutSec: 2 };
     const cmd = mixCommand({ plan, music: null, musicBus: 0.55, limiter: true, out: "o.wav" }, { audioDir: "/a", channels: () => 2 }, "e.filter");
