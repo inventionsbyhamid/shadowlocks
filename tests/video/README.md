@@ -136,9 +136,9 @@ of a render.
 
 Edits: pictures from the mezzanines, crossfades in whole frames (shorter than every clip), each
 shot's effects stem at its start, one continuous music bed across the cuts, an optional voice-over
-(`narration`, from a file in `video-assets/`, not committed) that the rest ducks under, two-pass
-loudness to -14 LUFS (linear; a peak limiter at 4x the rate first when the gain would pass the
-ceiling; the PCM is aimed 0.5 dB under -1 dBTP for what AAC adds, more on a second or third encode
+(`narration`, from a file in `video-assets/`, not committed) that the rest ducks under, loudness
+to -14 LUFS, measured with ebur128 throughout (a plain gain; a peak limiter at 4x the rate first,
+its ceiling lowered step by step until the gain fits under the true peak ceiling; the PCM is aimed 0.5 dB under -1 dBTP for what AAC adds, more on a second or third encode
 when the AAC still comes out over), and one delivery encode with the shots' own settings. A
 `label` lays a corner label ("Emulator footage") over the shots it names; `captions` lay lower third
 captions (the game's serif, Noto Serif Bold, at least 2.5 s each, fading in and out) over the shots

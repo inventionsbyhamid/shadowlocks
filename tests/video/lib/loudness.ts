@@ -1,15 +1,8 @@
-// Loudness for delivery: measure with ffmpeg's loudnorm (EBU R128), then a second, linear pass to
-// the target (a plain gain, no dynamic processing), after a peak limiter when the gain would push the
-// true peak over the ceiling; verified with ebur128 (integrated, loudness range, true peak).
+// Loudness for delivery: measured with ffmpeg's ebur128 (ITU BS.1770, the meter the delivery is checked with), then a
+// plain gain to the target, after a peak limiter when the gain would push the true peak over the ceiling. Not
+// loudnorm: its own meter reads a sparse, peaky mix (chimes over a quiet bed) almost 1 LU louder than ebur128 does,
+// so a gain worked out from it lands short of the target every time.
 // Pure: argument builders and parsers; ffrun.ts runs them.
-
-export interface LoudnormMeasure {
-  I: number;
-  TP: number;
-  LRA: number;
-  thresh: number;
-  offset: number;
-}
 
 export interface Ebur128 {
   /** Integrated loudness, LUFS. */
@@ -26,37 +19,24 @@ export interface LoudnessTarget {
   LRA?: number;
 }
 
-/** Pass one: measure only (the JSON block loudnorm prints at the end). */
-export function measureArgs(input: string, t: LoudnessTarget): string[] {
-  return [
-    "-hide_banner", "-nostats", "-i", input,
-    "-af", `loudnorm=I=${t.I}:TP=${t.TP}:LRA=${t.LRA ?? 11}:print_format=json`,
-    "-f", "null", "-",
-  ];
-}
-
-export function parseLoudnorm(stderr: string): LoudnormMeasure {
-  const start = stderr.lastIndexOf("{");
-  const end = stderr.lastIndexOf("}");
-  if (start < 0 || end < start) throw new Error("loudnorm printed no measurement");
-  const j = JSON.parse(stderr.slice(start, end + 1)) as Record<string, string>;
-  const n = (k: string) => {
-    const v = Number(j[k]);
-    if (!Number.isFinite(v)) throw new Error(`loudnorm measurement ${k} is ${j[k]}`);
-    return v;
-  };
-  return { I: n("input_i"), TP: n("input_tp"), LRA: n("input_lra"), thresh: n("input_thresh"), offset: n("target_offset") };
+/** How far (dB) the plain gain to the target would lift the true peak over the ceiling (0 or less: it fits). */
+export function peakOverDb(m: Ebur128, t: LoudnessTarget): number {
+  return m.TP + (t.I - m.I) - t.TP;
 }
 
 /**
- * The gain the target needs, and the sample-peak ceiling a limiter must hold before that gain so the
- * true peak ends at or under the target's (with `marginDb` for inter-sample peaks). null: no limiter.
+ * The next limiter ceiling (dBFS) for a mix measured `m` (the input, or the input limited at the last ceiling, whose
+ * true peak then sits at that ceiling): lower by what the gain would still put over, and `stepDb` more for the
+ * loudness the limiter takes with the peaks. A few steps settle it: the integrated loudness moves far less than the
+ * peaks.
  */
-export function limitPlan(m: LoudnormMeasure, t: LoudnessTarget, marginDb = 0.5): { gainDb: number; ceilingDb: number | null } {
-  const gainDb = t.I - m.I;
-  const peakAfter = m.TP + gainDb;
-  if (peakAfter <= t.TP) return { gainDb, ceilingDb: null };
-  return { gainDb, ceilingDb: Math.max(-24, t.TP - gainDb - marginDb) };
+export function nextCeilingDb(m: Ebur128, t: LoudnessTarget, stepDb = 0.1): number {
+  return Math.max(-30, m.TP - peakOverDb(m, t) - stepDb);
+}
+
+/** A plain gain (linear: no dynamics). */
+export function gainFilter(db: number): string {
+  return `volume=${db.toFixed(3)}dB`;
 }
 
 /**
@@ -66,24 +46,6 @@ export function limitPlan(m: LoudnormMeasure, t: LoudnessTarget, marginDb = 0.5)
 export function limiterFilter(ceilingDb: number): string {
   const lin = Math.min(1, Math.max(0.0625, 10 ** (ceilingDb / 20)));
   return `aresample=192000,alimiter=limit=${lin.toFixed(5)}:attack=4:release=60:level=false,aresample=48000`;
-}
-
-/** Whether loudnorm's linear pass can reach `t` from `m`: the gain must not lift the true peak over. */
-export function linearFits(m: LoudnormMeasure, t: LoudnessTarget): boolean {
-  return m.TP + (t.I - m.I) <= t.TP;
-}
-
-/** Pass two: linear loudnorm with the measured values, back to 48 kHz. */
-export function normalizeFilter(m: LoudnormMeasure, t: LoudnessTarget): string {
-  return (
-    `loudnorm=I=${t.I}:TP=${t.TP}:LRA=${t.LRA ?? 11}:measured_I=${m.I}:measured_TP=${m.TP}:measured_LRA=${m.LRA}` +
-    `:measured_thresh=${m.thresh}:offset=${m.offset}:linear=true:print_format=summary,aresample=48000`
-  );
-}
-
-/** Whether loudnorm stayed linear (it falls back to dynamic when the true peak cannot be met). */
-export function stayedLinear(stderr: string): boolean {
-  return !/Normalization Type:\s*Dynamic/i.test(stderr);
 }
 
 export function ebur128Args(input: string): string[] {

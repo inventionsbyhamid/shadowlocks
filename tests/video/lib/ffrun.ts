@@ -1,20 +1,7 @@
 // Running ffmpeg and ffprobe (inside the build server's browser image, never on a laptop).
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
-import {
-  type Ebur128,
-  ebur128Args,
-  limiterFilter,
-  limitPlan,
-  linearFits,
-  type LoudnessTarget,
-  type LoudnormMeasure,
-  measureArgs,
-  normalizeFilter,
-  parseEbur128,
-  parseLoudnorm,
-  stayedLinear,
-} from "./loudness";
+import { type Ebur128, ebur128Args, gainFilter, limiterFilter, type LoudnessTarget, nextCeilingDb, parseEbur128, peakOverDb } from "./loudness";
 
 export function ffmpeg(args: string[]): void {
   try {
@@ -102,40 +89,49 @@ export function measureEbur128(file: string): Ebur128 {
 }
 
 export interface NormalizeResult {
-  measured: LoudnormMeasure;
+  /** The mix as it came. */
+  measured: Ebur128;
+  /** After the peak limiter (the mix itself when none was needed). */
+  limited: Ebur128;
+  /** The limiter's ceiling (dBFS), or null. */
   limiterDb: number | null;
-  linear: boolean;
+  /** The plain gain applied after it. */
+  gainDb: number;
   result: Ebur128;
 }
 
+/** Limiter steps before giving up, and gain corrections after the first (16-bit rounding, the meter's 0.1 LU). */
+const LIMIT_STEPS = 8;
+const GAIN_STEPS = 2;
+
 /**
- * Two-pass loudness normalisation to `t`: measure; if the plain gain would push the true peak over the
- * ceiling, limit the peaks first (oversampled); measure again, and limit harder while the linear pass
- * would still overshoot; apply loudnorm linearly; verify with ebur128 (and limit harder if the true
- * peak still came out over). Up to five tries. Writes 48 kHz 16-bit PCM.
+ * Loudness to `t`, measured throughout with ebur128 (the meter the delivery is checked with): when the plain gain would
+ * lift the true peak over the ceiling, limit the peaks first (oversampled), lowering the ceiling until the gain fits;
+ * then a plain gain to the target, measured again and corrected once if the meter disagrees by more than 0.1 LU.
+ * Writes 48 kHz 16-bit PCM.
  */
 export function normalizeLoudness(input: string, output: string, t: LoudnessTarget): NormalizeResult {
-  const first = parseLoudnorm(ffmpegStderr(measureArgs(input, t)));
-  let margin = 0.5;
-  for (let attempt = 0; ; attempt++) {
-    const last = attempt >= 4;
-    const plan = limitPlan(first, t, margin);
-    let src = input;
-    if (plan.ceilingDb !== null) {
-      src = `${output}.limited.wav`;
-      ffmpeg(["-y", "-hide_banner", "-loglevel", "error", "-i", input, "-af", limiterFilter(plan.ceilingDb), "-c:a", "pcm_f32le", src]);
-    }
-    const m = plan.ceilingDb === null ? first : parseLoudnorm(ffmpegStderr(measureArgs(src, t)));
-    if (!last && !linearFits(m, t)) {
-      // The limiter took some loudness too (more gain needed) or left inter-sample peaks: go lower.
-      margin += m.TP + (t.I - m.I) - t.TP + 0.1;
-      continue;
-    }
-    const log = ffmpegStderr(["-y", "-hide_banner", "-nostats", "-i", src, "-af", normalizeFilter(m, t), "-c:a", "pcm_s16le", output]);
-    if (src !== input) fs.rmSync(src, { force: true });
-    const result = measureEbur128(output);
-    const linear = stayedLinear(log);
-    if ((result.TP <= t.TP + 0.05 && linear) || last) return { measured: m, limiterDb: plan.ceilingDb, linear, result };
-    margin += Math.max(0.2, result.TP - t.TP + 0.2);
+  const first = measureEbur128(input);
+  if (!Number.isFinite(first.I) || !Number.isFinite(first.TP)) throw new Error(`no loudness to normalise in ${input} (silence?)`);
+  const limitedFile = `${output}.limited.wav`;
+  let src = input;
+  let m = first;
+  let limiterDb: number | null = null;
+  for (let step = 0; peakOverDb(m, t) > 0; step++) {
+    if (step >= LIMIT_STEPS) throw new Error(`loudness: still ${peakOverDb(m, t).toFixed(2)} dB over the ceiling after ${LIMIT_STEPS} limiter steps`);
+    limiterDb = nextCeilingDb(m, t);
+    ffmpeg(["-y", "-hide_banner", "-loglevel", "error", "-i", input, "-af", limiterFilter(limiterDb), "-c:a", "pcm_f32le", limitedFile]);
+    src = limitedFile;
+    m = measureEbur128(src);
   }
+  let gainDb = t.I - m.I;
+  let result: Ebur128;
+  for (let step = 0; ; step++) {
+    ffmpeg(["-y", "-hide_banner", "-loglevel", "error", "-i", src, "-af", `${gainFilter(gainDb)},aresample=48000`, "-c:a", "pcm_s16le", output]);
+    result = measureEbur128(output);
+    if (Math.abs(result.I - t.I) <= 0.1 || step >= GAIN_STEPS) break;
+    gainDb += t.I - result.I;
+  }
+  fs.rmSync(limitedFile, { force: true });
+  return { measured: first, limited: m, limiterDb, gainDb, result };
 }

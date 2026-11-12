@@ -160,7 +160,7 @@ export interface Edit {
   /** Crossfade between shots, ms (rounded to whole frames; 0: straight cuts). */
   crossfadeMs: number;
   /**
-   * Delivery loudness (two-pass, linear, true peak checked). Default -14 LUFS, -1 dBTP; null keeps
+   * Delivery loudness (ebur128, a plain gain after a peak limiter when needed, true peak checked). Default -14 LUFS, -1 dBTP; null keeps
    * the game's own levels.
    */
   loudness?: LoudnessTarget | null;
@@ -394,7 +394,6 @@ export function renderEdit(
       // AAC can lift the true peak: aim the PCM under the ceiling by the headroom.
       const r = normalizeLoudness(wav, audio, { ...target, TP: target.TP - headroom });
       loud = { ...r, target, aacHeadroomDb: headroom };
-      if (!r.linear) log(`edit ${name}: loudnorm fell back to dynamic mode`);
       const miss = loudnessProblems(r.result, target);
       if (miss.length) throw new Error(`edit ${name}: the mix missed its loudness target after every try: ${miss.join("; ")}`);
     }
