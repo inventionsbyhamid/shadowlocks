@@ -4,8 +4,16 @@
 // lost is let go instead of turning into a click when the hand comes back. A controller uses its
 // target ray (IWSDK's index tip space follows it); its target ray space goes through the same
 // fillPoses check, so a controller out of tracking has no fingertip either. Positions are in world
-// space. The one source for every fingertip key (src/ui/fingertips.ts shares it).
+// space. The one source for every fingertip key (src/ui/fingertips.ts shares it). Where the frame's hand joint read
+// (src/input/hand-joints.ts) already has the tip from the same fillPoses result, it is taken from there: one fillPoses
+// fewer per hand, the same numbers.
 import type { Matrix4, Object3D, Vector3, World } from "@iwsdk/core";
+
+/** A joint read this frame that may already hold a hand's index tip (HandJoints.indexTipIn). */
+export interface TipReads {
+  /** The tip's raw pose position in `ref` into `out`, true, when read from `src` in `frame`; false otherwise. */
+  indexTipIn(src: XRInputSource, tip: XRSpace, frame: XRFrame, ref: XRReferenceSpace, out: Vector3): boolean;
+}
 
 /** Where the fingertips are (world space). */
 export interface FingertipSource {
@@ -41,8 +49,8 @@ interface HandSlot {
 
 const SIDES: readonly XRHandedness[] = ["left", "right"];
 
-/** Fingertips from the live XR frame (see the module comment). */
-export function xrFingertips(world: World): FingertipSource {
+/** Fingertips from the live XR frame (see the module comment); `joints`, the frame's joint read, when there is one. */
+export function xrFingertips(world: World, joints?: TipReads): FingertipSource {
   const w = world as unknown as { renderer?: { xr?: XrLike }; player?: PlayerLike };
   const slots: HandSlot[] = [
     { source: null, spaces: [], hand: false },
@@ -105,10 +113,12 @@ export function xrFingertips(world: World): FingertipSource {
       if (!slot.source) return false;
       const player = w.player;
       if (slot.hand) {
-        // No pose for the joint this frame: the hand is not tracked.
-        const f = frame as unknown as PoseFrame;
-        if (!f.fillPoses || !f.fillPoses(slot.spaces, ref, pose)) return false;
-        out.set(pose[12] as number, pose[13] as number, pose[14] as number);
+        if (!joints?.indexTipIn(slot.source, slot.spaces[0] as XRSpace, frame, ref, out)) {
+          // No pose for the joint this frame: the hand is not tracked.
+          const f = frame as unknown as PoseFrame;
+          if (!f.fillPoses || !f.fillPoses(slot.spaces, ref, pose)) return false;
+          out.set(pose[12] as number, pose[13] as number, pose[14] as number);
+        }
         if (player) out.applyMatrix4(player.matrixWorld);
         return true;
       }

@@ -67,6 +67,8 @@ interface Pending {
 
 export class Haptics implements HapticSink {
   private readonly queue: Pending[] = Array.from({ length: QUEUE }, () => ({ live: false, due: 0, hand: "right" as const, intensity: 0, ms: 0 }));
+  /** How many of the queue's pulses are live (none: a frame has nothing to look at). */
+  private pending = 0;
 
   constructor(
     private readonly session: () => HapticSession | null | undefined,
@@ -107,11 +109,13 @@ export class Haptics implements HapticSink {
 
   /** Per frame: the pulses whose time has come. */
   update(): void {
+    if (this.pending === 0) return;
     const t = this.now();
     for (let i = 0; i < QUEUE; i++) {
       const p = this.queue[i]!;
       if (!p.live || p.due > t) continue;
       p.live = false;
+      this.pending--;
       this.fire(p.hand, p.intensity, p.ms);
     }
   }
@@ -119,6 +123,7 @@ export class Haptics implements HapticSink {
   /** Drop the pulses still to come (play ended). */
   clear(): void {
     for (const p of this.queue) p.live = false;
+    this.pending = 0;
   }
 
   private fire(hand: Hand | "both", intensity: number, ms: number): void {
@@ -131,6 +136,7 @@ export class Haptics implements HapticSink {
     // Full (never in play: a pattern is a few pulses): this one is dropped.
     if (!p) return;
     p.live = true;
+    this.pending++;
     p.due = due;
     p.hand = hand;
     p.intensity = intensity;

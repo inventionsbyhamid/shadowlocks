@@ -1,8 +1,11 @@
 // What the lesson view does with the director's frame that can be checked without a renderer: lock I's mark on the
-// panel and its scraps, and where the coach chip sits by the lantern while lesson 1 asks for it.
-import { Quaternion, Vector3 } from "@iwsdk/core";
-import { describe, expect, it } from "vitest";
-import { coachNearPose, LESSON_LOOK, markLock, nominalEye } from "../../src/app/lesson-view";
+// panel and its scraps, where the coach chip sits by the lantern while lesson 1 asks for it, and a view at rest (no
+// lesson, nothing shown) that still shows what comes after.
+import { Object3D, Quaternion, Vector3 } from "@iwsdk/core";
+import { describe, expect, it, vi } from "vitest";
+import { coachNearPose, LESSON_LOOK, LessonView, type LessonViewDeps, markLock, nominalEye } from "../../src/app/lesson-view";
+import { LessonsDirector } from "../../src/app/lessons-director";
+import { COACH } from "../../src/ui/coach-line";
 import { LANTERN_GRIP_Y } from "../../src/app/lesson-scripts";
 import { placeBox, worldToBox } from "../../src/render/placement";
 import type { V3 } from "../../src/core/types";
@@ -94,5 +97,76 @@ describe("the coach chip by the lantern", () => {
         expect(pos.x * side, why).toBeGreaterThan(L[0] * side);
       }
     }
+  });
+});
+
+describe("the lesson view at rest", () => {
+  /** The view over a box scene that records what it is told, with no lesson box in play. */
+  function bench() {
+    const told = { light: [] as (V3 | null)[], ghosts: [] as number[], quiet: [] as boolean[] };
+    const scene = {
+      root: new Object3D(),
+      box: null,
+      size: 0.24,
+      scraps: { offsetPiece() {}, moveRing() {}, handle: () => ({ setGlow() {} }) },
+      shadowsMoved() {},
+      setLightFrom: (p: Readonly<V3> | null) => void told.light.push(p ? [p[0], p[1], p[2]] : null),
+      setGhostShadows: (_o: unknown, n: number) => void told.ghosts.push(n),
+      lightPos: (out: V3) => out,
+      lantern: { setQuiet: (on: boolean) => void told.quiet.push(on) },
+      panelArt: { setWarmth() {} },
+      crystals: { setBox() {} },
+    };
+    const sound = { settle: vi.fn(), crystallise: vi.fn(), coachLine: vi.fn() };
+    const lantern = { ctrl: { pos: [0.1, -0.2, 1.2] as V3 }, place: vi.fn(), freeze: vi.fn() };
+    const deps = { world: { scene: new Object3D() }, scene, lantern, sound, reducedMotion: () => false };
+    const view = new LessonView(deps as unknown as LessonViewDeps);
+    const f = new LessonsDirector({} as never).frame;
+    let t = 0;
+    const step = (on: { lesson: "l1" | null; tip?: boolean }, line: string | null, frames = 1) => {
+      for (let i = 0; i < frames; i++) view.update(f, on, line, 16, (t += 16));
+    };
+    return { view, f, told, sound, step };
+  }
+
+  it("still shows a tip's line, then its ghost demo, after frames with nothing to show", () => {
+    const { view, f, told, sound, step } = bench();
+    step({ lesson: null }, null, 3);
+    const told0 = told.light.length;
+    step({ lesson: null }, null, 5);
+    // Nothing to show and nothing shown: nothing more is told.
+    expect(told.light.length).toBe(told0);
+    // A tip's line comes up on the chip, with its tick.
+    step({ lesson: null }, "Try the other lock.");
+    expect(view.coach.text).toBe("Try the other lock.");
+    expect(sound.coachLine).toHaveBeenCalledTimes(1);
+    step({ lesson: null }, "Try the other lock.", 30);
+    expect(view.coach.opacity).toBe(1);
+    // It goes: the chip fades out, then rests again.
+    step({ lesson: null }, null, Math.ceil(COACH.fadeOutMs / 16) + 2);
+    expect(view.coach.text).toBeNull();
+    expect(view.coach.opacity).toBe(0);
+    // A tip's ghost demo on the box in play: its ghost lantern lights the box.
+    f.lamp.opacity = 1;
+    f.lamp.at = [0.1, 0.2, 1.1];
+    f.ghostLight = true;
+    step({ lesson: null, tip: true }, null);
+    expect(told.light.at(-1)).toEqual([0.1, 0.2, 1.1]);
+    expect(view.lamp.opacity).toBe(1);
+  });
+
+  it("shows a lesson that starts after frames at rest: its ghost hand and its light", () => {
+    const { view, f, told, step } = bench();
+    step({ lesson: null }, null, 5);
+    expect(view.ghost.opacity).toBe(0);
+    f.hand.opacity = 1;
+    f.lamp.opacity = 1;
+    f.lamp.at = [-0.1, 0, 1.2];
+    f.ghostLight = true;
+    step({ lesson: "l1" }, "Pick up the lantern.");
+    expect(view.ghost.opacity).toBe(1);
+    expect(view.coach.text).toBe("Pick up the lantern.");
+    // Not its box in play (none is): the ghost lantern lights the box only on its own box or in a tip's demo.
+    expect(told.light.at(-1)).toBeNull();
   });
 });

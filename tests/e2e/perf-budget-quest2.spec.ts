@@ -22,7 +22,11 @@
 // more than MAX_STALLS of them in the judged window; of WINDOWS_HERE windows, the lowest p95 among those whose stalls are
 // all excused is judged. Every system's update (IWSDK's input and UI too) and the render's time are reported, not judged:
 // in the emulator the first carries IWER's own work (it makes up the hands' joints in JavaScript, where a headset hands
-// them over), and the second waits on software rendering as a headset's does not.
+// them over), and the second waits on software rendering as a headset's does not. For the same reason IWER's joint-pose
+// JavaScript that runs inside our own systems (XRFrame.fillPoses, called by the hand pinch system and the game's
+// fingertip keys) is timed there and left out of our JS, frame by frame (Ruling 180a; helpers/perf-play.ts,
+// timeEmulatorPoses): on a headset that call is native. Each window prints our JS both ways, raw and judged, and the
+// pose time excused; the stall rule and the budget read the judged frames.
 import type { Page, TestInfo } from "@playwright/test";
 import { CHROME_ARGS } from "./helpers/chromium";
 import { emulateHeadset } from "./helpers/headset";
@@ -58,25 +62,31 @@ const proCase = (n: number) => async ({ page, boot }: { page: Page; boot: BootFn
 
   // Where the container's pauses are unknown (no cgroup counter, or no quota periods counted), the 4x rule's allowance.
   const judged = judgeSystemWindowsP95(
-    windows.map((w) => ({ frames: w.frames, bySystem: w.bySystem, excused: w.throttled ?? MAX_STALLS })),
+    windows.map((w) => ({ frames: w.judged, bySystem: w.judgedBySystem, excused: w.throttled ?? MAX_STALLS })),
     STALL,
   );
   const x = `${PRO_RATE.toFixed(2)}x`;
   const lines = [
     ...windows.map((w, i) => {
-      const s = frameStats(w.frames), rule = p95WithoutStalls(w.frames, STALL), u = p95WithoutStalls(w.update, STALL);
+      const s = frameStats(w.judged), rule = p95WithoutStalls(w.judged, STALL), u = p95WithoutStalls(w.update, STALL);
+      const raw = frameStats(w.frames), rawRule = p95WithoutStalls(w.frames, STALL), poses = frameStats(w.poses);
       const r = p95WithoutStalls(w.render, STALL);
-      const owners = stallOwners(w, STALL);
+      const owners = stallOwners({ frames: w.judged, bySystem: w.judgedBySystem }, STALL);
       const by = [...new Set(owners)].map((k) => `${k} ${owners.filter((o) => o === k).length}`).join(", ");
       return (
         `perf-budget Quest 2 and Pro, box ${n}, window ${i + 1}: ${w.calls} draw calls, ${w.triangles} triangles at most; at ${x} over ${TIMED_FRAMES} frames: ` +
-        `our JS mean ${s.meanMs.toFixed(3)}, median ${s.medianMs.toFixed(3)}, p95 ${s.p95Ms.toFixed(2)}, max ${s.maxMs.toFixed(2)} ms ` +
+        `our JS (judged) mean ${s.meanMs.toFixed(3)}, median ${s.medianMs.toFixed(3)}, p95 ${s.p95Ms.toFixed(2)}, max ${s.maxMs.toFixed(2)} ms ` +
         `(${rule.stalls} stalls over ${STALL.toFixed(1)} ms${by ? `: ${by}` : ""}; the container paused ${w.throttled ?? "?"} times; p95 ` +
-        `${rule.p95Ms.toFixed(2)} without them); every system p95 ${u.p95Ms.toFixed(2)} ms, the render's (software GL) ${r.p95Ms.toFixed(2)}; ` +
-        `server load ${w.load?.toFixed(1) ?? "?"}; p95 by system: ${Object.entries(w.systems).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")}`
+        `${rule.p95Ms.toFixed(2)} without them); raw (IWER's joint poses in) mean ${raw.meanMs.toFixed(3)}, p95 ${rawRule.p95Ms.toFixed(2)} ` +
+        `without stalls; IWER's joint poses excused mean ${poses.meanMs.toFixed(3)}, p95 ${poses.p95Ms.toFixed(2)} ms; ` +
+        `every system p95 ${u.p95Ms.toFixed(2)} ms, the render's (software GL) ${r.p95Ms.toFixed(2)}; ` +
+        `server load ${w.load?.toFixed(1) ?? "?"}; p95 by system (raw): ${Object.entries(w.systems).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")}; ` +
+        `judged: ${Object.entries(w.judgedBySystem).map(([k, v]) => `${k} ${frameStats(v).p95Ms.toFixed(2)}`).join(", ")}`
       );
     }),
     `perf-budget Quest 2 and Pro, box ${n}: judged window ${judged.index + 1}: our JS p95 ${judged.p95Ms.toFixed(2)} ms without its ${judged.stalls} stalls ` +
+      `(raw ${p95WithoutStalls(windows[judged.index]!.frames, STALL).p95Ms.toFixed(2)}; IWER's joint poses excused, mean ` +
+      `${frameStats(windows[judged.index]!.poses).meanMs.toFixed(3)} ms a frame) ` +
       `(the container paused ${judged.excused} times; most in one system: ${judged.owner.system ?? "none"} ${judged.owner.stalls}); ` +
       `stage ${st.stage}, ${st.open.length} locks open`,
   ];

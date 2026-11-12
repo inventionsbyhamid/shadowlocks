@@ -2,6 +2,7 @@
 // `xrFingertips` (src/render/fingertips.ts): only really tracked fingertips count, so a key pressed
 // when tracking was lost is let go.
 import { Vector3, type World } from "@iwsdk/core";
+import { handJoints } from "../input/grab-system";
 import { type FingertipSource, xrFingertips } from "../render/fingertips";
 import type { Tips } from "./key-view";
 
@@ -23,7 +24,8 @@ export class FrameTips implements Tips {
 
   constructor(
     world: World,
-    private readonly source: FingertipSource = xrFingertips(world),
+    // The hand pinch system reads every joint earlier in the frame: the index tips come from that read.
+    private readonly source: FingertipSource = xrFingertips(world, handJoints),
   ) {
     this.xr = (world as unknown as { renderer?: { xr?: XrLike } }).renderer?.xr;
   }

@@ -649,6 +649,29 @@ describe("haptics", () => {
     await new Promise((r) => setTimeout(r, 0));
   });
 
+  it("fire a pattern's later pulses on time after frames with none waiting, and none after a clear", () => {
+    const calls: number[] = [];
+    let t = 0;
+    const h = new Haptics(
+      () => ({ inputSources: [{ handedness: "right", gamepad: { hapticActuators: [{ pulse: () => calls.push(t) }] } }] }),
+      () => t,
+    );
+    for (; t < 50; t += 10) h.update();
+    expect(calls).toEqual([]);
+    h.play("right", HAPTICS.ring);
+    expect(calls).toEqual([50]);
+    for (; t <= 200; t += 10) h.update();
+    expect(calls).toEqual([50, 130]);
+    // Queued, then dropped (play ended): nothing fires, and the next pattern's pulses still do.
+    h.play("right", HAPTICS.ring);
+    h.clear();
+    for (; t <= 400; t += 10) h.update();
+    expect(calls).toEqual([50, 130, 210]);
+    h.play("right", HAPTICS.ring);
+    for (; t <= 600; t += 10) h.update();
+    expect(calls).toEqual([50, 130, 210, 410, 490]);
+  });
+
   it("a game with no session at all still plays its sounds", () => {
     const { engine, game } = setup({ session: null });
     game.grab("right");

@@ -117,15 +117,16 @@ export class PokeKey {
 
   /**
    * Per frame: the nearest fingertip over the face (world `tips`) moves it and may press it. Returns a KEY_EVENT
-   * (press: the click; click: the action). Not live: lets go and returns none.
+   * (press: the click; click: the action). Not live: lets go and returns none. `parentFresh`: the caller has brought
+   * the key's parent's world matrix up to date this frame (keys that share a parent), so only the key's own is made.
    */
-  feel(tips: Tips): number {
+  feel(tips: Tips, parentFresh = false): number {
     const k = this.finger;
     if (!this.live || !this.group.visible || tips.count === 0) {
       k.dist = Number.NaN;
       k.inside = false;
     } else {
-      this.group.updateWorldMatrix(true, false);
+      this.group.updateWorldMatrix(!parentFresh, false);
       const e = this.group.matrixWorld.elements;
       ax.set(e[0]!, e[1]!, e[2]!).normalize();
       ay.set(e[4]!, e[5]!, e[6]!).normalize();

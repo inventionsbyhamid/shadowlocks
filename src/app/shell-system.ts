@@ -18,6 +18,7 @@ import { createSystem, Quaternion, Vector3 } from "@iwsdk/core";
 import { hands } from "../input/grab-system";
 import { BOX_SPHERE, boxInView, type LostInput, LostBox } from "../render/lost-box";
 import { PHONE_VIEW, PlaceGate, placeFromHead, placement, type ViewTangents, viewOf, wideViewOf } from "../render/placement";
+import { headWorld } from "./head-world";
 import type { Shell } from "./shell";
 import { onPhone, touchBusy } from "./touch-system";
 
@@ -30,10 +31,19 @@ export function useShell(s: Shell): void {
 
 /** Below this the head is not tracked yet (it sits at the origin): never place from it. */
 const MIN_HEAD_Y_M = 0.2;
+/**
+ * A headset's placed box last seen in view, nothing under way (no summon, no Recenter asked): the head, the steady gate
+ * and the in-view test are looked at on one frame in this many, not every frame. A box going out of view is then
+ * noticed at most this many frames late (about 40 ms at 72 Hz), well inside the 2 s rule. A phone's are looked at
+ * every frame.
+ */
+const LOOK_EVERY = 4;
 
 export class ShellSystem extends createSystem({}) {
   private readonly headPos = new Vector3();
   private readonly headQuat = new Quaternion();
+  private readonly scratchPos = new Vector3();
+  private readonly scratchScale = new Vector3();
   private readonly view: ViewTangents = { tanH: PHONE_VIEW.tanH, tanV: PHONE_VIEW.tanV };
   private readonly wide: ViewTangents = { tanH: PHONE_VIEW.tanH, tanV: PHONE_VIEW.tanV };
   private readonly forward = new Vector3();
@@ -53,6 +63,10 @@ export class ShellSystem extends createSystem({}) {
   private watchedFor: XRSession | null = null;
   /** The box and its panels are hidden, waiting for the first placement. */
   private hidden = false;
+  /** Some part of the placed box was in view at the last look (watchLost). */
+  private seen = false;
+  /** Frames since the last look while the box is in view (LOOK_EVERY). */
+  private sinceLook = 0;
   private laidOut = -1;
 
   /**
@@ -60,9 +74,10 @@ export class ShellSystem extends createSystem({}) {
    * (sitting at a table) can be lower than a seated head: only a head at the origin is untracked.
    */
   private readHead(phone: boolean): boolean {
-    const head = this.world.player.head;
-    head.getWorldPosition(this.headPos);
-    head.getWorldQuaternion(this.headQuat);
+    // getWorldPosition and getWorldQuaternion, read from the head's world matrix as it stands (head-world.ts).
+    const m = headWorld(this.world.player.head);
+    this.headPos.setFromMatrixPosition(m);
+    m.decompose(this.scratchPos, this.headQuat, this.scratchScale);
     return phone ? this.headPos.lengthSq() !== 0 : this.headPos.y >= MIN_HEAD_Y_M;
   }
 
@@ -121,13 +136,18 @@ export class ShellSystem extends createSystem({}) {
       this.gate.reset();
       this.lost.reset();
       s.summon.reset(this.headPos);
+      this.seen = false;
     }
-    const tracked = !!xrSession && !!this.world.xrFrame && this.readHead(phone);
+    const waiting = !!xrSession && this.placedFor !== xrSession;
+    // The head, the gate and the lost box are looked at every frame while it matters (the wait, a box not in view, a
+    // summon, a Recenter); a placed box in view with nothing under way only on one frame in LOOK_EVERY.
+    const look = phone || waiting || !this.seen || s.summon.phase !== "idle" || s.recenterAsked || ++this.sinceLook >= LOOK_EVERY;
+    if (look) this.sinceLook = 0;
+    const tracked = look && !!xrSession && !!this.world.xrFrame && this.readHead(phone);
     if (tracked) this.gate.update(now, this.forward.set(0, 0, -1).applyQuaternion(this.headQuat));
     // Once per XR session, once the head (a phone's camera) has held still in a looking pose (or the gate's cap has
     // passed): place the box, show it, and compile every shader for the session's render target (set only inside its
     // frames) so nothing compiles the first time it shows. Until then the box and its panels are hidden.
-    const waiting = !!xrSession && this.placedFor !== xrSession;
     this.hide(waiting);
     if (waiting && tracked && this.gate.ready && this.recenter()) {
       this.placedFor = xrSession;
@@ -143,7 +163,7 @@ export class ShellSystem extends createSystem({}) {
       if (xrSession && placement.source !== "default" && (placement.source === "view") !== phone) s.recenterAsked = true;
       // A Recenter waits for a frame with a tracked head.
       if (s.recenterAsked && this.recenter()) s.recenterAsked = false;
-      if (xrSession) this.watchLost(s, now, phone, tracked);
+      if (xrSession && look) this.watchLost(s, now, phone, tracked);
     }
     if (placement.version !== this.laidOut) {
       this.laidOut = placement.version;
@@ -151,7 +171,7 @@ export class ShellSystem extends createSystem({}) {
     }
     s.box.update(dt);
     // The theatre's veil stays round the head wherever it goes.
-    s.theatre.update(dt, this.world.player.head.getWorldPosition(this.headPos));
+    s.theatre.update(dt, this.headPos.setFromMatrixPosition(headWorld(this.world.player.head)));
     s.lifecycle.tick(now);
   }
 
@@ -167,6 +187,7 @@ export class ShellSystem extends createSystem({}) {
       this.lastEye.copy(this.headPos);
       this.lastTurn.copy(this.headQuat);
       const inView = boxInView(placement.matrix(), this.headPos, this.headQuat, this.seenView());
+      this.seen = inView;
       const L = this.lostIn;
       L.phone = phone;
       L.steady = this.gate.steady;

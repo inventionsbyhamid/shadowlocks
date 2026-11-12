@@ -259,7 +259,7 @@ export const COPY = {
   film: {
     title: "Shadow Locks",
     tagline: "Your hands. One light. Every shadow a lock.",
-    facts: ["Seated", "Hands only", "Plays offline"],
+    facts: ["Seated", "Hands first", "Plays offline"],
   },
   /** The landing page (the hosted link only; the installed app goes straight in). */
   landing: {
