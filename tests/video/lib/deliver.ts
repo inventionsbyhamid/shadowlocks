@@ -5,7 +5,7 @@ import path from "node:path";
 import type { AudioManifest } from "../../../src/audio/manifest";
 import { type Duck, type Layer, type MixPlan, type MusicChange, musicSetup, musicSummary, planMix, planMusic } from "./audio";
 import { audioFacts, channelsOf, ffmpeg, measureEbur128, mediaFacts, normalizeLoudness, type NormalizeResult } from "./ffrun";
-import type { EndCard } from "./endcard";
+import { CAPTION_TOP, type EndCard } from "./endcard";
 import { type Ebur128, type LoudnessTarget, loudnessProblems } from "./loudness";
 import { captionFilter, contactSheetArgs, deliveryArgs, editVideoFilter, endCardFilter, fadeFramesFor, labelFilter, mixCommand, type Narration, type PcmLoop, shiftDucks, stillArgs } from "./mixdown";
 import { type VideoOptions, workDir } from "./options";
@@ -334,7 +334,8 @@ export function renderEdit(
   if (caps.length) {
     if (captionPngs.length !== caps.length) throw new Error(`edit ${name}: its captions were not drawn`);
     const spans = captionSpans(caps, edit.shots, v.starts, records.map((r) => r.duration));
-    v.filter = captionFilter(v.filter, { input: records.length + 1 + cardInputs.length, spans, fade: CAPTION_FADE_SEC });
+    const y = Math.round(CAPTION_TOP * first.height);
+    v.filter = captionFilter(v.filter, { input: records.length + 1 + cardInputs.length, spans, fade: CAPTION_FADE_SEC, y });
     spans.forEach(([, b], i) => cardInputs.push(["-loop", "1", "-framerate", String(fps), "-t", String(b + 0.5), "-i", captionPngs[i] as string]));
   }
   const fade = fadeFrames / fps;

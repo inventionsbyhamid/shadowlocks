@@ -357,11 +357,11 @@ export function labelFilter(filter: string, o: { input: number; spans: Array<[nu
 }
 
 /**
- * Caption layers (inputs `input`, `input + 1`, ...: transparent PNGs at the edit's size, each looped from t = 0) laid
- * over the edit, each from `from` to `to` (seconds), its opacity fading in and out over `fade`. Takes a filter ending in
+ * Caption layers (inputs `input`, `input + 1`, ...: transparent PNGs as wide as the edit, each looped from t = 0) laid
+ * over the edit at `y` (px from the top; default 0), each from `from` to `to` (seconds), its opacity fading in and out over `fade`. Takes a filter ending in
  * [v] and returns one ending in [v], the same length.
  */
-export function captionFilter(filter: string, o: { input: number; spans: Array<[number, number]>; fade: number }): string {
+export function captionFilter(filter: string, o: { input: number; spans: Array<[number, number]>; fade: number; y?: number }): string {
   if (!/\[v\]$/.test(filter)) throw new Error("the edit filter must end in [v]");
   if (o.spans.length === 0) return filter;
   let out = `${filter.slice(0, -3)}[vc0]`;
@@ -370,7 +370,7 @@ export function captionFilter(filter: string, o: { input: number; spans: Array<[
     const last = i === o.spans.length - 1;
     out +=
       `;[${o.input + i}:v]format=yuva444p,fade=t=in:st=${f(a)}:d=${f(o.fade)}:alpha=1,fade=t=out:st=${f(b - o.fade)}:d=${f(o.fade)}:alpha=1[cap${i}]` +
-      `;[vc${i}][cap${i}]overlay=x=0:y=0:eof_action=pass:format=auto${last ? "[v]" : `[vc${i + 1}]`}`;
+      `;[vc${i}][cap${i}]overlay=x=0:y=${o.y ?? 0}:eof_action=pass:format=auto${last ? "[v]" : `[vc${i + 1}]`}`;
   });
   return out;
 }
