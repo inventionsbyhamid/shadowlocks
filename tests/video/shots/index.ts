@@ -12,6 +12,7 @@ import demoRoom from "./demo-room";
 import demoShare from "./demo-share";
 import demo2Depth from "./demo2-depth";
 import demo2Hand from "./demo2-hand";
+import demo2Handlook from "./demo2-handlook";
 import demo2Hook from "./demo2-hook";
 import demo2Light from "./demo2-light";
 import inlineFinger from "./inline-finger";
@@ -41,6 +42,8 @@ export const SHOTS: Record<string, Shot<any>> = {
   "demo2-light": demo2Light,
   "demo2-depth": demo2Depth,
   "demo2-hand": demo2Hand,
+  // A close look at the stand-in hand (not in an edit).
+  "demo2-handlook": demo2Handlook,
 };
 
 // Shots of the game's 2D page in a browser window (lib/page-shot.ts), by name like the others.
