@@ -21,7 +21,49 @@ const DEMO_SHOTS = ["demo-finger", "demo-room", "demo-lesson", "demo-box3", "dem
 /** The film, version 2, its opening (parts A and B): the hook and the three beats on the dark stage. */
 const DEMO2_OPEN = ["demo2-hook", "demo2-light", "demo2-depth", "demo2-hand"];
 
+/**
+ * The film, version 2, parts D and E: endless boxes (Box No. 1, 7, 22, 80, 500), records (New best, the Collection),
+ * the Daily Box and its streak, sharing on the 2D page, hands, a controller and letting go; then Box No. 12 opening,
+ * held under the end card.
+ */
+const DEMO2_MORE = [
+  "demo2-d-box1",
+  "demo2-d-box7",
+  "demo2-d-box22",
+  "demo2-d-box80",
+  "demo2-d-box500",
+  "demo2-d-best",
+  "demo2-d-collection",
+  "demo2-d-daily-home",
+  "demo2-d-daily-card",
+  "demo2-d-share",
+  "demo2-d-hand",
+  "demo2-d-controller",
+  "demo2-d-letgo",
+  "demo2-e-open",
+];
+
+/**
+ * The end card over part E's held frame: Box No. 12 just opened, sharp, left of centre; the title large in the display
+ * face in the dark to its right, the facts, and the site's name (as the result card prints it).
+ */
+const DEMO2_END: EndCard = { ...END_CARD, link: "shadowlocks.pages.dev", layout: "side", blurSigma: 0, holdSec: 4, fadeMs: 500 };
+
 export const EDITS: Record<string, Edit> = {
+  /**
+   * Parts D and E of the film, version 2, cut to the narration (take 1 of lines 7 to 12, laid at their beats in
+   * video-assets/demo2-more-narration.wav, not committed: plan/sdd/sl-v1/task-49-report.md says how it is made). Straight
+   * cuts, the music bed under all of it, dipped under the voice; no captions and no corner label (the dark stage shows
+   * no room).
+   */
+  "demo2-more": {
+    shots: DEMO2_MORE,
+    crossfadeMs: 0,
+    endCard: DEMO2_END,
+    narration: { file: "video-assets/demo2-more-narration.wav", startSec: 0, gainDb: 2, duckDb: 8 },
+  },
+  /** The same cut without the voice, at the game's own levels (as demo2-open: the sparse mix misses -14 LUFS). */
+  "demo2-more-silent": { shots: DEMO2_MORE, crossfadeMs: 0, endCard: DEMO2_END, loudness: null },
   /**
    * The opening 25 seconds of the film, version 2 (plan/submission/demo-video-script-v2.md, parts A and B): straight
    * cuts on the sounds, the game's sound and the music bed, no narration yet, and no corner label (the dark stage shows
