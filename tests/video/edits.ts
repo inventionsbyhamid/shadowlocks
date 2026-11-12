@@ -22,16 +22,16 @@ const DEMO_SHOTS = ["demo-finger", "demo-room", "demo-lesson", "demo-box3", "dem
 const DEMO2_OPEN = ["demo2-hook", "demo2-light", "demo2-depth", "demo2-hand"];
 
 /**
- * The film, version 2, parts D and E: endless boxes (Box No. 1, 7, 22, 80, 500), records (New best, the Collection),
- * the Daily Box and its streak, sharing on the 2D page, hands, a controller and letting go; then Box No. 12 opening,
- * held under the end card.
+ * The film, version 2, parts D and E: endless boxes (Box No. 382, then 1, 7, 22 and 630), records (New best, the
+ * Collection), the Daily Box and its streak, sharing on the 2D page, hands, a controller and letting go; then Box No.
+ * 12 opening, held under the end card.
  */
 const DEMO2_MORE = [
+  "demo2-d-box382",
   "demo2-d-box1",
   "demo2-d-box7",
   "demo2-d-box22",
-  "demo2-d-box80",
-  "demo2-d-box500",
+  "demo2-d-box630",
   "demo2-d-best",
   "demo2-d-collection",
   "demo2-d-daily-home",
@@ -47,7 +47,7 @@ const DEMO2_MORE = [
  * The end card over part E's held frame: Box No. 12 just opened, sharp, left of centre; the title large in the display
  * face in the dark to its right, the facts, and the site's name (as the result card prints it).
  */
-const DEMO2_END: EndCard = { ...END_CARD, link: "shadowlocks.pages.dev", layout: "side", blurSigma: 0, holdSec: 4, fadeMs: 500 };
+const DEMO2_END: EndCard = { ...END_CARD, link: "shadowlocks.pages.dev", layout: "side", blurSigma: 0, holdSec: 4.5, fadeMs: 500 };
 
 export const EDITS: Record<string, Edit> = {
   /**

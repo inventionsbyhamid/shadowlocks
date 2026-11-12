@@ -61,8 +61,8 @@ export default defineShot<Data>({
     return {
       hold: [ctrl[0] - held[0], ctrl[1] - held[1], ctrl[2] - held[2]],
       to: await toWorld(page, [start[0] - 0.3, start[1] + 0.2, start[2] - 0.12]),
-      first: await boxView(page, [0.15, 0.42, 2.95], [0.0, -0.04, 0.5], 50),
-      last: await boxView(page, [0.12, 0.4, 2.8], [0.0, -0.04, 0.5], 48),
+      first: await boxView(page, [0.15, 0.42, 3.0], [0.0, 0.04, 0.5], 51),
+      last: await boxView(page, [0.12, 0.4, 2.88], [0.0, 0.05, 0.5], 49),
     };
   },
   firstView: ({ first }) => first,

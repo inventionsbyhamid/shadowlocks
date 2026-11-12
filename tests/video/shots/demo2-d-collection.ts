@@ -41,8 +41,8 @@ export default defineShot<Data>({
     await right.glideTip([older.world[0] + 0.1, older.world[1] - 0.1, older.world[2] + 0.1], 300);
     return {
       older,
-      first: { from: offset(EYE, 0.03, 0.0, -0.04), at: offset(mid, 0, 0.04, 0), hfovDeg: 46 },
-      last: { from: offset(EYE, 0.02, -0.01, -0.1), at: offset(mid, 0, 0.04, 0), hfovDeg: 42 },
+      first: { from: offset(EYE, 0.0, 0.0, 0.0), at: offset(mid, -0.14, -0.03, 0), hfovDeg: 64 },
+      last: { from: offset(EYE, 0.0, -0.01, -0.04), at: offset(mid, -0.13, -0.03, 0), hfovDeg: 60 },
     };
   },
   firstView: ({ first }) => first,

@@ -14,8 +14,8 @@ import demo2DBest from "./demo2-d-best";
 import demo2DBox1 from "./demo2-d-box1";
 import demo2DBox7 from "./demo2-d-box7";
 import demo2DBox22 from "./demo2-d-box22";
-import demo2DBox80 from "./demo2-d-box80";
-import demo2DBox500 from "./demo2-d-box500";
+import demo2DBox382 from "./demo2-d-box382";
+import demo2DBox630 from "./demo2-d-box630";
 import demo2DCollection from "./demo2-d-collection";
 import demo2DController from "./demo2-d-controller";
 import demo2DDailyCard from "./demo2-d-daily-card";
@@ -57,11 +57,11 @@ export const SHOTS: Record<string, Shot<any>> = {
   "demo2-hand": demo2Hand,
   // The film, version 2: part D (more: endless boxes, records, the Daily Box, controllers and letting go) and part E's
   // held frame, on the dark stage (edits.ts "demo2-more").
+  "demo2-d-box382": demo2DBox382,
   "demo2-d-box1": demo2DBox1,
   "demo2-d-box7": demo2DBox7,
   "demo2-d-box22": demo2DBox22,
-  "demo2-d-box80": demo2DBox80,
-  "demo2-d-box500": demo2DBox500,
+  "demo2-d-box630": demo2DBox630,
   "demo2-d-best": demo2DBest,
   "demo2-d-collection": demo2DCollection,
   "demo2-d-daily-home": demo2DDailyHome,

@@ -106,6 +106,8 @@ export function endlessShot(o: {
   seconds: number;
   off: V3;
   carryMs: number;
+  /** When the carry starts (ms into the shot; default 100). */
+  startMs?: number;
   first: [V3, V3, number];
   last: [V3, V3, number];
 }): Shot<EndlessData> {
@@ -141,7 +143,7 @@ export function endlessShot(o: {
     firstView: ({ first }) => first,
     async play({ camera, hand, until, wait }, { carry, last }) {
       camera.move(last, o.seconds * 1000);
-      await wait(100);
+      await wait(o.startMs ?? 100);
       await hand("right").glide(carry, o.carryMs);
       await until(o.seconds);
     },

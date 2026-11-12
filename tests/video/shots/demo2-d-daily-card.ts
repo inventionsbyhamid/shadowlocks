@@ -15,7 +15,7 @@ interface Data {
 export default defineShot<Data>({
   name: "demo2-d-daily-card",
   description: "Daily Box: the opened Daily Box, its reward and the card reading Streak 5.",
-  seconds: 2.2,
+  seconds: 2.6,
   profile: DAILY_PLAYER,
   darkStage: true,
   async setup({ app, page, hand }) {
@@ -31,7 +31,7 @@ export default defineShot<Data>({
   },
   firstView: ({ first }) => first,
   async play({ camera, until }, { last }) {
-    camera.move(last, 2200);
-    await until(2.2);
+    camera.move(last, 2600);
+    await until(2.6);
   },
 });

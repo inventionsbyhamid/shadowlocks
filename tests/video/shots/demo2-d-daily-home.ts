@@ -20,7 +20,7 @@ const along = (b: NsButton, d: number): Vec3 => [b.world[0] + b.normal[0] * d, b
 export default defineShot<Data>({
   name: "demo2-d-daily-home",
   description: "Daily Box: Home, the Daily Box key at Streak 4, pressed by a fingertip.",
-  seconds: 1.8,
+  seconds: 1.25,
   profile: DAILY_PLAYER,
   darkStage: true,
   async setup({ app, hand }) {
@@ -36,20 +36,21 @@ export default defineShot<Data>({
     // The fingertip waits below and to the right of the key, just out of the frame.
     await right.glideTip([daily.world[0] + 0.1, daily.world[1] - 0.1, daily.world[2] + 0.1], 300);
     // Close on the title, the Continue key and the Daily Box key.
-    const at = lerp3(cont.world, daily.world, 0.6);
+    const at = lerp3(cont.world, daily.world, 0.45);
     return {
       daily,
-      first: { from: offset(EYE, -0.04, 0.0, -0.05), at: offset(at, 0, 0.02, 0), hfovDeg: 40 },
-      last: { from: offset(EYE, -0.03, -0.01, -0.12), at: offset(at, 0.01, 0.01, 0), hfovDeg: 36 },
+      first: { from: offset(EYE, -0.03, 0.0, -0.02), at: offset(at, 0, 0.03, 0), hfovDeg: 54 },
+      last: { from: offset(EYE, -0.02, -0.01, -0.07), at: offset(at, 0.01, 0.02, 0), hfovDeg: 50 },
     };
   },
   firstView: ({ first }) => first,
   async play({ hand, camera, until }, { daily, last }) {
     const right = hand("right");
-    camera.move(last, 1800);
-    await right.glideTip(along(daily, 0.05), 650);
-    await right.glideTip(along(daily, POKE_DEPTH_M), 200);
-    await right.glideTip(along(daily, 0.06), 260);
-    await until(1.8);
+    camera.move(last, 1250);
+    await until(0.3);
+    await right.glideTip(along(daily, 0.05), 600);
+    await right.glideTip(along(daily, POKE_DEPTH_M), 170);
+    await right.glideTip(along(daily, 0.06), 230);
+    await until(1.25);
   },
 });

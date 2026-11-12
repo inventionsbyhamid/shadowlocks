@@ -1,0 +1,16 @@
+// The film's part D, "endless boxes" (first of five, under "The boxes never run out."): Box No. 382 on the dark stage,
+// 48 elements; its Candle is the last lock. Its other locks were opened before the first frame the way a player does;
+// the hand carries the lantern onto the last one's spot and the game opens it.
+import { endlessShot } from "./demo2-d-kit";
+
+export default endlessShot({
+  name: "demo2-d-box382",
+  n: 382,
+  lock: 1,
+  seconds: 1.4,
+  off: [0.2, -0.05, 0.08],
+  carryMs: 420,
+  startMs: 100,
+  first: [[-0.3, 0.3, 3.05], [0.0, 0.08, 0.45], 52],
+  last: [[-0.27, 0.28, 2.85], [0.0, 0.1, 0.45], 49],
+});

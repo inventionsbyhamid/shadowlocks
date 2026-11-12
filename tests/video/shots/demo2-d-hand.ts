@@ -34,8 +34,8 @@ export default defineShot<Data>({
     return {
       path: await boxCurve(page, [start, [start[0] - 0.05, start[1] + 0.2, start[2]], [to[0] + 0.12, to[1] + 0.12, to[2]], to]),
       grip,
-      first: await boxView(page, [-0.5, 0.3, 2.95], [0.0, -0.04, 0.5], 50),
-      last: await boxView(page, [-0.45, 0.28, 2.8], [0.0, -0.04, 0.5], 48),
+      first: await boxView(page, [-0.5, 0.32, 3.0], [0.0, 0.06, 0.5], 51),
+      last: await boxView(page, [-0.46, 0.3, 2.88], [0.0, 0.07, 0.5], 49),
     };
   },
   firstView: ({ first }) => first,
