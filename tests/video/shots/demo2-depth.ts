@@ -1,8 +1,8 @@
 // Part B, beat 2 (depth): Box No. 1 on the dark stage, the lantern already in the hand just above the Moon's spot.
 // First from beside the box (a view a player never has): the scraps hang on their threads at plainly different
-// distances between the lantern and the panel. Then the camera swings round to the front while the hand moves the
-// lantern a little left and right: the near scrap's shadow sweeps wide and soft, the far one barely moves and stays
-// sharp. The lantern is kept well above the spot, so the lock stays shut (the box would open with it).
+// distances between the lantern and the panel, while the lantern drifts left and the shadows move under them. Then the
+// camera swings round to the front, and the hand carries the lantern across: the near scrap's shadow sweeps wide and
+// soft, the far one barely moves and stays sharp. The lantern is kept well above the spot, so the lock stays shut (the box would open with it).
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Vec3 } from "../../../src/core/types";
 import { DEFAULT_DATE } from "../../e2e/helpers/boot";
@@ -23,12 +23,13 @@ const LOCK = 0;
 const LIFT = 0.22;
 const OUT = 0.06;
 /** How far the lantern swings to each side (box units). */
-const SWING = 0.2;
+const SWING = 0.24;
 
 export default defineShot<Data>({
   name: "demo2-depth",
   description: "Depth: from beside the box the scraps hang at different depths; from the front the near shadow swings wide.",
-  seconds: 7,
+  seconds: 6.4,
+  hideHint: true,
   profile: playedProfile(2, 0, DEFAULT_DATE),
   darkStage: true,
   async setup({ app, page, hand }) {
@@ -54,22 +55,23 @@ export default defineShot<Data>({
   firstView: ({ side }) => side,
   async play({ page, camera, hand, until }, { grip, hover, front }) {
     const right = hand("right");
-    await until(1.5);
-    camera.move(front, 2200);
-    await until(2.0);
-    // Left, right, and back to the middle: one smooth swing.
     const left: Vec3 = [hover[0] - SWING, hover[1], hover[2]];
     const right_: Vec3 = [hover[0] + SWING, hover[1], hover[2]];
-    const a = await boxCurve(page, [hover, [left[0] - 0.08, left[1], left[2]], [left[0] - 0.08, left[1], left[2]], left]);
-    const b = await boxCurve(page, [left, [left[0], left[1], left[2]], [right_[0], right_[1], right_[2]], right_]);
-    const c = await boxCurve(page, [right_, [right_[0] + 0.04, right_[1], right_[2]], [hover[0] + 0.04, hover[1], hover[2]], hover]);
     const at = (f: (k: number) => Vec3) => (k: number): Vec3 => {
       const p = f(k);
       return [p[0] + grip[0], p[1] + grip[1], p[2] + grip[2]];
     };
-    await right.follow(at(a), 1200);
+    // From beside: the lantern drifts left, and the shadows on the panel move under the hanging scraps.
+    const a = await boxCurve(page, [hover, [hover[0] - 0.08, hover[1], hover[2]], [left[0] + 0.04, left[1], left[2]], left]);
+    await right.follow(at(a), 1300);
+    // Round to the front while the lantern waits.
+    camera.move(front, 2000);
+    await until(3.3);
+    // Left to right: the near scrap's shadow sweeps wide and soft, the far one barely moves.
+    const b = await boxCurve(page, [left, [left[0] + 0.1, left[1], left[2]], [right_[0] - 0.1, right_[1], right_[2]], right_]);
     await right.follow(at(b), 2000);
-    await right.follow(at(c), 1300);
-    await until(7);
+    const c = await boxCurve(page, [right_, [right_[0] - 0.04, right_[1], right_[2]], [hover[0] + 0.04, hover[1], hover[2]], hover]);
+    await right.follow(at(c), 1000);
+    await until(6.4);
   },
 });
