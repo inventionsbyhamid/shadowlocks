@@ -51,7 +51,9 @@ export default defineShot<Data>({
   firstView: (): View => seatedView(-33, 82),
   async play({ app, page, hand, camera, until, wait }, { cont }) {
     const right = hand("right");
-    await until(0.6);
+    // Narration line 5 ("The box sits in your lap, and your room dims like a theatre.", 3.58 s) starts with the shot:
+    // the press comes about 2.2 s in, so the room dims under "dims like a theatre".
+    await until(1.2);
     await right.glideTip(along(cont, 0.06), 900);
     await right.glideTip(along(cont, POKE_DEPTH_M), 200);
     await right.glideTip(along(cont, 0.07), 240);
