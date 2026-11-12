@@ -23,19 +23,16 @@ const DEMO2_OPEN = ["demo2-hook", "demo2-light", "demo2-depth", "demo2-hand"];
 
 export const EDITS: Record<string, Edit> = {
   /**
-   * The opening 25 seconds of the film, version 2 (plan/submission/demo-video-script-v2.md, parts A and B): straight
-   * cuts on the sounds, the game's sound and the music bed, no narration yet, and no corner label (the dark stage shows
-   * no room; the label returns with the room in part C). Two captions, in the game's serif.
+   * The opening of the film, version 2 (plan/submission/demo-video-script-v2.md, parts A and B): straight cuts, the
+   * first two on the lantern's pick-up sound, the game's sound and the music bed, no narration yet, and no corner label
+   * (the dark stage shows no room; the label returns with the room in part C). Two captions, in the game's serif.
    */
   "demo2-open": {
     shots: DEMO2_OPEN,
     crossfadeMs: 0,
-    // The game's own levels for now: on this sparse mix (chimes over the music bed, no voice) the two-pass loudness
-    // step lands 0.8 LU short of its target every time (-14.8 for -14, -15.8 for -15). The narration fixes the level.
-    loudness: null,
     captions: [
-      { text: "Near pieces swing wide. Far pieces barely move.", shot: "demo2-depth", atSec: 2.2, sec: 4.6 },
-      { text: "Your hand casts shadows too.", shot: "demo2-hand", atSec: 0.6, sec: 3.6 },
+      { text: "Near pieces swing wide. Far pieces barely move.", shot: "demo2-depth", atSec: 1.9, sec: 4.3 },
+      { text: "Your hand casts shadows too.", shot: "demo2-hand", atSec: 0.4, sec: 3.0 },
     ],
   },
   /**
