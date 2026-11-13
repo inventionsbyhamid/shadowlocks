@@ -58,13 +58,13 @@ const DEMO2_END: EndCard = { ...END_CARD, link: "shadowlocks.pages.dev", layout:
 
 export const EDITS: Record<string, Edit> = {
   /**
-   * The whole film, version 2 (plan/submission/demo-video-script-v2.md, the amendment): the opening on the dark stage,
-   * play in the photographed room (labelled "Simulated room"), the montage, the end card. Straight cuts, the music bed
+   * The whole film (plan/submission/demo-video-script-v2.md, the amendment; the owner asked for the room first): play
+   * in the photographed room (labelled "Simulated room"), the mechanics on the dark stage, the montage, the end card. Straight cuts, the music bed
    * under all of it, dipped under the voice (the twelve lines laid at their beats in one file, video-assets/, not
    * committed). No captions.
    */
   "demo2-film": {
-    shots: [...DEMO2_OPEN, ...DEMO2_PLAY, ...DEMO2_MORE],
+    shots: [...DEMO2_PLAY, ...DEMO2_OPEN, ...DEMO2_MORE],
     crossfadeMs: 0,
     endCard: DEMO2_END,
     label: { text: "Simulated room", shots: DEMO2_PLAY },
