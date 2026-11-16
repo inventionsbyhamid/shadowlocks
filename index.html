@@ -86,7 +86,7 @@
          (and the button, should going into XR fail). */
       body.installed #landing { background: var(--ebony); }
       body.installed #landing .art, body.installed #landing h1, body.installed #landing .rule,
-      body.installed #tagline, body.installed #facts { display: none; }
+      body.installed #tagline, body.installed #facts, body.installed #seat { display: none; }
       .art { position: relative; width: min(78vw, 340px); aspect-ratio: 32 / 30; }
       .art::before {
         /* The deco sunburst behind the box: 24 soft gold rays. */
@@ -108,6 +108,7 @@
         linear-gradient(var(--leaf), var(--leaf)) center / 100% 1px no-repeat,
         linear-gradient(45deg, transparent 35%, var(--gold) 35% 65%, transparent 65%) center / 9px 9px no-repeat; }
       .tagline { margin: 0; font-size: 17px; color: var(--ivory); }
+      .seat { margin: 0; max-width: 26rem; font-size: 15px; line-height: 1.4; color: var(--ivory); }
       .facts { margin: 0; font: 700 13px "Shadow Locks Sans", system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
       #enter {
         margin-top: 10px; min-width: 220px; min-height: 52px; padding: 14px 40px; border: 0; cursor: pointer;
@@ -215,6 +216,7 @@
       <div class="rule" aria-hidden="true"></div>
       <p id="tagline" class="tagline">Move a lantern. Fill each lock with shadow.</p>
       <p id="facts" class="facts">Seated. Plays offline.</p>
+      <p id="seat" class="seat" hidden>Sit down before you open it. Box in the wrong place? Hold the Meta button to recenter.</p>
       <section id="shared" class="shared" hidden>
         <p id="shared-line" class="shared-line" hidden></p>
         <p id="shared-says" class="shared-says" hidden></p>

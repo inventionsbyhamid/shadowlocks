@@ -266,6 +266,7 @@ export const DE: Copy = {
     open: "Box öffnen",
     tagline: "Beweg eine Laterne. Füll jedes Schloss mit Schatten.",
     facts: "Im Sitzen. Offline spielbar.",
+    seat: "Setz dich hin, bevor du sie öffnest. Box an der falschen Stelle? Halte die Meta-Taste gedrückt, um neu zu zentrieren.",
     loading: "Wird geladen",
     description: "Eine Rätselbox aus Licht und Schatten für Meta Quest. Im Sitzen, mit den Händen oder Controllern, offline spielbar.",
   },

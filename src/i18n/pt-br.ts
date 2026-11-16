@@ -267,6 +267,7 @@ export const PT_BR: Copy = {
     open: "Abrir a caixa",
     tagline: "Mova uma lanterna. Encha cada fechadura de sombra.",
     facts: "Sem se levantar. Funciona offline.",
+    seat: "Sente-se antes de abrir. A caixa está fora do lugar? Segure o botão Meta para recentralizar.",
     loading: "Carregando",
     description: "Uma caixa de enigmas de luz e sombra para Meta Quest. Sem se levantar, com as mãos ou os controles, funciona offline.",
   },

@@ -267,6 +267,7 @@ export const FR: Copy = {
     open: "Ouvrir la boîte",
     tagline: "Déplace une lanterne. Remplis chaque serrure d'ombre.",
     facts: "Sans te lever. Fonctionne hors ligne.",
+    seat: `Assieds-toi avant de l'ouvrir. La boîte est mal placée${NB}? Maintiens le bouton Meta pour recentrer.`,
     loading: "Chargement",
     description: "Une boîte à énigmes faite d'ombre et de lumière pour Meta Quest. Sans te lever, avec les mains ou les manettes, hors ligne.",
   },

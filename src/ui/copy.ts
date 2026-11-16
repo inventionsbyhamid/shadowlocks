@@ -271,6 +271,11 @@ export const COPY = {
      * names no input.
      */
     facts: "Seated. Plays offline.",
+    /**
+     * On a Quest only, before the box is placed: it is placed once from where the eyes are as the session starts, so a
+     * player who opens it standing and then sits would find it at face height. Quest's own recenter places it again.
+     */
+    seat: "Sit down before you open it. Box in the wrong place? Hold the Meta button to recenter.",
     loading: "Loading",
     /** The page's meta description (index.html has it in English; the page sets it in the language shown). */
     description: "A puzzle box of light and shadow for Meta Quest. Seated, hands or controllers, plays offline.",

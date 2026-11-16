@@ -268,6 +268,7 @@ export const ES: Copy = {
     open: "Abrir la caja",
     tagline: "Mueve un farol. Llena cada cerradura de sombra.",
     facts: "Sin levantarte. Funciona sin conexión.",
+    seat: "Siéntate antes de abrirla. ¿La caja no está en su sitio? Mantén pulsado el botón Meta para recentrar.",
     loading: "Cargando",
     description: "Una caja rompecabezas de luz y sombra para Meta Quest. Sin levantarte, con las manos o los controladores y sin conexión.",
   },

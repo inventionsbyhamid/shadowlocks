@@ -70,6 +70,7 @@ export class Landing {
       ["enter", c.open],
       ["tagline", c.tagline],
       ["facts", c.facts],
+      ["seat", c.seat],
     ] as const) {
       const el = this.doc.getElementById(id);
       if (el) el.textContent = text;

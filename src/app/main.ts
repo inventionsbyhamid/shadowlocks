@@ -60,6 +60,8 @@ async function main(): Promise<void> {
   document.body.classList.toggle("installed", !showLanding(window));
   startLanguage(document);
   const page = new Landing(document);
+  // On a Quest: sit first, and how to place the box again (it is placed once, from where the eyes are at the start).
+  if (questBrowser(navigator.userAgent)) document.getElementById("seat")?.removeAttribute("hidden");
   // Sharing on the 2D page: Web Launch away from a headset, a shared link's landing line (`?day=...`, `?box=N&t=...`:
   // shown at once, so a computer that cannot play still says what was shared), the result's share button.
   const shared = parseSharedLink(location.search, todayKey(Date.now()));
