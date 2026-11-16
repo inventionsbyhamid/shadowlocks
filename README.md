@@ -272,6 +272,8 @@ ElevenLabs, the music with Suno.
 
 ## Licence
 
-Source-available: you may read, clone, run and change the code for personal, educational, research or evaluation
-use; publishing, hosting or commercial use needs permission. The rights the competition's Official Rules grant to Meta,
-Devpost and the judges are unaffected. Third-party components keep their own licences. See [LICENSE](LICENSE).
+Source-available. Anyone may read, clone, run and change the code for personal, educational, research or evaluation
+use, and anyone may use the art, screenshots, video, name and logo to write about, feature or promote Shadow Locks.
+Meta, Devpost and the judges keep every right the competition's Official Rules grant, over every part of the entry.
+Only publishing the game itself as a playable copy, or commercial use of the code, needs permission. Third-party
+components keep their own licences. See [LICENSE](LICENSE).
