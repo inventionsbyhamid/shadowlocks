@@ -6,6 +6,9 @@ frosted back panel. Move the lantern until the shadows fill a lock's outline and
 boxes need your own fingertip to cast the missing piece. It is a WebXR app built with Meta's Immersive
 Web SDK, works offline after the first load, and installs as a Quest app.
 
+- Play: https://shadowlocks.pages.dev (open it in the Meta Quest browser)
+- Demo video: https://youtu.be/Ak_oFJQgHYg
+
 Builds and browsers never run on a laptop: every npm, tsc, vitest and Playwright command runs in a
 container on the build server through `scripts/remote.sh <lane> -- <command>`, for example
 `scripts/remote.sh main -- npm test`, `scripts/remote.sh main -- npm run typecheck` or
