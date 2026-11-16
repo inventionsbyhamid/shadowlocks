@@ -128,6 +128,8 @@ cues always agree. The blur is the same formula as `penumbra()` in `src/render/s
 
 Settings opens from the drawer at the front of the box. Every change applies at once and is saved.
 
+![The Settings panel in the room: language, volumes, box size and toggles (emulator capture over a photographed room)](docs/images/settings.jpg)
+
 | Setting | What it does |
 |---|---|
 | Language | Automatic (follows the headset) or any of English, Spanish, French, German, Brazilian Portuguese and Japanese |
