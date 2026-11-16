@@ -27,6 +27,7 @@ hands first with Touch controllers too, and plays offline after the first load.
 - [Project layout](#project-layout)
 - [Privacy](#privacy)
 - [Credits](#credits)
+- [Licence](#licence)
 
 ## Play it in two minutes
 
@@ -268,3 +269,9 @@ the time, hints and the generator version. See the [privacy page](https://shadow
 Built for the Meta VR Start Developer Competition 2026. Fonts, controller models and hand poses by others are listed
 with their licences in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Sound effects and voice lines were made with
 ElevenLabs, the music with Suno.
+
+## Licence
+
+Source-available: you may read, clone, run and change the code for personal, educational, research or evaluation
+use; publishing, hosting or commercial use needs permission. The rights the competition's Official Rules grant to Meta,
+Devpost and the judges are unaffected. Third-party components keep their own licences. See [LICENSE](LICENSE).

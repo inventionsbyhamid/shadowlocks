@@ -1,0 +1,40 @@
+Shadow Locks Source-Available License
+
+Copyright (c) 2026 Hamid Siddiqui (github.com/inventionsbyhamid). All rights reserved, except as granted below.
+
+The source code and original assets of Shadow Locks ("the Software") are published so that anyone can read them,
+learn from them and see how the game works.
+
+1. What you may do
+
+   You may read, clone, build and run the Software on your own devices, and change it, for personal, educational,
+   research or evaluation purposes.
+
+2. What needs written permission
+
+   Without the copyright holder's written permission, you may not:
+   a. publish, host, distribute or sublicense the Software, or a modified version of it, including on websites and
+      in app stores;
+   b. use the Software, or any part of it, in a commercial product or service;
+   c. reuse the game's original art, sound effects, music, voice lines, name or logo outside the Software.
+
+3. Meta VR Start Developer Competition 2026
+
+   Nothing in this license limits any right granted under the Official Rules of the Meta VR Start Developer
+   Competition 2026. Meta Platforms, Inc. (the Sponsor), Devpost and the competition's judges, and the other
+   Released Parties as defined in those rules, may use, run, copy, modify and present the Software and this entry
+   as those rules allow, including to evaluate the entry, administer the competition and promote it.
+
+4. Third-party components
+
+   Fonts, controller models, hand poses, libraries and other works by others keep their own licenses, listed in
+   THIRD_PARTY_NOTICES.md and in each package's own license. This license does not change those terms.
+
+5. No warranty
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+   THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+   OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For any other use, including commercial licensing, contact the copyright holder through github.com/inventionsbyhamid.
