@@ -41,8 +41,8 @@ moved sideways by Δ:
 
 $$
 \text{shadow scale} = \frac{D}{D-d}, \qquad
-\text{shadow swing} = \Delta\,\frac{d}{D-d}, \qquad
-\text{edge blur} = r\,\frac{d}{D-d}
+\text{shadow swing} = \Delta \cdot \frac{d}{D-d}, \qquad
+\text{edge blur} = r \cdot \frac{d}{D-d}
 $$
 
 Blur and swing share one factor, so the two depth cues always agree.
