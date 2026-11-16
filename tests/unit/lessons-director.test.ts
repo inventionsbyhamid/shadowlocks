@@ -451,9 +451,9 @@ describe("LessonsDirector: lesson 1", () => {
     expect(last - first).toBeLessThan(14_000);
     expect(r.t - t0).toBeLessThan(40_000);
     expect(res.glow).toBeCloseTo(1, 6);
-    // The near scrap is the shaft, hung at 0.7.
+    // The near scrap is the shaft, hung at 0.55.
     const twin = lessonPlan("l1", false).twins[1]!;
-    const near = twin.elements.find((e) => e.kind === "piece" && e.verts[0]![2] === 0.7);
+    const near = twin.elements.find((e) => e.kind === "piece" && e.verts[0]![2] === 0.55);
     expect(near && near.kind === "piece" && near.piece).toBe(0);
   });
 

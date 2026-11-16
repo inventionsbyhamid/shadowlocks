@@ -187,7 +187,7 @@ describe("mirrorLock", () => {
 });
 
 describe("the lesson boxes", () => {
-  it("lesson 1: a Moon from one scrap, an arrow from two scraps at depths 0.2 and 0.7, a Key with sight rings", () => {
+  it("lesson 1: a Moon from one scrap, an arrow from two scraps at depths 0.3 and 0.55, a Key with sight rings", () => {
     const b = LESSON_1;
     expect(b.spec).toEqual({ kind: "lesson", id: "l1" });
     expect(b.mirrored).toBe(false);
@@ -197,7 +197,7 @@ describe("the lesson boxes", () => {
     expect(b.elements.filter((e) => e.kind !== "decoy" && e.lock === 0)).toHaveLength(1);
     const two = pieces(b.elements, 1);
     expect(two).toHaveLength(2);
-    expect(two.map((p) => p.verts[0]![2]).sort()).toEqual([0.2, 0.7]);
+    expect(two.map((p) => p.verts[0]![2]).sort()).toEqual([0.3, 0.55]);
     expect(b.locks[2]!.rings).toBe(true);
     expect(rings(b.elements, 2)).toHaveLength(2);
     expect(b.locks.slice(0, 2).every((l) => !l.rings && !l.finger && !l.hidden)).toBe(true);

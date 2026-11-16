@@ -1,6 +1,6 @@
 // The two lessons, built by hand (the generator refuses lesson specs). Lesson 1, "Catch the light", is one box of
 // three locks: a Moon from a single scrap (move the light, the shadow grows and slides), an arrow from two scraps at
-// very different depths (near pieces swing more: Example 1) and a Key with sight rings (line up the rings, ride the
+// different depths (near pieces swing more: Example 1) and a Key with sight rings (line up the rings, ride the
 // line, slide to the click: Example 2). Lesson 2, "Lend a hand", is one Crown short of its middle prong, which runs
 // near horizontal so a pointing finger fills it (Example 3); its lantern starts on the spot.
 //
@@ -160,8 +160,10 @@ const CROWN_ROT = (-70 * Math.PI) / 180;
 const L1_LOCKS: LessonLock[] = [
   // Lock I: one scrap halfway back, so moving the lantern nearer or further grows and shrinks the Moon.
   buildLessonLock("MoonOutline", [-0.21, 0.19], 0.34, [-0.12, -0.32, 1.32], [0.5], { i: 0 }),
-  // Lock II: the arrow points up; its shaft hangs near the lantern, its head near the panel.
-  buildLessonLock("ArrowInTwo", [0.21, 0.19], 0.32, [0.16, -0.2, 1.6], [0.7, 0.2], { i: 1, rot: Math.PI / 2 }),
+  // Lock II: the arrow points up; its shaft hangs nearer the lantern than its head, so it swings about twice as far.
+  // Depths 0.55 and 0.3 (not further apart) and a wide arrow keep it a first-lesson lock: the shaft does not fly
+  // off as the lantern moves, and the shadows read as nearly right well before the lantern settles on its spot.
+  buildLessonLock("ArrowInTwo", [0.21, 0.19], 0.36, [0.16, -0.2, 1.6], [0.55, 0.3], { i: 1, rot: Math.PI / 2 }),
   // Lock III: a Key whose pieces step back from the panel toward its tip, its rings' mark to its right.
   buildLessonLock("Key", [0, -0.2], 0.36, [0.15, -0.45, 1.15], [0.3, 0.36, 0.45, 0.55, 0.62, 0.68], {
     i: 2,
