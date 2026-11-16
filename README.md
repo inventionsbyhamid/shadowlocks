@@ -1,4 +1,28 @@
-# Shadow Locks
+<p align="center">
+  <img src="docs/images/hero.jpg" width="100%" alt="A Shadow Locks puzzle box in a simulated room: brass scraps hang inside a glass box, the lantern sits in the front corner (emulator capture over a photographed room)">
+</p>
+
+<h1 align="center">Shadow Locks</h1>
+
+<p align="center">
+  <b>Infinite hand-tracked mixed reality puzzles for Meta Quest.</b><br>
+  Carry a lantern, read depth from the shadows, and cast the missing piece with your own fingertip.
+</p>
+
+<p align="center">
+  <a href="https://shadowlocks.pages.dev"><img alt="Play in the Meta Quest browser" src="https://img.shields.io/badge/Play-shadowlocks.pages.dev-e8be6a?style=for-the-badge"></a>
+  <a href="https://youtu.be/Ak_oFJQgHYg"><img alt="Watch the demo video" src="https://img.shields.io/badge/Demo-85%20s%20video-c4302b?style=for-the-badge&logo=youtube&logoColor=white"></a>
+</p>
+
+<p align="center">
+  <img alt="Meta Quest 3, 3S, 2 and Pro" src="https://img.shields.io/badge/Meta%20Quest-3%20%C2%B7%203S%20%C2%B7%202%20%C2%B7%20Pro-1c1e20?style=flat-square">
+  <img alt="WebXR passthrough" src="https://img.shields.io/badge/WebXR-passthrough-1c1e20?style=flat-square">
+  <img alt="Hand tracking first" src="https://img.shields.io/badge/hand%20tracking-first-1c1e20?style=flat-square">
+  <img alt="Meta Immersive Web SDK" src="https://img.shields.io/badge/Meta-IWSDK-1c1e20?style=flat-square">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-1c1e20?style=flat-square&logo=typescript&logoColor=white">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-1%2C839%20unit%20%C2%B7%2039%20e2e-1c1e20?style=flat-square">
+  <img alt="Licence" src="https://img.shields.io/badge/licence-source--available-1c1e20?style=flat-square">
+</p>
 
 **Shadow Locks is an infinite mixed reality puzzle game for Meta Quest: in passthrough, in your own room, you carry a
 lantern with your hands until the shadows of hanging brass scraps fill each lock.** The scraps hang at different
@@ -8,21 +32,66 @@ beam casts the missing piece. The boxes never run out, a new Daily Box arrives e
 a "beat my time" link sends a friend the exact same box. It runs in the Meta Quest browser (WebXR) with no install,
 hands first with Touch controllers too, and plays offline after the first load.
 
-**[Play it](https://shadowlocks.pages.dev)** (open in the Meta Quest browser) · **[Demo video](https://youtu.be/Ak_oFJQgHYg)** (85 s) · Built for the Meta VR Start Developer Competition 2026, Gaming track
+**At a glance**
 
-![A Shadow Locks puzzle box in a simulated room (emulator capture over a photographed room), both locks open in gold](docs/images/about-1-room.jpg)
+- **Core mechanics:** a lantern you hold freely in 3D, real-time shadow projection, depth read from blur and parallax,
+  and your fingertip as a puzzle piece
+- **Mixed reality:** passthrough; the room dims like a theatre while you solve; your real hand stays visible in front
+  of the box
+- **Input:** hand tracking first; Touch controllers do everything hands do, with haptics
+- **Endless play:** infinite numbered boxes, plus a new Daily Box every day with a streak
+- **With friends:** a result card for every box and "beat my time" links to the exact same box
+- **Headsets:** Meta Quest 3 and Meta Quest 3S (90 Hz), Meta Quest 2 and Meta Quest Pro (72 Hz), in the Meta Quest
+  browser; no install, no account, offline after the first load
+- **Tested:** 1,839 unit tests and 39 end-to-end specs in Meta's IWER headset emulator
+- **Stack:** TypeScript, Meta's Immersive Web SDK (IWSDK), three.js, WebXR
+
+## Watch the demo
+
+<p align="center">
+  <a href="https://youtu.be/Ak_oFJQgHYg"><img src="https://img.youtube.com/vi/Ak_oFJQgHYg/maxresdefault.jpg" width="80%" alt="Watch the 85-second Shadow Locks demo video on YouTube"></a>
+</p>
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/images/gallery/02-read-depth-from-the-shadows.jpg" alt="Read depth from the shadows"></td>
+    <td width="33%"><img src="docs/images/gallery/03-carry-the-light.jpg" alt="Carry the light"></td>
+    <td width="33%"><img src="docs/images/gallery/04-your-fingertip-is-the-missing-piece.jpg" alt="Your fingertip is the missing piece"></td>
+  </tr>
+  <tr>
+    <td width="33%"><img src="docs/images/gallery/05-open-every-lock.jpg" alt="Open every lock"></td>
+    <td width="33%"><img src="docs/images/gallery/06-infinite-boxes.jpg" alt="Infinite boxes"></td>
+    <td width="33%"><img src="docs/images/gallery/07-a-new-daily-box-every-day.jpg" alt="A new Daily Box every day"></td>
+  </tr>
+  <tr>
+    <td width="33%"><img src="docs/images/gallery/08-challenge-a-friend.jpg" alt="Challenge a friend"></td>
+    <td width="33%"><img src="docs/images/gallery/09-touch-controllers-too.jpg" alt="Touch controllers too"></td>
+    <td width="33%"><img src="docs/images/gallery/10-make-it-yours.jpg" alt="Settings: make it yours"></td>
+  </tr>
+</table>
+
+<sub>Emulator captures from the game itself; the room shots use a photographed room in place of passthrough.</sub>
 
 ## Contents
 
+- [Watch the demo](#watch-the-demo)
+- [Screenshots](#screenshots)
 - [Play it in two minutes](#play-it-in-two-minutes)
+- [Why we made it](#why-we-made-it)
 - [Controls](#controls)
 - [How depth works](#how-depth-works)
 - [Features](#features)
+- [The first five minutes](#the-first-five-minutes)
 - [Settings](#settings)
+- [Meta Quest capabilities used](#meta-quest-capabilities-used)
 - [How it is built](#how-it-is-built)
 - [Frame rate and optimisations](#frame-rate-and-optimisations)
 - [Built for real life: the edge cases it handles](#built-for-real-life-the-edge-cases-it-handles)
 - [Testing](#testing)
+- [Challenges and what we learned](#challenges-and-what-we-learned)
+- [Roadmap](#roadmap)
 - [Run it yourself](#run-it-yourself)
 - [Project layout](#project-layout)
 - [Privacy](#privacy)
@@ -46,6 +115,18 @@ hands first with Touch controllers too, and plays offline after the first load.
 From a phone or computer, the page offers **Open on my Meta Quest** (Meta's Web Launch), which sends the game to your
 headset.
 
+## Why we made it
+
+- **Two things only a headset gives you:** a light you can hold anywhere in space, and your real hand in its beam.
+  Shadow puppets and wooden puzzle boxes meet exactly there.
+- **The light moves, and the answer is a point in space.** In most shadow puzzles you turn an object in front of a
+  fixed light. Here you carry the light itself through 3D, read depth from the shadows, and the solution is a spot in
+  the air you have to find.
+- **The airplane seat test.** Everything works sitting down, with the box in your lap or on a tray table, every move
+  small enough that your elbow can rest.
+- **A small daily habit.** Like a daily word puzzle: a few minutes is a satisfying session, there is a reason to come
+  back tomorrow, and a result you can send a friend without spoiling the answer.
+
 ## Controls
 
 | Action | Hands | Touch controllers |
@@ -65,6 +146,27 @@ headset.
 - The lesson lines speak your input, for example "Your turn. Aim a controller into the gap and hold still."
 - Controller models for Meta Quest 2, Meta Quest Pro, Meta Quest 3 and Meta Quest 3S ship with the game, so they load
   offline too.
+
+<details>
+<summary><b>How hand input works: thresholds and timings</b></summary>
+
+- **Pinch:** our own detector measures thumb tip to index tip; a pinch starts under 1.5 cm and ends only past 3 cm
+  (hysteresis), so a held lantern never drops by accident.
+- **Grab:** a pinch that starts within 6 cm of the lantern takes it, and only that hand drives it, so the other hand
+  can work the menu at the same time. The held lantern is smoothed with a One Euro filter: calm when your hand is
+  still, under 1 mm of lag when it moves.
+- **Finger locks:** every hand bone is a capsule projected from the lantern like the scraps; the shadow of your index
+  finger's last two bones must fill at least 78% of the gap, held for 0.6 s. Brief flickers pause the count instead of
+  resetting it.
+- **Poke:** a fingertip presses a key 8 mm past its face and re-arms at 4 mm, at most one press per 150 ms; or pinch
+  with the hand's ray from afar.
+- **Pull:** the drawer menu is pulled out along its own axis, and its handle glows brighter as your hand comes within
+  reach.
+- **Real hand in front:** the same capsules are drawn first as an invisible depth mask, so the box is never painted over
+  your real hand in passthrough.
+- **Tracking dropouts** under 150 ms are ridden out; after that the hand lets go and the lantern stays where it was.
+
+</details>
 
 ## How depth works
 
@@ -124,6 +226,16 @@ cues always agree. The blur is the same formula as `penumbra()` in `src/render/s
 - Six languages: English, Spanish, French, German, Brazilian Portuguese and Japanese.
 - Leaving, taking the headset off or reloading resumes the box where you were.
 
+## The first five minutes
+
+- Lesson 1 starts on its own, and its first line is the goal: "Pick up the lantern.", then "Move the lantern until the
+  shadow fills the moon."
+- A pale blue ghost hand, animated from recorded poses, shows each new idea on a twin of the lock, then it is your turn.
+- A voice guide reads each line aloud (English, on by default); every line is also shown as text in your language.
+- If nothing moves for a while, short help lines appear where you are already looking, and a little lantern on the
+  frame gives hints, up to showing the spot.
+- Lesson 2 teaches the fingertip and the drawer menu. Every example and tip can be replayed from the drawer any time.
+
 ## Settings
 
 Settings opens from the drawer at the front of the box. Every change applies at once and is saved.
@@ -142,6 +254,23 @@ Settings opens from the drawer at the front of the box. Every change applies at 
 | Voice guide | Spoken help in English, on by default |
 | Recenter | Places the box in front of you again |
 | Reset progress | Starts over, after asking first |
+
+## Meta Quest capabilities used
+
+- **Passthrough mixed reality:** a WebXR `immersive-ar` session in the Meta Quest browser puts the puzzle box in your real room; the room dims like a theatre while you solve and lights back up when the box opens (with a virtual studio as the `immersive-vr` fallback).
+- **Hand tracking (25 joints per hand):** pinch to grab and carry the lantern, poke keys, pinch and pull the drawer menu; your index finger's bones cast a real-time shadow that completes finger locks; grabs are smoothed with a One Euro filter and short tracking dropouts are ridden out.
+- **Real-hand occlusion in passthrough:** the hand's bone capsules are drawn invisibly first as a depth mask, so your real hand stays visible in front of the virtual box.
+- **Touch controllers:** full support for Meta Quest 2, Meta Quest Pro and Meta Quest 3 / 3S controllers (models bundled for offline use); trigger or grip lifts the lantern, the ray presses keys, and a stand-in fingertip along the controller's aim solves finger locks.
+- **Controller haptics:** WebXR gamepad haptic pulses for the grab, ticks as the lantern closes in on a spot, the sight rings lining up, the lantern settling, a lock opening and the box opening.
+- **Head pose and gaze:** the box is placed in your lap from your seated head pose (55 cm ahead, 28 cm below the eyes, tilted 10°), the lock you look at becomes the one you work on, and a gold arrow at the edge of your view brings a lost box back.
+- **Quest system recenter:** the game listens for the headset's own recenter (reference space reset) and re-places the box, alongside its in-game Recenter.
+- **Per-headset frame rate:** `updateTargetFrameRate` asks for 72 Hz on Meta Quest 2 and Meta Quest Pro (XR2 Gen 1, detected from the GPU) and keeps 90 Hz on Meta Quest 3 and 3S.
+- **Multiview stereo rendering:** both eyes drawn in a single pass (`OCULUS_multiview`), on by default.
+- **Meta Immersive Web SDK (IWSDK):** the game's ECS systems, XR session, input and spatial UI panels (`@pmndrs/uikit`) run on IWSDK and three.js.
+- **Web Launch:** "Open on my Meta Quest" sends the game, or a friend's "beat my time" link, from a phone or computer straight to the headset's browser.
+- **Installable offline web app:** a service worker makes it play offline in the Meta Quest browser after the first launch; a Meta Horizon Store build is prepared with Meta's Bubblewrap.
+- **Immersive Web Emulator (IWER):** all 39 end-to-end specs and the demo video run in Meta's headset emulator with scripted hands, on a virtual clock.
+- **Meta VR CLI (MCP):** used to search Meta's developer documentation while building.
 
 ## How it is built
 
@@ -168,6 +297,9 @@ Settings opens from the drawer at the front of the box. Every change applies at 
   music bed with Suno.
 - **Offline:** a Workbox service worker (`vite-plugin-pwa`) precaches every file, voice and music included; a new
   version never takes over in the middle of a box. Hosted on Cloudflare Pages.
+- **How we worked:** a human designer set the direction, wrote and approved every design, and played each build; AI
+  coding agents (Claude) wrote most of the code from those written plans, in parallel, with each change reviewed by a
+  separate agent and gated by the tests. In about two weeks that added up to roughly 37,000 lines of TypeScript.
 
 ## Frame rate and optimisations
 
@@ -221,6 +353,29 @@ Settings opens from the drawer at the front of the box. Every change applies at 
 - **Soaks:** 60 and 300 boxes in a row, with memory checked flat.
 - **The demo video** is rendered from the game itself, frame by frame, by the same harness (`tests/video/`).
 
+## Challenges and what we learned
+
+- **Building emulator-first.** Every interaction runs in Meta's IWER emulator with simulated hand jitter on a virtual
+  clock, so any bug reproduces frame for frame.
+- **Shadows that stay cheap.** Dozens of soft shadows plus two hands, recast every frame inside 3 ms of JavaScript,
+  meant writing our own projection, reusing every buffer and recasting only what moved.
+- **A clear first minute.** An early tester did not know what to do; saying the goal in the very first line, putting
+  help where your eyes already are and adding the voice guide fixed it.
+- **Where the box appears.** It now waits for a steady head, places itself from your seated posture, never drifts, and
+  comes back with one pinch on the arrow.
+- **Fair sharing without a server.** "Beat my time" only works if both players get the identical box, so the generator
+  is fully deterministic from the box number, guarded by golden-hash tests.
+- **What we learned:** dimming the room beats hiding it; with hands, an object that stays where you let go matters more
+  than any gesture; the first line a player sees has to be the goal; and determinism unlocks daily puzzles, sharing and
+  competition without a backend.
+
+## Roadmap
+
+- Tune feel, comfort and frame rate on Meta Quest 3, 3S, 2 and Pro.
+- Launch on the Meta Horizon Store after the judging period; the store build is prepared.
+- A paid full game later: a 7-day free trial and a one-time unlock, with the Daily Box and the lessons always free.
+- More ways to play together, built on the same shareable, deterministic boxes.
+
 ## Run it yourself
 
 Requires Node.js 22 or later.
@@ -241,6 +396,9 @@ on a build machine (`scripts/e2e.sh`, image in `scripts/e2e-image/`); see [tests
 
 ## Project layout
 
+<details>
+<summary><b>Where everything lives in the repo</b></summary>
+
 | Path | What is in it |
 |---|---|
 | `src/core/` | Pure game logic: generator, solve rule, Daily Box, sharing links, profile, shapes |
@@ -260,6 +418,8 @@ on a build machine (`scripts/e2e.sh`, image in `scripts/e2e-image/`); see [tests
 | `twa/` | Meta Horizon Store app configs (Bubblewrap) |
 | `scripts/` | Build checks, deploy, fonts, icons, store and video tools |
 | `docs/images/` | README images |
+
+</details>
 
 ## Privacy
 
