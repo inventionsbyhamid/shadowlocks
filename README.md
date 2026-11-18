@@ -52,7 +52,7 @@ missing piece.
 | Area | Shadow Locks |
 |---|---|
 | Innovation and creativity | You move the light, not the object; depth is read from shadow blur and parallax; your own fingertip is a puzzle piece ([How depth works](#how-depth-works)) |
-| Experience design | Seated and hands first, the box in your lap in passthrough; Lesson 1 starts by itself with a ghost hand and a voice guide; a Daily Box and streak to come back to ([The first five minutes](#the-first-five-minutes)) |
+| Experience design | Seated and hands first, the box in your lap in passthrough; Lesson 1 starts by itself with a ghost hand and a voice guide; a Daily Box and streak to come back to ([Onboarding](#onboarding)) |
 | Technical implementation | Exact soft shadows projected on the CPU, real-hand occlusion in passthrough, a deterministic generator in a Web Worker, 2.2 to 2.8 ms of JavaScript per frame at 4× CPU throttle in tests ([How it is built](#how-it-is-built)) |
 | Polish and presentation | A music-box score and effects tuned to G major, six languages, result cards and beat-my-time links, offline play ([Features](#features)) |
 
@@ -80,7 +80,7 @@ picture at the top for the 85-second demo video.</sub>
 - [Play it in two minutes](#play-it-in-two-minutes)
 - [Why we made it](#why-we-made-it)
 - [How depth works](#how-depth-works)
-- [The first five minutes](#the-first-five-minutes)
+- [Onboarding](#onboarding)
 - [Features](#features)
 - [Comfort and accessibility](#comfort-and-accessibility)
 - [Controls](#controls)
@@ -141,7 +141,7 @@ A scrap at the panel casts its true size, sharp, and barely moves; a scrap halfw
 its size with a soft edge and swings as far as the lantern moves. Blur and swing share one factor, so the two depth
 cues always agree. The blur is the same formula as `penumbra()` in `src/render/shadow-mesh.ts`.
 
-## The first five minutes
+## Onboarding
 
 - Lesson 1 starts on its own, and its first line is the goal: "Pick up the lantern.", then "Move the lantern until the
   shadow fills the moon."
