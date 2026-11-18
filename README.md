@@ -47,9 +47,9 @@ missing piece.
 - **Tested:** 1,839 unit tests, plus 39 end-to-end specs that play the game in Meta's IWER headset emulator
 - **Stack:** TypeScript, Meta's Immersive Web SDK (IWSDK), three.js, WebXR
 
-### How it fits the judging criteria
+### Why it's different
 
-| Criterion | Shadow Locks |
+| Area | Shadow Locks |
 |---|---|
 | Innovation and creativity | You move the light, not the object; depth is read from shadow blur and parallax; your own fingertip is a puzzle piece ([How depth works](#how-depth-works)) |
 | Experience design | Seated and hands first, the box in your lap in passthrough; Lesson 1 starts by itself with a ghost hand and a voice guide; a Daily Box and streak to come back to ([The first five minutes](#the-first-five-minutes)) |
